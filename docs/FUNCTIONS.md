@@ -45,7 +45,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [earthlings](#earthlings) | 60 | 52 | 8 | 0 | 51 | 0 | 9 | 0 |
 | [elevator](#elevator) | 27 | 20 | 7 | 0 | 16 | 3 | 8 | 0 |
 | [jamout](#jamout) | 18 | 11 | 7 | 0 | 10 | 1 | 7 | 0 |
-| [map](#map) | 68 | 60 | 8 | 0 | 48 | 7 | 13 | 0 |
+| [map](#map) | 68 | 59 | 9 | 0 | 48 | 7 | 13 | 0 |
 | [platform](#platform) | 19 | 17 | 2 | 0 | 4 | 10 | 5 | 0 |
 | [player](#player) | 65 | 42 | 23 | 0 | 43 | 1 | 21 | 0 |
 | [presents](#presents) | 65 | 64 | 1 | 0 | 47 | 0 | 18 | 0 |
@@ -54,7 +54,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [speech](#speech) | 8 | 5 | 3 | 0 | 4 | 1 | 3 | 0 |
 | [sprites](#sprites) | 42 | 38 | 4 | 0 | 39 | 2 | 1 | 0 |
 | [ui](#ui) | 76 | 48 | 28 | 0 | 26 | 19 | 31 | 0 |
-| **Total** | **648** | **491** | **151** | **6** | **390** | **72** | **186** | **0** |
+| **Total** | **648** | **490** | **152** | **6** | **390** | **72** | **186** | **0** |
 
 Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; collision query: **5**.
 
@@ -450,7 +450,7 @@ Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; col
 | `MapConsumePathCellDirections` | compiled C | [`src/map/land_processing.c:146`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L146) | `0x01EA66` | `0x01EA24` | Atomic | [`map::consume::map_consume_path_cell_directions`](../crates/tje-game/src/map/consume.rs#L7) | production |
 | `MapQueueVisibleMetatileRow` | compiled C | [`src/map/land_processing.c:249`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L249) | `0x01EDDC` | `0x01ED9A` | TimeAware | [`map::waits::map_queue_visible_metatile_row`](../crates/tje-game/src/map/waits.rs#L17) | production |
 | `MapQueueVisibleMetatileColumn` | compiled C | [`src/map/land_processing.c:280`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L280) | `0x01EF56` | `0x01EF14` | TimeAware | [`map::waits::map_queue_visible_metatile_column`](../crates/tje-game/src/map/waits.rs#L80) | production |
-| `EntityStartLandPathAnimation` | compiled C | [`src/map/land_processing.c:310`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L310) | `0x01F0C4` | `0x01F082` | TimeAware | [`map::land::entity_start_land_path_animation`](../crates/tje-game/src/map/land.rs#L97) | production |
+| `EntityStartLandPathAnimation` | compiled C | [`src/map/land_processing.c:310`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L310) | `0x01F0C4` | `0x01F082` | TimeAware | [`map::land::entity_start_land_path_animation`](../crates/tje-game/src/map/land.rs#L97) | pending — Corpus REV00 frame19456: HBlank vector28 versus main-thread RAM write at trace467. Opt-in proof hooks only; production never registers this table. Keeping body references here also exercises the ordinary library target. |
 | `MapAnimateMetatilePathChange` | compiled C | [`src/map/land_processing.c:340`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L340) | `0x01F1B0` | `0x01F16E` | TimeAware | [`map::land::map_animate_metatile_path_change`](../crates/tje-game/src/map/land.rs#L133) | pending — Clock contract: settled original performs one additional VBlank/ISR. Opt-in proof hooks only; production never registers this table. Keeping body references here also exercises the ordinary library target. |
 | `EntityReserveLandPathAnimations` | compiled C | [`src/map/land_processing.c:405`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L405) | `0x01F418` | `0x01F3D6` | TimeAware | [`map::land::entity_reserve_land_path_animations`](../crates/tje-game/src/map/land.rs#L240) | production |
 | `MapAnimateMarkedLandPaths` | compiled C | [`src/map/land_processing.c:445`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/land_processing.c#L445) | `0x01F4F8` | `0x01F4B6` | TimeAware | [`map::land::map_animate_marked_land_paths`](../crates/tje-game/src/map/land.rs#L327) | pending — Clock contract: original marked-path animation observes additional ISR ticks. |

@@ -294,10 +294,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: entity_release_one_by_priority,
     },
     crate::Translation {
-        id: ids::ENTITY_START_LAND_PATH_ANIMATION,
-        function: entity_start_land_path_animation,
-    },
-    crate::Translation {
         id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
         function: entity_reserve_land_path_animations,
     },
@@ -377,6 +373,8 @@ pub static PENDING: &[crate::FunctionId] = &[
     // Corpus REV00 frame9287: original exceeds Atomic call bound at PC006B66.
     // RAM/ROM-only classification is retained; this is not a hardware-wait waiver.
     ids::MAP_ASSIGN_TRANSITION_CHAIN,
+    // Corpus REV00 frame19456: HBlank vector28 versus main-thread RAM write at trace467.
+    ids::ENTITY_START_LAND_PATH_ANIMATION,
     // Clock contract: settled original performs one additional VBlank/ISR.
     ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
     // Clock contract: marked-path branch observes two additional original ISR ticks.
@@ -395,6 +393,10 @@ pub static PENDING: &[crate::FunctionId] = &[
 /// Opt-in proof hooks only; production never registers this table.
 /// Keeping body references here also exercises the ordinary library target.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::ENTITY_START_LAND_PATH_ANIMATION,
+        function: entity_start_land_path_animation,
+    },
     crate::Translation {
         id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
         function: map_assign_transition_chain,
