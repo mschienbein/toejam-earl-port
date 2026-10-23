@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Check Rust lints
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Run ROM-free tests
+        run: cargo test --locked --workspace
+      - name: Build WebAssembly
+        # All workspace members are wasm-capable. Add an explicit --exclude PACKAGE
+        # only for a native-only crate; keep new wasm crates covered by default.
+        run: cargo build --locked --workspace --target wasm32-unknown-unknown
+      - name: Audit public worktree, index and full history without ROMs
+        run: python tools/audit_public.py --history --no-rom

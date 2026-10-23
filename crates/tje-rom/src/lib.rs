@@ -205,7 +205,10 @@ fn read_archive(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
     let mut count = 0;
     for index in 0..archive.len() {
         let file = archive.by_index_raw(index).map_err(archive_error)?;
-        let extension = file.name().rsplit('.').next().unwrap_or_default();
+        let extension = file
+            .name()
+            .rsplit_once('.')
+            .map_or("", |(_, extension)| extension);
         if !file.is_dir()
             && ["bin", "md", "gen", "smd"]
                 .iter()
@@ -266,16 +269,12 @@ fn normalize_image(mut image: Cow<'_, [u8]>) -> Result<Cow<'_, [u8]>, ImportErro
             return Err(ImportError::InvalidSmd { size: image.len() });
         }
         let payload = &image[SMD_HEADER_SIZE..];
-        let mut decoded = vec![0; payload.len()];
-        for (block, output) in payload
-            .as_chunks::<SMD_BLOCK_SIZE>()
-            .0
-            .iter()
-            .zip(decoded.as_chunks_mut::<SMD_BLOCK_SIZE>().0)
-        {
-            for (index, pair) in output.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-                pair[0] = block[SMD_HALF_BLOCK + index];
-                pair[1] = block[index];
+        let mut decoded = Vec::with_capacity(payload.len());
+        for block in payload.as_chunks::<SMD_BLOCK_SIZE>().0 {
+            let (odd, even) = block.split_at(SMD_HALF_BLOCK);
+            for (&even, &odd) in even.iter().zip(odd) {
+                decoded.push(even);
+                decoded.push(odd);
             }
         }
         image = Cow::Owned(decoded);

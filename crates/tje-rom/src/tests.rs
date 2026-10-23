@@ -249,6 +249,7 @@ fn zip_requires_exactly_one_rom_member() {
     for (entries, count) in [
         (vec![], 0),
         (vec![("notes.txt", b"Not a ROM".as_slice())], 0),
+        (vec![("bin", image.as_slice())], 0),
         (vec![("nested.zip", image.as_slice())], 0),
         (vec![("game.bin/", b"".as_slice())], 0),
         (vec![("one.bin", image.as_slice()), ("two.gen", &image)], 2),
