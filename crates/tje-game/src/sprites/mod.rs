@@ -1,7 +1,15 @@
-//! Worked translations, with synthetic-memory tests. Names identify G's source,
-//! not newly claimed original historical C spellings. See docs/TRANSLATION.md.
+//! Faithful sprite translations. G source paths and lines identify the behavioral
+//! authority; no graphics data is copied into Rust. See docs/TRANSLATION.md.
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
+
+mod links;
+mod rendering;
+mod slots;
+mod unpack;
+
+#[cfg(test)]
+mod leaf_tests;
 
 /// G/src/sprites/entity_sprite_rendering.c: UpdateAttachedEntityPosition
 /// (REV 02 0x00C170). Signed parent offsets deliberately differ from camera offsets.
@@ -88,12 +96,119 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::SELECT_SPRITE_CHAIN_START,
         function: chain_hook,
     },
+    crate::Translation {
+        id: crate::ids::IS_ENTITY_VISIBLE_IN_VIEWPORT,
+        function: rendering::is_entity_visible_in_viewport,
+    },
+    crate::Translation {
+        id: crate::ids::SORT_ENTITIES_FOR_SPRITE_DRAW,
+        function: rendering::sort_entities_for_sprite_draw,
+    },
+    crate::Translation {
+        id: crate::ids::CLIP_SPRITE_PIXELS_BELOW_CUTOFF,
+        function: rendering::clip_sprite_pixels_below_cutoff,
+    },
+    crate::Translation {
+        id: crate::ids::CLEAR_SPRITE_MASK_PIXELS,
+        function: rendering::clear_sprite_mask_pixels,
+    },
+    crate::Translation {
+        id: crate::ids::APPEND_SPRITE_TILES_TO_BUFFER,
+        function: rendering::append_sprite_tiles_to_buffer,
+    },
+    crate::Translation {
+        id: crate::ids::SET_SPRITE,
+        function: rendering::set_sprite,
+    },
+    crate::Translation {
+        id: crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
+        function: links::terminate_sprite_chain_at_head,
+    },
+    crate::Translation {
+        id: crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
+        function: links::terminate_primary_sprite_chain,
+    },
+    crate::Translation {
+        id: crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
+        function: links::select_primary_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
+        function: links::select_secondary_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
+        function: links::hide_flagged_player_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::SET_RAM_INDEXES,
+        function: rendering::set_ram_indexes,
+    },
+    crate::Translation {
+        id: crate::ids::FREE_SPRITE_SLOTS,
+        function: slots::free_sprite_slots,
+    },
+    crate::Translation {
+        id: crate::ids::FREE_SPRITE_SLOT,
+        function: slots::free_sprite_slot,
+    },
+    crate::Translation {
+        id: crate::ids::IS_SPRITE_SLOT_LOCKED,
+        function: slots::is_sprite_slot_locked,
+    },
+    crate::Translation {
+        id: crate::ids::ALLOCATE_SPRITE_TILE_RUN,
+        function: slots::allocate_sprite_tile_run,
+    },
+    crate::Translation {
+        id: crate::ids::FREE_SPRITE_TILE_RUN,
+        function: slots::free_sprite_tile_run,
+    },
+    crate::Translation {
+        id: crate::ids::RESET_ENTITY_RUNTIME_STATE,
+        function: slots::reset_entity_runtime_state,
+    },
+    crate::Translation {
+        id: crate::ids::SPRITE_UNPACK_INTERLEAVED_RLE,
+        function: unpack::sprite_unpack_interleaved_rle,
+    },
+    crate::Translation {
+        id: crate::ids::SPRITE_UNPACK_RLE,
+        function: unpack::sprite_unpack_rle,
+    },
+    crate::Translation {
+        id: crate::ids::SPRITE_UNPACK_RAW,
+        function: unpack::sprite_unpack_raw,
+    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::UPDATE_ATTACHED_ENTITY_POSITION,
     crate::ids::SELECT_SPRITE_CHAIN_START,
+    // All W0 leaves below have no original callees, hardware polls, or waits.
+    // The live VDP patches perform only bounded command/data writes.
+    crate::ids::IS_ENTITY_VISIBLE_IN_VIEWPORT,
+    crate::ids::SORT_ENTITIES_FOR_SPRITE_DRAW,
+    crate::ids::CLIP_SPRITE_PIXELS_BELOW_CUTOFF,
+    crate::ids::CLEAR_SPRITE_MASK_PIXELS,
+    crate::ids::APPEND_SPRITE_TILES_TO_BUFFER,
+    crate::ids::SET_SPRITE,
+    crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
+    crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
+    crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
+    crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
+    crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
+    crate::ids::SET_RAM_INDEXES,
+    crate::ids::FREE_SPRITE_SLOTS,
+    crate::ids::FREE_SPRITE_SLOT,
+    crate::ids::IS_SPRITE_SLOT_LOCKED,
+    crate::ids::ALLOCATE_SPRITE_TILE_RUN,
+    crate::ids::FREE_SPRITE_TILE_RUN,
+    crate::ids::RESET_ENTITY_RUNTIME_STATE,
+    crate::ids::SPRITE_UNPACK_INTERLEAVED_RLE,
+    crate::ids::SPRITE_UNPACK_RLE,
+    crate::ids::SPRITE_UNPACK_RAW,
 ];
 #[cfg(test)]
 mod tests {
