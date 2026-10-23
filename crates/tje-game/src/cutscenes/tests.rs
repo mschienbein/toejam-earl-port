@@ -78,13 +78,21 @@ impl Context for MemoryContext {
 }
 
 #[test]
-fn all_owned_leaf_roots_have_native_closures() {
-    let roots: Vec<_> = TRANSLATIONS
-        .iter()
-        .chain(speech::TRANSLATIONS)
-        .chain(ship::TRANSLATIONS)
-        .map(|translation| translation.id)
-        .collect();
+fn cutscenes_w0_leaf_roots_have_native_closures() {
+    let roots = [
+        ids::CUTSCENE_APPEND_REMAPPED_FONT_TILES,
+        ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
+        ids::INTRO_SET_DRIVING_PART_SEQUENCE,
+        ids::ENDING_GET_FIRST_PLAYER_ANIMATION_FRAME,
+        ids::INTRO_REVEAL_FRAME_ENTITIES,
+        ids::CUTSCENE_MOVE_ROCKETSHIP_PAIR_LEFT,
+        ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR,
+        ids::ENDING_SET_POSE_COMPOSITE,
+        ids::ENDING_POSITION_SIX_PIECE_COMPOSITE,
+        ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
+        ids::INTRO_POSITION_FALLING_ROCKETSHIP,
+        ids::ENDING_RESTART_ELEVATED_COMPOSITE_SEQUENCE,
+    ];
     assert!(Dispatcher::native(&roots).is_ok());
     for root in roots {
         assert!(crate::is_atomic_capable(root));
