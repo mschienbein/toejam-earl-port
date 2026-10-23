@@ -16,6 +16,7 @@ pub mod earthlings;
 pub mod elevator;
 pub mod execution;
 pub mod exits;
+mod framed_entry;
 pub mod jamout;
 pub mod map;
 mod metadata;
@@ -27,6 +28,7 @@ pub mod ship;
 pub mod speech;
 pub mod sprites;
 pub mod ui;
+pub use framed_entry::{FramedTranslation, FramedTranslationFn, TranslatedEntry};
 pub use metadata::ids;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -310,6 +312,7 @@ pub struct Translation {
 pub struct Subsystem {
     pub name: &'static str,
     pub translations: &'static [Translation],
+    pub framed_translations: &'static [FramedTranslation],
     pub atomic_capable: &'static [FunctionId],
     pub execution_contracts: &'static [(FunctionId, execution::ExecutionClass)],
 }
@@ -371,9 +374,16 @@ pub fn translations() -> impl Iterator<Item = &'static Translation> + Clone {
         .flat_map(|subsystem| subsystem.translations.iter())
 }
 
+pub fn framed_translations() -> impl Iterator<Item = &'static FramedTranslation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.framed_translations.iter())
+}
+
 #[derive(Clone, Copy)]
 pub struct Dispatcher {
     translations: &'static [Translation],
+    framed_translations: &'static [FramedTranslation],
     subsystems: &'static [Subsystem],
     original_fallback: bool,
 }
@@ -381,6 +391,7 @@ impl Dispatcher {
     pub const fn hybrid() -> Self {
         Self {
             translations: &[],
+            framed_translations: &[],
             subsystems: SUBSYSTEMS,
             original_fallback: true,
         }
@@ -390,6 +401,7 @@ impl Dispatcher {
     pub const fn hybrid_with(translations: &'static [Translation]) -> Self {
         Self {
             translations,
+            framed_translations: &[],
             subsystems: &[],
             original_fallback: true,
         }
@@ -400,6 +412,7 @@ impl Dispatcher {
     pub const fn hybrid_with_overrides(translations: &'static [Translation]) -> Self {
         Self {
             translations,
+            framed_translations: &[],
             subsystems: SUBSYSTEMS,
             original_fallback: true,
         }
@@ -416,8 +429,17 @@ impl Dispatcher {
         roots: &[FunctionId],
         translations: &'static [Translation],
     ) -> std::result::Result<Self, Vec<FunctionId>> {
+        Self::native_with_frames(roots, translations, &[])
+    }
+
+    pub fn native_with_frames(
+        roots: &[FunctionId],
+        translations: &'static [Translation],
+        framed_translations: &'static [FramedTranslation],
+    ) -> std::result::Result<Self, Vec<FunctionId>> {
         let dispatcher = Self {
             translations,
+            framed_translations,
             subsystems: SUBSYSTEMS,
             original_fallback: false,
         };
@@ -428,7 +450,8 @@ impl Dispatcher {
             if !visited.insert(id) {
                 continue;
             }
-            if dispatcher.translation(id).is_none() || execution_class(id).is_none() {
+            if !matches!(dispatcher.resolve_entry(id), Ok(Some(_))) || execution_class(id).is_none()
+            {
                 missing.push(id);
             }
             pending.extend_from_slice(id.metadata().callees);
@@ -440,10 +463,13 @@ impl Dispatcher {
             Err(missing)
         }
     }
+    /// Effective legacy value entry only. Use `resolve_entry` for capability
+    /// checks or dispatch, since a framed overlay replaces this form completely.
     pub fn translation(self, id: FunctionId) -> Option<Translation> {
-        self.translations()
-            .find(|translation| translation.id == id)
-            .copied()
+        match self.resolve_entry(id) {
+            Ok(Some(TranslatedEntry::Values(translation))) => Some(translation),
+            _ => None,
+        }
     }
     pub fn translations(self) -> impl Iterator<Item = &'static Translation> + Clone {
         self.translations.iter().chain(
@@ -453,13 +479,35 @@ impl Dispatcher {
         )
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
-        let translation = self.translation(id);
-        if translation.is_none()
-            && (!self.original_fallback || exits::contract(id) != exits::ExitContract::Rts)
-        {
-            return Err(Error::Untranslated(id));
+        let entry = self.resolve_entry(id)?;
+        if let Some(entry) = entry {
+            self.invoke_translated(context, entry, Some(arguments))
+        } else if self.original_fallback && exits::contract(id) == exits::ExitContract::Rts {
+            let class = execution_class(id).ok_or(Error::Unclassified(id))?;
+            if !context.execution_class().permits(class) {
+                return Err(Error::ExecutionUnavailable {
+                    caller: context.execution_class(),
+                    callee: class,
+                });
+            }
+            context.call_original_with_execution(id, arguments, class)
+        } else {
+            Err(Error::Untranslated(id))
         }
-        let class = execution_class(id).ok_or(Error::Unclassified(id))?;
+    }
+
+    pub(crate) fn call_prepared(self, context: &mut dyn Context, id: FunctionId) -> Result<u32> {
+        let entry = self.resolve_entry(id)?.ok_or(Error::Untranslated(id))?;
+        self.invoke_translated(context, entry, None)
+    }
+
+    fn invoke_translated(
+        self,
+        context: &mut dyn Context,
+        entry: TranslatedEntry,
+        arguments: Option<&[u32]>,
+    ) -> Result<u32> {
+        let class = execution_class(entry.id()).ok_or(Error::Unclassified(entry.id()))?;
         let parent = context.execution_class();
         if !parent.permits(class) {
             return Err(Error::ExecutionUnavailable {
@@ -467,33 +515,28 @@ impl Dispatcher {
                 callee: class,
             });
         }
-        if let Some(translation) = translation {
-            let scoped = parent != class;
-            if scoped {
-                context.set_execution_class(class)?;
+        let scoped = parent != class;
+        if scoped {
+            context.set_execution_class(class)?;
+        }
+        let result = match arguments {
+            Some(arguments) => entry.invoke_values(context, arguments),
+            None => entry.invoke_prepared(context),
+        };
+        let result = exits::validate_call(entry.id(), result, context.revision()).map(|value| {
+            if let Some(value) = value {
+                context.set_data_register(0, value);
             }
-            let result = exits::validate_call(
-                id,
-                (translation.function)(context, arguments),
-                context.revision(),
-            )
-            .map(|value| {
-                if let Some(value) = value {
-                    context.set_data_register(0, value);
-                }
-                context.data_register(0)
-            });
-            let restore = if scoped {
-                context.set_execution_class(parent)
-            } else {
-                Ok(())
-            };
-            match (result, restore) {
-                (Err(error), _) | (_, Err(error)) => Err(error),
-                (Ok(value), Ok(())) => Ok(value),
-            }
+            context.data_register(0)
+        });
+        let restore = if scoped {
+            context.set_execution_class(parent)
         } else {
-            context.call_original_with_execution(id, arguments, class)
+            Ok(())
+        };
+        match (result, restore) {
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            (Ok(value), Ok(())) => Ok(value),
         }
     }
 
@@ -531,102 +574,119 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
     Subsystem {
         name: "audio",
         translations: audio::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: audio::ATOMIC_CAPABLE,
         execution_contracts: audio::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "camera",
         translations: camera::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: camera::ATOMIC_CAPABLE,
         execution_contracts: camera::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "collision",
         translations: collision::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: collision::ATOMIC_CAPABLE,
         execution_contracts: collision::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "core",
         translations: core::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: core::ATOMIC_CAPABLE,
         execution_contracts: core::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "cutscenes",
         translations: cutscenes::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: cutscenes::ATOMIC_CAPABLE,
         execution_contracts: cutscenes::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "earthlings",
         translations: earthlings::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: earthlings::ATOMIC_CAPABLE,
         execution_contracts: earthlings::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "elevator",
         translations: elevator::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: elevator::ATOMIC_CAPABLE,
         execution_contracts: elevator::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "jamout",
         translations: jamout::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: jamout::ATOMIC_CAPABLE,
         execution_contracts: jamout::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "map",
         translations: map::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: map::ATOMIC_CAPABLE,
         execution_contracts: map::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "platform",
         translations: platform::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: platform::ATOMIC_CAPABLE,
         execution_contracts: platform::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "player",
         translations: player::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: player::ATOMIC_CAPABLE,
         execution_contracts: player::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "presents",
         translations: presents::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: presents::ATOMIC_CAPABLE,
         execution_contracts: presents::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "runtime",
         translations: runtime::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: runtime::ATOMIC_CAPABLE,
         execution_contracts: runtime::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "ship",
         translations: ship::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: ship::ATOMIC_CAPABLE,
         execution_contracts: ship::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "speech",
         translations: speech::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: speech::ATOMIC_CAPABLE,
         execution_contracts: speech::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "sprites",
         translations: sprites::TRANSLATIONS,
+        framed_translations: sprites::FRAMED_TRANSLATIONS,
         atomic_capable: sprites::ATOMIC_CAPABLE,
         execution_contracts: sprites::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "ui",
         translations: ui::TRANSLATIONS,
+        framed_translations: &[],
         atomic_capable: ui::ATOMIC_CAPABLE,
         execution_contracts: ui::EXECUTION_CONTRACTS,
     },
@@ -690,13 +750,18 @@ mod tests {
                 assert!(classified.insert(*id));
                 assert_eq!(execution_class(*id), Some(*class));
             }
-            for entry in owner.translations {
-                assert_eq!(entry.id.metadata().subsystem, owner.name);
-                assert!(translated.insert(entry.id));
+            for id in owner
+                .translations
+                .iter()
+                .map(|entry| entry.id)
+                .chain(owner.framed_translations.iter().map(|entry| entry.id))
+            {
+                assert_eq!(id.metadata().subsystem, owner.name);
+                assert!(translated.insert(id), "duplicate translated entry: {id:?}");
                 assert!(
-                    execution_class(entry.id).is_some(),
+                    execution_class(id).is_some(),
                     "unclassified translation: {}",
-                    entry.id.metadata().name
+                    id.metadata().name
                 );
             }
         }

@@ -10,6 +10,10 @@ use tje_mem::Address;
 pub enum FrameError {
     Unavailable,
     UnalignedStack(u32),
+    UnalignedReturnPc(u32),
+    PreparedEntryRequired(FunctionId),
+    ConflictingEntries(FunctionId),
+    UnexpectedValueArguments { id: FunctionId, count: usize },
     InvalidAddressMask(u8),
     UnexpectedStack { expected: u32, actual: u32 },
     UnexpectedReturn { expected: u32, actual: u32 },
@@ -56,6 +60,13 @@ impl CallSite {
                 .address(revision)
                 .wrapping_add(byte_offset),
         )
+    }
+    pub fn validate(self) -> Result<()> {
+        if self.return_pc & 1 != 0 {
+            Err(FrameError::UnalignedReturnPc(self.return_pc).into())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -249,6 +260,7 @@ impl OutgoingArguments {
         id: FunctionId,
         site: CallSite,
     ) -> Result<u32> {
+        site.validate()?;
         let parent = context.frame_state().ok_or(FrameError::Unavailable)?;
         let current_sp = context.stack_pointer()?;
         if current_sp != self.base {
@@ -258,7 +270,7 @@ impl OutgoingArguments {
             }
             .into());
         }
-        let translation = dispatcher.translation(id);
+        let translation = dispatcher.resolve_entry(id)?;
         if translation.is_none()
             && (!dispatcher.allows_original_fallback()
                 || crate::exits::contract(id) != crate::exits::ExitContract::Rts)
@@ -273,20 +285,12 @@ impl OutgoingArguments {
                 callee: class,
             });
         }
-        let count = usize::from(id.metadata().abi.argument_count);
-        if count > 16 {
-            return Err(FrameError::TooManyArguments(count).into());
-        }
         let entry = FrameState::new(self.base.wrapping_sub(4));
         context.write_u32(entry.entry_sp, site.return_pc);
         context.set_stack_pointer(entry.entry_sp)?;
         context.set_frame_state(entry)?;
         let result = if translation.is_some() {
-            let mut arguments = [0_u32; 16];
-            for (index, argument) in arguments[..count].iter_mut().enumerate() {
-                *argument = entry.argument_slot(index as i32).read(context);
-            }
-            dispatcher.call(context, id, &arguments[..count])
+            dispatcher.call_prepared(context, id)
         } else {
             context.call_original_entry(id, class)
         };
@@ -355,6 +359,7 @@ pub fn call_at(
     arguments: &[u32],
     site: CallSite,
 ) -> Result<u32> {
+    site.validate()?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let result = outgoing.call(context, dispatcher, id, site);
     if result

@@ -93,11 +93,11 @@ pub fn reset_entity_runtime_state(
 /// G/src/sprites/sprite_slots.c:10, AllocateSpriteSlots.
 /// G/build/rev02/asm/c_sprite_slots.s:3-146 establishes LINK #-32,
 /// D2-D6 saves, both unchecked 12-byte locals, and mutable entry-SP+16.
-pub fn allocate_sprite_slots(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn allocate_sprite_slots(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(32, 0x7c, 0))?;
-    let mut count = arguments[0] as i16;
-    let mode = arguments[1] as i16;
-    let include_secondary = arguments[2] as i8;
+    let mut count = frame.argument_word(0).read(context);
+    let mode = frame.argument_word(1).read(context);
+    let include_secondary = frame.argument_byte(2).read(context);
     let slot = frame.local::<i16>(-2);
     let free_count = frame.local::<i8>(-3);
     let secondary_count = frame.local::<i8>(-4);
@@ -193,19 +193,16 @@ pub fn allocate_sprite_slots(context: &mut dyn Context, arguments: &[u32]) -> Re
 /// G/src/sprites/sprite_slots.c:66, AllocateSpriteSlot.
 /// LINK #-4 leaves the output byte at A6-1 uninitialized until the selector writes it.
 /// The matching JSR returns at REV02 D5A6 / REV00 D586 (function offset 0x20).
-pub fn allocate_sprite_slot(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn allocate_sprite_slot(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0, 0))?;
+    let mode = frame.argument_word(0).read(context);
+    let include_secondary = frame.argument_slot(1).read(context);
     let output = frame.local::<i8>(-1);
     let site = CallSite::relative(ids::ALLOCATE_SPRITE_SLOT, context.revision(), 0x20);
     let status = call_at(
         context,
         ids::ALLOCATE_SPRITE_SLOTS,
-        &[
-            1,
-            arguments[0] as i16 as i32 as u32,
-            arguments[1],
-            output.address(),
-        ],
+        &[1, mode as i32 as u32, include_secondary, output.address()],
         site,
     )?;
     let result = if status != 0 { 0 } else { output.read(context) };

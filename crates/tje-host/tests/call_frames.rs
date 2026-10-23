@@ -1,114 +1,16 @@
-//! Exact stack-slot protocol, using the real retail AllocateSpriteSlots body and
-//! a test-only Rust translation of that same source, never a production override.
+//! Exact stack-slot protocol using retail AllocateSpriteSlots and the canonical
+//! pending framed Rust body through the same hook/native dispatch contract.
 use std::{fs, path::PathBuf};
 use tje_game::call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments};
-use tje_game::{Context, Dispatcher, Error, Result, Translation, ids};
+use tje_game::{Context, Dispatcher, Error, FramedTranslation, Result, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry};
-use tje_mem::{Address, AddressSpace, Bus, Revision, ram};
+use tje_mem::{AddressSpace, Bus, Revision, ram};
 
 const CODE: u32 = 0xfff000;
 const OUTPUT: u32 = 0xffe800;
 const RESULT: u32 = 0xffe900;
 
-/// G/src/sprites/sprite_slots.c:10 and matching c_sprite_slots.s:3-146.
-/// Test-only complete selector: literal LINK/MOVEM/local layout, including the
-/// unchecked 12-byte arrays and real mutable fourth argument at entry SP+16.
-fn framed_selector(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
-    let frame = LocalFrame::enter(context, FrameLayout::link(32, 0x7c, 0))?;
-    let mut count = arguments[0] as i16;
-    let mode = arguments[1] as i16;
-    let secondary = arguments[2] as i8;
-    let slot = frame.local::<i16>(-2);
-    let free_count = frame.local::<i8>(-3);
-    let secondary_count = frame.local::<i8>(-4);
-    let index = frame.local::<i16>(-6);
-    let limit = frame.local::<i16>(-8);
-    let free = frame.local::<i8>(-20);
-    let reused = frame.local::<i8>(-32);
-    free_count.write(context, 0);
-    secondary_count.write(context, 0);
-    let mut flags = 1_i8;
-    if secondary != 0 {
-        flags |= 2;
-    }
-    if mode == 1 {
-        flags |= 4;
-    }
-    let states = ram::g_viewport_sprite_slot_flags(context.revision());
-    limit.write(context, 54);
-    index.write(context, 0);
-    while index.read(context) < limit.read(context) {
-        let current = index.read(context);
-        slot.write(
-            context,
-            if mode == 1 {
-                53_i16.wrapping_sub(current)
-            } else {
-                current
-            },
-        );
-        let selected = slot.read(context);
-        let state = states.at(i32::from(selected)).read(context);
-        if state & 1 == 0 {
-            let offset = free_count.read(context);
-            free_count.write(context, offset.wrapping_add(1));
-            free.offset(i32::from(offset))
-                .write(context, slot.read(context) as i8);
-        } else if secondary != 0
-            && state & 2 == 0
-            && i32::from(secondary_count.read(context))
-                < i32::from(count) - i32::from(free_count.read(context))
-        {
-            let offset = secondary_count.read(context);
-            secondary_count.write(context, offset.wrapping_add(1));
-            reused
-                .offset(i32::from(offset))
-                .write(context, slot.read(context) as i8);
-        }
-        if i16::from(free_count.read(context)) == count {
-            break;
-        }
-        index.write(context, index.read(context).wrapping_add(1));
-    }
-    let status = if i32::from(count)
-        > i32::from(free_count.read(context)) + i32::from(secondary_count.read(context))
-    {
-        1
-    } else {
-        index.write(context, 0);
-        while index.read(context) < i16::from(free_count.read(context)) {
-            let selected = free.offset(i32::from(index.read(context))).read(context);
-            states.at(i32::from(selected)).write(context, flags);
-            let output = frame.argument_slot(3).read(context);
-            frame
-                .argument_slot(3)
-                .write(context, output.wrapping_add(1));
-            Address::<i8>::new(output).write(context, selected.wrapping_add(25));
-            index.write(context, index.read(context).wrapping_add(1));
-        }
-        if i16::from(free_count.read(context)) < count {
-            count = count.wrapping_sub(i16::from(free_count.read(context)));
-            index.write(context, 0);
-            while index.read(context) < count {
-                let selected = reused.offset(i32::from(index.read(context))).read(context);
-                states.at(i32::from(selected)).write(context, flags);
-                let output = frame.argument_slot(3).read(context);
-                frame
-                    .argument_slot(3)
-                    .write(context, output.wrapping_add(1));
-                Address::<i8>::new(output).write(context, selected.wrapping_add(25));
-                index.write(context, index.read(context).wrapping_add(1));
-            }
-        }
-        0
-    };
-    frame.leave(context)?;
-    Ok(Some(status))
-}
-static SELECTOR: &[Translation] = &[Translation {
-    id: ids::ALLOCATE_SPRITE_SLOTS,
-    function: framed_selector,
-}];
+static SELECTOR: &[FramedTranslation] = tje_game::sprites::PENDING_FRAMED_TRANSLATIONS;
 
 fn caller(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     // Authored reference caller below uses precisely this LINK/MOVEM shape.
@@ -149,8 +51,9 @@ fn rom(revision: Revision) -> Vec<u8> {
 fn real_sprite_callee_and_rust_callee_share_mutable_slots_and_reuse_in_both_revisions() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         for translated_callee in [false, true] {
-            let mut registry = HookRegistry::from_translations(
+            let mut registry = HookRegistry::from_entries(
                 revision,
+                &[],
                 if translated_callee { SELECTOR } else { &[] },
             )
             .unwrap();
@@ -234,6 +137,7 @@ struct Native {
     frame: FrameState,
     dispatcher: Dispatcher,
     word_writes: Vec<(u32, u16)>,
+    forbidden_read: Option<std::ops::Range<u32>>,
 }
 impl Native {
     fn new(revision: Revision, dispatcher: Dispatcher) -> Self {
@@ -246,11 +150,19 @@ impl Native {
             frame: FrameState::new(sp),
             dispatcher,
             word_writes: Vec::new(),
+            forbidden_read: None,
         }
     }
 }
 impl Bus for Native {
     fn read_u8(&self, address: u32) -> u8 {
+        assert!(
+            !self
+                .forbidden_read
+                .as_ref()
+                .is_some_and(|range| range.contains(&(address & 0xff_ffff))),
+            "unused fourth argument was eagerly read at {address:06X}"
+        );
         self.memory.read_u8(address)
     }
     fn write_u8(&mut self, address: u32, value: u8) {
@@ -362,7 +274,7 @@ impl Context for Native {
 
 #[test]
 fn native_slots_locals_missing_arguments_and_saved_register_aliases_are_real_ram() {
-    let dispatcher = Dispatcher::native_with(&[ids::ALLOCATE_SPRITE_SLOTS], SELECTOR)
+    let dispatcher = Dispatcher::native_with_frames(&[ids::ALLOCATE_SPRITE_SLOTS], &[], SELECTOR)
         .unwrap_or_else(|_| panic!("test selector has a closed native leaf"));
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut context = Native::new(revision, dispatcher);
@@ -458,5 +370,185 @@ fn movem_saves_match_real_instruction_word_order_without_reversing_link() {
                 assert_eq!(translated.read_u16(address), value);
             }
         }
+    }
+}
+
+#[test]
+fn unused_omitted_formal_is_never_loaded_and_value_only_entry_fails_closed() {
+    let dispatcher = Dispatcher::native_with_frames(&[ids::ALLOCATE_SPRITE_SLOTS], &[], SELECTOR)
+        .unwrap_or_else(|_| panic!("test selector has a closed native leaf"));
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = Native::new(revision, dispatcher);
+        for index in 0..54 {
+            ram::g_viewport_sprite_slot_flags(revision)
+                .at(index)
+                .write(&mut context, 1);
+        }
+        let frame = LocalFrame::enter(&mut context, FrameLayout::link(4, 0, 0)).unwrap();
+        let unused = frame.local::<u32>(-4).address();
+        context.forbidden_read = Some(unused..unused + 4);
+        let outgoing = OutgoingArguments::push(&mut context, &[1, 0, 0]).unwrap();
+        let value = outgoing
+            .call(
+                &mut context,
+                dispatcher,
+                ids::ALLOCATE_SPRITE_SLOTS,
+                CallSite::new(0x1234),
+            )
+            .unwrap();
+        assert_eq!(value, 1);
+        outgoing.release(&mut context).unwrap();
+        frame.leave(&mut context).unwrap();
+        assert_eq!(context.sp, 0xff8000);
+        assert_eq!(
+            dispatcher.call(&mut context, ids::ALLOCATE_SPRITE_SLOTS, &[1, 0, 0]),
+            Err(Error::Frame(
+                tje_game::call_frame::FrameError::PreparedEntryRequired(ids::ALLOCATE_SPRITE_SLOTS)
+            ))
+        );
+    }
+}
+
+#[test]
+fn odd_return_pc_fails_before_materialization_and_legacy_prepared_calls_still_work() {
+    let dispatcher = Dispatcher::native(&[ids::ABS]).unwrap();
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = Native::new(revision, dispatcher);
+        let parent = context.frame;
+        assert_eq!(
+            dispatcher.call_at(&mut context, ids::ABS, &[5], CallSite::new(0x1235)),
+            Err(Error::Frame(
+                tje_game::call_frame::FrameError::UnalignedReturnPc(0x1235)
+            ))
+        );
+        assert_eq!(context.sp, parent.entry_sp);
+        assert!(context.word_writes.is_empty());
+        let outgoing = OutgoingArguments::push(&mut context, &[5]).unwrap();
+        let writes = context.word_writes.clone();
+        assert_eq!(
+            outgoing.call(&mut context, dispatcher, ids::ABS, CallSite::new(0x1235)),
+            Err(Error::Frame(
+                tje_game::call_frame::FrameError::UnalignedReturnPc(0x1235)
+            ))
+        );
+        assert_eq!(context.word_writes, writes);
+        assert_eq!(
+            outgoing.call(&mut context, dispatcher, ids::ABS, CallSite::new(0x1234)),
+            Ok(5)
+        );
+        assert_eq!(context.sp, parent.entry_sp - 4);
+        assert_eq!(context.frame, parent);
+        outgoing.release(&mut context).unwrap();
+    }
+}
+
+fn failure_without_output(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(4, 0, 0))?;
+    let dispatcher = context.dispatcher();
+    let outgoing = OutgoingArguments::push(context, &[1, 0, 0])?;
+    let value = outgoing.call(
+        context,
+        dispatcher,
+        ids::ALLOCATE_SPRITE_SLOTS,
+        CallSite::new(CODE + 28),
+    )?;
+    outgoing.release(context)?;
+    frame.leave(context)?;
+    Ok(Some(value))
+}
+
+#[test]
+#[ignore = "requires both private retail ROMs"]
+fn original_and_framed_selector_do_not_consume_an_unused_omitted_output_pointer() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for translated_callee in [false, true] {
+            let mut registry = HookRegistry::from_entries(
+                revision,
+                &[],
+                if translated_callee { SELECTOR } else { &[] },
+            )
+            .unwrap();
+            let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+            symbol.name = "AuthoredOmittedUnusedSpriteOutput";
+            symbol.addresses = [CODE; 2];
+            symbol.abi.argument_count = 0;
+            symbol.abi.returns_value = true;
+            registry
+                .register_contract(symbol, true, failure_without_output)
+                .unwrap();
+            let mut host = Host::new(&rom(revision), Mode::Check, registry).unwrap();
+            let target = ids::ALLOCATE_SPRITE_SLOTS.metadata().address(revision);
+            // Authored LINK, three immediate pushes, JSR, caller cleanup, UNLK, RTS.
+            let words = [
+                0x4e56,
+                0xfffc,
+                0x2f3c,
+                0,
+                0,
+                0x2f3c,
+                0,
+                0,
+                0x2f3c,
+                0,
+                1,
+                0x4eb9,
+                (target >> 16) as u16,
+                target as u16,
+                0x4fef,
+                12,
+                0x4e5e,
+                0x4e75,
+            ];
+            for (index, word) in words.into_iter().enumerate() {
+                host.context().write_u16(CODE + 2 * index as u32, word);
+            }
+            for index in 0..54 {
+                ram::g_viewport_sprite_slot_flags(revision)
+                    .at(index)
+                    .write(&mut host.context(), 1);
+            }
+            assert_eq!(host.check_call(CODE, &[]).unwrap(), 1);
+            assert_eq!(host.checks.mismatches, 0);
+            assert!(host.checks.uninitialized_stack_reads.is_empty());
+            assert!(host.checks.nondependent_stack_reads.is_empty());
+        }
+    }
+}
+
+#[test]
+fn explicit_framed_entry_never_preloads_slots_or_ignores_value_arguments() {
+    fn records_entry(context: &mut dyn Context) -> Result<Option<u32>> {
+        context.set_data_register(7, 0x1234);
+        Ok(Some(9))
+    }
+    static ENTRY: &[FramedTranslation] = &[FramedTranslation {
+        id: ids::ABS,
+        function: records_entry,
+    }];
+    let dispatcher = Dispatcher::native_with_frames(&[ids::ABS], &[], ENTRY).unwrap();
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = Native::new(revision, dispatcher);
+        let entry = context.frame;
+        context.forbidden_read = Some(entry.entry_sp + 4..entry.entry_sp + 20);
+        assert_eq!(
+            tje_game::exits::enter(&mut context, ids::ABS, &[5]),
+            Err(Error::Frame(
+                tje_game::call_frame::FrameError::UnexpectedValueArguments {
+                    id: ids::ABS,
+                    count: 1,
+                }
+            ))
+        );
+        assert_eq!(context.data, [0; 8]);
+        assert!(context.word_writes.is_empty());
+        assert_eq!(
+            tje_game::exits::enter(&mut context, ids::ABS, &[]).unwrap(),
+            tje_game::exits::EntryOutcome::Returned(Some(9))
+        );
+        assert_eq!(context.data[0], 9);
+        assert_eq!(context.data[7], 0x1234);
+        assert_eq!(context.frame, entry);
+        assert_eq!(context.sp, entry.entry_sp);
+        assert!(context.word_writes.is_empty());
     }
 }

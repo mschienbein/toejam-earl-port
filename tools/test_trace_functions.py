@@ -200,6 +200,39 @@ class TraceFunctionsTests(unittest.TestCase):
         with self.assertRaisesRegex(trace.TraceError, "uncatalogued registry identity"):
             self.rows()
 
+    def test_framed_registries_count_ctx_only_bodies_and_reject_cross_form_duplicates(self) -> None:
+        framed = self.module.replace(
+            "pub static TRANSLATIONS: &[Translation]",
+            "pub static FRAMED_TRANSLATIONS: &[FramedTranslation]",
+        ).replace(
+            "pub static PENDING_TRANSLATIONS: &[Translation]",
+            "pub static PENDING_FRAMED_TRANSLATIONS: &[FramedTranslation]",
+        )
+        self.put("crates/tje-game/src/core/mod.rs", framed)
+        self.put("crates/tje-game/src/core/body.rs", self.body.replace(", _: &[u32]", ""))
+        rows = self.rows()
+        self.assertEqual(rows[0].status, "production")
+        self.assertEqual(rows[1].status, "pending")
+        self.assertEqual(rows[0].rust.qualified, "core::body::live_body")
+        self.assertEqual(rows[1].rust.qualified, "core::body::candidate")
+        for table in ["TRANSLATIONS", "PENDING_TRANSLATIONS"]:
+            with self.subTest(table=table):
+                self.put("crates/tje-game/src/core/mod.rs", framed + f'''
+                    pub static {table}: &[Translation] = &[
+                        Translation {{ id: ids::LIVE, function: live_alias }},
+                    ];
+                ''')
+                message = "duplicate translation registration" if table == "TRANSLATIONS" else "production/pending overlap"
+                with self.assertRaisesRegex(trace.TraceError, message):
+                    self.rows()
+        self.put("crates/tje-game/src/core/mod.rs", framed + '''
+            pub static PENDING_TRANSLATIONS: &[Translation] = &[
+                Translation { id: ids::CANDIDATE, function: body::candidate },
+            ];
+        ''')
+        with self.assertRaisesRegex(trace.TraceError, "duplicate translation registration"):
+            self.rows()
+
     def test_missing_registered_body_and_ambiguous_provenance_fail_closed(self) -> None:
         self.put("crates/tje-game/src/core/mod.rs", self.module.replace("function: live_alias", "function: absent"))
         with self.assertRaisesRegex(trace.TraceError, "expected one function"):

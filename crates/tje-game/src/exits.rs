@@ -346,16 +346,16 @@ pub fn enter(
 ) -> Result<EntryOutcome> {
     let translation = context
         .dispatcher()
-        .translation(entry)
+        .resolve_entry(entry)?
         .ok_or(Error::Untranslated(entry))?;
-    enter_body(context, entry, arguments, translation.function)
+    enter_body(context, entry, arguments, translation)
 }
 
 fn enter_body(
     context: &mut dyn Context,
     entry: FunctionId,
     arguments: &[u32],
-    body: TranslationFn,
+    body: crate::TranslatedEntry,
 ) -> Result<EntryOutcome> {
     let class = crate::execution_class(entry).ok_or(Error::Unclassified(entry))?;
     let parent = context.execution_class();
@@ -368,7 +368,7 @@ fn enter_body(
     if class != parent {
         context.set_execution_class(class)?;
     }
-    let result = body(context, arguments);
+    let result = body.invoke_entry(context, arguments);
     let restore = if class != parent {
         context.set_execution_class(parent)
     } else {
@@ -419,7 +419,15 @@ impl MainLoopContinuation {
                 "not a reviewed persistent main loop".into(),
             ));
         }
-        enter_body(context, self.entry, &[], bodies.body(self.stage))
+        enter_body(
+            context,
+            self.entry,
+            &[],
+            crate::TranslatedEntry::Values(crate::Translation {
+                id: self.entry,
+                function: bodies.body(self.stage),
+            }),
+        )
     }
 
     pub fn from_return(entry: FunctionId, return_pc: u32, revision: Revision) -> Option<Self> {

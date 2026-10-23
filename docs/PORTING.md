@@ -110,8 +110,9 @@ registry for testing original fallback, not the pending-composition harness.
 All these constructors resolve the owner classes; no metadata regeneration,
 shared-table edit or incorrect Atomic approval is required.
 
-Registries (`TRANSLATIONS`, `PENDING_TRANSLATIONS`, `PENDING`, `ATOMIC_CAPABLE`,
-`EXECUTION_CONTRACTS`) are literal arrays written in the subsystem module, one
+Registries (`TRANSLATIONS`, `FRAMED_TRANSLATIONS`, `PENDING_TRANSLATIONS`,
+`PENDING_FRAMED_TRANSLATIONS`, `PENDING`, `ATOMIC_CAPABLE`, `EXECUTION_CONTRACTS`)
+are literal arrays written in the subsystem module, one
 entry per function. No aliases to another module's static (`= templates::PENDING`),
 const joins or macros: `docs/FUNCTIONS.md` is generated from these arrays, and CI
 fails if `python tools/trace_functions.py --check` cannot read them. Bodies may
@@ -716,21 +717,72 @@ outgoing.release(context)?;
 
 `OutgoingArguments::existing(context, slot_count)` adopts an area the compiler
 already reserved without writing it. Passing fewer slots deliberately exposes
-existing adjacent RAM for omitted-argument bugs; the callee's declared slots are
-read from emulated memory, not padded with zero. The initial argument slice passed
-to a Rust body is only a convenience snapshot: after an argument-slot mutation,
-read the actual view again. Numeric local pointers remain valid emulated
-addresses after return; no host reference/lifetime is manufactured.
+existing adjacent RAM for omitted-argument bugs; consumed slots are read from
+emulated memory, never padded with zero. Numeric local pointers remain valid
+emulated addresses after return; no host reference/lifetime is manufactured.
+
+### Frame-consuming entries and lazy arguments
+
+A frame-sensitive body has signature `FramedTranslationFn`:
+`fn(&mut dyn Context) -> Result<Option<u32>>`. Register
+`FramedTranslation { id, function }` in the owner's `FRAMED_TRANSLATIONS`, or
+`PENDING_FRAMED_TRANSLATIONS` until its proof and caller cutover are complete.
+The Subsystem's `framed_translations` slice is wired once in `SUBSYSTEMS`.
+An id has exactly one effective body form; conflicting legacy/framed declarations
+fail closed. Both forms require the same unique reviewed execution class.
+
+Root hooks in check/replacement mode and prepared Rust/native dispatch invoke
+the **same** framed body. No argument snapshot is created. Read each slot/local
+through FrameState/LocalFrame and the audited Bus at the point where the original
+consumes it, using its actual byte/word/long width and order. In particular, an
+unused output pointer must not be read on a failure branch. Re-read a slot after
+a callee mutates it instead of retaining a stale host snapshot.
+
+Legacy value-only signatures remain valid for proven value calls **and prepared
+calls**. Prepared legacy dispatch reads its formal slots through the audited bus
+into a value snapshot, as before. These additional ROM/RAM stack reads have no
+device side effects: they may produce a conservative rejection for an unused
+uninitialized slot, but cannot hide a different observed output or an argument
+slot mutation that the caller consumes. The active root audit includes incoming
+slots read by original callees too. Discharge of any extra read is finite,
+per-state evidence, not a formal independence proof (see section 6).
+
+Opt into a framed entry where conditional slot consumption or caller-observed
+slot mutation requires exact source use sites; never silence its audit by
+zero-padding or unaudited preloading. A value-only `call` targeting a framed
+body fails with `PreparedEntryRequired`, even for zero-argument bodies: the caller
+must supply a real child SP/return PC through `call_at`, not reuse its own
+FrameState. Typed exits may explicitly invoke an already prepared framed root
+with an empty value-argument slice; nonempty values are rejected before its body.
+
+For a mixed proof overlay, use
+`HookRegistry::proof_with_frames(revision, legacy, framed)` or
+`proof_filtered_with_frames(revision, legacy, framed, root_ids)`. Tables are
+borrowed statics; selecting entry hooks never removes pending/proven callees.
+The bounded counterpart is `from_entries(revision, legacy, framed)`. Native
+startup uses `Dispatcher::native_with_frames(roots, legacy, framed)` and checks
+both forms throughout the complete dependency closure; it never falls back to
+the original. Do not use a proof-only wrapper that changes the entry contract.
+
+Promote a framed callee only with every affected production caller migrated and
+proven in the same cutover. Until then the complete framed body remains pending,
+even if isolated fixtures pass. No hidden original fallback or legacy shim may
+paper over a value-call edge. This applies to AllocateSpriteSlots and its
+AllocateEntityViewportSprites caller, and BuildViewportSpriteLinks and its map,
+elevator and sprite-queue callers.
 
 Ordinary errors restore suspended caller bookkeeping while remaining errors.
 Non-returning typed control transfers retain their live frame for the exit
-contract, with no fake RTS/cleanup. Unexpected SP or a corrupted return PC fails
-closed instead of silently resuming the Rust caller at an invented target.
+contract, with no fake RTS/cleanup. Unexpected SP, a corrupted return PC or an
+odd return PC fails closed instead of silently accepting an impossible normal
+68000 return. Odd call sites are rejected before any outgoing frame is written.
 
 The ROM-backed `tests/call_frames.rs` runs an authored caller against retail
-AllocateSpriteSlots and a test-only full Rust selector in both revisions, proving
-SP+16 mutation plus two calls sharing outgoing slots. Its CPU-free native context
-also proves omitted-argument aliasing of a saved D2 and a writable local passed
-by emulated address. These tests do not register that test selector as a proven
-production game body; the sprites lane owns its real translation/proof.
+AllocateSpriteSlots and the **canonical pending framed body** in both revisions,
+proving SP+16 mutation, shared outgoing slots and a failure branch that never
+reads the omitted fourth argument. Its CPU-free native context also proves
+omitted-argument aliasing of a saved D2 and a writable local passed by emulated
+address. There is no copied selector or proof-only adapter. These entries remain
+pending until the sprites lane completes the all-caller promotion; successful
+isolated proofs do not change the production table.
 

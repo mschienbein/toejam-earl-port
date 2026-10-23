@@ -719,9 +719,20 @@ restored from the overwritten bytes.
 
 For frame-sensitive Rust-to-Rust or hybrid calls, prepare four-byte argument slots
 and the source-backed original return PC using `OutgoingArguments::call` or
-`Dispatcher::call_at`. The callee receives its actual entry SP; declared arguments
-are loaded from that memory, including residual bytes for missing arguments.
-The caller may inspect/reuse its slots before `release`. `LocalFrame` exposes
+`Dispatcher::call_at`. The callee receives its actual entry SP. Register it as a
+`FramedTranslation` (`fn(&mut dyn Context) -> Result<Option<u32>>`) and read slots
+through the audited bus **where the compiled source consumes them**, with the
+same width and order. There is no eager formal-argument snapshot: an omitted
+fourth pointer which AllocateSpriteSlots never uses on a failure path must never
+be read on that path. Missing arguments retain their actual residual bytes;
+neither zero padding nor unaudited preloading is permitted.
+The caller may inspect/reuse its slots before `release`. Existing prepared calls
+to legacy value bodies retain their audited snapshot; additional stack reads can
+conservatively reject a path, not hide an observed slot/output difference.
+Framed entries are opt-in targets with exact source consumption, never an
+unaudited adapter. A framed body cannot be invoked by a value-only call; that
+edge fails closed. Promote it only with all affected production callers migrated
+and proven in the same cutover. `LocalFrame` exposes
 low-byte/word argument views and unchecked typed local addresses at original
 offsets. Tail/RTE/nonreturning transfers use their separate typed exit contracts
 and must not be converted to a normal frame cleanup.

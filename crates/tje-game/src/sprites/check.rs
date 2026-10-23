@@ -329,12 +329,15 @@ fn seed_registers(host: &mut Host) {
 
 fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
     let pending = tje_game::sprites::PENDING_TRANSLATIONS;
-    let positions: Vec<_> = pending
+    let framed = tje_game::sprites::PENDING_FRAMED_TRANSLATIONS;
+    let pending_roots: Vec<_> = selected
         .iter()
-        .enumerate()
-        .filter_map(|(index, body)| selected.contains(&body.id).then_some(index))
+        .copied()
+        .filter(|id| {
+            pending.iter().any(|body| body.id == *id) || framed.iter().any(|body| body.id == *id)
+        })
         .collect();
-    if positions.is_empty() {
+    if pending_roots.is_empty() {
         let subsystems: &[&str] = if selected.is_empty() {
             &["sprites"]
         } else {
@@ -342,20 +345,23 @@ fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
         };
         return HookRegistry::filtered(revision, subsystems, selected).unwrap();
     }
-    let first = positions[0];
-    let last = *positions.last().unwrap();
-    assert_eq!(
-        positions.len(),
-        last - first + 1,
-        "select a contiguous pending proof group"
-    );
-    // The shared proof constructor overlays these candidates on every proven callee.
-    let mut registry = HookRegistry::proof(revision, &pending[first..=last]).unwrap();
+    // Filter hooks, not the proof overlay: framed callees stay available to callers.
+    let mut registry =
+        HookRegistry::proof_filtered_with_frames(revision, pending, framed, &pending_roots)
+            .unwrap();
     for translation in tje_game::sprites::TRANSLATIONS {
         if selected.contains(&translation.id) {
             let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
             registry
                 .register_translation_with_execution(*translation, class)
+                .unwrap();
+        }
+    }
+    for translation in tje_game::sprites::FRAMED_TRANSLATIONS {
+        if selected.contains(&translation.id) {
+            let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
+            registry
+                .register_framed_translation_with_execution(*translation, class)
                 .unwrap();
         }
     }

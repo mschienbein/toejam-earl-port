@@ -355,6 +355,9 @@ class Sources:
         pending: dict[str, Registration] = {}
         blockers: dict[str, list[str]] = defaultdict(list)
         classes = {}
+        production_tables = {"TRANSLATIONS", "FRAMED_TRANSLATIONS"}
+        pending_tables = {"PENDING_TRANSLATIONS", "PENDING_FRAMED_TRANSLATIONS", "PENDING"}
+        registry_tables = production_tables | pending_tables | {"ATOMIC_CAPABLE", "EXECUTION_CONTRACTS"}
         for module, nodes in self.modules.items():
             if module.startswith("metadata"):
                 continue
@@ -362,8 +365,7 @@ class Sources:
                 if node.type not in {"static_item", "const_item"} or is_test_only(node):
                     continue
                 name = text(node.child_by_field_name("name"))
-                if name not in {"TRANSLATIONS", "PENDING_TRANSLATIONS", "PENDING",
-                                "ATOMIC_CAPABLE", "EXECUTION_CONTRACTS"} and not name.endswith("_BLOCKED"):
+                if name not in registry_tables and not name.endswith("_BLOCKED"):
                     continue
                 for value, note in array_entries(node):
                     function = None
@@ -394,13 +396,13 @@ class Sources:
                             blockers[constant].append(note)
                     else:
                         registration = Registration(constant, function, note, module)
-                        target = production if name == "TRANSLATIONS" else pending
-                        if constant in target and (name == "TRANSLATIONS" or function is not None
+                        target = production if name in production_tables else pending
+                        if constant in target and (name in production_tables or function is not None
                                                   and target[constant].function is not None):
                             raise TraceError(f"duplicate translation registration: {constant}")
                         if constant not in target or function is not None:
                             target[constant] = registration
-                        if name != "TRANSLATIONS" and note:
+                        if name not in production_tables and note:
                             blockers[constant].append(note)
         overlap = production.keys() & pending.keys()
         if overlap:
@@ -456,9 +458,11 @@ def render(rows: list[TraceRow]) -> str:
         "installed grammar, use `uv run --python 3.12 --with-requirements tools/audit_requirements.txt python tools/trace_functions.py`.",
         "Regenerate once after integrating translation lanes, not in each lane.", "",
         "## Reading the table", "",
-        "- **Production** means present in `TRANSLATIONS`, not a claim that the entire game is complete.",
+        "- **Production** means present in `TRANSLATIONS` or `FRAMED_TRANSLATIONS`,",
+        "  not a claim that the entire game is complete.",
         "- **Pending** means a registered or source-identified Rust ABI body exists outside",
-        "  production (`PENDING_TRANSLATIONS`/`PENDING` are not production approval). Blockers",
+        "  production (`PENDING_TRANSLATIONS`/`PENDING_FRAMED_TRANSLATIONS`/`PENDING`",
+        "  are not production approval). Blockers",
         "  quote the applicable registry/group comments; an absent comment is explicitly identified.",
         "- **Not yet written** means no Rust ABI body was found, even if an ID-only `PENDING`",
         "  list records an unwritten prerequisite. Any recorded blocker is retained.",

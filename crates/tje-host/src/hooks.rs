@@ -6,7 +6,7 @@ use crate::{
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use tje_game::execution::ExecutionClass;
 use tje_game::{
-    Context, Dispatcher, FunctionId, Translation,
+    Context, Dispatcher, FramedTranslation, FunctionId, TranslatedEntry, Translation,
     exits::{self, EntryOutcome, ExitContract},
 };
 use tje_rom::Revision;
@@ -16,6 +16,7 @@ pub type HookFn = fn(&mut HookContext<'_>) -> Result<Option<u32>>;
 enum Body {
     Host(HookFn),
     Game(Translation),
+    Framed(FramedTranslation),
 }
 /// Production metadata is borrowed without allocation. Authored instrumentation
 /// contracts are owned and shared across registry clones without leaking memory.
@@ -68,6 +69,9 @@ impl Hook {
                 Err(HostError::Translation(error)) => Err(error),
                 Err(error) => return Err(error),
             },
+            Body::Framed(translation) => {
+                TranslatedEntry::Framed(translation).invoke_prepared(context)
+            }
             Body::Game(translation) => {
                 let mut arguments = [0; 16];
                 let count = usize::from(self.symbol.abi.argument_count);
@@ -143,8 +147,9 @@ impl HookRegistry {
             }
         }
         let dispatcher = Dispatcher::hybrid();
+        dispatcher.validate_entries()?;
         for id in functions {
-            if dispatcher.translation(*id).is_none() {
+            if dispatcher.resolve_entry(*id)?.is_none() {
                 return Err(HostError::Metadata(format!(
                     "requested function is not translated: {}",
                     id.metadata().name
@@ -160,16 +165,35 @@ impl HookRegistry {
                 registry.register_translation(translation)?;
             }
         }
+        for &translation in tje_game::framed_translations() {
+            let symbol = translation.id.metadata();
+            if all || subsystems.contains(&symbol.subsystem) || functions.contains(&translation.id)
+            {
+                registry.register_framed_translation(translation)?;
+            }
+        }
         Ok(registry)
     }
     pub fn from_translations(
         revision: Revision,
         translations: &'static [Translation],
     ) -> Result<Self> {
+        Self::from_entries(revision, translations, &[])
+    }
+
+    pub fn from_entries(
+        revision: Revision,
+        translations: &'static [Translation],
+        framed: &'static [FramedTranslation],
+    ) -> Result<Self> {
         let mut registry = Self::empty(revision);
-        registry.dispatcher = Dispatcher::hybrid_with(translations);
+        registry.dispatcher = Dispatcher::hybrid_with_frames(translations, framed);
+        registry.dispatcher.validate_entries()?;
         for &translation in translations {
             registry.register_translation(translation)?;
+        }
+        for &translation in framed {
+            registry.register_framed_translation(translation)?;
         }
         Ok(registry)
     }
@@ -177,43 +201,58 @@ impl HookRegistry {
     /// Opt-in pending proof: hook only supplied entries, but use them ahead of
     /// all proven translations when a checked Rust caller dispatches a callee.
     pub fn proof(revision: Revision, pending: &'static [Translation]) -> Result<Self> {
-        Self::proof_filtered(revision, pending, &[])
+        Self::proof_with_frames(revision, pending, &[])
     }
 
-    /// Select pending entry hooks without disabling any pending/proven Rust
-    /// callees. An empty selection hooks every supplied pending entry.
+    /// Select legacy proof roots without removing any pending/proven callees.
     pub fn proof_filtered(
         revision: Revision,
         pending: &'static [Translation],
         functions: &[FunctionId],
     ) -> Result<Self> {
+        Self::proof_filtered_with_frames(revision, pending, &[], functions)
+    }
+
+    pub fn proof_with_frames(
+        revision: Revision,
+        pending: &'static [Translation],
+        framed: &'static [FramedTranslation],
+    ) -> Result<Self> {
+        Self::proof_filtered_with_frames(revision, pending, framed, &[])
+    }
+
+    pub fn proof_filtered_with_frames(
+        revision: Revision,
+        pending: &'static [Translation],
+        framed: &'static [FramedTranslation],
+        functions: &[FunctionId],
+    ) -> Result<Self> {
         for id in functions {
-            if !pending.iter().any(|translation| translation.id == *id) {
+            if !pending.iter().any(|entry| entry.id == *id)
+                && !framed.iter().any(|entry| entry.id == *id)
+            {
                 return Err(HostError::Metadata(format!(
-                    "requested proof root is not in the pending translations: {}",
+                    "requested proof root is not a pending entry: {}",
                     id.metadata().name
                 )));
             }
         }
         let mut registry = Self::empty(revision);
-        registry.dispatcher = Dispatcher::hybrid_with_overrides(pending);
-        for (index, &translation) in pending.iter().enumerate() {
-            if pending[..index]
-                .iter()
-                .any(|other| other.id == translation.id)
-            {
-                return Err(HostError::Metadata(format!(
-                    "duplicate pending translation: {}",
-                    translation.id.metadata().name
-                )));
-            }
-            if functions.is_empty() || functions.contains(&translation.id) {
-                registry.register_translation(translation)?;
-            } else if tje_game::execution_class(translation.id).is_none() {
-                return Err(HostError::Metadata(format!(
-                    "pending callee {} has no unique reviewed execution class",
-                    translation.id.metadata().name
-                )));
+        registry.dispatcher = Dispatcher::hybrid_with_overrides_and_frames(pending, framed);
+        registry.dispatcher.validate_entries()?;
+        for translation in pending
+            .iter()
+            .copied()
+            .map(TranslatedEntry::Values)
+            .chain(framed.iter().copied().map(TranslatedEntry::Framed))
+        {
+            if functions.is_empty() || functions.contains(&translation.id()) {
+                match translation {
+                    TranslatedEntry::Values(entry) => registry.register_translation(entry)?,
+                    TranslatedEntry::Framed(entry) => {
+                        registry.register_framed_translation(entry)?
+                    }
+                }
             }
         }
         Ok(registry)
@@ -231,6 +270,21 @@ impl HookRegistry {
             HookSymbol::Generated(symbol),
             class,
             Body::Game(translation),
+        )
+    }
+
+    fn register_framed_translation(&mut self, translation: FramedTranslation) -> Result<()> {
+        let symbol = translation.id.metadata();
+        let class = tje_game::execution_class(translation.id).ok_or_else(|| {
+            HostError::Metadata(format!(
+                "{} has no unique reviewed execution class",
+                symbol.name
+            ))
+        })?;
+        self.insert_execution(
+            HookSymbol::Generated(symbol),
+            class,
+            Body::Framed(translation),
         )
     }
     fn insert(&mut self, symbol: HookSymbol, atomic_capable: bool, body: Body) -> Result<()> {
@@ -377,6 +431,28 @@ impl HookRegistry {
             Body::Game(translation),
         )
     }
+    pub fn register_framed_translation_with_execution(
+        &mut self,
+        translation: FramedTranslation,
+        execution_class: ExecutionClass,
+    ) -> Result<()> {
+        let same_body = matches!(
+            self.dispatcher.resolve_entry(translation.id)?,
+            Some(TranslatedEntry::Framed(entry))
+                if std::ptr::fn_addr_eq(entry.function, translation.function)
+        );
+        if !same_body || tje_game::execution_class(translation.id) != Some(execution_class) {
+            return Err(HostError::Metadata(format!(
+                "framed hook {} must use its dispatcher body and reviewed execution class",
+                translation.id.metadata().name
+            )));
+        }
+        self.insert_execution(
+            HookSymbol::Generated(translation.id.metadata()),
+            execution_class,
+            Body::Framed(translation),
+        )
+    }
     pub fn revision(&self) -> Revision {
         self.revision
     }
@@ -405,23 +481,24 @@ mod tests {
     fn complete_revision_tables_and_rejected_duplicates() {
         for revision in [Revision::Rev02, Revision::Rev00] {
             let registry = HookRegistry::translated(revision).unwrap();
-            assert_eq!(registry.len(), tje_game::translations().count());
-            for translation in tje_game::translations() {
+            assert_eq!(
+                registry.len(),
+                tje_game::translations().count() + tje_game::framed_translations().count()
+            );
+            for id in tje_game::translations()
+                .map(|entry| entry.id)
+                .chain(tje_game::framed_translations().map(|entry| entry.id))
+            {
                 assert_eq!(
                     registry
-                        .at(translation.id.metadata().address(revision))
+                        .at(id.metadata().address(revision))
                         .unwrap()
                         .symbol
                         .id,
-                    translation.id
+                    id
                 );
-                let hook = registry
-                    .at(translation.id.metadata().address(revision))
-                    .unwrap();
-                assert_eq!(
-                    Some(hook.execution_class),
-                    tje_game::execution_class(translation.id)
-                );
+                let hook = registry.at(id.metadata().address(revision)).unwrap();
+                assert_eq!(Some(hook.execution_class), tje_game::execution_class(id));
             }
         }
         fn dummy(_: &mut HookContext<'_>) -> Result<Option<u32>> {
@@ -513,6 +590,70 @@ mod tests {
             assert!(
                 HookRegistry::proof_filtered(revision, DUPLICATE, &[ids::PRE_GENERATE_RANDOMS])
                     .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_proof_roots_share_callees_and_reject_conflicting_entry_forms() {
+        fn values(_: &mut dyn tje_game::Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+            Ok(Some(11))
+        }
+        fn framed(_: &mut dyn tje_game::Context) -> tje_game::Result<Option<u32>> {
+            Ok(Some(22))
+        }
+        static VALUES: &[Translation] = &[Translation {
+            id: ids::PRE_GENERATE_RANDOMS,
+            function: values,
+        }];
+        static FRAMED: &[FramedTranslation] = &[FramedTranslation {
+            id: ids::ABS,
+            function: framed,
+        }];
+        static CONFLICT: &[Translation] = &[Translation {
+            id: ids::ABS,
+            function: values,
+        }];
+        static DUPLICATE: &[FramedTranslation] = &[FRAMED[0], FRAMED[0]];
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let registry = HookRegistry::proof_filtered_with_frames(
+                revision,
+                VALUES,
+                FRAMED,
+                &[ids::PRE_GENERATE_RANDOMS],
+            )
+            .unwrap();
+            assert_eq!(registry.len(), 1);
+            let root = registry.iter().next().unwrap();
+            assert_eq!(root.coverage_index, 0);
+            assert_eq!(root.symbol.id, ids::PRE_GENERATE_RANDOMS);
+            assert!(registry.at(ids::ABS.metadata().address(revision)).is_none());
+            let callee = registry.dispatcher().framed_translation(ids::ABS).unwrap();
+            assert!(std::ptr::fn_addr_eq(callee.function, FRAMED[0].function));
+            // A framed override is effective instead of the proven value body.
+            assert!(registry.dispatcher().translation(ids::ABS).is_none());
+            assert!(
+                registry
+                    .dispatcher()
+                    .translation(ids::GET_RANDOM_NUMBER)
+                    .is_some()
+            );
+            assert_eq!(
+                HookRegistry::proof_with_frames(revision, VALUES, FRAMED)
+                    .unwrap()
+                    .len(),
+                2
+            );
+            assert!(HookRegistry::from_entries(revision, CONFLICT, FRAMED).is_err());
+            assert!(HookRegistry::proof_with_frames(revision, VALUES, DUPLICATE).is_err());
+            assert!(
+                HookRegistry::proof_filtered_with_frames(
+                    revision,
+                    VALUES,
+                    FRAMED,
+                    &[ids::GET_RANDOM_NUMBER],
+                )
+                .is_err()
             );
         }
     }

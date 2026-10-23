@@ -26,7 +26,10 @@ impl Machine {
             sr: 0x271f,
             sp: 0xff8000,
             frame: FrameState::new(0xff8000),
-            dispatcher: Dispatcher::hybrid_with_overrides(super::PENDING_TRANSLATIONS),
+            dispatcher: Dispatcher::hybrid_with_overrides_and_frames(
+                super::PENDING_TRANSLATIONS,
+                super::PENDING_FRAMED_TRANSLATIONS,
+            ),
             forbidden_read: None,
             writes: Vec::new(),
         }
@@ -730,8 +733,12 @@ fn int_slot_query_keeps_its_long_index_even_after_a_full_word_of_slots() {
 #[test]
 fn canonical_selector_native_frames_preserve_reused_mutable_and_omitted_slots() {
     let roots = &[ids::ALLOCATE_SPRITE_SLOTS, ids::ALLOCATE_SPRITE_SLOT];
-    let dispatcher = Dispatcher::native_with(roots, super::PENDING_TRANSLATIONS)
-        .unwrap_or_else(|_| panic!("canonical selector and wrapper have a closed native override"));
+    let dispatcher = Dispatcher::native_with_frames(
+        roots,
+        super::PENDING_TRANSLATIONS,
+        super::PENDING_FRAMED_TRANSLATIONS,
+    )
+    .unwrap_or_else(|_| panic!("canonical selector and wrapper have a closed native override"));
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut machine = Machine::new(revision);
         machine.dispatcher = dispatcher;
@@ -781,7 +788,7 @@ fn canonical_selector_failure_does_not_read_the_unused_output_argument_slot() {
         entry.argument_slot(2).write(&mut machine, 0);
         // Deliberately leave argument 3 untouched and reject even a speculative read.
         machine.forbidden_read = Some(entry.argument_slot(3).address());
-        let result = slots::allocate_sprite_slots(&mut machine, &[1, 0, 0]).unwrap();
+        let result = slots::allocate_sprite_slots(&mut machine).unwrap();
         assert_eq!(result, Some(1));
     }
 }
