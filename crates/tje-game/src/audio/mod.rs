@@ -94,7 +94,10 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     ),
     (ids::YM2612_UPDATE_FREQUENCY, ExecutionClass::Functional),
     (ids::LOAD_SOUND_DRIVER_TO_Z80, ExecutionClass::Functional),
-    (ids::AUDIO_RELEASE_ALL_FM_CHANNELS, ExecutionClass::Functional),
+    (
+        ids::AUDIO_RELEASE_ALL_FM_CHANNELS,
+        ExecutionClass::Functional,
+    ),
     (
         ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
         ExecutionClass::Functional,
@@ -115,7 +118,10 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
         ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
         ExecutionClass::TimeAware,
     ),
-    (ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE, ExecutionClass::TimeAware),
+    (
+        ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+        ExecutionClass::TimeAware,
+    ),
     (
         ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
         ExecutionClass::TimeAware,
