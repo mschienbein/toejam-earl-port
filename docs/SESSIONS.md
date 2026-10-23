@@ -123,6 +123,16 @@ Content evidence is deliberately stricter than a function merely being available
 First-observed frame values in a union are evidence from one contributing session,
 not a shared timeline. Use the per-session records to identify that timeline.
 
+An execution failure writes `--report` before the failing host is dropped and
+still exits nonzero with the original error. Its `status: "failed"` diagnostic
+contains the exact session/input frame, host frame/PC/context, earlier completed
+session reports, structured check counters (including TimeAware IRQ/poll summaries
+and nested-original counts) and wait-frame measurements. It does not export raw
+TimeAware traces or fabricate a completed coverage report; `union` rejects this
+failure schema. If the diagnostic cannot be written, both that I/O error and the
+original execution error remain visible. Input/ROM parse failures occur before a
+host exists and therefore have no invented host counters.
+
 ## Determinism and first divergence
 
 ```sh
@@ -356,6 +366,25 @@ not establish Rust-translation correctness. The natural ten-piece campaign,
 level-zero services, remaining present identities/Earthlings and paid interactions
 remain separate coverage work. No missing normal entry is labelled unreachable
 merely because this checkpoint did not execute it.
+
+## Final-level menu continuations
+
+`rev02-final-menus.tje.json` (12,403 frames, 397 entries) and
+`rev00-final-menus.tje.json` (12,544 frames, 405 entries) continue the explicitly
+labelled secret-ending controller history. They exercise the original final-level
+pause choices: select Reset then Continue, resume play, reopen the menu and perform
+a real reset. They contain no RAM writes and do not claim natural ten-piece
+collection. All **24,947** additional reference/reference frame comparisons pass
+with zero divergences or skipped frames.
+
+Combining the 18-stream checkpoint, nine content recordings and these two streams
+produces **29 sessions / 688,522 frames**: **REV 02 593 / 648, REV 00 591 / 648,
+combined 596 / 648**. The two new inventory entries are `DrawPauseChoicePanel`
+and `RunFinalLevelPauseMenu`. The nine content recordings' complete comparison
+reports were inspected, and every committed controller history was matched
+exactly to its compared input history, including the two renamed recordings.
+This is a measured corpus checkpoint, not a claim that the remaining natural
+campaign, all content interactions or the settled check-mode gate are complete.
 
 ## Unreachable and exceptional entries
 

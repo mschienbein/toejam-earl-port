@@ -1,0 +1,929 @@
+{
+  "format": 1,
+  "revision": "rev02",
+  "start": {
+    "kind": "power_on"
+  },
+  "frames": 12403,
+  "tool": "tje-session-script/0.1.0",
+  "description": "Scripted final-level pause CONTINUE/RESET after original secret-ending controller input; original pause cheat clears nine assignments, NOT a natural ten-piece campaign; power-on, no RAM writes",
+  "runs": [
+    {
+      "frames": 360,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 112,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 112,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 7,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 79,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 1,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 79,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 100,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 84,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        369,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        280,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        290,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        324,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 184,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 52,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 48,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 88,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 9,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 15,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 56,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 32,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 38,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 18,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 1224,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 221,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 27,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 1,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 12,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 17,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 55,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 64,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 9,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 39,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 9,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 39,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 9,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 87,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 88,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 32,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 17,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 15,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 25,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 87,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 24,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        260,
+        0
+      ]
+    },
+    {
+      "frames": 32,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 7,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 686,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 5319,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        257,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        272,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 60,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        272,
+        0
+      ]
+    },
+    {
+      "frames": 800,
+      "pads": [
+        256,
+        0
+      ]
+    }
+  ]
+}

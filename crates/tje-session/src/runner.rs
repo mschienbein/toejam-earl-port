@@ -963,7 +963,50 @@ pub fn replay_report(
     }
 }
 
-pub fn replay(bytes: &[u8], path: &Path, mode: Mode) -> Result<ReplayReport> {
+#[derive(Serialize)]
+struct ReplayFailure<'a> {
+    tool: &'static str,
+    status: &'static str,
+    session: &'a Path,
+    revision: &'static str,
+    mode: &'static str,
+    input_frame: u64,
+    host_frame: u64,
+    pc: u32,
+    function: &'static str,
+    error: &'a str,
+    completed_sessions: &'a [ReplayReport],
+    checks: &'a tje_host::CheckReport,
+    measurements: &'a tje_host::Measurements,
+}
+
+fn record_replay_failure(
+    destination: &Path,
+    failure: ReplayFailure<'_>,
+    original: anyhow::Error,
+) -> anyhow::Error {
+    match save_json(destination, &failure) {
+        Ok(()) => original.context(format!(
+            "session {} input frame {}; failure diagnostics {}",
+            failure.session.display(),
+            failure.input_frame,
+            destination.display()
+        )),
+        Err(write_error) => original.context(format!(
+            "session {} input frame {}; additionally failed to write diagnostics: {write_error:#}",
+            failure.session.display(),
+            failure.input_frame
+        )),
+    }
+}
+
+pub fn replay(
+    bytes: &[u8],
+    path: &Path,
+    mode: Mode,
+    report: &Path,
+    completed: &[ReplayReport],
+) -> Result<ReplayReport> {
     let session = Arc::new(Session::from_json(&fs::read_to_string(path)?)?);
     let revision = Revision::from(session.revision);
     ensure!(
@@ -980,9 +1023,36 @@ pub fn replay(bytes: &[u8], path: &Path, mode: Mode) -> Result<ReplayReport> {
             continue;
         }
         apply_recipe(&mut host, &session, frame as u64);
-        let snapshot = host
-            .run_frame(inputs(pads))
-            .with_context(|| format!("session {} frame {frame}", path.display()))?;
+        let snapshot = match host.run_frame(inputs(pads)) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let message = error.to_string();
+                let pc = host.cpu().pc();
+                let failure = ReplayFailure {
+                    tool: TOOL_VERSION,
+                    status: "failed",
+                    session: path,
+                    revision: match revision {
+                        Revision::Rev02 => "rev02",
+                        Revision::Rev00 => "rev00",
+                    },
+                    mode: match mode {
+                        Mode::Reference => "reference",
+                        Mode::Check => "check",
+                        Mode::Replace => "replace",
+                    },
+                    input_frame: frame as u64,
+                    host_frame: host.frame_count(),
+                    pc,
+                    function: function_name(revision, pc),
+                    error: &message,
+                    completed_sessions: completed,
+                    checks: &host.checks,
+                    measurements: &host.measurements,
+                };
+                return Err(record_replay_failure(report, failure, error.into()));
+            }
+        };
         let observations = host.take_session_observations();
         coverage.observe(&host, &snapshot, &observations, revision);
     }
@@ -1380,5 +1450,111 @@ mod tests {
             coverage.content.friendly_interactions["life_request"],
             Some(12)
         );
+    }
+
+    #[test]
+    fn failed_checks_persist_counters_before_the_host_is_dropped() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let destination = std::env::temp_dir().join(format!(
+            "tje-session-failure-{}-{nonce}.json",
+            std::process::id()
+        ));
+        let mut checks = tje_host::CheckReport {
+            nested_original_calls: 3,
+            ..Default::default()
+        };
+        checks.time_aware.insert(
+            "AuthoredWait".into(),
+            tje_host::check_projection::TimeAwareCheckSummary {
+                calls: 1,
+                original_interrupts: 2,
+                translated_interrupts: 4,
+                ..Default::default()
+            },
+        );
+        let measurements = tje_host::Measurements {
+            check_original_wait_frames: 5,
+            check_rust_wait_frames: 6,
+            ..Default::default()
+        };
+        let error = record_replay_failure(
+            &destination,
+            ReplayFailure {
+                tool: TOOL_VERSION,
+                status: "failed",
+                session: Path::new("authored.tje.json"),
+                revision: "rev02",
+                mode: "check",
+                input_frame: 7,
+                host_frame: 7,
+                pc: 0x100,
+                function: "AuthoredWait",
+                error: "VDP state differs",
+                completed_sessions: &[],
+                checks: &checks,
+                measurements: &measurements,
+            },
+            anyhow::anyhow!("original check mismatch"),
+        );
+        let text = fs::read_to_string(&destination).unwrap();
+        fs::remove_file(&destination).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(saved["status"], "failed");
+        assert_eq!(saved["checks"]["nested_original_calls"], 3);
+        assert_eq!(
+            saved["checks"]["time_aware"]["AuthoredWait"]["original_interrupts"],
+            2
+        );
+        assert_eq!(
+            saved["checks"]["time_aware"]["AuthoredWait"]["translated_interrupts"],
+            4
+        );
+        assert_eq!(saved["measurements"]["check_original_wait_frames"], 5);
+        assert_eq!(saved["measurements"]["check_rust_wait_frames"], 6);
+        assert!(saved["checks"].get("last_time_aware").is_none());
+        assert!(
+            serde_json::from_str::<Report>(&text).is_err(),
+            "a failed run cannot masquerade as a complete coverage report"
+        );
+        assert!(format!("{error:#}").contains("original check mismatch"));
+    }
+
+    #[test]
+    fn diagnostic_write_errors_do_not_erase_the_original_check_failure() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let destination = std::env::temp_dir()
+            .join(format!("tje-session-absent-{}-{nonce}", std::process::id()))
+            .join("failure.json");
+        let checks = tje_host::CheckReport::default();
+        let measurements = tje_host::Measurements::default();
+        let error = record_replay_failure(
+            &destination,
+            ReplayFailure {
+                tool: TOOL_VERSION,
+                status: "failed",
+                session: Path::new("authored.tje.json"),
+                revision: "rev02",
+                mode: "check",
+                input_frame: 7,
+                host_frame: 7,
+                pc: 0x100,
+                function: "AuthoredWait",
+                error: "VDP state differs",
+                completed_sessions: &[],
+                checks: &checks,
+                measurements: &measurements,
+            },
+            anyhow::anyhow!("original check mismatch"),
+        );
+        let chain = format!("{error:#}");
+        assert!(chain.contains("original check mismatch"));
+        assert!(chain.contains("failed to write diagnostics"));
+        assert!(!destination.exists());
     }
 }

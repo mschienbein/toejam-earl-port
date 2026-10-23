@@ -90,10 +90,10 @@ fn main() -> Result<()> {
             report,
         } => {
             let bytes = fs::read(rom)?;
-            let sessions = session
-                .iter()
-                .map(|path| runner::replay(&bytes, path, mode))
-                .collect::<Result<Vec<_>>>()?;
+            let mut sessions = Vec::with_capacity(session.len());
+            for path in &session {
+                sessions.push(runner::replay(&bytes, path, mode, &report, &sessions)?);
+            }
             for session in &sessions {
                 println!(
                     "{} revision={} frames={} entries={}/{} ticks={} lag={} checked={} replaced={} mismatches={}",
