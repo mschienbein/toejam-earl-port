@@ -91,9 +91,6 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::DRAW_LEVEL_GRAPHICS,
     crate::ids::PLAYERS_REQUIRE_SEPARATE_VIEWS,
     crate::ids::DELAY_ITERATIONS,
-    // src/core/startup_and_main_loop.c:157: one of three bounded sprite-chain
-    // writers (at most two data words), no polling or interrupt-dependent path.
-    crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
     // ibid.:282: two RAM records and ReadMappedPlayerInput, no device accesses.
     crate::ids::GET_PLAYER_INPUT,
     // ibid.:572: fixed Z80 reset/bus/RAM writes and six finite DelayIterations
@@ -117,6 +114,14 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     // src/core/startup_and_main_loop.c:88: 2048 ordered VDP data writes, no
     // status/HV reads, unstable source, interrupt wait, or concurrent observation.
     (crate::ids::DRAW_STARFIELD_PLANE, ExecutionClass::Functional),
+    // ibid.:157 and src/sprites/sprite_links_vdp.c:13-35: bounded RAM
+    // selection plus ordered VDP writes, no status/HV read or polling loop.
+    // Genuine entries with three occupied FIFO slots require transaction
+    // progress for the selected two-word writer; frozen atomic is insufficient.
+    (
+        crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+        ExecutionClass::Functional,
+    ),
     // ibid.:142: waits for an IRQ-driven RAM frame-counter change.
     (crate::ids::WAIT_FOR_NEXT_V_BLANK, ExecutionClass::TimeAware),
     // ibid.:175: installed callbacks and music/controller service include Z80
@@ -157,9 +162,9 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Full corpus: REV 00 replay of content-effects frame 74603 fails to
-    // return from a sprite callee at 00D02C. Pending sprite-owner diagnosis;
-    // earlier narrow-session coverage does not approve the original fallback.
+    // Full corpus: REV 00 frame 74603 and REV 02 frame 31361 enter with only
+    // one FIFO slot free; the two-word sprite writer requires transaction
+    // progress. Functional classification is not joint/current-corpus proof.
     crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
     // Full corpus: content-later REV 00 and content-effects REV 02 expose
     // live FF8033 differences at frame 837; earlier narrow sessions were
