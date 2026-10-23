@@ -3,6 +3,7 @@
 use crate::runner::{self, Coverage, Ram, ReplayReport};
 use crate::{
     adventure::{Adventure, Objective},
+    content_bot::ContentBot,
     navigation::Navigator,
 };
 use anyhow::{Result, ensure};
@@ -26,6 +27,17 @@ pub enum Scenario {
     Intro,
     Menus,
     SecretEnding,
+    ContentOne,
+    ContentTwo,
+}
+
+impl Scenario {
+    fn players(self) -> usize {
+        match self {
+            Self::TwoPlayer | Self::Coop | Self::JamOut | Self::JamAll | Self::ContentTwo => 2,
+            _ => 1,
+        }
+    }
 }
 
 struct Planner {
@@ -35,8 +47,9 @@ struct Planner {
     game_frame: Option<u64>,
     jam_frame: Option<u64>,
     jam_round: u32,
-    navigators: [Navigator; 2],
+    navigators: Option<[Navigator; 2]>,
     adventure: Option<Adventure>,
+    content_bot: Option<ContentBot>,
     controller_visits: u32,
     intro_seen: bool,
     intro_complete: bool,
@@ -55,7 +68,10 @@ impl Planner {
             intro_seen: false,
             intro_complete: false,
             menu_active: true,
-            navigators: std::array::from_fn(|_| Navigator::new()),
+            navigators: matches!(scenario, Scenario::OnePlayer | Scenario::TwoPlayer)
+                .then(|| std::array::from_fn(|_| Navigator::new())),
+            content_bot: matches!(scenario, Scenario::ContentOne | Scenario::ContentTwo)
+                .then(|| ContentBot::new(scenario.players())),
             adventure: match scenario {
                 Scenario::Campaign => Some(Adventure::new(Objective::Campaign)),
                 Scenario::SecretEnding => Some(Adventure::new(Objective::Campaign)),
@@ -71,6 +87,9 @@ impl Planner {
     fn observe(&mut self, observations: &FrameObservations, revision: Revision) {
         if let Some(adventure) = &mut self.adventure {
             adventure.observe(observations, revision);
+        }
+        if let Some(content_bot) = &mut self.content_bot {
+            content_bot.observe(observations, revision);
         }
         for entry in &observations.entries {
             let name = runner::entry_name(revision, entry.address);
@@ -127,10 +146,7 @@ impl Planner {
     ) -> [u16; 2] {
         let mut pads = [
             CONNECTED,
-            if matches!(
-                self.scenario,
-                Scenario::TwoPlayer | Scenario::Coop | Scenario::JamOut | Scenario::JamAll
-            ) {
+            if self.scenario.players() == 2 {
                 CONNECTED
             } else {
                 0
@@ -161,10 +177,7 @@ impl Planner {
             }
             let age = frame.saturating_sub(self.menu_frame);
             let down_count = match self.menu {
-                "MenuWhoHandler" => u64::from(!matches!(
-                    self.scenario,
-                    Scenario::TwoPlayer | Scenario::Coop | Scenario::JamOut | Scenario::JamAll
-                )),
+                "MenuWhoHandler" => u64::from(self.scenario.players() == 1),
                 "MenuWhatHandler" => {
                     if matches!(self.scenario, Scenario::JamOut | Scenario::JamAll) {
                         1
@@ -243,6 +256,11 @@ impl Planner {
                     pads[0] |= button;
                 }
             }
+            return pads;
+        }
+        if let Some(content_bot) = &mut self.content_bot {
+            content_bot.choose(&memory, rom, revision, content, frame, &mut pads);
+            logical_controls(&mut pads, &memory, rom, revision, frame);
             return pads;
         }
         if let Some(adventure) = &mut self.adventure {
@@ -341,7 +359,10 @@ impl Planner {
                         *pad |= UP;
                     }
                 } else {
-                    *pad |= self.navigators[player]
+                    *pad |= self
+                        .navigators
+                        .as_mut()
+                        .expect("legacy navigation scenario")[player]
                         .steer(&memory, rom, revision, player, (x, y), frame)
                         .unwrap_or(0);
                 }
@@ -540,6 +561,16 @@ pub fn generate(
             );
         }
         previous = Some(snapshot);
+        if planner.content_bot.as_ref().is_some_and(|content_bot| {
+            content_bot.complete(
+                &Ram(&previous.as_ref().unwrap().ram),
+                revision,
+                &coverage.content,
+                frame,
+            )
+        }) {
+            break;
+        }
         if matches!(scenario, Scenario::Campaign | Scenario::SecretEnding)
             && (scenario == Scenario::SecretEnding
                 || coverage

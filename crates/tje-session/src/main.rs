@@ -1,5 +1,6 @@
 mod adventure;
 mod bot;
+mod content_bot;
 mod navigation;
 mod runner;
 

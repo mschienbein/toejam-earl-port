@@ -185,6 +185,22 @@ the player through the last-life sequence. `jam-all` selects all eight original
 Jam Out choices; `intro` watches the full natural intro; `menus` exercises controller
 options, pause, the map and the real inventory drop path.
 
+`content-one` and `content-two` use the separate content-directed planner with
+one or two connected pads. It observes live item/Earthling/telephone banks,
+prioritizes missing stored present identities and encounters, uses real purchase
+and identification cursors, sneaks with logical A near Santa, answers ringing
+phones, and chooses health/promotion goals from live resources. It shares the
+same runtime terrain navigator and physical-controller conversion with the
+campaign planner. These are goal selectors, not assertions that every generated
+recording completes the checklist: only the replay's observed evidence counts.
+
+```sh
+"$SESSION_TOOL" bot --rom roms/rev02.bin --scenario content-one --frames 40000 \
+  --out sessions/rev02-content-one.tje.json --report scratch/rev02-content-one.json
+"$SESSION_TOOL" bot --rom roms/rev00.bin --scenario content-two --frames 40000 \
+  --out sessions/rev00-content-two.tje.json --report scratch/rev00-content-two.json
+```
+
 `--prefix PATH` replays a previous **input-only** power-on session, then chooses
 new inputs from its resulting live state. It never loads a snapshot. Prefixes
 must match the cartridge revision, cannot contain recipe writes and cannot exceed
