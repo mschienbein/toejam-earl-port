@@ -5,7 +5,10 @@ use crate::{
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use tje_game::execution::ExecutionClass;
-use tje_game::{Dispatcher, FunctionId, Translation};
+use tje_game::{
+    Context, Dispatcher, FunctionId, Translation,
+    exits::{self, EntryOutcome, ExitContract},
+};
 use tje_rom::Revision;
 
 pub type HookFn = fn(&mut HookContext<'_>) -> Result<Option<u32>>;
@@ -34,22 +37,74 @@ impl Deref for HookSymbol {
 pub struct Hook {
     pub symbol: HookSymbol,
     pub execution_class: ExecutionClass,
+    pub exit_contract: ExitContract,
     pub(crate) coverage_index: usize,
     body: Body,
+    frame_state: Option<(tje_game::call_frame::FrameState, u32)>,
 }
 impl Hook {
-    pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<Option<u32>> {
-        match self.body {
-            Body::Host(function) => function(context),
+    pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
+        if let Some((frame, expected_sp)) = self.frame_state {
+            let sp = context.stack_pointer()?;
+            let physical_sp = crate::abi::canonical_ram_address(sp);
+            let physical_entry = crate::abi::canonical_ram_address(frame.entry_sp);
+            if sp != expected_sp
+                || sp & 1 != 0
+                || frame.entry_sp & 1 != 0
+                || !(crate::catalogue::STACK_BOTTOM..=crate::catalogue::STACK_TOP)
+                    .contains(&physical_sp)
+                || !(physical_sp..=crate::catalogue::STACK_TOP).contains(&physical_entry)
+            {
+                return Err(HostError::Metadata(format!(
+                    "continuation frame/SP mismatch: saved entry={:08X}, expected current={expected_sp:08X}, actual={sp:08X}",
+                    frame.entry_sp,
+                )));
+            }
+            context.set_frame_state(frame)?;
+        }
+        let result = match self.body {
+            Body::Host(function) => match function(context) {
+                Ok(value) => Ok(value),
+                Err(HostError::Translation(error)) => Err(error),
+                Err(error) => return Err(error),
+            },
             Body::Game(translation) => {
                 let mut arguments = [0; 16];
                 let count = usize::from(self.symbol.abi.argument_count);
                 for (index, argument) in arguments[..count].iter_mut().enumerate() {
                     *argument = context.argument_u32(index as u32);
                 }
-                Ok((translation.function)(context, &arguments[..count])?)
+                (translation.function)(context, &arguments[..count])
             }
-        }
+        };
+        Ok(exits::validate_at(
+            self.symbol.id,
+            self.exit_contract,
+            self.symbol.address(context.revision()),
+            result,
+            context.revision(),
+        )?)
+    }
+
+    pub(crate) fn continuation(
+        &self,
+        stage: tje_game::exits::MainLoopStage,
+        function: tje_game::TranslationFn,
+        revision: Revision,
+        frame: tje_game::call_frame::FrameState,
+        expected_sp: u32,
+    ) -> Result<(Self, u32)> {
+        let pc = self
+            .exit_contract
+            .checkpoint_at(self.symbol.address(revision), stage)
+            .ok_or_else(|| HostError::Metadata("not a reviewed main-loop continuation".into()))?;
+        let mut hook = self.clone();
+        hook.body = Body::Game(Translation {
+            id: self.symbol.id,
+            function,
+        });
+        hook.frame_state = Some((frame, expected_sp));
+        Ok((hook, pc))
     }
 }
 
@@ -122,10 +177,44 @@ impl HookRegistry {
     /// Opt-in pending proof: hook only supplied entries, but use them ahead of
     /// all proven translations when a checked Rust caller dispatches a callee.
     pub fn proof(revision: Revision, pending: &'static [Translation]) -> Result<Self> {
+        Self::proof_filtered(revision, pending, &[])
+    }
+
+    /// Select pending entry hooks without disabling any pending/proven Rust
+    /// callees. An empty selection hooks every supplied pending entry.
+    pub fn proof_filtered(
+        revision: Revision,
+        pending: &'static [Translation],
+        functions: &[FunctionId],
+    ) -> Result<Self> {
+        for id in functions {
+            if !pending.iter().any(|translation| translation.id == *id) {
+                return Err(HostError::Metadata(format!(
+                    "requested proof root is not in the pending translations: {}",
+                    id.metadata().name
+                )));
+            }
+        }
         let mut registry = Self::empty(revision);
         registry.dispatcher = Dispatcher::hybrid_with_overrides(pending);
-        for &translation in pending {
-            registry.register_translation(translation)?;
+        for (index, &translation) in pending.iter().enumerate() {
+            if pending[..index]
+                .iter()
+                .any(|other| other.id == translation.id)
+            {
+                return Err(HostError::Metadata(format!(
+                    "duplicate pending translation: {}",
+                    translation.id.metadata().name
+                )));
+            }
+            if functions.is_empty() || functions.contains(&translation.id) {
+                registry.register_translation(translation)?;
+            } else if tje_game::execution_class(translation.id).is_none() {
+                return Err(HostError::Metadata(format!(
+                    "pending callee {} has no unique reviewed execution class",
+                    translation.id.metadata().name
+                )));
+            }
         }
         Ok(registry)
     }
@@ -159,7 +248,23 @@ impl HookRegistry {
         execution_class: ExecutionClass,
         body: Body,
     ) -> Result<()> {
-        if symbol.kind != "function" {
+        let exit_contract = match symbol {
+            HookSymbol::Generated(_) => exits::contract(symbol.id),
+            HookSymbol::Authored(_) => ExitContract::Rts,
+        };
+        self.insert_exit(symbol, execution_class, exit_contract, body)
+    }
+
+    fn insert_exit(
+        &mut self,
+        symbol: HookSymbol,
+        execution_class: ExecutionClass,
+        exit_contract: ExitContract,
+        body: Body,
+    ) -> Result<()> {
+        if symbol.kind != "function"
+            && !(symbol.kind == "fragment" && exit_contract != ExitContract::Rts)
+        {
             return Err(HostError::Metadata(format!(
                 "not a function entry: {}",
                 symbol.name
@@ -183,8 +288,10 @@ impl HookRegistry {
             Hook {
                 symbol,
                 execution_class,
+                exit_contract,
                 coverage_index,
                 body,
+                frame_state: None,
             },
         );
         Ok(())
@@ -237,6 +344,23 @@ impl HookRegistry {
         self.insert_execution(
             HookSymbol::Authored(Arc::new(symbol)),
             execution_class,
+            Body::Host(function),
+        )
+    }
+
+    /// Authored non-RTS fixtures state both their clock and control-flow contract.
+    /// Production registrations always use the reviewed game exit policy.
+    pub fn register_exit_contract(
+        &mut self,
+        symbol: FunctionSymbol,
+        execution_class: ExecutionClass,
+        exit_contract: ExitContract,
+        function: HookFn,
+    ) -> Result<()> {
+        self.insert_exit(
+            HookSymbol::Authored(Arc::new(symbol)),
+            execution_class,
+            exit_contract,
             Body::Host(function),
         )
     }
@@ -338,6 +462,58 @@ mod tests {
             );
             assert!(HookRegistry::filtered(revision, &["unknown"], &[]).is_err());
             assert!(HookRegistry::filtered(revision, &[], &[ids::FURTHER_INITIALISATION]).is_err());
+        }
+    }
+
+    #[test]
+    fn proof_filters_roots_but_retains_all_pending_overrides_and_proven_callees() {
+        fn marker(_: &mut dyn tje_game::Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+            Ok(Some(42))
+        }
+        static PENDING: &[Translation] = &[
+            Translation {
+                id: ids::GET_RANDOM_NUMBER,
+                function: marker,
+            },
+            Translation {
+                id: ids::PRE_GENERATE_RANDOMS,
+                function: marker,
+            },
+        ];
+        static DUPLICATE: &[Translation] = &[PENDING[0], PENDING[0], PENDING[1]];
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let registry =
+                HookRegistry::proof_filtered(revision, PENDING, &[ids::PRE_GENERATE_RANDOMS])
+                    .unwrap();
+            assert_eq!(registry.len(), 1);
+            let selected = registry
+                .at(ids::PRE_GENERATE_RANDOMS.metadata().address(revision))
+                .unwrap();
+            assert_eq!(selected.coverage_index, 0);
+            assert!(
+                registry
+                    .at(ids::GET_RANDOM_NUMBER.metadata().address(revision))
+                    .is_none()
+            );
+            for translation in PENDING {
+                let resolved = registry.dispatcher().translation(translation.id).unwrap();
+                assert!(std::ptr::fn_addr_eq(
+                    resolved.function,
+                    translation.function
+                ));
+            }
+            for translation in tje_game::translations() {
+                assert!(registry.dispatcher().translation(translation.id).is_some());
+            }
+            assert_eq!(
+                HookRegistry::proof(revision, PENDING).unwrap().len(),
+                PENDING.len()
+            );
+            assert!(HookRegistry::proof_filtered(revision, PENDING, &[ids::ABS]).is_err());
+            assert!(
+                HookRegistry::proof_filtered(revision, DUPLICATE, &[ids::PRE_GENERATE_RANDOMS])
+                    .is_err()
+            );
         }
     }
 }

@@ -15,6 +15,7 @@ pub mod cutscenes;
 pub mod earthlings;
 pub mod elevator;
 pub mod execution;
+pub mod exits;
 pub mod jamout;
 pub mod map;
 mod metadata;
@@ -107,6 +108,8 @@ pub enum Error {
     },
     Arithmetic(ArithmeticTrap),
     Frame(call_frame::FrameError),
+    /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
+    ControlTransfer(exits::ControlTransfer),
     Platform(String),
 }
 impl fmt::Display for Error {
@@ -125,6 +128,12 @@ impl fmt::Display for Error {
             }
             Self::Arithmetic(trap) => write!(formatter, "68000 arithmetic exception: {trap:?}"),
             Self::Frame(error) => write!(formatter, "emulated call frame: {error:?}"),
+            Self::ControlTransfer(transfer) => write!(
+                formatter,
+                "control transfer from {}: {:?}",
+                transfer.entry.metadata().name,
+                transfer.exit,
+            ),
             Self::Platform(message) => formatter.write_str(message),
         }
     }
@@ -144,7 +153,7 @@ impl Error {
     /// Ordinary errors unwind suspended call bookkeeping; the exit layer marks
     /// non-returning control transfers so their live frame is not unwound.
     pub fn preserves_call_frame(&self) -> bool {
-        false
+        matches!(self, Self::ControlTransfer(_))
     }
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -246,6 +255,14 @@ pub trait Context: Bus + Platform {
         _class: execution::ExecutionClass,
     ) -> Result<u32> {
         Err(Error::Untranslated(function))
+    }
+    /// Required by RTE and reset; Atomic-only contexts fail closed rather than
+    /// inventing an inactive stack bank.
+    fn stack_banks(&self) -> Result<exits::StackBanks> {
+        Err(Error::Platform("banked stack access is unavailable".into()))
+    }
+    fn set_stack_banks(&mut self, _banks: exits::StackBanks) -> Result<()> {
+        Err(Error::Platform("banked stack access is unavailable".into()))
     }
     fn dispatcher(&self) -> Dispatcher;
     /// Default contexts support Atomic only. Clock-capable platforms override
@@ -437,7 +454,9 @@ impl Dispatcher {
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
         let translation = self.translation(id);
-        if translation.is_none() && !self.original_fallback {
+        if translation.is_none()
+            && (!self.original_fallback || exits::contract(id) != exits::ExitContract::Rts)
+        {
             return Err(Error::Untranslated(id));
         }
         let class = execution_class(id).ok_or(Error::Unclassified(id))?;
@@ -453,7 +472,12 @@ impl Dispatcher {
             if scoped {
                 context.set_execution_class(class)?;
             }
-            let result = (translation.function)(context, arguments).map(|value| {
+            let result = exits::validate_call(
+                id,
+                (translation.function)(context, arguments),
+                context.revision(),
+            )
+            .map(|value| {
                 if let Some(value) = value {
                     context.set_data_register(0, value);
                 }

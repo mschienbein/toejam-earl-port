@@ -102,6 +102,8 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         let pc = self.pop_stack_u32()?;
         self.cpu.registers.set_status_register(sr);
         self.jump_to_address(pc)?;
+        // TJE hybrid observation: failed returns must leave the frame outstanding.
+        self.cpu.hybrid_exception_returned();
 
         Ok(20)
     }

@@ -37,6 +37,7 @@ Local changes are marked `TJE hybrid`, `TJE standalone cutover`, or `TJE timing 
 - `backend/genesis-components/src/vdp.rs`: immutable DMA-active query for counting actual starts, not command-shaped words.
 - `cpu/m68000-emu/src/{traits,debug,lib}.rs`: expose `ReadPurpose` and tagged byte/word reads with behavior-preserving defaults; preserve debugger callbacks for semantic and discarded reads; authored ROM-free CPU fixtures live in `lib.rs`'s test-only module.
 - `cpu/m68000-emu/src/core/instructions/{bits,load}.rs`: mark CLR's read-before-write and memory-to-register MOVEM's terminal read discarded, not semantic stack dependencies; still perform the original reads.
+- `cpu/m68000-emu/src/core.rs` and `core/instructions/controlflow.rs`: observe successfully entered/returned exception frames and accepted vector identities without changing CPU behavior/timing; native RTE finalizers notify the same observer. A rendered frame alone is not a safe fixture-call boundary.
 
 Additional `TJE hybrid` check-contract extensions (disabled by default):
 

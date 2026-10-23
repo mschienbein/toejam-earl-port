@@ -1,6 +1,6 @@
 //! Opt-in tests: TJE_REV02_ROM/TJE_REV00_ROM point to private retail cartridges.
 use m68000_emu::BusInterface;
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Arc};
 use tje_game::{Context, FunctionId, Translation, ids, map};
 use tje_host::{
     Host, HostError, Mode,
@@ -345,12 +345,19 @@ fn check_mode_rejects_register_sr_read_latch_and_ram_io_order_mutations() {
 
 /// Coverage fixtures use a live state after the 10,000-frame gameplay session.
 /// They are labeled separately from natural calls; no ROM-derived state is stored.
-fn drive_live_fixture_coverage(host: &mut Host) {
+fn drive_live_fixture_coverage(
+    host: &mut Host,
+    script: &Arc<InputScript>,
+) -> tje_host::fixture::BoundaryAdvance {
     fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) -> u32 {
         host.check_fixture(id.metadata().address(host.revision()), arguments)
             .unwrap_or_else(|error| panic!("{}: {error}", id.metadata().name))
     }
     let revision = host.revision();
+    host.set_wait_input_poller(script.clone());
+    let advance = host
+        .settle_fixture_boundary(script.at(host.frame_count()))
+        .unwrap();
     for value in [i32::MIN, -7, -1, 0, 1, 7, i32::MAX] {
         check(host, ids::ABS, &[value as u32]);
     }
@@ -434,6 +441,7 @@ fn drive_live_fixture_coverage(host: &mut Host) {
     check(host, ids::STACK_BASED_RANDOM, &[12345]);
     check(host, ids::GET_RANDOM_NUMBER, &[]);
     check(host, ids::PRE_GENERATE_RANDOMS, &[]);
+    advance
 }
 
 fn assert_pilot_coverage(host: &Host) {
@@ -476,15 +484,18 @@ fn assert_pilot_coverage(host: &Host) {
 #[test]
 #[ignore = "requires both private retail ROMs"]
 fn repeated_diagnostic_hardware_calls_do_not_fill_live_frozen_fifo() {
-    let script = InputScript::parse(include_str!("../examples/start-game.json")).unwrap();
+    let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut host = host(revision, Mode::Reference);
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
         assert!(host.measurements.game_frame.is_some());
-        drive_live_fixture_coverage(&mut host);
-        assert_eq!(host.frame_count(), 1300);
+        let advance = drive_live_fixture_coverage(&mut host, &script);
+        assert_eq!(
+            host.frame_count(),
+            1300 + advance.completed_frames.len() as u64
+        );
         assert_pilot_coverage(&host);
         assert_eq!(host.checks.mismatches, 0);
     }
@@ -493,7 +504,7 @@ fn repeated_diagnostic_hardware_calls_do_not_fill_live_frozen_fifo() {
 #[test]
 #[ignore = "requires both private retail ROMs; 10,000 frames per revision plus a timed reference"]
 fn gameplay_10000_frames_both_revisions_and_every_pilot_hook() {
-    let script = InputScript::parse(include_str!("../examples/start-game.json")).unwrap();
+    let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
         let bytes = rom(revision);
         let registry = HookRegistry::translated(revision).unwrap();
@@ -535,7 +546,7 @@ fn gameplay_10000_frames_both_revisions_and_every_pilot_hook() {
         assert!(checked.measurements.menu_frame.is_some());
         assert!(checked.measurements.game_frame.is_some());
         let natural_coverage = serde_json::to_value(&checked.checks).unwrap();
-        drive_live_fixture_coverage(&mut checked);
+        let _advance = drive_live_fixture_coverage(&mut checked, &script);
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());
         assert_pilot_coverage(&checked);

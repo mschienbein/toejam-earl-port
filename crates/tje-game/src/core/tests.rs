@@ -189,3 +189,18 @@ fn palette_predecrement_branches_match_subq_flags_for_every_byte() {
         }
     }
 }
+
+#[test]
+fn reset_vdp_preserves_x_and_control_for_every_entry_ccr() {
+    use super::test_support::TestContext;
+    use crate::Context;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        for ccr in 0..32_u16 {
+            context.set_status_register(0x2700 | ccr);
+            context.writes.clear();
+            super::reset_vdp(&mut context, &[]).unwrap();
+            assert_eq!(context.status_register(), 0x2708 | (ccr & 0x10));
+        }
+    }
+}

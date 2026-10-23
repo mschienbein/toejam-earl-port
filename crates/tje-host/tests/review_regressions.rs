@@ -2,7 +2,12 @@
 //! Regression counterparts of HostReview HR01-HR07.
 use m68000_emu::BusInterface;
 use std::{fs, path::PathBuf};
-use tje_game::{Context, FunctionMetadata, ids};
+use tje_game::{
+    Context, FunctionMetadata, Translation,
+    call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
+    execution::ExecutionClass,
+    ids,
+};
 use tje_host::{Host, HostError, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::Revision;
 
@@ -201,6 +206,9 @@ fn sequential_dead_stack_composition_fails_approval() {
                 assert_eq!(host.checks.calls, 2);
                 assert_eq!(host.checks.mismatches, 1);
                 assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                assert!(host.checks.nondependent_stack_reads.is_empty());
+                assert_eq!(host.checks.stack_dependency_reruns, 4);
+                assert!(error.to_string().contains("original dependency"), "{error}");
             } else {
                 result.unwrap();
                 assert_eq!(
@@ -274,6 +282,9 @@ fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
                     assert_eq!(host.checks.calls, 2);
                     assert_eq!(host.checks.mismatches, 1);
                     assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                    assert!(host.checks.nondependent_stack_reads.is_empty());
+                    assert_eq!(host.checks.stack_dependency_reruns, 2);
+                    assert!(error.to_string().contains("Rust dependency"), "{error}");
                 } else {
                     result.unwrap();
                     let expected = if mode == Mode::Reference {
@@ -369,4 +380,239 @@ fn registers_650_explicit_contracts_without_demo_table() {
     }
     assert_eq!(registry.len(), 650);
     assert!(registry.at(0x100000 + 649 * 4).is_some());
+}
+
+fn framed_abs(c: &mut HookContext<'_>, initialize: bool) -> tje_host::Result<Option<u32>> {
+    let frame = LocalFrame::enter(c, FrameLayout::link(4, 0, 0))?;
+    if initialize {
+        frame.local::<u32>(-4).write(c, 40);
+    }
+    let outgoing = OutgoingArguments::existing(c, 0)?;
+    let dispatcher = c.dispatcher();
+    let value = outgoing.call(c, dispatcher, ids::ABS, CallSite::new(CODE + 0x80 + 18))?;
+    outgoing.release(c)?;
+    frame.leave(c)?;
+    Ok(Some(value))
+}
+
+fn stored_framed_abs(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    framed_abs(c, true)
+}
+
+fn omitted_framed_abs(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    framed_abs(c, false)
+}
+
+fn original_reads_local_then_stores(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    let frame = LocalFrame::enter(c, FrameLayout::link(4, 0, 0))?;
+    let local = frame.local::<u32>(-4);
+    let (child, atomic) = contract("ReadsBeforeLaterStore", CODE + 0x100, true, 1, true);
+    let value = c.call_original_with_contract(&child, atomic, &[local.address()])?;
+    frame.leave(c)?;
+    Ok(Some(value))
+}
+
+fn framed_sequence(
+    revision: Revision,
+    mode: Mode,
+    hook: tje_host::hooks::HookFn,
+    rust_abs: bool,
+    later_store: bool,
+    class: ExecutionClass,
+) -> Host {
+    fn omitted(_: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        Ok(None)
+    }
+    static ABS: &[Translation] = &[Translation {
+        id: ids::ABS,
+        function: tje_game::runtime::abs,
+    }];
+    let mut registry =
+        HookRegistry::from_translations(revision, if rust_abs { ABS } else { &[] }).unwrap();
+    let (a, atomic) = contract("LeavesDeadForty", CODE, false, 0, true);
+    registry.register_contract(a, atomic, omitted).unwrap();
+    let (b, _) = contract("FramedLocalCaller", CODE + 0x80, true, 0, true);
+    registry
+        .register_execution_contract(b, class, hook)
+        .unwrap();
+    let mut host = Host::new(&bytes(revision), mode, registry).unwrap();
+    code(&mut host, CODE, &[0x2f7c, 0, 40, 0xfff8, 0x4e75]);
+    if later_store {
+        code(
+            &mut host,
+            CODE + 0x80,
+            &[
+                0x4e56, 0xfffc, 0x2d7c, 0, 40, 0xfffc, 0x486e, 0xfffc, 0x4eb9, 0x00ff, 0xf100,
+                0x588f, 0x4e5e, 0x4e75,
+            ],
+        );
+        // Incoming pointer addresses an unwritten caller local ABOVE child SP.
+        // Its value is consumed before the child initializes the same bytes.
+        code(
+            &mut host,
+            CODE + 0x100,
+            &[0x206f, 4, 0x2010, 0x20bc, 0, 40, 0x4e75],
+        );
+    } else {
+        let abs = ids::ABS.metadata().address(revision);
+        code(
+            &mut host,
+            CODE + 0x80,
+            &[
+                0x4e56,
+                0xfffc,
+                0x2d7c,
+                0,
+                40,
+                0xfffc,
+                0x4eb9,
+                (abs >> 16) as u16,
+                abs as u16,
+                0x4e5e,
+                0x4e75,
+            ],
+        );
+    }
+    code(
+        &mut host,
+        CODE + 0x200,
+        &[
+            0x4eb9, 0x00ff, 0xf000, 0x4eb9, 0x00ff, 0xf080, 0x23c0, 0x00ff, 0xe000, 0x60fe,
+        ],
+    );
+    let mut cpu = host.cpu().clone();
+    cpu.set_pc(CODE + 0x200, &mut host.context().bus());
+    *host.context().cpu() = cpu;
+    host
+}
+
+#[test]
+#[ignore = "requires both private ROMs"]
+fn prepared_original_and_rust_arguments_share_the_suspended_root_audit() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for class in [ExecutionClass::Atomic, ExecutionClass::TimeAware] {
+            for rust_abs in [false, true] {
+                for (missing, hook) in [
+                    (false, stored_framed_abs as tje_host::hooks::HookFn),
+                    (true, omitted_framed_abs),
+                ] {
+                    for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
+                        let mut host =
+                            framed_sequence(revision, mode, hook, rust_abs, false, class);
+                        let result = host.run_frame(InputScript::default().at(0));
+                        if mode == Mode::Check && missing {
+                            let error = result.unwrap_err();
+                            assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+                            assert!(error.to_string().contains("Rust dependency"), "{error}");
+                            assert_eq!(host.checks.calls, 2);
+                            assert_eq!(host.checks.mismatches, 1);
+                            assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                            if !rust_abs {
+                                let abs = ids::ABS.metadata();
+                                assert!(host.checks.uninitialized_stack_reads.iter().all(|site| {
+                                    (abs.address(revision)
+                                        ..abs.address(revision) + abs.size(revision))
+                                        .contains(&site.pc)
+                                }));
+                            }
+                        } else {
+                            result.unwrap();
+                            assert_eq!(host.checks.mismatches, 0);
+                            assert!(host.checks.uninitialized_stack_reads.is_empty());
+                            assert_eq!(
+                                host.context().read_u32(0xffe000),
+                                if mode == Mode::Replace && missing {
+                                    0
+                                } else {
+                                    40
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires both private ROMs"]
+fn nested_original_read_before_a_later_write_is_not_retroactively_initialized() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for class in [ExecutionClass::Atomic, ExecutionClass::TimeAware] {
+            let mut host = framed_sequence(
+                revision,
+                Mode::Check,
+                original_reads_local_then_stores,
+                false,
+                true,
+                class,
+            );
+            let error = host.run_frame(InputScript::default().at(0)).unwrap_err();
+            assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+            assert!(error.to_string().contains("Rust dependency"), "{error}");
+            assert_eq!(host.checks.calls, 2);
+            assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+            assert!(
+                host.checks
+                    .uninitialized_stack_reads
+                    .iter()
+                    .all(|site| site.pc == CODE + 0x104)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires both private ROMs"]
+fn eager_unused_framed_arguments_are_informational_not_dependencies() {
+    fn caller(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        let frame = LocalFrame::enter(c, FrameLayout::link(4, 0, 0))?;
+        let outgoing = OutgoingArguments::existing(c, 0)?;
+        let dispatcher = c.dispatcher();
+        outgoing.call(
+            c,
+            dispatcher,
+            ids::WAIT_FOR_NEXT_V_BLANK,
+            CallSite::new(CODE + 0x80 + 10),
+        )?;
+        outgoing.release(c)?;
+        frame.leave(c)?;
+        Ok(Some(7))
+    }
+    static WAIT: &[Translation] = &[Translation {
+        id: ids::WAIT_FOR_NEXT_V_BLANK,
+        function: tje_game::core::wait_for_next_vblank,
+    }];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut registry = HookRegistry::from_translations(revision, WAIT).unwrap();
+        let (symbol, _) = contract("UnusedFramedArgument", CODE + 0x80, true, 0, true);
+        registry
+            .register_execution_contract(symbol, ExecutionClass::TimeAware, caller)
+            .unwrap();
+        let mut host = Host::new(&bytes(revision), Mode::Check, registry).unwrap();
+        // The real disabled-display fast path never consumes its count. Rust's
+        // eager slot preload may read it, but perturbing it must not change output.
+        tje_mem::ram::g_mode2_reg_softcopy(revision).write(&mut host.context(), 0);
+        let wait = ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision);
+        code(
+            &mut host,
+            CODE + 0x80,
+            &[
+                0x4e56,
+                0xfffc,
+                0x4eb9,
+                (wait >> 16) as u16,
+                wait as u16,
+                0x4e5e,
+                0x7007,
+                0x4e75,
+            ],
+        );
+        host.check_fixture(CODE + 0x80, &[]).unwrap();
+        assert_eq!(host.checks.mismatches, 0);
+        assert!(host.checks.uninitialized_stack_reads.is_empty());
+        assert!(!host.checks.nondependent_stack_reads.is_empty());
+        assert!(host.checks.stack_dependency_reruns >= 2);
+    }
 }

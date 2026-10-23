@@ -149,6 +149,13 @@ ids)` provides the same behavior for lane-owned fixture tests. Only checked hook
 entries contribute per-function coverage; a Rust callee invoked inside one is not
 independently counted as checked.
 
+`HookRegistry::proof_filtered(revision, pending, ids)` hooks only selected pending
+roots while dispatching through **all** supplied pending overrides and proven
+Rust callees. An empty selection is equivalent to `proof(revision, pending)`.
+Unknown roots, duplicate pending IDs and missing/conflicting execution classes
+are rejected, including invalid unhooked pending callees. Filtering changes hook
+coverage only; it never turns an unselected pending callee into original fallback.
+
 Run ROM-free checks first, then the private differential tests. From the repo root
 (`P` is this checkout; all generated evidence stays in ignored scratch):
 
@@ -207,13 +214,14 @@ source-backed masks; do not insert fabricated ROM reads to mimic prefetch bits.
 
 
 Differences in dead stack bytes below entry SP are counted, not silently reported
-as exact RAM equivalence. Any **semantic** read-before-write of such bytes in
-either the original or Rust body fails approval, including mirrored RAM, typed Bus views,
-the immediate hardware facade and nested original callees. Checked Rust writes
-mark bytes initialized; a wrong Rust body cannot pass by reading a spill left by
-an earlier original call whose Rust replacement omitted it. Residual stack state
-must be modeled before replacement is safe. Check mode does not claim that
-atomic replacement is CPU-cycle-equivalent.
+as exact RAM equivalence. Every **semantic** read-before-write in either body is
+audited, including mirrored RAM, typed Bus views, the immediate hardware facade
+and nested original callees. The checker independently replays the audited side
+with those bytes perturbed; only unchanged contract outputs discharge the read
+as informational (see section 6). A real dependency or failed replay still fails
+closed. Checked Rust writes mark bytes initialized. Reading a spill left by an
+earlier original call whose Rust replacement omitted it is not safe composition.
+Check mode does not claim that atomic replacement is CPU-cycle-equivalent.
 The 68000 bus path labels semantic, discarded and instruction-prefetch reads.
 CLR's unused read-before-write and MOVEM's terminal unused word still perform
 their real bus/MMIO transactions, but their values are not stack dependencies.
@@ -292,7 +300,7 @@ hardware wait atomic. A reviewed execution contract uses
 | --- | --- | --- |
 | `Atomic` | Original CPU instructions and Rust, peripheral clocks frozen; existing full state/trace comparison | Every return path and original callee returns without time or interrupt progress; the live FIFO can accept all accesses |
 | `Functional` | Both forks use immediate device transaction completion, clocks otherwise frozen; existing full state/trace comparison | No raster/status/HV/FIFO/DMA-busy observation, timing-dependent concurrent observer, unstable DMA source, or Z80-mailbox retry requiring the Z80 to run |
-| `TimeAware` | Independent original and Rust forks run real clocks; a Rust wait suspends the current emulated frame while original IRQ handlers execute | Explicit conditions and input timeline; identical ordered transactions, RAM and ABI outputs at return; every observed read still compares exactly |
+| `TimeAware` | Independent original and Rust forks run real clocks; a Rust wait suspends the current emulated frame while original IRQ handlers execute | Explicit conditions and input timeline; exact main-thread effects and return outputs; accepted ISR invocation/order and logic effects, with only the completed ISR YM BUSY spin rule below |
 
 `ATOMIC_CAPABLE` retains its meaning; never put a Functional/TimeAware ID there.
 Production declarations belong in the owner's `EXECUTION_CONTRACTS` and are
@@ -381,15 +389,65 @@ partial observation stream a passing timing proof.
 
 The original runs to return with clocks active. Rust starts from an identical
 fork and advances real clocks through its platform waits. Return PC/SP, banked
-stacks, declared register/SR outputs, live RAM, ordered device reads/writes and RAM
-at each device write remain obligations. Logical VDP memories/registers/port
-latches are compared after pending transactions complete on comparison forks.
+stacks, declared register/SR outputs and live RAM at return remain obligations.
+Logical VDP memories/registers/port latches compare after pending transactions
+complete on comparison forks. Actual audits/traces are captured first; endpoint
+normalization then runs while each fork still owns its cartridge, so pending
+ROM-sourced DMA reads real ROM bytes. Comparison itself is pure/idempotent.
+Execution never enables functional devices, rewrites readiness or advances an
+unfinished handler to a synthetic return merely to make a check pass.
+
+The readable layer has no original-instruction timing. Its equality projection
+separates the checked function's **main thread** from interrupt work:
+
+- Main-thread live-RAM byte stores and **all device accesses**, including
+  discarded/prefetch MMIO reads, compare in exact issue order, including address,
+  width and driven read bits. Explicit source-backed device operands compare
+  their full actual values. No main-thread device read is removed, including
+  readiness, status and H/V reads. Ordinary main-thread RAM read ordinals/counts
+  need not match Rust local/predicate lowering; their values flow into the exact
+  effects, live RAM, ABI outputs and independent residual-stack dependency probes.
+- Successful CPU exception-frame entries/returns identify each ISR, not a guessed
+  PC range, video phase, or change in interrupt mask. The accepted vector, handler
+  target, invocation count, nesting and entry/return order compare exactly,
+  relative to main-thread effects and other ISRs. Only clocks and the interrupted
+  instruction address are absent from equality. Unbalanced invocations and
+  unreviewed exception vectors fail closed. A declared root RTE is the checked
+  entry's own exit, not a newly invoked child ISR; it must reach its exact
+  reference boundary as that successful original frame returns.
+- Each invocation compares its ordered device writes, non-timing device reads,
+  live-RAM stores and semantic live-RAM reads. ISR writes cannot disappear behind
+  a global trace filter, nor can restoring a main-thread value later hide a value
+  observed by an ISR. Matching stores from identical entry RAM establish matching
+  effects at handler returns; final live-RAM comparison covers the checked return.
+  The existing dead-stack/ABI rule and independent dependency audit still apply.
+
+**The sole ISR readiness stutter rule:** a semantic **byte** read of YM status at
+`0xA04000` or `0xA04002` is eligible only when the executing user-memory
+instructions are verified to be `BTST #7,<memory>; BNE <same BTST>`. The effective
+address mode has no postincrement/predecrement or other side effect; the loop
+contains no counter, timeout, write, callback or other instruction. Zero or more
+real busy observations followed by one real ready observation become one
+completed-poll token containing the original poll PC and port. The terminal
+read must actually have bit 7 clear. A missing ready read, changed site,
+unfinished loop or other effect before ready is an error. BTST consumes only
+bit 7 and leaves the same Z after the terminal ready test; other status bits
+remain raw but are not operands of this reviewed loop. Explicit full operands,
+arbitrary YM reads, BUSACK/VDP loops and main-thread polls are not eligible.
+
+Actual values, PCs and master clocks survive in raw `LogicEvent` traces.
+`CheckReport::time_aware` counts ISR invocations and busy/total poll reads on both
+sides, and calls with differing raw device/chip-write streams.
+`CheckReport::last_time_aware` retains the latest complete raw pair in memory;
+these private runtime observations must not be committed or distributed.
+The quotient changes comparison only, never the executed device protocol.
+
 Raster/HV phase, FIFO occupancy/latency, render caches/pixels, independently
-progressing Z80 state and audio phase are **not** time-aware function outputs.
-These exclusions never hide an observed read: status/HV/BUSACK/YM operands and
-polling counts remain in the transaction trace. A generic device wait whose
-polling sequence differs therefore fails closed; only a separately reviewed
-whole-poll-loop primitive may define a narrower observation contract.
+progressing Z80 state and audio phase are **not** readable TimeAware outputs.
+The asynchronous Z80 chip-write stream is recorded rather than compared as one
+interleaved 68000/Z80 sequence. Every main-thread/per-ISR **68000** VDP/YM/PSG
+transaction still compares through its owned trace; checked-function sound
+transactions may not be discarded.
 
 `WaitForNextVBlank` does not draw idle random numbers: it waits on the
 IRQ-incremented counter, and each original ISR must actually finish. Do not add
@@ -398,6 +456,189 @@ still require exact recorded counts; lag and interrupt phase still require
 logic-tick/session evidence. A passing function-level logic check is not a
 timing-equivalence claim for a native scheduler or for replacement play.
 
+Named projection regressions separately exercise the live frame-492/2437 windows
+and a GenerateSpeech fixture reached by **original-only** advancement to frame
+10000. They are not a continuous 10000-frame readable-layer proof. A previous
+continuous REV 02 run rejected UpdateSpeechAndDialogue at frame 7353 on strict
+logical VDP state; its independent diagnosis/approval remains pending, not masked
+or attributed to a particular field without evidence.
+
+
+## 6. Differential dead-stack dependency checks
+
+A semantic bus read is not necessarily an output dependency: for example,
+`PrepareEntitySpriteFrame` REV 02 PC `0xCA36` reads a word whose high byte is
+unwritten, then `EXT.W` discards that byte. `ReadPurpose` does not change to
+accommodate this value flow.
+
+For each side with audited bytes, check mode creates fresh forks of the same
+entry state and perturbs **only** those canonical byte addresses. Two distinct
+XOR masks (`55` and `aa`) change every candidate byte relative to its entry value.
+With multiple candidates, additional two-pattern single-byte probes prevent
+correlated changes from hiding dependencies such as `old_a - old_b`. If a replay
+exposes more unwritten bytes, their union is probed before approval.
+
+Nested atomic originals borrow the suspended root's entry-SP boundary and
+initialized-byte bitmap, processing reads and writes in instruction order.
+Incoming callee arguments can still be unwritten caller locals; moving below a
+new callee SP does not make them safe. Real callee source PCs are retained, and
+a later write never retroactively initializes an earlier read. Clocked originals
+merge their complete ordered accesses through the same root scope.
+
+Each replay uses the same hook, dispatcher, execution class, input timeline,
+clock entry and stack-audit initialization as that side's baseline. It compares
+every output of that execution contract: return/control state, declared
+registers/SR, RAM outside the dead window, device state and ordered device
+reads/writes, plus live RAM at each device write. The other side agreeing with
+the baseline never substitutes for this independent dependency check. Any
+difference or a replay that fails to complete is a check mismatch.
+
+Accepted read sites are recorded in `nondependent_stack_reads`; rejected sites
+remain in `uninitialized_stack_reads`. `stack_dependency_reruns` counts the extra
+side executions, not checked calls, nested-call coverage or gameplay wait frames.
+These are per-entry differential observations, not proof of independence for
+every possible stack value or future game state. A later call is checked again.
+Finite probes are **not** a formal independence or sequential-composition proof.
+A read gated on an untested value can evade them: baseline `ff` with XOR
+`55`/`aa` never tests an `old_byte == 00` branch. Review discharged sites against
+static value flow where possible (for example, `EXT.W` kills the loaded high
+byte before any use, or an exact `AND`/`MOVE.B` mask removes it). Otherwise flag
+the site for a conditional-read mutation test rather than treating discharge as
+universal proof.
+
+The opt-in `tje-host` `semantic_reads` tests cover the real REV 02 `0xCA36`
+case and REV 00 counterpart, discarded high bytes on either side, true
+RAM/register/device dependencies, RAM/device ordering, correlated cancellation,
+newly exposed candidates and nonreturning probes. `review_regressions` retains
+the earlier sequential/Rust-only proofs and adds the prepared-original hole:
+correct stores pass with original/Rust callees, omitted stores and
+read-before-later-write fail in Atomic/TimeAware roots, and genuinely unused
+eager argument loads remain informational rather than false dependencies.
+
+## 7. Exceptions, terminal entries and persistent control flow
+
+Execution classes describe clocks, not an implied RTS.
+`tje_game::exits::contract(id)` supplies the separately reviewed `ExitContract`;
+generated inventory remains unchanged. C handlers `HandleVBlank` and
+`HandleHBlank` still RTS to assembly wrappers; only `Level6Isr` / `Level4Isr`
+consume the exception frame with RTE.
+
+| Entry | Finite reference boundary / native outcome |
+| --- | --- |
+| `Level4Isr`, `Level6Isr` | `ExceptionReturn`: restore saved SR/PC from the six-byte supervisor frame |
+| `RestartFromResetEntry` | `Tail` to `_start`, after masking interrupts and reloading active SP from cartridge vector zero |
+| `_start` | `Tail` to `GameProgram`; cold startup clears USP, warm startup preserves its original skip |
+| `GameProgram` | `Call` to `VDPInitialisation`, pushing actual fragment-end return PC (`entry + 38`) |
+| `VDPInitialisation` | `Call` to `FurtherInitialisation`, pushing actual return PC `entry + 8` |
+| `ErrorTrap` | `Terminal`: at least one original self-branch, without a return or stack pop |
+| `FurtherInitialisation` | Modal startup calls, then persistent `Begin` / `Idle` continuations |
+
+Registries apply both policies. `GameProgram`'s fragment is admitted only because
+it has an explicit non-RTS contract; undeclared fragments still fail closed.
+Authored fixtures use `register_exit_contract(symbol, class, exit_contract, body)`
+and retain their own addresses. Registration alone is not proof of a body.
+
+`TranslationFn` retains `Result<Option<u32>>`. Non-RTS bodies end with typed
+`exits::{exception_return,tail,call_transfer,terminal,main_loop}` helpers.
+These produce `Error::ControlTransfer(...)` events, never a fake D0 or `Ok(None)`.
+Callers propagate them with `?`; framed calls do not run RTS cleanup, restore an
+abandoned caller frame or pop outgoing arguments afterward. Execution-class
+scope is restored even when the frame is abandoned. Nested dispatch validates
+each callee before extracting D0, so an invalid normal return cannot let a caller
+continue and mutate state. Wrong sources/targets/JSR return PCs fail closed.
+
+`exits::enter(context, entry, arguments)` executes a prepared entry without
+inventing a JSR and returns `EntryOutcome::{Returned,Transfer}` for a native
+scheduler to consume. Missing non-RTS bodies cannot use the ordinary RTS-only
+original-call bridge.
+
+`Context::{stack_banks,set_stack_banks}` expose both USP and SSP, rejecting
+unsupported contexts by default. `exits::restore_exception` requires supervisor
+mode, reads SR at SSP and PC at SSP+2, advances **SSP** by six, then restores SR.
+User mode selects untouched USP; supervisor mode selects advanced SSP.
+All D/A registers, full SR, PC, both banks and accepted exception depth compare.
+The host records exactly one successful native RTE; wrapper register saves and
+callee effects remain real materialized-frame obligations.
+
+Rust supplies a validated outcome before original execution. RTS compares the
+real return PC and SP; RTE reaches the exception return; tail/JSR boundaries must
+originate in the declared source entry. Terminal checks execute at least one
+original branch. Non-RTS comparison includes the still-live frame below entry SP
+(dead end is no higher than the lower of entry/exit SP), not all historical
+popped spills. RTE also conservatively includes any valid RAM USP, including a
+suspended user caller beneath a supervisor return. Without declared disjoint
+stack bounds a lower USP can require extra SSP-spill equality; it cannot waive
+user-frame corruption. Device/RAM ordering and dependency probes retain the same
+execution class and outcome boundary; no instruction bound is raised.
+
+Use `check_entry_fixture(address)` for deliberately prepared frames, without a
+synthetic return word or implicit settling. `check_continuation_fixture(entry,
+stage, body, saved_frame)` checks a prepared persistent stage without restarting
+startup; its explicit `FrameState` is the original parent's, not the lower SP.
+Both restore machine/scheduler state afterward and retain coverage. These are
+labelled fixtures, not claims that natural gameplay generated the inputs.
+
+`FurtherInitialisation` retains a twenty-byte D2/D3/A2/A3/A4 save frame:
+
+| Stage | Offset from entry | Retained state |
+| --- | ---: | --- |
+| Intro return / `AfterIntro` | `0xe0` | Save frame plus eight outgoing starfield argument bytes |
+| Menu return / `AfterMenu` | `0xe6` | Same frame/arguments; cleanup only after menu return |
+| `Begin` | `0x260` | Persistent frame; D2.low phase and D3.low frame-counter snapshot |
+| `Idle` | `0x2fc` | Recurrent counter comparison; same retained frame/high halves |
+
+The real JSR returns select `MainLoopContinuation::from_return`; the owner supplies
+`MainLoopBodies` for the four stages. `resume` selects a real body, not a suspended
+Rust caller. The uninitialized C phase is original D2 residue, not a new zero.
+A native scheduler's modal Call record retains the parent's `FrameState` before
+entering Intro/Menu and restores it before the matching `AfterIntro`/`AfterMenu`
+stage. `from_return` maps only PC to stage; it does not recover that saved frame
+from the current SP, which still includes twenty saved bytes and eight arguments.
+`Begin` is one source-scheduled logic iteration, not a rendered video frame;
+`Idle` draws RNG only while the counter equals D3.low and resumes only after a
+real interrupt changes it. Recorded idle-draw and lag/IRQ policies remain separate
+native-scheduler obligations.
+
+Terminal stops game logic, not devices/IRQs. Hybrid dispatch consumes it once and
+lets the original park loop clock devices rather than repeatedly dispatching a
+zero-time hook. Hard reset clears it; native platforms advance devices without
+68000 instructions. Function checks do not claim whole-session timing or a
+complete native dependency closure.
+
+## 8. Settle a live boundary before seeding RTS fixtures
+
+End-of-video-frame state may contain a pending IRQ, bus/FIFO/DMA halt, refresh
+wait or unfinished handler. Before the **first fixture mutation**, call
+`host.settle_fixture_boundary(script.at(host.frame_count()))?`. Record its real
+ticks/master clocks, start/end PC/frame, completed handlers and every returned
+`BoundaryAdvance::completed_frames` snapshot.
+
+Settling advances only original instructions/devices, even in Check/Replace,
+to the first instruction-ready boundary with no asserted/pending IRQ, CPU wait,
+bus halt or outstanding exception frame. Successful entries/RTEs, including
+nested traps, are observed by the CPU, not inferred from SR masks/PC ranges.
+It never rewrites PC/prefetch, SP, SR, stopped/IRQ flags or registers to manufacture
+readiness. Already settled state returns zero work. Its fixed bound never raises
+the function call bound.
+
+Supply current-frame inputs and apply any current-frame recipe beforehand.
+Crossed frames use the same `WaitInputPoller` timeline as waits; missing samples
+are errors. Completed snapshots retain audio/hardware writes and normal frame
+counts. Partial-frame audio/write/idle/lag observations remain for the next
+`run_frame`. No translation runs or earns coverage during settling.
+
+`check_call`/`check_fixture` reject unsettled entries **before** injecting slots
+or a sentinel. They never settle after seeding inputs, when gameplay could consume
+the synthetic mutation. Do not clear IRQs, lift the mask, choose another session,
+replace caller state or increase bounds to evade the original work. Ordinary
+fixture isolation restores all machine bytes; recorded settling progress remains.
+Explicitly prepared non-RTS `check_entry_fixture` frames use section 7 instead.
+
+`fixture::tests::player_entity_fixture_after_recorded_10000_frames` runs both
+revisions' committed one-player recordings for exactly 10,000 natural frames,
+then settles before Player's original level/x/y writes and `EntityIsNearPosition`
+call. Its source-cited local predicate keeps this host regression independent of
+translation-lane promotion.
 
 [decomp]: https://github.com/mschienbein/toejam-earl-decomp
 

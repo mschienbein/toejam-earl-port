@@ -9,16 +9,20 @@
 
 pub mod abi;
 pub mod catalogue;
+pub mod check_projection;
 mod coverage;
 pub use coverage::FunctionCoverageTable;
 pub mod execution;
+mod exits;
+pub mod fixture;
 pub mod hooks;
 pub mod input;
 mod play;
 pub mod session_trace;
 mod sinks;
+mod stack_dependency;
 
-use abi::{HookContext, OrderedWrite, UninitializedStackRead, run_original_atomic, set_sp};
+use abi::{HookContext, OrderedWrite, run_original_atomic, set_sp};
 use execution::{WaitClock, WaitInputPoller, run_original_timed};
 use genesis_config::{GenesisEmulatorConfig, GenesisInputs};
 use genesis_core::{GenesisEmulator, HybridWrite};
@@ -26,6 +30,7 @@ use hooks::{Hook, HookRegistry};
 use jgenesis_common::frontend::{Color, EmulatorTrait, FrameSize, PartialClone, TickEffect};
 use serde::Serialize;
 use sinks::{HeadlessAudio, HeadlessOutput, Inputs, NoCartridgeSaves};
+use stack_dependency::{CheckSide, compare_check_runs};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use tje_game::execution::ExecutionClass;
@@ -170,7 +175,16 @@ pub struct CheckReport {
     pub nested_original_calls: u64,
     pub dead_stack_differing_calls: u64,
     pub dead_stack_differing_bytes: u64,
+    /// Read sites whose dependency probes failed or could not complete.
     pub uninitialized_stack_reads: BTreeSet<StackReadSite>,
+    /// Informational semantic reads with unchanged outputs on additional forks.
+    pub nondependent_stack_reads: BTreeSet<StackReadSite>,
+    /// Additional side executions, not checked calls or gameplay wait frames.
+    pub stack_dependency_reruns: u64,
+    pub time_aware: BTreeMap<String, check_projection::TimeAwareCheckSummary>,
+    /// Private raw observations; never export cartridge-derived runtime traces.
+    #[serde(skip)]
+    pub last_time_aware: Option<check_projection::TimeAwareObservation>,
 }
 
 impl CheckReport {
@@ -232,6 +246,8 @@ pub struct Host {
     symbols: catalogue::RevisionSymbols,
     frame: u64,
     main_idle: bool,
+    frame_progress: fixture::FrameProgress,
+    terminal_entry: Option<tje_game::FunctionId>,
     output: HeadlessOutput,
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
@@ -281,6 +297,8 @@ impl Host {
             symbols: catalogue::RevisionSymbols::for_revision(revision),
             frame: 0,
             main_idle: false,
+            frame_progress: fixture::FrameProgress::default(),
+            terminal_entry: None,
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
@@ -336,36 +354,16 @@ impl Host {
         self.wait_clock.frame = self.frame;
         self.wait_clock.inputs = inputs;
         let mut inputs = Inputs(inputs);
-        let mut idle_draws = 0;
-        let mut lag_events = Vec::new();
         loop {
             let pc = self.emulator.hybrid_cpu().pc();
             let bus = self.emulator.hybrid_bus();
             let ready = bus.cycles.m68k_wait_cpu_cycles == 0
                 && self.emulator.hybrid_cpu().hybrid_instruction_ready(bus);
             if ready {
-                self.trace_instruction(pc);
-                if pc == self.symbols.intro {
-                    self.measurements.intro_frame.get_or_insert(self.frame);
-                } else if pc == self.symbols.title {
-                    self.measurements.title_frame.get_or_insert(self.frame);
-                } else if pc == self.symbols.new_game_menu {
-                    self.measurements.menu_frame.get_or_insert(self.frame);
-                } else if pc == self.symbols.main_loop {
-                    self.measurements.game_frame.get_or_insert(self.frame);
-                    self.measurements.logic_ticks += 1;
-                    self.main_idle = false;
-                } else if pc == self.symbols.main_wait {
-                    self.main_idle = true;
-                } else if pc == self.symbols.random {
-                    let sp = self.emulator.hybrid_cpu().stack_pointer();
-                    let return_pc = self.context().read_u32(sp);
-                    if return_pc == self.symbols.idle_random_return {
-                        idle_draws += 1;
-                    }
-                }
+                self.observe_live_instruction(pc);
                 if self.mode != Mode::Reference
                     && let Some(hook) = self.registry.at(pc).cloned()
+                    && self.terminal_entry != Some(hook.symbol.id)
                 {
                     if self.mode == Mode::Check {
                         self.check_hook(&hook)?;
@@ -376,42 +374,13 @@ impl Host {
                     }
                 }
             }
-            let previous_line = self.emulator.hybrid_bus().vdp.scanline();
-            let effect = self.tick(&mut inputs)?;
-            let vdp = &self.emulator.hybrid_bus().vdp;
-            let blank_line = vdp
-                .hybrid_registers()
-                .vertical_display_size
-                .active_scanlines();
-            if previous_line != vdp.scanline()
-                && vdp.scanline() == blank_line
-                && self.measurements.game_frame.is_some()
-                && !self.main_idle
-            {
-                let event = LagEvent {
-                    frame: self.frame,
-                    pc_at_vblank: pc,
-                    frame_counter: self.context().read_u16(catalogue::FRAME_COUNTER),
-                };
-                self.trace_lag();
-                self.measurements.lag_events.push(event.clone());
-                lag_events.push(event);
-            }
+            let effect = self.tick_live_original(&mut inputs)?;
             if effect == TickEffect::FrameRendered {
                 break;
             }
         }
-        let snapshot = self.snapshot(idle_draws, lag_events)?;
-        self.frame += 1;
+        let snapshot = self.finish_live_frame()?;
         self.wait_clock.frame = self.frame;
-        self.measurements.idle_draws_per_frame.push(idle_draws);
-        for write in &snapshot.writes {
-            match write {
-                HardwareWrite::Vdp { .. } => self.measurements.vdp_writes += 1,
-                HardwareWrite::Ym2612 { .. } => self.measurements.ym2612_writes += 1,
-                HardwareWrite::Psg { .. } => self.measurements.psg_writes += 1,
-            }
-        }
         Ok(snapshot)
     }
 
@@ -492,7 +461,7 @@ impl Host {
         result
     }
 
-    fn check_hook(&mut self, hook: &Hook) -> Result<()> {
+    fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
         // Do not copy this frame's accumulated event trace into either fork.
         let live_trace = self.emulator.hybrid_bus_mut().hybrid_writes.take();
         let result = self.check_hook_inner(hook);
@@ -500,79 +469,77 @@ impl Host {
         result
     }
 
-    fn check_hook_inner(&mut self, hook: &Hook) -> Result<()> {
-        let sp = self.emulator.hybrid_cpu().stack_pointer();
-        let return_pc = self.context().read_u32(sp);
+    fn check_hook_inner(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
+        let entry = exits::EntryState::capture(&self.context(), hook.exit_contract)?;
+        let sp = entry.sp;
         let mut original = self.fork();
         let mut translated = self.fork();
-        let mut original_clock = self.wait_clock.clone();
-        let audit = self.execute_fork(&mut original, |emulator| {
-            if hook.execution_class == ExecutionClass::Functional {
-                emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-            }
-            if hook.execution_class == ExecutionClass::TimeAware {
-                let (audit, _) = run_original_timed(
-                    emulator,
-                    &mut original_clock,
-                    return_pc,
-                    sp.wrapping_add(4),
-                )?;
-                Ok(audit)
-            } else {
-                run_original_atomic(emulator, return_pc, sp.wrapping_add(4), true)
-            }
-        })?;
-        self.measurements.check_original_wait_frames +=
-            original_clock.frame - self.wait_clock.frame;
-        let revision = self.revision;
-        let dispatcher = self.registry.dispatcher();
-        let translated_clock = self.wait_clock.clone();
-        let (nested_calls, translated_writes, nested_reads, translated_frames) = self
-            .execute_fork(&mut translated, |emulator| {
-                if hook.execution_class == ExecutionClass::Functional {
-                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-                }
-                let mut context = HookContext::new(emulator, revision, dispatcher)
-                    .with_execution(hook.execution_class, translated_clock);
-                context.enable_stack_audit();
-                let value = hook.execute(&mut context)?;
-                context.return_to_caller(value);
-                Ok((
-                    context.nested_calls,
-                    context.writes,
-                    context.uninitialized_reads.into_inner(),
-                    context.time_frames,
-                ))
-            })?;
-        self.measurements.check_rust_wait_frames += translated_frames;
+        // The Rust outcome declares the finite original boundary, including
+        // propagated resets, exception returns and persistent main-loop stages.
+        let translated_run = self.run_check_side(&mut translated, hook, CheckSide::Rust)?;
+        let original_side = CheckSide::Original {
+            boundary: exits::reference_boundary(
+                hook,
+                translated_run.outcome,
+                entry,
+                self.revision,
+            )?,
+            outcome: translated_run.outcome,
+        };
+        let original_run = self.run_check_side(&mut original, hook, original_side)?;
+        self.measurements.check_original_wait_frames += original_run.wait_frames;
+        self.measurements.check_rust_wait_frames += translated_run.wait_frames;
         self.checks.calls += 1;
         self.checks.record_function(hook, true);
-        self.checks.nested_original_calls += nested_calls;
-        let stack_dependency = !audit.uninitialized_reads.is_empty() || !nested_reads.is_empty();
-        for UninitializedStackRead { pc, address } in
-            audit.uninitialized_reads.into_iter().chain(nested_reads)
-        {
-            self.checks.uninitialized_stack_reads.insert(StackReadSite {
+        self.checks.nested_original_calls += translated_run.nested_calls;
+        if hook.execution_class == ExecutionClass::TimeAware {
+            let raw_writes_differ =
+                original.hybrid_bus().hybrid_writes != translated.hybrid_bus().hybrid_writes;
+            self.checks
+                .time_aware
+                .entry(hook.symbol.name.to_owned())
+                .or_default()
+                .record(
+                    &original_run.logic_trace,
+                    &translated_run.logic_trace,
+                    raw_writes_differ,
+                );
+        }
+        // Each side must be independent of its own read-before-write bytes.
+        // Agreement with the other side alone cannot prove safe composition.
+        let original_independent =
+            self.check_stack_dependencies(&mut original, &original_run, hook, original_side);
+        let rust_independent =
+            self.check_stack_dependencies(&mut translated, &translated_run, hook, CheckSide::Rust);
+        let comparison = original_independent.and(rust_independent).and_then(|()| {
+            let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
+            compare_check_runs(
+                &mut original,
+                &mut translated,
+                &original_run,
+                &translated_run,
+                hook,
+                entry_ram,
+                sp,
+            )
+        });
+        if hook.execution_class == ExecutionClass::TimeAware {
+            self.checks.last_time_aware = Some(check_projection::TimeAwareObservation {
                 function: hook.symbol.name.to_owned(),
-                pc,
-                address,
+                original: original_run.logic_trace.events,
+                translated: translated_run.logic_trace.events,
             });
         }
-        let comparison = if stack_dependency {
-            Err("uninitialized stack read: a stateful stack dependency cannot be approved as an atomic Rust function".into())
-        } else { compare_calls_with_execution(&mut original, &mut translated, sp, &hook.symbol.abi, hook.execution_class) }
-            .and_then(|dead_bytes| {
-                let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
-                compare_io_ram_order(&audit.writes, &translated_writes, entry_ram, sp)?;
-                Ok(dead_bytes)
-            });
         match comparison {
             Ok(dead_bytes) => {
                 self.checks.dead_stack_differing_bytes += dead_bytes;
                 if dead_bytes != 0 {
                     self.checks.dead_stack_differing_calls += 1;
                 }
-                Ok(())
+                if let Some(entry) = exits::terminal(translated_run.outcome) {
+                    self.terminal_entry = Some(entry);
+                }
+                Ok(translated_run.outcome)
             }
             Err(detail) => {
                 self.checks.mismatches += 1;
@@ -605,9 +572,10 @@ impl Host {
             context = context.with_execution(hook.execution_class, self.wait_clock.clone());
             context.time_audio = std::mem::take(&mut self.audio.samples);
         }
-        let result = hook
-            .execute(&mut context)
-            .map(|value| context.return_to_caller(value));
+        let result = hook.execute(&mut context).and_then(|outcome| {
+            exits::finish(&mut context, hook, outcome)?;
+            Ok(outcome)
+        });
         self.checks.nested_original_calls += context.nested_calls;
         if progresses_time {
             self.wait_clock = context.wait_clock;
@@ -615,13 +583,16 @@ impl Host {
             self.measurements.wait_video_frames += context.time_frames;
             self.audio.samples = context.time_audio;
         }
-        result?;
+        if let Some(entry) = exits::terminal(result?) {
+            self.terminal_entry = Some(entry);
+        }
         self.checks.record_function(hook, false);
         Ok(())
     }
 
     /// ROM-backed function fixture. Does not advance hardware clocks. Useful for
     /// edge cases that the live game never generates (e.g. minimum signed seed).
+    /// Requires a settled live boundary; settle before seeding fixture inputs.
     pub fn check_call(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
         self.check_call_inner(address, arguments, false)
     }
@@ -632,11 +603,18 @@ impl Host {
         arguments: &[u32],
         isolated_fixture: bool,
     ) -> Result<u32> {
+        self.require_fixture_boundary()?;
         let hook = self
             .registry
             .at(address)
             .cloned()
             .ok_or_else(|| HostError::Metadata(format!("no hook at {address:06X}")))?;
+        if hook.exit_contract != tje_game::exits::ExitContract::Rts {
+            return Err(HostError::Metadata(
+                "non-RTS diagnostics require check_entry_fixture without a fabricated return"
+                    .into(),
+            ));
+        }
         if hook.execution_class != ExecutionClass::Atomic && !isolated_fixture {
             return Err(HostError::Metadata(
                 "non-atomic diagnostics require check_fixture isolation".into(),
@@ -686,22 +664,7 @@ impl Host {
     /// every device/storage byte afterward, but retain the measured coverage.
     /// This prevents diagnostic writes from filling a frozen VDP FIFO across calls.
     pub fn check_fixture(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
-        let mut saved = self.emulator.partial_clone();
-        let result = self.check_call_inner(address, arguments, true);
-        saved
-            .hybrid_bus_mut()
-            .cartridge
-            .as_mut()
-            .expect("cartridge")
-            .take_rom_from(
-                self.emulator
-                    .hybrid_bus_mut()
-                    .cartridge
-                    .as_mut()
-                    .expect("cartridge"),
-            );
-        self.emulator = saved;
-        result
+        self.isolated_fixture(|host| host.check_call_inner(address, arguments, true))
     }
 }
 
@@ -736,6 +699,9 @@ fn compare_calls_with_execution(
         || a.supervisor_stack_pointer() != b.supervisor_stack_pointer()
     {
         return Err("banked USP/SSP state differs".into());
+    }
+    if a.hybrid_exception_depth() != b.hybrid_exception_depth() {
+        return Err("accepted exception nesting depth differs".into());
     }
     let (da, db) = (a.data_registers(), b.data_registers());
     if abi.returns_value && da[0] != db[0] {
@@ -812,11 +778,6 @@ fn compare_calls_with_execution(
             a.hybrid_functional_violation, b.hybrid_functional_violation
         ));
     }
-    if execution_class == ExecutionClass::TimeAware {
-        // Comparison-only completion: execution above used exact timed devices.
-        a.hybrid_set_functional_mode(true);
-        b.hybrid_set_functional_mode(true);
-    }
     let vdp_matches = if execution_class == ExecutionClass::TimeAware {
         a.vdp.hybrid_logic_state_eq(&b.vdp)
     } else {
@@ -826,6 +787,11 @@ fn compare_calls_with_execution(
         return Err(
             "VDP state differs (ports/latches/FIFO/DMA/render state/memories/registers)".into(),
         );
+    }
+    if execution_class == ExecutionClass::TimeAware {
+        // Owned main-thread/ISR logic effects are compared by check_projection;
+        // asynchronous sound writes and verified ISR busy spins remain raw info.
+        return Ok(dead_bytes);
     }
     let accesses_a = a.hybrid_accesses.as_deref().unwrap_or(&[]);
     let accesses_b = b.hybrid_accesses.as_deref().unwrap_or(&[]);

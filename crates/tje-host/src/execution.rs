@@ -8,6 +8,7 @@ use crate::{
     HostError, Result,
     abi::{AtomicRun, OrderedWrite, UninitializedStackRead, canonical_ram_address, set_sp},
     catalogue::{STACK_BOTTOM, STACK_TOP},
+    check_projection::{LogicEvent, LogicTrace, tight_ym_busy_loop},
     input::InputScript,
     sinks::{HeadlessAudio, HeadlessOutput, Inputs, NoCartridgeSaves},
 };
@@ -43,7 +44,7 @@ pub struct WaitClock {
     pub poller: Option<Arc<dyn WaitInputPoller>>,
 }
 impl WaitClock {
-    fn advance_frame(&mut self, emulator: &mut GenesisEmulator) -> Result<()> {
+    pub(crate) fn advance_frame(&mut self, emulator: &mut GenesisEmulator) -> Result<()> {
         self.frame += 1;
         let poller = self.poller.as_ref().ok_or_else(|| {
             HostError::Input(format!(
@@ -92,6 +93,11 @@ pub(crate) struct ClockRun {
     pub ticks: u64,
     pub frames: u64,
     pub accesses: Vec<(u32, HybridAccess)>,
+    pub logic_trace: LogicTrace,
+    exception_base: u32,
+    entry_boundary: Option<crate::exits::ReferenceBoundary>,
+    instructions: u64,
+    previous_pc: Option<u32>,
     pub audio: Vec<[f64; 2]>,
 }
 
@@ -189,10 +195,16 @@ pub(crate) fn discharge_functional_wait(
     Ok(())
 }
 
-fn drain_accesses(emulator: &mut GenesisEmulator, pc: u32, run: &mut ClockRun) {
+fn drain_accesses(
+    emulator: &mut GenesisEmulator,
+    pc: u32,
+    master_clock: u64,
+    ym_busy_loop: bool,
+    run: &mut ClockRun,
+) {
     let bus = emulator.hybrid_bus_mut();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
-        run.accesses.extend(accesses.drain(..).filter_map(|access| {
+        for access in accesses.drain(..) {
             let address = match access {
                 HybridAccess::Read { address, .. } | HybridAccess::Write { address, .. } => address,
             };
@@ -200,11 +212,12 @@ fn drain_accesses(emulator: &mut GenesisEmulator, pc: u32, run: &mut ClockRun) {
             if pc == PARK_PC
                 && (PARK_PC..PARK_PC + PARK_BYTES).contains(&canonical_ram_address(address))
             {
-                None
-            } else {
-                Some((pc, access))
+                continue;
             }
-        }));
+            run.accesses.push((pc, access));
+            run.logic_trace
+                .access(pc, master_clock, access, ym_busy_loop);
+        }
     }
 }
 
@@ -215,6 +228,17 @@ fn timed_tick(
     audio: &mut HeadlessAudio,
 ) -> Result<()> {
     let pc = emulator.hybrid_cpu().pc();
+    let master_clock = emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+    let depth_before = emulator.hybrid_cpu().hybrid_exception_depth();
+    let auditing = emulator.hybrid_bus().hybrid_cpu_accesses.is_some();
+    let bus = emulator.hybrid_bus();
+    let ready =
+        bus.cycles.m68k_wait_cpu_cycles == 0 && emulator.hybrid_cpu().hybrid_instruction_ready(bus);
+    if ready {
+        run.previous_pc = Some(pc);
+        run.instructions += 1;
+    }
+    let ym_busy_loop = auditing && ready && tight_ym_busy_loop(emulator, pc);
     let effect = emulator
         .tick(
             &mut HeadlessOutput,
@@ -224,10 +248,51 @@ fn timed_tick(
         )
         .map_err(|error| HostError::Emulator(error.to_string()))?;
     run.ticks += 1;
-    drain_accesses(emulator, pc, run);
+    let depth_after = emulator.hybrid_cpu().hybrid_exception_depth();
+    if auditing && depth_after > depth_before {
+        let vector = emulator
+            .hybrid_cpu()
+            .hybrid_last_exception_vector()
+            .ok_or_else(|| {
+                HostError::Metadata("accepted exception has no observed vector".into())
+            })?;
+        run.logic_trace.events.push(LogicEvent::ExceptionEntered {
+            vector,
+            handler: emulator.hybrid_cpu().pc(),
+            depth: depth_after - run.exception_base,
+            master_clock,
+        });
+    }
+    drain_accesses(emulator, pc, master_clock, ym_busy_loop, run);
+    if auditing && depth_after < depth_before {
+        let root_return = run.entry_boundary.is_some_and(|boundary| {
+            boundary.entry_exception_return
+                && depth_before == run.exception_base
+                && depth_after.checked_add(1) == Some(run.exception_base)
+                && boundary.reached(emulator.hybrid_cpu(), run.previous_pc, run.instructions)
+        });
+        if !root_return {
+            let depth = depth_after.checked_sub(run.exception_base).ok_or_else(|| {
+                HostError::Metadata("timed call returned through its entry exception frame".into())
+            })?;
+            run.logic_trace.events.push(LogicEvent::ExceptionReturned {
+                depth,
+                master_clock: emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+            });
+        }
+    }
     if effect == TickEffect::FrameRendered {
         run.frames += 1;
         clock.advance_frame(emulator)?;
+        // Timeline writes belong to this completed tick, not to a later IRQ
+        // that happens to enter before the next ordinary instruction.
+        drain_accesses(
+            emulator,
+            emulator.hybrid_cpu().pc(),
+            emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+            false,
+            run,
+        );
     }
     Ok(())
 }
@@ -287,7 +352,10 @@ pub(crate) fn run_wait_with_audio(
         bus.memory.write_main_ram::<true>(PARK_PC + 2, 0x4e71);
         cpu.set_pc(PARK_PC, bus);
     }
-    let mut run = ClockRun::default();
+    let mut run = ClockRun {
+        exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
+        ..ClockRun::default()
+    };
     let mut audio = HeadlessAudio { samples };
     let mut handler_entered = false;
     let result = (|| {
@@ -302,7 +370,13 @@ pub(crate) fn run_wait_with_audio(
                     ));
                 }
                 let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
-                drain_accesses(emulator, PARK_PC, &mut run);
+                drain_accesses(
+                    emulator,
+                    PARK_PC,
+                    emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                    false,
+                    &mut run,
+                );
                 if satisfied {
                     return Ok(());
                 }
@@ -349,6 +423,30 @@ pub(crate) fn run_original_timed_with_audio(
     samples: Vec<[f64; 2]>,
     audit: bool,
 ) -> Result<(AtomicRun, ClockRun)> {
+    run_original_timed_until_with_audio(
+        emulator,
+        clock,
+        crate::exits::ReferenceBoundary::returned(return_pc, return_sp),
+        samples,
+        audit,
+    )
+}
+
+pub(crate) fn run_original_timed_until(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    boundary: crate::exits::ReferenceBoundary,
+) -> Result<(AtomicRun, ClockRun)> {
+    run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true)
+}
+
+pub(crate) fn run_original_timed_until_with_audio(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    boundary: crate::exits::ReferenceBoundary,
+    samples: Vec<[f64; 2]>,
+    audit: bool,
+) -> Result<(AtomicRun, ClockRun)> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
             "timed execution cannot use functional devices".into(),
@@ -359,16 +457,18 @@ pub(crate) fn run_original_timed_with_audio(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
         audit.then(Vec::new),
     );
-    let mut run = ClockRun::default();
+    let mut run = ClockRun {
+        exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
+        entry_boundary: Some(boundary),
+        ..ClockRun::default()
+    };
     let mut audio = HeadlessAudio { samples };
     let result = (|| {
-        while emulator.hybrid_cpu().pc() != return_pc
-            || emulator.hybrid_cpu().stack_pointer() != return_sp
-        {
+        while !boundary.reached(emulator.hybrid_cpu(), run.previous_pc, run.instructions) {
             if run.ticks == MAX_TIMED_TICKS {
                 return Err(HostError::CallDidNotReturn {
                     pc: emulator.hybrid_cpu().pc(),
-                    return_pc,
+                    return_pc: boundary.pc,
                 });
             }
             timed_tick(emulator, clock, &mut run, &mut audio)?;

@@ -30,6 +30,7 @@ impl Host {
         self.emulator.hybrid_bus_mut().hybrid_writes = trace;
         result?;
         self.frame += 1;
+        self.frame_progress = Default::default();
         self.wait_clock.frame = self.frame;
         Ok(&self.audio.samples)
     }
@@ -57,6 +58,7 @@ impl Host {
                 }
                 if self.mode == Mode::Replace
                     && let Some(hook) = self.registry.at(pc).cloned()
+                    && self.terminal_entry != Some(hook.symbol.id)
                 {
                     self.replace_hook(&hook)?;
                     inputs.0 = self.wait_clock.inputs;
@@ -104,6 +106,8 @@ impl Host {
         self.wait_clock.frame = 0;
         self.wait_clock.inputs = GenesisInputs::default();
         self.main_idle = false;
+        self.frame_progress = Default::default();
+        self.terminal_entry = None;
         self.session_trace = None;
         self.emulator
             .update_audio_output_frequency(u64::from(self.audio_sample_rate));

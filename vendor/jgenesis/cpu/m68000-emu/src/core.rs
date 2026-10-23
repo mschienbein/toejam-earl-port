@@ -901,6 +901,8 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
 
         let vector = self.bus.read_long_word(ADDRESS_ERROR_VECTOR * 4);
         self.jump_to_address(vector)?;
+        self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
+        self.cpu.hybrid_last_exception_vector = Some(ADDRESS_ERROR_VECTOR);
 
         Ok(())
     }
@@ -915,6 +917,8 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
 
         let new_pc = self.bus.read_long_word(vector * 4);
         self.jump_to_address(new_pc)?;
+        self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
+        self.cpu.hybrid_last_exception_vector = Some(vector);
 
         Ok(())
     }
@@ -931,6 +935,8 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
         let new_pc = self.bus.read_long_word(vector_addr);
         self.jump_to_address(new_pc)?;
+        self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
+        self.cpu.hybrid_last_exception_vector = Some(vector_addr / 4);
 
         // Auto-vectored interrupt handling takes 49-59 cycles instead of 44:
         //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
@@ -1130,6 +1136,8 @@ impl M68000Builder {
         M68000 {
             registers: Registers::new(),
             halted: false,
+            hybrid_exception_depth: 0,
+            hybrid_last_exception_vector: None,
             allow_tas_writes: self.allow_tas_writes,
             name: self.name.unwrap_or_default(),
         }
@@ -1143,6 +1151,10 @@ const RESET_CYCLES: u32 = 132;
 pub struct M68000 {
     registers: Registers,
     halted: bool,
+    // TJE hybrid observation: outstanding original exception frames, including
+    // traps nested inside IRQ handlers. This never changes instruction timing.
+    hybrid_exception_depth: u32,
+    hybrid_last_exception_vector: Option<u32>,
     allow_tas_writes: bool,
     // Used only for trace logging
     name: String,
@@ -1168,6 +1180,8 @@ impl M68000 {
 
         self.registers.stopped = false;
         self.registers.frozen = false;
+        self.hybrid_exception_depth = 0;
+        self.hybrid_last_exception_vector = None;
 
         // Read SSP from $000000 and PC from $000004
         self.registers.ssp = bus.read_long_word(0);
@@ -1269,6 +1283,28 @@ impl M68000 {
             && !self.registers.stopped
             && self.registers.pending_interrupt_level.is_none()
             && (bus.interrupt_level() & 7) <= self.registers.interrupt_priority_mask
+    }
+
+    /// TJE hybrid observation of exception frames entered since reset and not
+    /// yet returned through a successful RTE. Instruction-ready can be true
+    /// inside an ISR, so it is not by itself a settled fixture-call boundary.
+    #[must_use]
+    pub fn hybrid_exception_depth(&self) -> u32 {
+        self.hybrid_exception_depth
+    }
+
+    /// TJE hybrid observation of the most recent successfully entered exception
+    /// vector. A depth increase identifies entry; its post-step PC is the actual
+    /// handler target. Returns do not replace this with an inferred vector.
+    #[must_use]
+    pub fn hybrid_last_exception_vector(&self) -> Option<u32> {
+        self.hybrid_last_exception_vector
+    }
+
+    /// TJE hybrid observation: call only after successfully completing an RTE,
+    /// including a native exit finalizer that performs the same frame restore.
+    pub fn hybrid_exception_returned(&mut self) {
+        self.hybrid_exception_depth = self.hybrid_exception_depth.saturating_sub(1);
     }
 
     #[inline]

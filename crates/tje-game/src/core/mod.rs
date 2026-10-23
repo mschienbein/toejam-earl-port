@@ -94,6 +94,16 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// Reviewed original non-atomic execution contracts, including untranslated
 /// entries. These are logic classifications, not raster/cycle equivalence claims.
 pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // src/core/error_trap.c:5: a declared terminal, never an RTS. The scheduler
+    // must retain real device clocks and IRQ service after the terminal branch.
+    (crate::ids::ERROR_TRAP, ExecutionClass::TimeAware),
+    // src/core/startup_and_main_loop.c:58,607: initialization transfers into the
+    // clocked persistent main loop; these declarations require typed exits.
+    (crate::ids::VDP_INITIALISATION, ExecutionClass::TimeAware),
+    (
+        crate::ids::FURTHER_INITIALISATION,
+        ExecutionClass::TimeAware,
+    ),
     // src/core/startup_and_main_loop.c:88: 2048 ordered VDP data writes, no
     // status/HV reads, unstable source, interrupt wait, or concurrent observation.
     (crate::ids::DRAW_STARFIELD_PLANE, ExecutionClass::Functional),
@@ -132,13 +142,9 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     ),
 ];
 
-// Unclassified, deliberately fail-closed as ordinary RTS hooks:
-// ErrorTrap (src/core/error_trap.c:5) is a nonreturning platform terminal.
-// FurtherInitialisation (src/core/startup_and_main_loop.c:607) never returns:
-// initialization enters the persistent alternating main loop, with residual D2
-// and recorded idle-RNG/IRQ continuation requirements. VDPInitialisation
-// (ibid.:58) enters it after ResetVDP. Neither can be checked to a return sentinel
-// without a real main-loop/terminal continuation contract; no fake RTS is added.
+// Non-RTS entries above remain unregistered until their real terminal/call/main
+// loop checkpoints are proven. They never gain a fabricated return sentinel;
+// persistent frames and residual D2/idle-RNG/IRQ obligations remain observable.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
     // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
@@ -215,6 +221,10 @@ pub fn wait_for_next_vblank(context: &mut dyn Context, arguments: &[u32]) -> Res
 /// G/src/core/startup_and_main_loop.c:33 (`ResetVDP`, REV 02 0x00035C).
 /// Twenty ordered register writes; there is no DMA start, status read, or wait.
 pub fn reset_vdp(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    // Every original literal MOVE.W is negative: N=1, Z/V/C=0, X unchanged.
+    // Preserve this defined callee result for non-RTS transfer boundaries too.
+    let status = context.status_register();
+    context.set_status_register((status & !0x000f) | 0x0008);
     for value in [
         0x8004, 0x8144, 0x8228, 0x8334, 0x8407, 0x857c, 0x8700, 0x8a00, 0x8b00, 0x8c89, 0x8d3f,
         0x8f02, 0x9001, 0x9100, 0x9200, 0x9302, 0x9400, 0x9500, 0x9600, 0x9700,

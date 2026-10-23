@@ -259,7 +259,10 @@ impl OutgoingArguments {
             .into());
         }
         let translation = dispatcher.translation(id);
-        if translation.is_none() && !dispatcher.allows_original_fallback() {
+        if translation.is_none()
+            && (!dispatcher.allows_original_fallback()
+                || crate::exits::contract(id) != crate::exits::ExitContract::Rts)
+        {
             return Err(Error::Untranslated(id));
         }
         let class = crate::execution_class(id).ok_or(Error::Unclassified(id))?;

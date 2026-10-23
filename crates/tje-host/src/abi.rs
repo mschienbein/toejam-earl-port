@@ -10,6 +10,8 @@ use crate::execution::{
 use crate::{
     HostError, Result,
     catalogue::{STACK_BOTTOM, STACK_TOP},
+    check_projection::LogicTrace,
+    exits::ReferenceBoundary,
 };
 use genesis_core::{GenesisBus, GenesisEmulator};
 use m68000_emu::{BusInterface, M68000, ReadPurpose, debug::DummyM68000Debugger};
@@ -59,7 +61,7 @@ struct StackAuditBus<'a> {
     inner: &'a mut GenesisBus,
     entry_sp: u32,
     pc: u32,
-    written: [u64; 512],
+    written: &'a mut [u64; 512],
     reads: BTreeSet<UninitializedStackRead>,
     writes: Vec<OrderedWrite>,
 }
@@ -166,23 +168,50 @@ pub(crate) fn run_original_atomic(
     return_sp: u32,
     observe: bool,
 ) -> Result<AtomicRun> {
+    run_original_atomic_until(
+        emulator,
+        ReferenceBoundary::returned(return_pc, return_sp),
+        observe,
+    )
+}
+
+pub(crate) fn run_original_atomic_until(
+    emulator: &mut GenesisEmulator,
+    boundary: ReferenceBoundary,
+    observe: bool,
+) -> Result<AtomicRun> {
     let (cpu, bus) = emulator.hybrid_parts();
     if !observe {
-        return run_atomic_loop(cpu, bus, return_pc, return_sp, |cpu, bus| {
+        return run_atomic_loop(cpu, bus, boundary, |cpu, bus| {
             let cycles = cpu.execute_instruction(bus);
             bus.apply_pending_writes();
             cycles
         });
     }
+    let mut stack = StackAuditState {
+        entry_sp: canonical_ram_address(cpu.stack_pointer()),
+        written: [0; 512],
+    };
+    run_original_atomic_scoped(emulator, boundary, &mut stack)
+}
+
+/// A nested original uses the suspended root's initialized bytes and boundary.
+/// Incoming callee arguments can still be unwritten locals of that root.
+fn run_original_atomic_scoped(
+    emulator: &mut GenesisEmulator,
+    boundary: ReferenceBoundary,
+    stack: &mut StackAuditState,
+) -> Result<AtomicRun> {
+    let (cpu, bus) = emulator.hybrid_parts();
     let mut audit = StackAuditBus {
         inner: bus,
-        entry_sp: canonical_ram_address(cpu.stack_pointer()),
+        entry_sp: stack.entry_sp,
         pc: cpu.pc(),
-        written: [0; 512],
+        written: &mut stack.written,
         reads: BTreeSet::new(),
         writes: Vec::new(),
     };
-    let mut result = run_atomic_loop(cpu, &mut audit, return_pc, return_sp, |cpu, audit| {
+    let mut result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
         audit.pc = cpu.pc();
         let cycles = cpu.execute_instruction(audit);
         audit.inner.apply_pending_writes();
@@ -196,18 +225,19 @@ pub(crate) fn run_original_atomic(
 fn run_atomic_loop<B: BusInterface>(
     cpu: &mut M68000,
     bus: &mut B,
-    return_pc: u32,
-    return_sp: u32,
+    boundary: ReferenceBoundary,
     mut step: impl FnMut(&mut M68000, &mut B) -> u32,
 ) -> Result<AtomicRun> {
     let mut result = AtomicRun::default();
-    while cpu.pc() != return_pc || cpu.stack_pointer() != return_sp {
+    let mut previous_pc = None;
+    while !boundary.reached(cpu, previous_pc, result.instructions) {
         if result.instructions == MAX_CALL_INSTRUCTIONS {
             return Err(HostError::CallDidNotReturn {
                 pc: cpu.pc(),
-                return_pc,
+                return_pc: boundary.pc,
             });
         }
+        previous_pc = Some(cpu.pc());
         result.cycles += u64::from(step(cpu, bus));
         result.instructions += 1;
     }
@@ -224,7 +254,7 @@ pub(crate) fn set_sp(cpu: &mut M68000, value: u32) {
     cpu.set_address_registers(cpu.address_registers(), usp, ssp);
 }
 
-struct TranslatedStackAudit {
+struct StackAuditState {
     entry_sp: u32,
     written: [u64; 512],
 }
@@ -237,8 +267,9 @@ pub struct HookContext<'a> {
     revision: Revision,
     dispatcher: Dispatcher,
     pub(crate) writes: Vec<OrderedWrite>,
+    pub(crate) logic_trace: LogicTrace,
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
-    stack_audit: Option<TranslatedStackAudit>,
+    stack_audit: Option<StackAuditState>,
     frame_state: FrameState,
     pub(crate) execution_class: ExecutionClass,
     execution_ceiling: ExecutionClass,
@@ -260,6 +291,7 @@ impl<'a> HookContext<'a> {
             revision,
             dispatcher,
             writes: Vec::new(),
+            logic_trace: LogicTrace::default(),
             nested_calls: 0,
             uninitialized_reads: RefCell::new(BTreeSet::new()),
             stack_audit: None,
@@ -291,6 +323,7 @@ impl<'a> HookContext<'a> {
             self.time_frames += run.frames;
             return;
         }
+        self.logic_trace.append(run.logic_trace);
         for (pc, access) in run.accesses {
             let (address, word, value, writing, semantic) = match access {
                 genesis_core::HybridAccess::Read {
@@ -354,7 +387,7 @@ impl<'a> HookContext<'a> {
     }
 
     pub(crate) fn enable_stack_audit(&mut self) {
-        self.stack_audit = Some(TranslatedStackAudit {
+        self.stack_audit = Some(StackAuditState {
             entry_sp: canonical_ram_address(self.emulator.hybrid_cpu().stack_pointer()),
             written: [0; 512],
         });
@@ -389,6 +422,21 @@ impl<'a> HookContext<'a> {
                 1 << (offset % 64);
         }
     }
+    fn record_logic_access(&mut self, access: genesis_core::HybridAccess) {
+        self.record_logic_operand(access, false);
+    }
+
+    fn record_logic_operand(&mut self, access: genesis_core::HybridAccess, exact_operand: bool) {
+        if self.stack_audit.is_some() && self.timed_execution {
+            self.logic_trace.access_with_exact(
+                self.emulator.hybrid_cpu().pc(),
+                self.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                access,
+                false,
+                exact_operand,
+            );
+        }
+    }
 
     /// Side-effect-free ROM/RAM read. For hardware reads use `bus()` so that
     /// read side effects and open-bus behavior remain explicit.
@@ -417,6 +465,13 @@ impl<'a> HookContext<'a> {
     pub fn write_u8(&mut self, address: u32, value: u8) {
         self.audit_translated_write(address);
         let address = address & 0xFF_FFFF;
+        if address >= 0xe00000 {
+            self.record_logic_access(genesis_core::HybridAccess::Write {
+                address,
+                word: false,
+                value: u16::from(value),
+            });
+        }
         let bus = self.emulator.hybrid_bus_mut();
         match address {
             0..=0x3F_FFFF => {} // Cartridge ROM is immutable.
@@ -495,6 +550,12 @@ impl<'a> HookContext<'a> {
         execution_class: ExecutionClass,
         arguments: &[u32],
     ) -> Result<u32> {
+        if tje_game::exits::contract(contract.id) != tje_game::exits::ExitContract::Rts {
+            return Err(HostError::Metadata(format!(
+                "{} has a non-RTS exit; ordinary original fallback cannot unwind it",
+                contract.name,
+            )));
+        }
         if !self.execution_class.permits(execution_class) {
             return Err(HostError::Metadata(format!(
                 "{} requires {execution_class:?}, unavailable inside {:?}",
@@ -527,19 +588,15 @@ impl<'a> HookContext<'a> {
             )?;
             self.merge_clock_run(clock_run);
             AtomicRun::default()
-        } else {
-            run_original_atomic(
+        } else if let Some(stack) = &mut self.stack_audit {
+            run_original_atomic_scoped(
                 self.emulator,
-                CALL_SENTINEL,
-                cleanup_sp,
-                self.stack_audit.is_some(),
+                ReferenceBoundary::returned(CALL_SENTINEL, cleanup_sp),
+                stack,
             )?
+        } else {
+            run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp, false)?
         };
-        for write in &audit.writes {
-            if let OrderedWrite::Ram { address, .. } = *write {
-                self.audit_translated_write(address);
-            }
-        }
         self.writes.extend(audit.writes);
         self.uninitialized_reads
             .get_mut()
@@ -555,6 +612,12 @@ impl<'a> HookContext<'a> {
     /// Run an original with the caller's exact outgoing area/return PC already
     /// present. Unlike call_original_with_execution_contract, push no new slots.
     fn call_original_prepared(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        if tje_game::exits::contract(id) != tje_game::exits::ExitContract::Rts {
+            return Err(HostError::Metadata(format!(
+                "{} has a non-RTS exit; prepared original fallback cannot unwind it",
+                id.metadata().name,
+            )));
+        }
         if !self.execution_class.permits(class) {
             return Err(HostError::Metadata(format!(
                 "{class:?} original unavailable in {:?}",
@@ -578,19 +641,15 @@ impl<'a> HookContext<'a> {
             )?;
             self.merge_clock_run(run);
             AtomicRun::default()
-        } else {
-            run_original_atomic(
+        } else if let Some(stack) = &mut self.stack_audit {
+            run_original_atomic_scoped(
                 self.emulator,
-                return_pc,
-                return_sp,
-                self.stack_audit.is_some(),
+                ReferenceBoundary::returned(return_pc, return_sp),
+                stack,
             )?
+        } else {
+            run_original_atomic(self.emulator, return_pc, return_sp, false)?
         };
-        for write in &audit.writes {
-            if let OrderedWrite::Ram { address, .. } = *write {
-                self.audit_translated_write(address);
-            }
-        }
         self.writes.extend(audit.writes);
         self.uninitialized_reads
             .get_mut()
@@ -611,6 +670,16 @@ impl<'a> HookContext<'a> {
         set_sp(cpu, sp.wrapping_add(4));
         cpu.set_pc(return_pc, bus);
         bus.apply_pending_writes();
+    }
+
+    pub(crate) fn transfer_to(&mut self, pc: u32) {
+        let (cpu, bus) = self.emulator.hybrid_parts();
+        cpu.set_pc(pc, bus);
+        bus.apply_pending_writes();
+    }
+
+    pub(crate) fn exception_returned(&mut self) {
+        self.emulator.hybrid_parts().0.hybrid_exception_returned();
     }
 }
 
@@ -721,17 +790,36 @@ impl tje_game::Platform for HookContext<'_> {
         self.audit_translated_read(address);
         let bus = self.emulator.hybrid_bus_mut();
         bus.apply_pending_writes();
-        bus.read_byte(address)
+        let value = bus.read_byte(address);
+        self.record_logic_access(genesis_core::HybridAccess::Read {
+            address: address & 0xffffff,
+            word: false,
+            value: u16::from(value),
+            purpose: ReadPurpose::Semantic,
+        });
+        value
     }
     fn read_device_u16(&mut self, address: u32) -> u16 {
         self.audit_translated_read(address);
         self.audit_translated_read(address.wrapping_add(1));
         let bus = self.emulator.hybrid_bus_mut();
         bus.apply_pending_writes();
-        bus.read_word(address)
+        let value = bus.read_word(address);
+        self.record_logic_access(genesis_core::HybridAccess::Read {
+            address: address & 0xffffff,
+            word: true,
+            value,
+            purpose: ReadPurpose::Semantic,
+        });
+        value
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
         self.audit_translated_write(address);
+        self.record_logic_access(genesis_core::HybridAccess::Write {
+            address: address & 0xffffff,
+            word: false,
+            value: u16::from(value),
+        });
         if self.stack_audit.is_some() {
             self.writes.push(OrderedWrite::DeviceByte {
                 address: address & 0xFF_FFFF,
@@ -745,6 +833,11 @@ impl tje_game::Platform for HookContext<'_> {
     fn write_device_u16(&mut self, address: u32, value: u16) {
         self.audit_translated_write(address);
         self.audit_translated_write(address.wrapping_add(1));
+        self.record_logic_access(genesis_core::HybridAccess::Write {
+            address: address & 0xffffff,
+            word: true,
+            value,
+        });
         if self.stack_audit.is_some() {
             self.writes.push(OrderedWrite::DeviceWord {
                 address: address & 0xFF_FFFF,
@@ -809,6 +902,18 @@ impl tje_game::Context for HookContext<'_> {
         self.call_original_prepared(id, class)
             .map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
+    fn stack_banks(&self) -> tje_game::Result<tje_game::exits::StackBanks> {
+        let cpu = self.emulator.hybrid_cpu();
+        Ok(tje_game::exits::StackBanks {
+            user: cpu.user_stack_pointer(),
+            supervisor: cpu.supervisor_stack_pointer(),
+        })
+    }
+    fn set_stack_banks(&mut self, banks: tje_game::exits::StackBanks) -> tje_game::Result<()> {
+        let cpu = self.emulator.hybrid_parts().0;
+        cpu.set_address_registers(cpu.address_registers(), banks.user, banks.supervisor);
+        Ok(())
+    }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
     }
@@ -849,11 +954,12 @@ mod tests {
     #[test]
     fn stack_audit_records_reads_before_writes_not_caller_arguments() {
         let mut bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
+        let mut written = [0; 512];
         let mut audit = StackAuditBus {
             inner: &mut bus,
             entry_sp: 0xFF7FF0,
             pc: 0x1234,
-            written: [0; 512],
+            written: &mut written,
             reads: BTreeSet::new(),
             writes: Vec::new(),
         };
