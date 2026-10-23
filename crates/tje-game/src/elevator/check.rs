@@ -163,6 +163,27 @@ const TIME_READY_PROOF: &[Translation] = &[
     },
 ];
 
+// Prove the original caller's real split-transition envelope independently of
+// the longer ride scenes. Untranslated scene callees keep their original body.
+const TRANSITION_PROOF: &[Translation] = &[
+    Translation {
+        id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
+        function: camera::animate_split_screen_wipe,
+    },
+    Translation {
+        id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        function: camera::animate_players_into_split_views,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATOR_STEP1,
+        function: elevator::process_elevator_step1,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATORS,
+        function: elevator::process_elevators,
+    },
+];
+
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     // Fixtures follow the explicit execution-class selection; unregistered
     // classes are omitted, never credited as checked. All selected IDs must
@@ -570,6 +591,12 @@ fn time_fixtures(host: &mut Host) {
     }
     {
         let mut c = host.context();
+        // The only original caller, EnterSplitScreen (startup_and_main_loop.c:
+        // 380-388), drains sprite uploads and disables BOTH blanking graphics
+        // handlers before either animation. Keep the display and IRQs enabled.
+        ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
+        ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
+        tje_mem::Platform::write_vdp_control(&mut c, 0x9200);
         ram::g_entity_draw_list_head(revision).write(&mut c, Ptr::new(0));
         ram::g_inventory_draw_list_head(revision).write(&mut c, Ptr::new(0));
         ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
@@ -577,6 +604,7 @@ fn time_fixtures(host: &mut Host) {
         ram::g_camera1_pending_x(revision).write(&mut c, 100);
         ram::g_camera1_pending_y(revision).write(&mut c, 100);
         for player in 0..2 {
+            ram::g_player_lives(revision).at(player).write(&mut c, 3);
             let entity = ram::g_player_info(revision).at(player);
             entity.x().write(&mut c, 200 + player as i16 * 50);
             entity.y().write(&mut c, 200 + player as i16 * 50);
@@ -588,6 +616,12 @@ fn time_fixtures(host: &mut Host) {
     }
     check(host, ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS, &[]);
     check(host, ids::ANIMATE_SPLIT_SCREEN_WIPE, &[]);
+    {
+        // The state machines are called by the normal gameplay main loop.
+        let mut c = host.context();
+        ram::g_v_blank_graphics_enabled(revision).write(&mut c, 1);
+        ram::g_h_blank_graphics_enabled(revision).write(&mut c, 1);
+    }
     let record = ram::g_elevator_records(revision).at(0).at(0);
     for state in [0_i8, 1, 2, 4, 5, 6, 10, 11, 13] {
         let mut c = host.context();
@@ -609,6 +643,11 @@ fn time_fixtures(host: &mut Host) {
     }
     {
         let mut c = host.context();
+        // ElevatorBeginRideScene:602 disables both graphics handlers after
+        // draining its sprite uploads, immediately before preparing dialogue.
+        ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
+        ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
+        ram::g_sprite_graphics_upload_pending(revision).write(&mut c, 0);
         ram::g_player_lives(revision).at(1).write(&mut c, -1);
     }
     check(
@@ -660,6 +699,10 @@ fn time_fixtures(host: &mut Host) {
     check(host, ids::ELEVATOR_END_RIDE_SCENE, &[]);
     {
         let mut c = host.context();
+        // BeginRideScene must still have the normal IRQ upload service while
+        // its newly selected elevator frames become resident (scene.c:595-602).
+        ram::g_v_blank_graphics_enabled(revision).write(&mut c, 1);
+        ram::g_h_blank_graphics_enabled(revision).write(&mut c, 1);
         ram::g_v_blank_func(revision).write(&mut c, Ptr::new(0));
         record.entity().write(&mut c, 2);
         record.state().write(&mut c, 1);
@@ -671,6 +714,18 @@ fn time_fixtures(host: &mut Host) {
         ram::g_player_lives(revision).at(1).write(&mut c, -1);
     }
     check(host, ids::ELEVATOR_BEGIN_RIDE_SCENE, &[record.address()]);
+    {
+        // The only caller is PlayShipCompletionSequence:254-255, after Ending.
+        // PlayEndingSequence:34 leaves blanking graphics disabled, and its final
+        // bouncing scene clears display enable at ending.c:530-531. Reproduce
+        // this actual caller envelope, not an artificial no-wait workaround.
+        let mut c = host.context();
+        ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
+        ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
+        let mode = ram::g_mode2_reg_softcopy(revision).read(&c) & 0x3c;
+        ram::g_mode2_reg_softcopy(revision).write(&mut c, mode);
+        tje_mem::Platform::write_vdp_control(&mut c, 0x8104 | u16::from(mode));
+    }
     check(host, ids::MAP_ENTER_FINAL_LEVEL, &[]);
     {
         let mut c = host.context();
@@ -699,8 +754,26 @@ fn main() {
     let selection = args.get(4).map_or("functional", String::as_str);
     assert!(matches!(
         selection,
-        "atomic" | "functional" | "time" | "time-all" | "closure"
+        "atomic" | "functional" | "time" | "time-all" | "transition" | "closure"
     ));
+    // Optional named roots isolate a failing entry without hiding its Rust
+    // candidate callees. This is a diagnostic filter, not an approval waiver.
+    let selected_roots: Vec<_> = args
+        .get(5)
+        .map(|names| {
+            assert_eq!(selection, "time-all");
+            names
+                .split(',')
+                .map(|name| {
+                    TIME_PROOF
+                        .iter()
+                        .find(|entry| entry.id.metadata().name == name)
+                        .unwrap_or_else(|| panic!("unknown timed proof root: {name}"))
+                        .id
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     if selection == "closure" {
         let roots: Vec<_> = tje_game::translations()
             .filter(|entry| {
@@ -727,7 +800,7 @@ fn main() {
         }
         return;
     }
-    let timed = selection == "time" || selection == "time-all";
+    let timed = matches!(selection, "time" | "time-all" | "transition");
     fs::create_dir_all(evidence).unwrap();
     let script = Arc::new(
         InputScript::parse(
@@ -742,7 +815,9 @@ fn main() {
             "rev00"
         };
         let registry = if selection == "time-all" {
-            HookRegistry::proof(revision, TIME_PROOF).unwrap()
+            HookRegistry::proof_filtered(revision, TIME_PROOF, &selected_roots).unwrap()
+        } else if selection == "transition" {
+            HookRegistry::proof(revision, TRANSITION_PROOF).unwrap()
         } else if timed {
             HookRegistry::proof(revision, TIME_READY_PROOF).unwrap()
         } else if selection == "functional" {

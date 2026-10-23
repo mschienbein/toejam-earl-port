@@ -113,30 +113,43 @@ pub static TRANSLATIONS: &[Translation] = &[
 /// Complete Rust bodies awaiting both-revision execution-class proof; never
 /// registered by the production dispatcher until a passing proof activates them.
 pub static PENDING_TRANSLATIONS: &[Translation] = &[
+    // Frame-1300 caller-envelope proof: original 30 completed ISRs, Rust 20.
+    // Needs the shared clock-charged-region contract, not a counter exemption.
     Translation {
         id: ids::MAP_ENTER_FINAL_LEVEL,
         function: map_enter_final_level,
     },
+    // Real ISR entry interleaves differently with GenerateSpeech RAM stores.
+    // Exact LINK/MOVEM/local/call sites below do not resolve clock ordering.
     Translation {
         id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
         function: elevator_prepare_ride_dialogue,
     },
+    // Settled proof disagrees in ISR-visible RAM; the stricter caller envelope
+    // also exposes the host's outstanding DMA pending-write queue overflow.
     Translation {
         id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
         function: elevator_begin_ride_scene,
     },
+    // Original deceleration needs more than the fixed timed-call bound permits.
+    // Never shorten the 2048→0 ride or raise the bound inside this translation.
     Translation {
         id: ids::ELEVATOR_END_RIDE_SCENE,
         function: elevator_end_ride_scene,
     },
+    // Natural and short-state fixtures pass, but the departure-completion edge
+    // invokes the still-blocked long ride/level-advance path below.
     Translation {
         id: ids::PROCESS_ELEVATOR_STEP1,
         function: process_elevator_step1,
     },
+    // The Step1 departure-completion path has the same unresolved prerequisite.
     Translation {
         id: ids::PROCESS_ELEVATORS,
         function: process_elevators,
     },
+    // Frame-1300 no-rider residual-D3 fixture: original 37 ISRs, Rust 27.
+    // The shared-ride branch also depends on Begin/EndRideScene above.
     Translation {
         id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
         function: elevator_advance_riders_to_next_level,

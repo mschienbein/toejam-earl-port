@@ -112,10 +112,14 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
 /// This table is deliberately not part of the production dispatcher or registry.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
+    // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
     crate::Translation {
         id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
         function: animate_split_screen_wipe,
     },
+    // Same live caller envelope: completed ISR reads A0004A as 4 versus 3.
+    // Neither this read nor the wipe's read is an eligible YM BUSY stutter.
     crate::Translation {
         id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
         function: animate_players_into_split_views,

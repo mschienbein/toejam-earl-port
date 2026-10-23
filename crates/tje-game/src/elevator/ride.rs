@@ -1,4 +1,8 @@
-use crate::{Context, Result, call, ids};
+use crate::{
+    Context, Result, call, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
+    ids,
+};
 use tje_mem::{ObjectState, ram, rom};
 
 /// G/src/elevator/elevator_scene.c:437 (`ElevatorLoadRideBackgroundTiles`).
@@ -55,7 +59,13 @@ pub fn elevator_alternate_ride_entities(
             first.sprite_ready().write(context, 1);
             second.sprite_ready().write(context, 0);
         }
-        call(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[])?;
+        // No caller prologue. Absolute JSR returns at 0x13248/0x13218.
+        call_at(
+            context,
+            ids::BUILD_VIEWPORT_SPRITE_LINKS,
+            &[],
+            CallSite::relative(ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES, revision, 0x3a),
+        )?;
         call(
             context,
             ids::DMA_COPY_WORDS_TO_VRAM,
@@ -110,28 +120,60 @@ pub fn elevator_update_ride_dialogue(context: &mut dyn Context, _: &[u32]) -> Re
 }
 
 /// G/src/elevator/elevator_scene.c:484 (`ElevatorPrepareRideDialogue`).
+/// LINK A6,#-4 and MOVEM D2-D6/A2-A4 are retained because sprite linking may
+/// address the saved caller frame. Reply line one's word really lives at A6-2.
 pub fn elevator_prepare_ride_dialogue(
     context: &mut dyn Context,
     args: &[u32],
 ) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
+    let result = prepare_dialogue_body(context, args[0], &frame);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result.map(|()| None);
+    }
+    let leave = frame.leave(context);
+    result?;
+    leave?;
+    Ok(None)
+}
+
+fn prepare_dialogue_body(
+    context: &mut dyn Context,
+    entity_address: u32,
+    frame: &LocalFrame,
+) -> Result<()> {
     let revision = context.revision();
-    let entity = tje_mem::Address::<ObjectState>::new(args[0]);
+    let entity = tje_mem::Address::<ObjectState>::new(entity_address);
     let lines = ram::g_elevator_ride_speech_entities(revision);
+    context.set_address_register(2, entity.address());
+    context.set_address_register(3, lines.address());
+    context.set_address_register(4, rom::speech_string_pointers(revision).address());
+    context.set_data_register(4, ids::GENERATE_SPEECH.metadata().address(revision));
+    set_low_word(context, 5, 0);
+    set_low_word(context, 6, 0);
     if ram::g_player_lives(revision).at(0).read(context) >= 0
         && ram::g_player_lives(revision).at(1).read(context) >= 0
     {
         let random = call(context, ids::GET_RANDOM_NUMBER, &[])? as u16;
+        set_low_word(context, 2, random as i16);
         if u32::from(random) % 100 < 75 {
             let mut speech =
                 (u32::from(call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 14) as i16;
             let mask = ram::g_elevator_ride_used_dialogue_mask(revision);
             let mut attempt = 0;
+            set_low_word(context, 2, speech);
+            set_low_word(context, 3, attempt);
             while attempt < 14 {
                 if (1_i32.wrapping_shl(speech as u32) & mask.read(context)) == 0 {
                     break;
                 }
                 speech = ((i32::from(speech) + 1) % 14) as i16;
                 attempt += 1;
+                set_low_word(context, 2, speech);
+                set_low_word(context, 3, attempt);
             }
             if attempt != 14 {
                 let used = mask.read(context) | 1_i32.wrapping_shl(speech as u32);
@@ -141,35 +183,66 @@ pub fn elevator_prepare_ride_dialogue(
                 let descriptor = rom::speech_string_pointers(revision).at(i32::from(speech));
                 let text = descriptor.first_line().read(context).address();
                 let speaker = i32::from(entity.entity_index().read(context));
-                let first = call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 0])? as i16;
+                let first = call_at(
+                    context,
+                    ids::GENERATE_SPEECH,
+                    &[speaker as u32, text, 0],
+                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0xe6),
+                )? as i16;
+                set_low_word(context, 3, first);
                 let mut second = 0_i16;
                 if descriptor.second_line().read(context).address() != 0 {
                     let text = descriptor.second_line().read(context).address();
                     let speaker = i32::from(entity.entity_index().read(context));
-                    second =
-                        call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 0])? as i16;
+                    second = call_at(
+                        context,
+                        ids::GENERATE_SPEECH,
+                        &[speaker as u32, text, 0],
+                        CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x110),
+                    )? as i16;
+                    set_low_word(context, 5, second);
                 }
                 let x = entity.x().read(context).wrapping_add(40);
                 entity.x().write(context, x);
                 let text = descriptor.reply_first_line().read(context).address();
                 let speaker = i32::from(entity.entity_index().read(context));
-                let reply_first =
-                    call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 0])? as i16;
+                let reply_first = call_at(
+                    context,
+                    ids::GENERATE_SPEECH,
+                    &[speaker as u32, text, 0],
+                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x134),
+                )? as i16;
+                frame.local::<i16>(-2).write(context, reply_first);
                 let mut reply_second = 0_i16;
                 if descriptor.reply_second_line().read(context).address() != 0 {
                     let text = descriptor.reply_second_line().read(context).address();
                     let speaker = i32::from(entity.entity_index().read(context));
-                    reply_second =
-                        call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 0])? as i16;
+                    reply_second = call_at(
+                        context,
+                        ids::GENERATE_SPEECH,
+                        &[speaker as u32, text, 0],
+                        CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x160),
+                    )? as i16;
+                    set_low_word(context, 6, reply_second);
                 }
                 let x = entity.x().read(context).wrapping_sub(16);
                 entity.x().write(context, x);
-                call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-                for (index, line) in [first, second, reply_first, reply_second]
-                    .into_iter()
-                    .enumerate()
-                {
-                    lines.at(index as i32).write(context, line as u8);
+                call_at(
+                    context,
+                    ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+                    &[],
+                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x170),
+                )?;
+                for index in 0..4 {
+                    // Read the local at its original use point, after the
+                    // preceding line's byte and sprite-ready stores.
+                    let line = match index {
+                        0 => first,
+                        1 => second,
+                        2 => frame.local::<i16>(-2).read(context),
+                        _ => reply_second,
+                    };
+                    lines.at(index).write(context, line as u8);
                     if line as u8 != 0 {
                         ram::g_player_info(revision)
                             .cast::<ObjectState>()
@@ -178,15 +251,25 @@ pub fn elevator_prepare_ride_dialogue(
                             .write(context, 0);
                     }
                 }
-                call(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[])?;
-                return Ok(None);
+                call_at(
+                    context,
+                    ids::BUILD_VIEWPORT_SPRITE_LINKS,
+                    &[],
+                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x1c8),
+                )?;
+                return Ok(());
             }
         }
     }
     for index in 0..4 {
         lines.at(index).write(context, 0);
     }
-    Ok(None)
+    Ok(())
+}
+
+fn set_low_word(context: &mut dyn Context, register: usize, value: i16) {
+    let high = context.data_register(register) & 0xffff0000;
+    context.set_data_register(register, high | u32::from(value as u16));
 }
 
 /// G/src/elevator/elevator_scene.c:562 (`ElevatorRideVBlank`).
@@ -212,7 +295,13 @@ pub fn elevator_ride_v_blank(context: &mut dyn Context, _: &[u32]) -> Result<Opt
     context.write_vdp_command(0x40000010);
     context.write_vdp_data((fixed.read(context) >> 8) as u16);
     call(context, ids::ELEVATOR_UPDATE_RIDE_DIALOGUE, &[])?;
-    call(context, ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES, &[])?;
+    // PC-relative JSR at 0x13558/0x13528, with no RideVBlank prologue.
+    call_at(
+        context,
+        ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
+        &[],
+        CallSite::relative(ids::ELEVATOR_RIDE_V_BLANK, revision, 0x4e),
+    )?;
     call(context, ids::SELECT_PRIMARY_VIEWPORT_SPRITES, &[])?;
     call(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
     let counter = ram::g_frame_counter(revision);
@@ -256,13 +345,35 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
 /// G/src/elevator/elevator_scene.c:579 (`ElevatorBeginRideScene`).
 /// The pending-byte spin suspends until a real IRQ can change its containing
 /// RAM word; every wake rechecks the byte, never fabricating upload completion.
+/// Preserve MOVEM D2-D5/A2-A4 and the retained state/dialogue/palette argument
+/// areas; callees that inspect the original caller frame see those real slots.
 pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x1c))?;
+    let result = begin_ride_body(context, args[0]);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result.map(|()| None);
+    }
+    let leave = frame.leave(context);
+    result?;
+    leave?;
+    Ok(None)
+}
+
+fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<()> {
     let revision = context.revision();
-    let elevator = tje_mem::Address::<tje_mem::ElevatorRecord>::new(args[0]);
+    let elevator = tje_mem::Address::<tje_mem::ElevatorRecord>::new(elevator_address);
+    let dispatcher = context.dispatcher();
+    context.set_address_register(1, elevator.address());
+    context.set_address_register(2, ram::g_player1_map_level(revision).address());
     let first = ram::g_player_info(revision).at(i32::from(elevator.entity().read(context)));
     ram::g_elevator_ride_entity(revision).write(context, tje_mem::Ptr::new(first.address()));
     let first = ram::g_elevator_ride_entity(revision).read(context).target();
     let second = first.offset(2);
+    context.set_address_register(3, first.address());
+    context.set_address_register(4, second.address());
     let x = ram::g_camera1_pending_x(revision)
         .read(context)
         .wrapping_add(160);
@@ -277,10 +388,27 @@ pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Res
     let level = ram::g_player1_map_level(revision).read(context);
     second.level().write(context, level);
     second.sprite_ready().write(context, 0);
-    call(context, ids::ELEVATOR_SET_STATE, &[elevator.address(), 12])?;
-    call(context, ids::CLEAR_TRANSIENT_ENTITIES, &[])?;
+    let state_arguments = OutgoingArguments::push(context, &[elevator.address(), 12])?;
+    state_arguments.call(
+        context,
+        dispatcher,
+        ids::ELEVATOR_SET_STATE,
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x6a),
+    )?;
+    call_at(
+        context,
+        ids::CLEAR_TRANSIENT_ENTITIES,
+        &[],
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x70),
+    )?;
+    state_arguments.release(context)?;
     loop {
-        call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+        call_at(
+            context,
+            ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+            &[],
+            CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x78),
+        )?;
         let pending = ram::g_sprite_graphics_upload_pending(revision);
         while pending.read(context) != 0 {
             let address = pending.address() & !1;
@@ -291,22 +419,39 @@ pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Res
             break;
         }
     }
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-    call(
+    call_at(
         context,
-        ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
-        &[first.address()],
+        ids::DISABLE_BLANKING_GRAPHICS,
+        &[],
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x92),
     )?;
-    call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+    let dialogue_arguments = OutgoingArguments::push(context, &[first.address()])?;
+    dialogue_arguments.call(
+        context,
+        dispatcher,
+        ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x98),
+    )?;
+    call_at(
+        context,
+        ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
+        &[],
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x9e),
+    )?;
+    dialogue_arguments.release(context)?;
     for band in 0..4 {
+        set_low_word(context, 5, band as i16);
         for row in 0..8 {
+            set_low_word(context, 4, row as i16);
             context.write_vdp_command(
                 (((band << 3) + row) as u32)
                     .wrapping_shl(23)
                     .wrapping_add(0x60000002),
             );
-            for _ in 0..6 {
+            for repeat in 0..6 {
+                set_low_word(context, 3, repeat);
                 for column in 0..8 {
+                    set_low_word(context, 2, column as i16);
                     let mut tile = u16::from(
                         rom::transition_background_tile_offsets(revision)
                             .at(row)
@@ -324,18 +469,40 @@ pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Res
                     }
                     context.write_vdp_data(tile);
                 }
+                set_low_word(context, 2, 8);
             }
+            set_low_word(context, 3, 6);
         }
+        set_low_word(context, 4, 8);
     }
+    set_low_word(context, 5, 4);
     context.write_vdp_control(0x9100);
     context.write_vdp_control(0x9200);
-    call(
+    let palette_arguments = OutgoingArguments::push(
         context,
-        ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    call(context, ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES, &[])?;
-    call(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;
+    palette_arguments.call(
+        context,
+        dispatcher,
+        ids::COPY_PALETTE_TO_CRAM_SLOT,
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x138),
+    )?;
+    call_at(
+        context,
+        ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
+        &[],
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x13c),
+    )?;
+    let hud_arguments = OutgoingArguments::push(context, &[2])?;
+    hud_arguments.call(
+        context,
+        dispatcher,
+        ids::HUD_HIDE_PLAYER_SPRITES,
+        CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x146),
+    )?;
+    hud_arguments.release(context)?;
+    palette_arguments.release(context)?;
     ram::g_elevator_ride_scroll_y_fixed(revision).write(context, 0);
     context.write_vdp_command(0x40000010);
     context.write_vdp_data(ram::g_elevator_ride_scroll_y_low_word(revision).read(context) as u16);
@@ -348,7 +515,7 @@ pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Res
         context,
         tje_mem::Ptr::new(ids::ELEVATOR_RIDE_V_BLANK.metadata().address(revision)),
     );
-    Ok(None)
+    Ok(())
 }
 
 /// G/src/elevator/elevator_scene.c:652 (`ElevatorAdvanceRidersToNextLevel`).
@@ -359,8 +526,32 @@ pub fn elevator_advance_riders_to_next_level(
     context: &mut dyn Context,
     args: &[u32],
 ) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x0c))?;
+    let result = advance_riders_body(context, args[0] as i8, &frame);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result.map(|()| None);
+    }
+    let leave = frame.leave(context);
+    result?;
+    leave?;
+    Ok(None)
+}
+
+fn advance_riders_body(
+    context: &mut dyn Context,
+    mut handle: i8,
+    frame: &LocalFrame,
+) -> Result<()> {
     let revision = context.revision();
-    let mut handle = args[0] as i8;
+    let dispatcher = context.dispatcher();
+    let caller = ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL;
+    set_low_byte(context, 2, handle);
+    set_low_byte(context, 4, 0);
+    set_low_byte(context, 5, 0);
+    context.set_address_register(2, ram::g_player_info(revision).address());
     let mut destination_level = context.data_register(3) as i8;
     let mut elevator =
         tje_mem::Address::<tje_mem::ElevatorRecord>::new(context.address_register(3));
@@ -373,12 +564,28 @@ pub fn elevator_advance_riders_to_next_level(
         {
             let entity = ram::g_player_info(revision).at(player);
             let level = i32::from(entity.level().read(context));
-            call(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level as u32])?;
+            let release_earthlings = OutgoingArguments::push(context, &[level as u32])?;
+            release_earthlings.call(
+                context,
+                dispatcher,
+                ids::EARTHLING_RELEASE_LEVEL_BANK,
+                CallSite::relative(caller, revision, if player == 0 { 0x2e } else { 0x62 }),
+            )?;
             let level = i32::from(entity.level().read(context));
-            call(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level as u32])?;
+            let release_items = OutgoingArguments::push(context, &[level as u32])?;
+            release_items.call(
+                context,
+                dispatcher,
+                ids::MAP_RELEASE_LEVEL_ITEM_BANK,
+                CallSite::relative(caller, revision, if player == 0 { 0x3e } else { 0x72 }),
+            )?;
             let level = entity.level().read(context).wrapping_add(1);
             entity.level().write(context, level);
             destination_level = entity.level().read(context);
+            set_low_byte(context, 3, destination_level);
+            release_items.release(context)?;
+            release_earthlings.release(context)?;
+            context.set_data_register(if player == 0 { 4 } else { 5 }, 1);
             rides[player as usize] = true;
         }
     }
@@ -395,87 +602,163 @@ pub fn elevator_advance_riders_to_next_level(
         }
         let bank = (i32::from(handle) - 1) >> 1;
         elevator = ram::g_elevator_records(revision).at(bank).at(0);
-        call(
+        context.set_address_register(3, elevator.address());
+        call_at(
             context,
             ids::ELEVATOR_BEGIN_RIDE_SCENE,
             &[elevator.address()],
+            CallSite::relative(caller, revision, 0xc8),
         )?;
     }
     for player in 0..2 {
         if rides[player as usize] {
             let entity = ram::g_player_info(revision).at(player);
             let level = i32::from(entity.level().read(context));
-            call(
+            let map_arguments = OutgoingArguments::push(context, &[player as u32, level as u32])?;
+            map_arguments.call(
                 context,
+                dispatcher,
                 ids::MAP_LOAD_PLAYER_LEVEL,
-                &[player as u32, level as u32],
+                CallSite::relative(caller, revision, if player == 0 { 0xe0 } else { 0x11c }),
             )?;
             let level = i32::from(entity.level().read(context));
-            call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level as u32])?;
+            let retain_arguments = OutgoingArguments::push(context, &[level as u32])?;
+            retain_arguments.call(
+                context,
+                dispatcher,
+                ids::EARTHLING_RETAIN_LEVEL_BANK,
+                CallSite::relative(caller, revision, if player == 0 { 0xf0 } else { 0x12c }),
+            )?;
             let level = i32::from(entity.level().read(context));
-            call(context, ids::LOAD_LEVEL_ITEM_BANK, &[level as u32])?;
+            let item_arguments = OutgoingArguments::push(context, &[level as u32])?;
+            item_arguments.call(
+                context,
+                dispatcher,
+                ids::LOAD_LEVEL_ITEM_BANK,
+                CallSite::relative(caller, revision, if player == 0 { 0x100 } else { 0x13c }),
+            )?;
+            item_arguments.release(context)?;
+            retain_arguments.release(context)?;
+            map_arguments.release(context)?;
         }
     }
     if ram::g_v_blank_func(revision).read(context).address() != 0 {
-        call(context, ids::ELEVATOR_END_RIDE_SCENE, &[])?;
-        call(context, ids::ELEVATOR_SET_STATE, &[elevator.address(), 11])?;
+        call_at(
+            context,
+            ids::ELEVATOR_END_RIDE_SCENE,
+            &[],
+            CallSite::relative(caller, revision, 0x14c),
+        )?;
+        call_at(
+            context,
+            ids::ELEVATOR_SET_STATE,
+            &[elevator.address(), 11],
+            CallSite::relative(caller, revision, 0x156),
+        )?;
     }
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_at(
+        context,
+        ids::DISABLE_BLANKING_GRAPHICS,
+        &[],
+        CallSite::relative(caller, revision, 0x15e),
+    )?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     let value = mode.read(context) & 0x3c;
     mode.write(context, value);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     if destination_level < 25 {
-        call(
+        call_at(
             context,
             ids::SETUP_ELEVATOR,
             &[i32::from(destination_level) as u32, 0],
+            CallSite::relative(caller, revision, 0x18e),
         )?;
     }
-    handle = call(
+    handle = call_at(
         context,
         ids::SETUP_ELEVATOR,
         &[i32::from(destination_level) as u32, 1],
+        CallSite::relative(caller, revision, 0x1a0),
     )? as i8;
+    set_low_byte(context, 2, handle);
     elevator = ram::g_elevator_records(revision)
         .at((i32::from(handle) - 1) >> 1)
         .at(1);
+    context.set_address_register(3, elevator.address());
     let destination_y = elevator.y().read(context).wrapping_add(5);
+    set_low_word(context, 6, destination_y);
     let destination_x = elevator.x().read(context);
+    frame.local::<i16>(-2).write(context, destination_x);
     for player in [1, 0] {
         if rides[player as usize] {
             let entity = ram::g_player_info(revision).at(player);
             entity.y().write(context, destination_y);
+            let destination_x = frame.local::<i16>(-2).read(context);
             entity.x().write(context, destination_x);
-            call(
+            call_at(
                 context,
                 ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
                 &[player as u32],
+                CallSite::relative(caller, revision, if player == 1 { 0x1da } else { 0x208 }),
             )?;
             ram::g_player_elevator_flags(revision)
                 .at(player)
                 .write(context, handle);
             if destination_level < 26 {
-                call(
+                call_at(
                     context,
                     ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
                     &[player as u32],
+                    CallSite::relative(caller, revision, if player == 1 { 0x1f2 } else { 0x21e }),
                 )?;
             }
         }
     }
     if destination_level == 26 {
-        call(context, ids::LOAD_FINAL_LEVEL_MAP, &[])?;
+        call_at(
+            context,
+            ids::LOAD_FINAL_LEVEL_MAP,
+            &[],
+            CallSite::relative(caller, revision, 0x22a),
+        )?;
     }
     ram::g_elevator_departure_in_progress(revision).write(context, 0);
-    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    let split_arguments = OutgoingArguments::push(context, &[1])?;
+    split_arguments.call(
+        context,
+        dispatcher,
+        ids::UPDATE_SCREEN_SPLIT_MODE,
+        CallSite::relative(caller, revision, 0x23a),
+    )?;
     let value = mode.read(context) | 0x40;
     mode.write(context, value);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    let hardware_mode = 0x8104 | u16::from(mode.read(context));
+    split_arguments.release(context)?;
+    context.write_vdp_control(hardware_mode);
+    call_at(
+        context,
+        ids::ENABLE_BLANKING_GRAPHICS,
+        &[],
+        CallSite::relative(caller, revision, 0x25e),
+    )?;
     if ram::g_current_music_selection(revision).read(context) == 6 {
-        call(context, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, &[])?;
-        call(context, ids::MUSIC_REQUEST_TRACK_POINTER_RESET, &[])?;
+        call_at(
+            context,
+            ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
+            &[],
+            CallSite::relative(caller, revision, 0x26e),
+        )?;
+        call_at(
+            context,
+            ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
+            &[],
+            CallSite::relative(caller, revision, 0x274),
+        )?;
     }
-    Ok(None)
+    Ok(())
+}
+
+fn set_low_byte(context: &mut dyn Context, register: usize, value: i8) {
+    let high = context.data_register(register) & 0xffffff00;
+    context.set_data_register(register, high | u32::from(value as u8));
 }

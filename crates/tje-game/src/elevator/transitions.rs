@@ -1,4 +1,8 @@
-use crate::{Context, Result, call, ids};
+use crate::{
+    Context, Result, call, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame},
+    ids,
+};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/elevator/elevator_transitions.c:192 (`ProcessElevatorStep2`).
@@ -156,8 +160,26 @@ pub fn process_elevator_step2(context: &mut dyn Context, _: &[u32]) -> Result<Op
 }
 
 /// G/src/elevator/elevator_transitions.c:73 (`ProcessElevatorStep1`).
+/// Preserve the original MOVEM D2-D6/A2-A5 frame for the prepared long-ride edge.
 pub fn process_elevator_step1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x7c, 0x3c))?;
+    let result = step1_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result.map(|()| None);
+    }
+    let leave = frame.leave(context);
+    result?;
+    leave?;
+    Ok(None)
+}
+
+fn step1_body(context: &mut dyn Context) -> Result<()> {
     let revision = context.revision();
+    context.set_address_register(3, ram::g_player_info(revision).address());
+    context.set_address_register(4, ram::g_player_elevator_flags(revision).address());
     for bank in 0..2 {
         let handle = (bank * 2 + 1) as i8;
         let elevator = ram::g_elevator_records(revision).at(bank).at(0);
@@ -343,26 +365,34 @@ pub fn process_elevator_step1(context: &mut dyn Context, _: &[u32]) -> Result<Op
         if next == 11 {
             // Matching caller allocation: D3.low holds state, A3 gPlayerInfo.
             // AdvanceRiders consumes these on its original uninitialized paths.
-            let saved_d3 = context.data_register(3);
-            let saved_a3 = context.address_register(3);
-            context.set_data_register(3, (saved_d3 & !0xff) | u32::from(state as u8));
+            let old_d3 = context.data_register(3);
+            context.set_data_register(3, (old_d3 & !0xff) | u32::from(state as u8));
             context.set_address_register(3, ram::g_player_info(revision).address());
-            let result = call(
+            call_at(
                 context,
                 ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
                 &[i32::from(handle) as u32],
-            );
-            context.set_data_register(3, saved_d3);
-            context.set_address_register(3, saved_a3);
-            result?;
+                CallSite::relative(ids::PROCESS_ELEVATOR_STEP1, revision, 0x3ba),
+            )?;
         }
     }
-    Ok(None)
+    Ok(())
 }
 
 /// G/src/elevator/elevator_transitions.c:270 (`ProcessElevators`).
 pub fn process_elevators(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    call(context, ids::PROCESS_ELEVATOR_STEP1, &[])?;
-    call(context, ids::PROCESS_ELEVATOR_STEP2, &[])?;
+    let revision = context.revision();
+    call_at(
+        context,
+        ids::PROCESS_ELEVATOR_STEP1,
+        &[],
+        CallSite::relative(ids::PROCESS_ELEVATORS, revision, 4),
+    )?;
+    call_at(
+        context,
+        ids::PROCESS_ELEVATOR_STEP2,
+        &[],
+        CallSite::relative(ids::PROCESS_ELEVATORS, revision, 8),
+    )?;
     Ok(None)
 }
