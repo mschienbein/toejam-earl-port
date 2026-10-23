@@ -123,6 +123,46 @@ const TIME_PROOF: &[Translation] = &[
     },
 ];
 
+// Dependency-closed timed batch which does not contain the known blocked
+// raster/cycle-charged scene paths or their departure-state-machine callers.
+// `time-all` remains the explicit diagnostic for all seventeen candidates.
+// The player-center animation also remains pending: at the 10,000-frame state,
+// the completed ISR observes Z80 byte A0004A as 4 versus 3, not a YM BUSY spin.
+const TIME_READY_PROOF: &[Translation] = &[
+    Translation {
+        id: ids::UPDATE_CAMERA_FOLLOWING,
+        function: camera::update_camera_following,
+    },
+    Translation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: camera::try_update_camera_y,
+    },
+    Translation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: camera::try_update_camera_x,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_UP,
+        function: camera::move_camera_up,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: camera::move_camera_down,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: camera::move_camera_left,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: camera::move_camera_right,
+    },
+    Translation {
+        id: ids::ELEVATOR_RIDE_V_BLANK,
+        function: elevator::elevator_ride_v_blank,
+    },
+];
+
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     // Fixtures follow the explicit execution-class selection; unregistered
     // classes are omitted, never credited as checked. All selected IDs must
@@ -602,7 +642,10 @@ fn time_fixtures(host: &mut Host) {
         let sr = c.status_register();
         c.set_status_register((sr & !0x700) | 0x600);
     }
-    check(host, ids::ELEVATOR_RIDE_V_BLANK, &[]);
+    for counter in [1_u16, 0, 16] {
+        ram::g_frame_counter(revision).write(&mut host.context(), counter);
+        check(host, ids::ELEVATOR_RIDE_V_BLANK, &[]);
+    }
     {
         let mut c = host.context();
         let sr = c.status_register();
@@ -656,7 +699,7 @@ fn main() {
     let selection = args.get(4).map_or("functional", String::as_str);
     assert!(matches!(
         selection,
-        "atomic" | "functional" | "time" | "closure"
+        "atomic" | "functional" | "time" | "time-all" | "closure"
     ));
     if selection == "closure" {
         let roots: Vec<_> = tje_game::translations()
@@ -684,7 +727,7 @@ fn main() {
         }
         return;
     }
-    let timed = selection == "time";
+    let timed = selection == "time" || selection == "time-all";
     fs::create_dir_all(evidence).unwrap();
     let script = Arc::new(
         InputScript::parse(
@@ -698,8 +741,10 @@ fn main() {
         } else {
             "rev00"
         };
-        let registry = if timed {
+        let registry = if selection == "time-all" {
             HookRegistry::proof(revision, TIME_PROOF).unwrap()
+        } else if timed {
+            HookRegistry::proof(revision, TIME_READY_PROOF).unwrap()
         } else if selection == "functional" {
             HookRegistry::proof(revision, FUNCTIONAL_PROOF).unwrap()
         } else {
@@ -727,6 +772,25 @@ fn main() {
         }
         assert!(host.measurements.game_frame.is_some());
         fs::write(evidence.join(format!("{name}-natural.json")), serde_json::to_vec_pretty(&serde_json::json!({"frames":frames,"checks":host.checks,"measurements":host.measurements})).unwrap()).unwrap();
+        // A frame boundary can be inside a pending/active IRQ. Finish original
+        // work before changing any fixture inputs; never lower SR to fake a
+        // main-call context or manufacture the counter/ready state being waited on.
+        let boundary = host
+            .settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
+        fs::write(
+            evidence.join(format!("{name}-boundary.json")),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "ticks": boundary.ticks, "master_clocks": boundary.master_clocks,
+                "start_pc": boundary.start_pc, "end_pc": boundary.end_pc,
+                "start_frame": boundary.start_frame, "end_frame": boundary.end_frame,
+                "handlers_completed": boundary.handlers_completed,
+                "completed_frames": boundary.completed_frames.len(),
+                "entry_sr": host.cpu().status_register(),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         if timed {
             time_fixtures(&mut host);
         } else {

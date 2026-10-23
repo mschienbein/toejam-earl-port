@@ -79,11 +79,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::SET_CAMERA_POSITION,
         function: set_camera_position,
     },
-];
-
-/// Complete Rust bodies awaiting both-revision execution-class proof. This table
-/// is deliberately not part of the production dispatcher or hook registry.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::TRY_UPDATE_CAMERA_Y,
         function: try_update_camera_y,
@@ -109,16 +104,21 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: move_camera_right,
     },
     crate::Translation {
+        id: ids::UPDATE_CAMERA_FOLLOWING,
+        function: update_camera_following,
+    },
+];
+
+/// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
+/// This table is deliberately not part of the production dispatcher or registry.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
         id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
         function: animate_split_screen_wipe,
     },
     crate::Translation {
         id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
         function: animate_players_into_split_views,
-    },
-    crate::Translation {
-        id: ids::UPDATE_CAMERA_FOLLOWING,
-        function: update_camera_following,
     },
 ];
 

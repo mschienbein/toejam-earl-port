@@ -104,6 +104,10 @@ pub static TRANSLATIONS: &[Translation] = &[
         id: ids::LOAD_FINAL_LEVEL_MAP,
         function: load_final_level_map,
     },
+    Translation {
+        id: ids::ELEVATOR_RIDE_V_BLANK,
+        function: elevator_ride_v_blank,
+    },
 ];
 
 /// Complete Rust bodies awaiting both-revision execution-class proof; never
@@ -116,10 +120,6 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
         function: elevator_prepare_ride_dialogue,
-    },
-    Translation {
-        id: ids::ELEVATOR_RIDE_V_BLANK,
-        function: elevator_ride_v_blank,
     },
     Translation {
         id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
