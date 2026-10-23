@@ -1,0 +1,28 @@
+[package]
+name = "tje-session"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+runner = ["dep:anyhow", "dep:clap", "dep:genesis-config", "dep:tje-game", "dep:tje-host", "dep:tje-mem"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tje-rom = { path = "../tje-rom" }
+anyhow = { version = "1", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
+tje-game = { path = "../tje-game", optional = true }
+tje-host = { path = "../tje-host", optional = true }
+tje-mem = { path = "../tje-mem", optional = true }
+
+[[bin]]
+name = "tje-session"
+path = "src/main.rs"
+required-features = ["runner"]

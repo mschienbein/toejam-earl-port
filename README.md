@@ -19,6 +19,13 @@ repository: the port reads graphics, sound and level data from your ROM.
 2. **Then the extras:** widescreen, online co-op, quality-of-life changes, saves, enhanced
    graphics, new content and game modes, and modding.
 
+## Reproducible controller sessions
+
+See [docs/SESSIONS.md](docs/SESSIONS.md) for the input-only format, native F9
+recorder, reference/check/replacement replay, differential comparison and the
+648-entry coverage report. The committed `sessions/` recordings contain only
+controller inputs and metadata; replay requires your own matching cartridge.
+
 ## License
 
 GPL-3.0, see [LICENSE](LICENSE).

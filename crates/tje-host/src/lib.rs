@@ -12,6 +12,7 @@ pub mod catalogue;
 pub mod hooks;
 pub mod input;
 mod play;
+pub mod session_trace;
 mod sinks;
 
 use abi::{HookContext, OrderedWrite, UninitializedStackRead, run_original_atomic, set_sp};
@@ -197,6 +198,7 @@ pub struct Host {
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
     audio_sample_rate: u32,
+    pub(crate) session_trace: Option<session_trace::SessionTrace>,
     pub checks: CheckReport,
     pub measurements: Measurements,
 }
@@ -261,6 +263,7 @@ impl Host {
             audio: HeadlessAudio::default(),
             saves,
             audio_sample_rate: 48_000,
+            session_trace: None,
             checks,
             measurements: Measurements::default(),
         })
@@ -312,6 +315,7 @@ impl Host {
             let ready = bus.cycles.m68k_wait_cpu_cycles == 0
                 && self.emulator.hybrid_cpu().hybrid_instruction_ready(bus);
             if ready {
+                self.trace_instruction(pc);
                 if pc == self.symbols.intro {
                     self.measurements.intro_frame.get_or_insert(self.frame);
                 } else if pc == self.symbols.title {
@@ -359,6 +363,7 @@ impl Host {
                     pc_at_vblank: pc,
                     frame_counter: self.context().read_u16(catalogue::FRAME_COUNTER),
                 };
+                self.trace_lag();
                 self.measurements.lag_events.push(event.clone());
                 lag_events.push(event);
             }

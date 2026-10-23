@@ -29,3 +29,4 @@ tje-host = { path = "../tje-host" }
 tje-rom = { path = "../tje-rom" }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
 tje-mem = { path = "../tje-mem" }
+tje-session = { path = "../tje-session" }

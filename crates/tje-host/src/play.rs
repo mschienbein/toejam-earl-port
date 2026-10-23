@@ -98,6 +98,7 @@ impl Host {
         self.emulator.hard_reset(&mut self.saves);
         self.frame = 0;
         self.main_idle = false;
+        self.session_trace = None;
         self.emulator
             .update_audio_output_frequency(u64::from(self.audio_sample_rate));
         self.audio.samples.clear();

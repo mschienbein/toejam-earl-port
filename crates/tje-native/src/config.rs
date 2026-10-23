@@ -27,6 +27,7 @@ pub enum Filter {
 pub struct Hotkeys {
     pub pause: KeyCode,
     pub reset: KeyCode,
+    pub record: KeyCode,
     pub fullscreen: KeyCode,
     pub scale: KeyCode,
     pub filter: KeyCode,
@@ -40,6 +41,7 @@ impl Default for Hotkeys {
         Self {
             pause: KeyCode::Escape,
             reset: KeyCode::F5,
+            record: KeyCode::F9,
             fullscreen: KeyCode::F11,
             scale: KeyCode::F6,
             filter: KeyCode::F7,
@@ -153,6 +155,10 @@ mod tests {
         let mut restored: Settings = toml::from_str(&toml::to_string(&defaults).unwrap()).unwrap();
         restored.validate().unwrap();
         assert_eq!(restored.players[0].bindings[0].key, Some(KeyCode::ArrowUp));
+        assert_eq!(restored.hotkeys.record, KeyCode::F9);
+        // Existing user configs gain the new hotkey through serde defaults.
+        let old: Settings = toml::from_str("[hotkeys]\npause = \"Escape\"\n").unwrap();
+        assert_eq!(old.hotkeys.record, KeyCode::F9);
         restored.volume = f32::NAN;
         assert!(restored.validate().is_err());
         assert!(toml::from_str::<Settings>("typo = true").is_err());

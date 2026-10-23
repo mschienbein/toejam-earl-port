@@ -2,6 +2,7 @@ mod audio;
 mod backend;
 mod config;
 mod input;
+mod recording;
 mod video;
 
 use anyhow::{Context, Result, ensure};
@@ -10,6 +11,7 @@ use backend::{GameBackend, HybridBackend, VideoFrame};
 use clap::Parser;
 use config::{Filter, Scale, Settings, Storage};
 use input::{Input, InputScript};
+use recording::Recorder;
 use std::{
     fs,
     io::BufWriter,
@@ -39,7 +41,8 @@ Keyboard P1: arrows, Z/X/C = A/B/C, Enter = Start.\n\
 Keyboard P2: W/S/A/D, G/H/J = A/B/C, Space = Start.\n\
 Gamepads: D-pad or left stick, west/south/east = A/B/C, Start; connection slots 0/1.\n\
 Hotkeys: Esc pause, F5 hard reset, F11 fullscreen, F6 integer/NTSC fit,\n\
-F7 nearest/linear, F8 vsync, PageUp/PageDown volume. All are configurable.\n\n\
+F7 nearest/linear, F8 vsync, F9 record (hard-resets on start), PageUp/PageDown volume.\n\
+Recording stops on F9/reset/import/exit and saves controller-only sessions under user data.\n\
 Keyboard script example: {\"holds\":[{\"start\":300,\"end\":308,\"keys\":[\"Enter\"]}]}.\n\
 Intervals are half-open console scheduler ticks; pause still advances the script clock.\n\
 Captures contain copyrighted game images: keep --capture-dir outside the public tree."
@@ -99,6 +102,8 @@ struct App {
     completed: bool,
     error: Option<anyhow::Error>,
     last_stage: &'static str,
+    recorder: Recorder,
+    revision: Option<tje_rom::Revision>,
 }
 
 impl App {
@@ -165,6 +170,8 @@ impl App {
             completed: false,
             error: None,
             last_stage: "",
+            recorder: Recorder::default(),
+            revision: None,
         })
     }
 
@@ -209,6 +216,7 @@ impl App {
     fn import(&mut self, path: &Path, store: bool) -> Result<()> {
         let bytes = fs::read(path).with_context(|| format!("read cartridge {}", path.display()))?;
         let rom = Rom::import(&bytes).context("identify cartridge")?;
+        self.stop_recording()?;
         if self.audio.is_none() {
             self.audio = Some(Audio::new(self.settings.volume)?);
         }
@@ -228,6 +236,7 @@ impl App {
         audio.flush();
         audio.set_paused(false);
         self.backend = Some(Box::new(backend));
+        self.revision = Some(rom.revision());
         self.paused = false;
         self.total_frames = 0;
         self.tick = 0;
@@ -250,6 +259,12 @@ impl App {
             ));
         }
     }
+    fn stop_recording(&mut self) -> Result<()> {
+        if let Some(path) = self.recorder.stop(&self.storage.directory)? {
+            println!("RECORD saved {}", path.display());
+        }
+        Ok(())
+    }
 
     fn key(&mut self, key: KeyCode, pressed: bool) -> Result<()> {
         if !self.input.key(key, pressed) {
@@ -264,6 +279,7 @@ impl App {
             println!("HOTKEY pause={}", self.paused);
             self.update_title();
         } else if key == hotkeys.reset {
+            self.stop_recording()?;
             if let Some(backend) = &mut self.backend {
                 backend.reset();
             }
@@ -272,6 +288,20 @@ impl App {
             }
             self.last_stage = "";
             println!("HOTKEY reset");
+        } else if key == hotkeys.record {
+            if self.recorder.active() {
+                self.stop_recording()?;
+            } else if let (Some(backend), Some(revision)) = (&mut self.backend, self.revision) {
+                backend.reset();
+                self.recorder.start(revision);
+                self.last_stage = "";
+                if let Some(audio) = &self.audio {
+                    audio.flush();
+                }
+                println!("RECORD started from power-on (hard reset)");
+            } else {
+                println!("RECORD needs an imported cartridge");
+            }
         } else if key == hotkeys.fullscreen {
             self.settings.fullscreen = !self.settings.fullscreen;
             if let Some(window) = &self.window {
@@ -346,6 +376,7 @@ impl App {
             let controllers = self.input.controllers(&self.settings.players);
             let samples = backend.advance(controllers)?;
             self.audio.as_ref().unwrap().push(samples);
+            self.recorder.frame(controllers)?;
             self.total_frames += 1;
             self.video.as_mut().unwrap().upload(backend.video());
             if self.total_frames == 1
@@ -399,6 +430,9 @@ impl App {
     }
 
     fn finish(&mut self) {
+        if let Err(error) = self.stop_recording() {
+            self.error.get_or_insert(error);
+        }
         let presented = self.video.as_ref().map_or(0, |video| video.presented);
         println!(
             "RUN frames={} ticks={} presented={presented} seconds={:.3} stage={}",
