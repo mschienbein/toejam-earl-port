@@ -59,6 +59,9 @@ jobs:
       - name: Confirm required runner architecture
         run: test "${{ runner.arch }}" = "${{ matrix.arch }}"
       - name: Check Rust formatting
+        # Formatting is platform-independent; rustfmt's main thread overflows the
+        # 1 MiB default Windows stack on the largest generated-looking sources.
+        if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
       - name: Check Rust lints
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
