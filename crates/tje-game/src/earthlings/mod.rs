@@ -3,6 +3,33 @@
 use crate::{Context, Result, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram};
 
+mod animation;
+mod banks;
+mod behaviors;
+mod decisions;
+mod dispatch;
+mod effects;
+mod friendly;
+mod generic;
+mod interactions;
+mod movement;
+mod santa;
+mod state;
+
+/// SUBQ.B followed by a signed branch consumes N xor V, not the wrapped sign.
+/// G/src/earthlings/spawning_and_banks.c:786 and animation_behaviours.c:202.
+fn predecrement_byte(value: i8) -> (i8, i16) {
+    let difference = i16::from(value) - 1;
+    (difference as i8, difference)
+}
+
+/// G/src/earthlings/animation_behaviours.c:39,178, generic_enemy.c:41,88,
+/// terrain_animation.c:109: preserve SUBQ.W's signed overflow for the branch.
+fn predecrement_word(value: i16) -> (i16, i32) {
+    let difference = i32::from(value) - 1;
+    (difference as i16, difference)
+}
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -37,6 +64,218 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::NICE_EARTHLING_CHECK,
         function: nice_earthling_check,
     },
+    crate::Translation {
+        id: ids::EARTHLING_IS_SPECIAL_RECORD_NEARBY,
+        function: decisions::earthling_is_special_record_nearby,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_SELECT_TURN_STATE,
+        function: decisions::earthling_select_turn_state,
+    },
+    crate::Translation {
+        id: ids::ENTITY_TRIGGER_TARGET_STATUS_EVENT_ONCE,
+        function: decisions::entity_trigger_target_status_event_once,
+    },
+    crate::Translation {
+        id: ids::CHECK_EARTHLING_OVERLAP,
+        function: banks::check_earthling_overlap,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_CONFIGURE_MAILBOX_LEVEL_BANK,
+        function: banks::earthling_configure_mailbox_level_bank,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_MOVE_WITHIN_MAP_BOUNDS,
+        function: movement::earthling_move_within_map_bounds,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_PROBE_DIRECTIONAL_TERRAIN,
+        function: movement::earthling_probe_directional_terrain,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_SELECT_TERRAIN_ANIMATION_STATE,
+        function: animation::earthling_select_terrain_animation_state,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_SPAWN_MOLE_EFFECT,
+        function: effects::earthling_spawn_mole_effect,
+    },
+    crate::Translation {
+        id: ids::ENTITY_STEER_WITH_HORIZONTAL_DRIFT,
+        function: decisions::entity_steer_with_horizontal_drift,
+    },
+    crate::Translation {
+        id: ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG,
+        function: movement::entity_update_terrain_draw_flag,
+    },
+    crate::Translation {
+        id: ids::CHECK_A_BUTTON,
+        function: interactions::check_a_button,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_APPLY_NEARBY_SLEEP,
+        function: state::earthling_apply_nearby_sleep,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_MOVE_ON_ALLOWED_TERRAIN,
+        function: movement::earthling_move_on_allowed_terrain,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_RELEASE_LEVEL_BANK,
+        function: state::earthling_release_level_bank,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_REMOVE_FROM_LEVEL,
+        function: state::earthling_remove_from_level,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_RESTORE_SAVED_POSITION,
+        function: state::earthling_restore_saved_position,
+    },
+    crate::Translation {
+        id: ids::PLAYER_CREATE_LIFE_REQUEST_DISPLAY,
+        function: interactions::player_create_life_request_display,
+    },
+    crate::Translation {
+        id: ids::RELEASE_FINISHED_MOLE_EFFECTS_AND_STOLEN_PRESENTS,
+        function: effects::release_finished_mole_effects_and_stolen_presents,
+    },
+    crate::Translation {
+        id: ids::SET_EARTHLING_STATE,
+        function: state::set_earthling_state,
+    },
+    crate::Translation {
+        id: ids::DAMAGE_EARTHLING,
+        function: state::damage_earthling,
+    },
+    crate::Translation {
+        id: ids::DROP_PRESENTS_ABILITY,
+        function: effects::drop_presents_ability,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_ADVANCE_HORIZONTAL_TURN_ANIMATION,
+        function: behaviors::earthling_advance_horizontal_turn_animation,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_RELOCATE_RECORD,
+        function: state::earthling_relocate_record,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK,
+        function: state::earthling_reset_state_two_by_draw_mask,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_THINK_HORIZONTAL_REVERSAL,
+        function: behaviors::earthling_think_horizontal_reversal,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_THINK_HORIZONTAL_WANDER,
+        function: behaviors::earthling_think_horizontal_wander,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_THINK_TARGETED_RESET_CYCLE,
+        function: behaviors::earthling_think_targeted_reset_cycle,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_TERRAIN_ANIMATION_STATE,
+        function: animation::earthling_update_terrain_animation_state,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_WAKE_LEVEL,
+        function: state::earthling_wake_level,
+    },
+    crate::Translation {
+        id: ids::DO_VIKING_ABILITY,
+        function: state::do_viking_ability,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_DAMAGE_ON_HAZARD_TERRAIN,
+        function: state::earthling_damage_on_hazard_terrain,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_PROCESS_SPECIAL_THINK_STATES,
+        function: generic::earthling_process_special_think_states,
+    },
+    crate::Translation {
+        id: ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
+        function: interactions::player_create_interaction_choice_display,
+    },
+    crate::Translation {
+        id: ids::SANTA_LOGIC,
+        function: santa::santa_logic,
+    },
+    crate::Translation {
+        id: ids::SETUP_INITIAL_EARTHLINGS,
+        function: state::setup_initial_earthlings,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_ALLOCATE_ENTITIES,
+        function: state::earthling_allocate_entities,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_THINK_TIMED_MOVEMENT,
+        function: animation::earthling_think_timed_movement,
+    },
+    crate::Translation {
+        id: ids::LOAD_IN_EARTHLINGS,
+        function: dispatch::load_in_earthlings,
+    },
+];
+
+/// Bodies awaiting their per-revision proof; never included in production dispatch.
+/// Composed TimeAware proof fails on ProcessEarthlings' ordered device-write trace.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::AI_GENERIC_ENEMY_THINK,
+        function: generic::ai_generic_enemy_think,
+    },
+    crate::Translation {
+        id: ids::AI_OPERA_SINGER_TOUCH,
+        function: friendly::ai_opera_singer_touch,
+    },
+    crate::Translation {
+        id: ids::AI_WIZARD_TOUCH,
+        function: friendly::ai_wizard_touch,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_DISPATCH_ABILITIES,
+        function: dispatch::earthling_dispatch_abilities,
+    },
+    crate::Translation {
+        id: ids::PLAYER_PROCESS_LIFE_REQUEST,
+        function: interactions::player_process_life_request,
+    },
+    crate::Translation {
+        id: ids::AI_MAILBOX_TOUCH,
+        function: friendly::ai_mailbox_touch,
+    },
+    crate::Translation {
+        id: ids::AI_WISEMAN_TOUCH,
+        function: friendly::ai_wiseman_touch,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+        function: dispatch::earthling_dispatch_player_contacts,
+    },
+    crate::Translation {
+        id: ids::PROCESS_EARTHLINGS,
+        function: dispatch::process_earthlings,
+    },
+];
+
+/// Unregistered body identities: the composed proof stops at REV 02 frame 2437
+/// with a ProcessEarthlings device-write trace mismatch. No both-revision proof
+/// is approved for these entries; this does not attribute the mismatch to each one.
+pub static PENDING: &[crate::FunctionId] = &[
+    ids::AI_GENERIC_ENEMY_THINK,
+    ids::AI_OPERA_SINGER_TOUCH,
+    ids::AI_WIZARD_TOUCH,
+    ids::EARTHLING_DISPATCH_ABILITIES,
+    ids::PLAYER_PROCESS_LIFE_REQUEST,
+    ids::AI_MAILBOX_TOUCH,
+    ids::AI_WISEMAN_TOUCH,
+    ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+    ids::PROCESS_EARTHLINGS,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
@@ -359,4 +598,37 @@ pub fn nice_earthling_check(context: &mut dyn Context, arguments: &[u32]) -> Res
         _ => false,
     };
     Ok(Some(u32::from(allowed)))
+}
+#[cfg(test)]
+mod decrement_tests {
+    use super::{predecrement_byte, predecrement_word};
+
+    #[test]
+    fn every_byte_subq_signed_condition_including_overflow() {
+        for value in i8::MIN..=i8::MAX {
+            let (stored, difference) = predecrement_byte(value);
+            let negative = stored < 0;
+            let overflow = value == i8::MIN;
+            let zero = stored == 0;
+            assert_eq!(stored, value.wrapping_sub(1));
+            assert_eq!(difference < 0, negative ^ overflow);
+            assert_eq!(difference <= 0, zero || (negative ^ overflow));
+            assert_eq!(difference > 0, !zero && !(negative ^ overflow));
+        }
+    }
+
+    #[test]
+    fn every_word_subq_signed_condition_including_overflow() {
+        for value in i16::MIN..=i16::MAX {
+            let (stored, difference) = predecrement_word(value);
+            let negative = stored < 0;
+            let overflow = value == i16::MIN;
+            let zero = stored == 0;
+            assert_eq!(stored, value.wrapping_sub(1));
+            assert_eq!(difference < 0, negative ^ overflow);
+            assert_eq!(difference <= 0, zero || (negative ^ overflow));
+            assert_eq!(difference > 0, !zero && !(negative ^ overflow));
+            assert_eq!(difference == 0, zero);
+        }
+    }
 }
