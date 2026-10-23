@@ -132,6 +132,7 @@ fn corpus_interrupt_timing_failures_remain_pending_and_unregistered() {
         ids::MOVE_CAMERA_DOWN,
         ids::MOVE_CAMERA_LEFT,
         ids::MOVE_CAMERA_RIGHT,
+        ids::TRY_UPDATE_CAMERA_X,
     ] {
         assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
         assert!(!TRANSLATIONS.iter().any(|entry| entry.id == id));

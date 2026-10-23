@@ -83,15 +83,18 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::TRY_UPDATE_CAMERA_Y,
         function: try_update_camera_y,
     },
-    crate::Translation {
-        id: ids::TRY_UPDATE_CAMERA_X,
-        function: try_update_camera_x,
-    },
 ];
 
 /// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
 /// This table is deliberately not part of the production dispatcher or registry.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // REV 00 cooperation frame 47366: semantic Z80 RAM read A0004A is 4 in
+    // the original and 255 in Rust (trace 194). Await the Z80 timing schedule;
+    // this phase-dependent read is not an eligible YM BUSY stutter.
+    crate::Translation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: try_update_camera_x,
+    },
     // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
     // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
     crate::Translation {
