@@ -92,6 +92,8 @@ class ReleaseTests(unittest.TestCase):
     def test_ico_and_icns_contain_complete_png_images(self) -> None:
         icons = self.root / "icons"
         release.make_icons(icons)
+        self.assertEqual(icons.joinpath("toejam-earl.rc").read_bytes(),
+                         b'1 ICON "toejam-earl.ico"\n')
         ico = icons.joinpath("toejam-earl.ico").read_bytes()
         self.assertEqual(struct.unpack_from("<HHH", ico), (0, 1, 6))
         for index, size in enumerate((16, 32, 48, 64, 128, 256)):
@@ -124,10 +126,17 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(any("cartridge.bin" in name or "/roms/" in name for name in members))
             self.assertEqual(archive.getmember(f"{stem}/toejam-earl").mode, 0o755)
         appdir = self.output / f"{stem}.AppDir"
-        self.assertTrue(appdir.joinpath("AppRun").stat().st_mode & 0o111)
+        # NTFS does not expose POSIX execute bits; assert the shipped metadata instead.
+        appdir_archive = self.root / "appdir.tar.gz"
+        release.archive_tar_gz(appdir, appdir_archive, set())
+        with tarfile.open(appdir_archive) as archive:
+            self.assertEqual(archive.getmember(f"{appdir.name}/AppRun").mode, 0o755)
         self.assertIn('exec "$HERE/toejam-earl" "$@"', appdir.joinpath("AppRun").read_text())
         self.assertIn("Icon=toejam-earl\n", appdir.joinpath("toejam-earl.desktop").read_text())
         self.assertEqual(appdir.joinpath("toejam-earl").read_bytes(), self.binary.read_bytes())
+        self.assertTrue(appdir.joinpath("AppRun").read_bytes().startswith(b"#!/bin/sh\n"))
+        for name in ("AppRun", "toejam-earl.desktop", "SOURCE.txt"):
+            self.assertNotIn(b"\r", appdir.joinpath(name).read_bytes())
         # Reusing a dirty staging tree must never pull a ROM into the AppImage.
         appdir.joinpath("cartridge.bin").write_text("must not survive a new staging operation")
         with self.assertRaisesRegex(ValueError, "AppDir must not already exist"):
@@ -144,6 +153,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(any(name.endswith((".rc", ".icns", ".o")) for name in names))
             self.assertEqual(archive.read(f"{stem}/toejam-earl.exe"), self.binary.read_bytes())
             self.assertIn(b"Commit: ", archive.read(f"{stem}/SOURCE.txt"))
+            self.assertNotIn(b"\r", archive.read(f"{stem}/SOURCE.txt"))
 
     def test_macos_metadata_architecture_and_signing_contract(self) -> None:
         self.binary.write_bytes(executable_image("macos"))
@@ -158,7 +168,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(metadata["CFBundleShortVersionString"], "1.2.3")
         self.assertEqual(metadata["LSMinimumSystemVersion"], "11.0")
         executable = bundle / "Contents/MacOS/toejam-earl"
-        self.assertEqual(executable.stat().st_mode & 0o777, 0o755)
+        # Check Unix modes in the ZIP, not the host filesystem's limited Windows modes.
+        artifact = self.root / "macos.zip"
+        release.archive_zip(destination, artifact, set())
+        with zipfile.ZipFile(artifact) as archive:
+            member = archive.getinfo(executable.relative_to(destination.parent).as_posix())
+            self.assertEqual((member.external_attr >> 16) & 0o777, 0o755)
         self.assertEqual(run.call_args_list, [
             mock.call(["lipo", "-verify_arch", "x86_64", "arm64", str(executable)], check=True),
             mock.call(["codesign", "--force", "--sign", "-", str(bundle)], check=True),
@@ -190,9 +205,10 @@ class ReleaseTests(unittest.TestCase):
             "pkg/tje_web.js", "pkg/tje_web_bg.wasm", ".nojekyll", "icon.png",
             "pkg/snippets/engine/src/browser.js", "pkg/snippets/engine/src/cache.js",
         }
-        self.assertEqual({str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()},
+        self.assertEqual({path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()},
                          expected)
         self.assertIn('href="./icon.png"', site.joinpath("index.html").read_text())
+        self.assertNotIn(b"\r", site.joinpath("index.html").read_bytes())
         with zipfile.ZipFile(artifact) as archive:
             self.assertEqual(set(archive.namelist()), {f"site/{name}" for name in expected})
         with self.assertRaisesRegex(ValueError, "web output must be empty"):
@@ -235,6 +251,7 @@ class ReleaseTests(unittest.TestCase):
             for name in ("a.tar.gz", "b.zip"))
         manifest = release.checksums(self.output)
         self.assertEqual(manifest.read_text(), expected)
+        self.assertNotIn(b"\r", manifest.read_bytes())
         self.assertEqual(release.checksums(self.output).read_bytes(), manifest.read_bytes())
 
     def test_missing_executable_empty_artifacts_and_unsafe_versions_fail(self) -> None:

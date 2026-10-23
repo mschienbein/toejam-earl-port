@@ -289,7 +289,7 @@ def make_icons(destination: Path) -> None:
         b"icns" + struct.pack(">I", len(chunks) + 8) + chunks)
     # windres resolves this relative to the working directory, not the RC file.
     destination.joinpath("toejam-earl.rc").write_text(
-        '1 ICON "toejam-earl.ico"\n', encoding="utf-8")
+        '1 ICON "toejam-earl.ico"\n', encoding="utf-8", newline="\n")
 
 
 def copy_public_notes(destination: Path, rom_hashes: set[str]) -> None:
@@ -305,7 +305,7 @@ def copy_public_notes(destination: Path, rom_hashes: set[str]) -> None:
         "Source: https://github.com/mschienbein/toejam-earl-port\n"
         f"Commit: {revision}\nLicense: GPL-3.0 (see LICENSE)\n"
         "No ROM or game assets are included. Supply your own cartridge.\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def archive_zip(directory: Path, output: Path, rom_hashes: set[str]) -> None:
@@ -356,7 +356,7 @@ def stage_linux(binary: Path, destination: Path) -> None:
         "[Desktop Entry]\nType=Application\nName=ToeJam & Earl\n"
         "Comment=Faithful port; requires your own cartridge\n"
         "Exec=toejam-earl\nIcon=toejam-earl\nTerminal=false\n"
-        "Categories=Game;\nStartupWMClass=toejam-earl\n", encoding="utf-8")
+        "Categories=Game;\nStartupWMClass=toejam-earl\n", encoding="utf-8", newline="\n")
 
 
 def stage_macos(binary: Path, destination: Path, version: str) -> None:
@@ -418,7 +418,7 @@ def package_native(platform: str, binary: Path, version: str, output: Path) -> P
             copy_public_notes(appdir, rom_hashes)
             appdir.joinpath("AppRun").write_text(
                 '#!/bin/sh\nHERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\n'
-                'exec "$HERE/toejam-earl" "$@"\n', encoding="utf-8")
+                'exec "$HERE/toejam-earl" "$@"\n', encoding="utf-8", newline="\n")
             appdir.joinpath("AppRun").chmod(0o755)
             scan_directory(appdir, rom_hashes)
         else:
@@ -487,7 +487,7 @@ def package_web(version: str, output: Path, site: Path) -> Path:
     index = site / "index.html"
     index.write_text(index.read_text(encoding="utf-8").replace(
         "</head>", '  <link rel="icon" href="./icon.png" type="image/png">\n</head>'),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     output.mkdir(parents=True, exist_ok=True)
     artifact = output / f"toejam-earl-{version}-web.zip"
     archive_zip(site, artifact, rom_hashes)
@@ -507,7 +507,7 @@ def checksums(output: Path) -> Path:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         lines.append(f"{digest}  {artifact.name}\n")
     manifest = output / "SHA256SUMS.txt"
-    manifest.write_text("".join(lines), encoding="utf-8")
+    manifest.write_text("".join(lines), encoding="utf-8", newline="\n")
     return manifest
 
 
