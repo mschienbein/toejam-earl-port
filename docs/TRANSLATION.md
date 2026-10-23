@@ -388,6 +388,7 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 | `GenerateSpeech` → `AllocateEntityViewportSprites` | D4 low word = slot | as above |
 | `JamOutCreateCharacterCopies` | entry D3 low byte (parent number; `StartJamOut` keeps `song` in D3.W at the call) and the word at entry SP-6 (`-2(A6)`, lead tile) | a non-lead copy succeeds after slot 0 failed |
 | `ProcessElevatorStep1` → `ElevatorAdvanceRidersToNextLevel` | D3 low byte = current state, A3 = `gPlayerInfo` at the call | as `ElevatorAdvanceRidersToNextLevel` above |
+| `CheckBButton` | entry D2 low word (frame counter; `ADDQ.W #1,D2` before modulo 3, never initialised). `InventoryOpenMailOrderMenu`/`InventoryOpenIdentificationMenu` leave the player number in D2.W; core callers leave their own compiled D2 residue | always |
 
 Add new cases here when you find them.
 
