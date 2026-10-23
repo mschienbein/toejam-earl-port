@@ -81,7 +81,7 @@
       "upstream_path": "backend/genesis-components/src/vdp/colors.rs"
     },
     "backend/genesis-components/src/vdp/cramdots.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "47043efd967fdc6ead8f0de9aae7023c44b0439e",
       "upstream_path": "backend/genesis-components/src/vdp/cramdots.rs"
     },
@@ -91,7 +91,7 @@
       "upstream_path": "backend/genesis-components/src/vdp/debug.rs"
     },
     "backend/genesis-components/src/vdp/fifo.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "5c3b6d9d725e57b2c9d9895b17d98be941d75bef",
       "upstream_path": "backend/genesis-components/src/vdp/fifo.rs"
     },
@@ -106,7 +106,7 @@
       "upstream_path": "backend/genesis-components/src/vdp/render.rs"
     },
     "backend/genesis-components/src/vdp/sprites.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "28f73d7975455c615084b2064da73aeb4e323db8",
       "upstream_path": "backend/genesis-components/src/vdp/sprites.rs"
     },

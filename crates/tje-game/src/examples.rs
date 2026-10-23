@@ -1,7 +1,7 @@
 //! Worked translations, with synthetic-memory tests. Names identify G's source,
 //! not newly claimed original historical C spellings. See docs/TRANSLATION.md.
 
-use crate::{Address, Bus, ObjectState, Platform, Revision, ram};
+use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
 /// G/src/core/startup_and_main_loop.c: GetLevelMusicIndex (REV 02 0x001262).
 /// The subtraction is promoted to 32-bit int before the signed remainder.
@@ -58,21 +58,43 @@ pub fn update_attached_entity_position(
 /// G/src/sprites/select_first_link.c: SelectSpriteChainStart (REV 02 0x00CFBA).
 /// Hardware writes precede the RAM mirror update, preserving the original order.
 pub fn select_sprite_chain_start(
-    bus: &mut (impl Bus + ?Sized),
+    bus: &mut (impl Bus + Platform + ?Sized),
     revision: Revision,
-    platform: &mut (impl Platform + ?Sized),
     primary_only: i16,
 ) {
     let link = if primary_only != 0 { 1 } else { 11 };
-    platform.write_vdp_command(0x78020003);
-    platform.write_vdp_data(u16::from(link));
+    bus.write_vdp_command(0x78020003);
+    bus.write_vdp_data(u16::from(link));
     ram::g_hardware_sprite_root_link(revision).write(bus, link);
+}
+
+/// G/src/core/startup_and_main_loop.c: GetLevelMusicIndex, MCC68K entry bridge.
+pub fn music_hook(_: &mut dyn crate::Context, arguments: &[u32]) -> crate::Result<Option<u32>> {
+    Ok(Some(
+        i32::from(get_level_music_index(arguments[0] as i16)) as u32
+    ))
+}
+/// G/src/sprites/entity_sprite_rendering.c: UpdateAttachedEntityPosition bridge.
+pub fn attachment_hook(
+    context: &mut dyn crate::Context,
+    arguments: &[u32],
+) -> crate::Result<Option<u32>> {
+    update_attached_entity_position(context, context.revision(), Address::new(arguments[0]));
+    Ok(None)
+}
+/// G/src/sprites/select_first_link.c: SelectSpriteChainStart bridge.
+pub fn chain_hook(
+    context: &mut dyn crate::Context,
+    arguments: &[u32],
+) -> crate::Result<Option<u32>> {
+    select_sprite_chain_start(context, context.revision(), arguments[0] as i16);
+    Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AddressSpace, RAM_START};
+    use tje_mem::{AddressSpace, RAM_START};
 
     fn memory(revision: Revision) -> AddressSpace {
         AddressSpace::new(vec![0; 64], revision)
@@ -127,6 +149,26 @@ mod tests {
     }
 
     #[test]
+    fn owner_zero_is_a_real_parent_and_can_alias_the_entity() {
+        let revision = Revision::Rev02;
+        let mut bus = memory(revision);
+        let entity = ram::g_player_info(revision).at(0);
+        entity.owner().write(&mut bus, 0);
+        entity.x().write(&mut bus, 32767);
+        entity.y().write(&mut bus, -32768);
+        entity.height().write(&mut bus, 1);
+        entity.attachment_x_or_latch().write(&mut bus, 1);
+        entity.attachment_y_or_latch().write(&mut bus, -1);
+        entity.attachment_height().write(&mut bus, 255);
+        entity.tile().write(&mut bus, 0x8123);
+        update_attached_entity_position(&mut bus, revision, entity);
+        assert_eq!(entity.x().read(&bus), -32768);
+        assert_eq!(entity.y().read(&bus), 32767);
+        assert_eq!(entity.height().read(&bus), 0);
+        assert_eq!(entity.tile().read(&bus), 0x8123);
+    }
+
+    #[test]
     fn camera_attachment_reinterprets_offsets_as_unsigned() {
         let revision = Revision::Rev02;
         let mut bus = memory(revision);
@@ -159,15 +201,27 @@ mod tests {
     enum Write {
         Control(u16),
         Data(u16),
+        Ram(u32, u8),
     }
-    #[derive(Default)]
-    struct Trace(Vec<Write>);
+    struct Trace {
+        memory: AddressSpace,
+        events: Vec<Write>,
+    }
+    impl Bus for Trace {
+        fn read_u8(&self, address: u32) -> u8 {
+            self.memory.read_u8(address)
+        }
+        fn write_u8(&mut self, address: u32, value: u8) {
+            self.events.push(Write::Ram(address, value));
+            self.memory.write_u8(address, value);
+        }
+    }
     impl Platform for Trace {
         fn write_vdp_control(&mut self, value: u16) {
-            self.0.push(Write::Control(value));
+            self.events.push(Write::Control(value));
         }
         fn write_vdp_data(&mut self, value: u16) {
-            self.0.push(Write::Data(value));
+            self.events.push(Write::Data(value));
         }
     }
 
@@ -176,34 +230,43 @@ mod tests {
         for revision in [Revision::Rev02, Revision::Rev00] {
             let mut bus = memory(revision);
             bus.ram_mut().fill(0xa5);
-            let mut platform = Trace::default();
+            let mut trace = Trace {
+                memory: bus,
+                events: Vec::new(),
+            };
             for (argument, expected) in [(0, 11), (1, 1), (-1, 1), (i16::MIN, 1)] {
-                platform.0.clear();
-                select_sprite_chain_start(&mut bus, revision, &mut platform, argument);
+                trace.events.clear();
+                select_sprite_chain_start(&mut trace, revision, argument);
                 assert_eq!(
-                    platform.0,
+                    trace.events,
                     [
                         Write::Control(0x7802),
                         Write::Control(3),
-                        Write::Data(u16::from(expected))
+                        Write::Data(u16::from(expected)),
+                        Write::Ram(
+                            ram::g_hardware_sprite_root_link(revision).address(),
+                            expected
+                        )
                     ]
                 );
                 assert_eq!(
-                    ram::g_hardware_sprite_root_link(revision).read(&bus),
+                    ram::g_hardware_sprite_root_link(revision).read(&trace),
                     expected
                 );
                 assert_eq!(
                     ram::g_hardware_sprite_table(revision)
                         .at(0)
                         .link()
-                        .read(&bus),
+                        .read(&trace),
                     expected
                 );
             }
             let offset =
                 (ram::g_hardware_sprite_root_link(revision).address() - RAM_START) as usize;
             assert!(
-                bus.ram()
+                trace
+                    .memory
+                    .ram()
                     .iter()
                     .enumerate()
                     .all(|(i, byte)| i == offset || *byte == 0xa5)

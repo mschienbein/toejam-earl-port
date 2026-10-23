@@ -1,4 +1,4 @@
-//! Headless REV 02 reference and hybrid host built on jgenesis.
+//! Headless REV 02/REV 00 reference and hybrid host built on jgenesis.
 //!
 //! `Check` compares atomic function contracts on independent state forks, with
 //! interrupts/peripheral clocks frozen, then lets the live ROM execute with its
@@ -14,7 +14,7 @@ pub mod input;
 mod play;
 mod sinks;
 
-use abi::{HookContext, UninitializedStackRead, run_original_atomic, set_sp};
+use abi::{HookContext, OrderedWrite, UninitializedStackRead, run_original_atomic, set_sp};
 use genesis_config::{GenesisEmulatorConfig, GenesisInputs};
 use genesis_core::{GenesisEmulator, HybridWrite};
 use hooks::{Hook, HookRegistry};
@@ -30,10 +30,16 @@ pub type Result<T, E = HostError> = std::result::Result<T, E>;
 pub enum HostError {
     #[error("ROM import failed: {0}")]
     Rom(#[from] tje_rom::ImportError),
-    #[error("this host's hook/measurement metadata is REV 02 only")]
-    WrongRevision,
+    #[error("hook registry targets {registry:?}, ROM is {rom:?}")]
+    HookRevisionMismatch { registry: Revision, rom: Revision },
+    #[error(transparent)]
+    Translation(#[from] tje_game::Error),
     #[error("invalid metadata: {0}")]
     Metadata(String),
+    #[error(
+        "{function} has no atomic-capable contract; clock/interrupt progress is unsupported by atomic hooks"
+    )]
+    NotAtomicCapable { function: String },
     #[error("invalid input script: {0}")]
     Input(String),
     #[error("{0}")]
@@ -128,9 +134,18 @@ pub struct StackReadSite {
 }
 
 #[derive(Debug, Default, Serialize)]
+pub struct FunctionCoverage {
+    pub calls_checked: u64,
+    pub calls_replaced: u64,
+    pub mismatches: u64,
+}
+
+#[derive(Debug, Default, Serialize)]
 pub struct CheckReport {
     pub calls: u64,
-    pub by_function: BTreeMap<String, u64>,
+    pub by_function: BTreeMap<String, FunctionCoverage>,
+    /// Registered entries with no checked or replacement call in this run.
+    pub unexercised: BTreeSet<String>,
     pub mismatches: u64,
     pub nested_original_calls: u64,
     pub dead_stack_differing_calls: u64,
@@ -139,12 +154,14 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
-    fn record_function(&mut self, name: &str) {
-        if let Some(count) = self.by_function.get_mut(name) {
-            *count += 1;
+    fn record_function(&mut self, name: &str, checked: bool) {
+        let coverage = self.by_function.entry(name.to_owned()).or_default();
+        if checked {
+            coverage.calls_checked += 1;
         } else {
-            self.by_function.insert(name.to_owned(), 1);
+            coverage.calls_replaced += 1;
         }
+        self.unexercised.remove(name);
     }
 }
 
@@ -152,6 +169,8 @@ pub struct Host {
     emulator: GenesisEmulator,
     registry: HookRegistry,
     mode: Mode,
+    revision: Revision,
+    symbols: catalogue::RevisionSymbols,
     frame: u64,
     main_idle: bool,
     output: HeadlessOutput,
@@ -164,9 +183,16 @@ pub struct Host {
 
 impl Host {
     pub fn new(bytes: &[u8], mode: Mode, registry: HookRegistry) -> Result<Self> {
-        let rom = Rom::import(bytes)?;
-        if rom.revision() != Revision::Rev02 {
-            return Err(HostError::WrongRevision);
+        Self::from_rom(Rom::import(bytes)?, mode, registry)
+    }
+
+    pub fn from_rom(rom: Rom, mode: Mode, registry: HookRegistry) -> Result<Self> {
+        let revision = rom.revision();
+        if registry.revision() != revision {
+            return Err(HostError::HookRevisionMismatch {
+                registry: registry.revision(),
+                rom: revision,
+            });
         }
         let initial_sp = u32::from_be_bytes(
             rom.bytes()[..4]
@@ -185,23 +211,35 @@ impl Host {
             &mut saves,
         );
         emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+        let mut checks = CheckReport::default();
+        for hook in registry.iter() {
+            checks
+                .by_function
+                .insert(hook.symbol.name.to_owned(), FunctionCoverage::default());
+            checks.unexercised.insert(hook.symbol.name.to_owned());
+        }
         Ok(Self {
             emulator,
             registry,
             mode,
+            revision,
+            symbols: catalogue::RevisionSymbols::for_revision(revision),
             frame: 0,
             main_idle: false,
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
             audio_sample_rate: 48_000,
-            checks: CheckReport::default(),
+            checks,
             measurements: Measurements::default(),
         })
     }
 
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+    pub fn revision(&self) -> Revision {
+        self.revision
     }
     pub fn frame_count(&self) -> u64 {
         self.frame
@@ -214,7 +252,11 @@ impl Host {
         self.emulator.hybrid_cpu()
     }
     pub fn context(&mut self) -> HookContext<'_> {
-        HookContext::new(&mut self.emulator)
+        HookContext::new(
+            &mut self.emulator,
+            self.revision,
+            self.registry.dispatcher(),
+        )
     }
 
     /// Inspect the typed VDP registers directly; unlike the snapshot encoding,
@@ -239,32 +281,24 @@ impl Host {
             let ready = bus.cycles.m68k_wait_cpu_cycles == 0
                 && self.emulator.hybrid_cpu().hybrid_instruction_ready(bus);
             if ready {
-                match pc {
-                    catalogue::INTRO => {
-                        self.measurements.intro_frame.get_or_insert(self.frame);
+                if pc == self.symbols.intro {
+                    self.measurements.intro_frame.get_or_insert(self.frame);
+                } else if pc == self.symbols.title {
+                    self.measurements.title_frame.get_or_insert(self.frame);
+                } else if pc == self.symbols.new_game_menu {
+                    self.measurements.menu_frame.get_or_insert(self.frame);
+                } else if pc == self.symbols.main_loop {
+                    self.measurements.game_frame.get_or_insert(self.frame);
+                    self.measurements.logic_ticks += 1;
+                    self.main_idle = false;
+                } else if pc == self.symbols.main_wait {
+                    self.main_idle = true;
+                } else if pc == self.symbols.random {
+                    let sp = self.emulator.hybrid_cpu().stack_pointer();
+                    let return_pc = self.context().read_u32(sp);
+                    if return_pc == self.symbols.idle_random_return {
+                        idle_draws += 1;
                     }
-                    0x027A10 => {
-                        self.measurements.title_frame.get_or_insert(self.frame);
-                    }
-                    catalogue::NEW_GAME_MENU => {
-                        self.measurements.menu_frame.get_or_insert(self.frame);
-                    }
-                    catalogue::MAIN_LOOP => {
-                        self.measurements.game_frame.get_or_insert(self.frame);
-                        self.measurements.logic_ticks += 1;
-                        self.main_idle = false;
-                    }
-                    catalogue::MAIN_WAIT => {
-                        self.main_idle = true;
-                    }
-                    catalogue::RANDOM => {
-                        let sp = self.emulator.hybrid_cpu().stack_pointer();
-                        let return_pc = self.context().read_u32(sp);
-                        if return_pc == catalogue::IDLE_RANDOM_RETURN {
-                            idle_draws += 1;
-                        }
-                    }
-                    _ => {}
                 }
                 if self.mode != Mode::Reference
                     && let Some(hook) = self.registry.at(pc).cloned()
@@ -359,6 +393,7 @@ impl Host {
     fn fork(&self) -> GenesisEmulator {
         let mut fork = self.emulator.partial_clone();
         fork.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+        fork.hybrid_bus_mut().hybrid_accesses = Some(Vec::new());
         fork
     }
 
@@ -406,23 +441,40 @@ impl Host {
         let audit = self.execute_fork(&mut original, |emulator| {
             run_original_atomic(emulator, return_pc, sp.wrapping_add(4))
         })?;
-        let nested_calls = self.execute_fork(&mut translated, |emulator| {
-            let mut context = HookContext::new(emulator);
-            let value = (hook.function)(&mut context)?;
-            context.return_to_caller(value);
-            Ok(context.nested_calls)
-        })?;
+        let revision = self.revision;
+        let dispatcher = self.registry.dispatcher();
+        let (nested_calls, translated_writes, nested_reads) =
+            self.execute_fork(&mut translated, |emulator| {
+                let mut context = HookContext::new(emulator, revision, dispatcher);
+                let value = hook.execute(&mut context)?;
+                context.return_to_caller(value);
+                Ok((
+                    context.nested_calls,
+                    context.writes,
+                    context.uninitialized_reads,
+                ))
+            })?;
         self.checks.calls += 1;
-        self.checks.record_function(&hook.symbol.name);
+        self.checks.record_function(hook.symbol.name, true);
         self.checks.nested_original_calls += nested_calls;
-        for UninitializedStackRead { pc, address } in audit.uninitialized_reads {
+        let stack_dependency = !audit.uninitialized_reads.is_empty() || !nested_reads.is_empty();
+        for UninitializedStackRead { pc, address } in
+            audit.uninitialized_reads.into_iter().chain(nested_reads)
+        {
             self.checks.uninitialized_stack_reads.insert(StackReadSite {
-                function: hook.symbol.name.clone(),
+                function: hook.symbol.name.to_owned(),
                 pc,
                 address,
             });
         }
-        let comparison = compare_calls(&mut original, &mut translated, sp, hook.returns_value);
+        let comparison = if stack_dependency {
+            Err("uninitialized stack read: a stateful stack dependency cannot be approved as an atomic Rust function".into())
+        } else { compare_calls(&mut original, &mut translated, sp, &hook.symbol.abi) }
+            .and_then(|dead_bytes| {
+                let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
+                compare_io_ram_order(&audit.writes, &translated_writes, entry_ram, sp)?;
+                Ok(dead_bytes)
+            });
         match comparison {
             Ok(dead_bytes) => {
                 self.checks.dead_stack_differing_bytes += dead_bytes;
@@ -433,9 +485,14 @@ impl Host {
             }
             Err(detail) => {
                 self.checks.mismatches += 1;
+                self.checks
+                    .by_function
+                    .get_mut(hook.symbol.name)
+                    .expect("registered hook")
+                    .mismatches += 1;
                 Err(HostError::Mismatch {
                     frame: self.frame,
-                    function: hook.symbol.name.clone(),
+                    function: hook.symbol.name.to_owned(),
                     detail,
                 })
             }
@@ -443,11 +500,15 @@ impl Host {
     }
 
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
-        let mut context = HookContext::new(&mut self.emulator);
-        let value = (hook.function)(&mut context)?;
+        let mut context = HookContext::new(
+            &mut self.emulator,
+            self.revision,
+            self.registry.dispatcher(),
+        );
+        let value = hook.execute(&mut context)?;
         context.return_to_caller(value);
         self.checks.nested_original_calls += context.nested_calls;
-        self.checks.record_function(&hook.symbol.name);
+        self.checks.record_function(hook.symbol.name, false);
         Ok(())
     }
 
@@ -480,13 +541,35 @@ impl Host {
         cpu.set_pc(saved_pc, bus);
         Ok(result)
     }
+
+    /// Differential fixture on a fork of the current live state. Restore CPU and
+    /// every device/storage byte afterward, but retain the measured coverage.
+    /// This prevents diagnostic writes from filling a frozen VDP FIFO across calls.
+    pub fn check_fixture(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
+        let mut saved = self.emulator.partial_clone();
+        let result = self.check_call(address, arguments);
+        saved
+            .hybrid_bus_mut()
+            .cartridge
+            .as_mut()
+            .expect("cartridge")
+            .take_rom_from(
+                self.emulator
+                    .hybrid_bus_mut()
+                    .cartridge
+                    .as_mut()
+                    .expect("cartridge"),
+            );
+        self.emulator = saved;
+        result
+    }
 }
 
 fn compare_calls(
     original: &mut GenesisEmulator,
     translated: &mut GenesisEmulator,
     entry_sp: u32,
-    returns_value: bool,
+    abi: &tje_game::Abi,
 ) -> std::result::Result<u64, String> {
     let (a, b) = (original.hybrid_cpu(), translated.hybrid_cpu());
     if a.pc() != b.pc() || a.stack_pointer() != b.stack_pointer() {
@@ -498,12 +581,39 @@ fn compare_calls(
             b.stack_pointer()
         ));
     }
+    if a.user_stack_pointer() != b.user_stack_pointer()
+        || a.supervisor_stack_pointer() != b.supervisor_stack_pointer()
+    {
+        return Err("banked USP/SSP state differs".into());
+    }
     let (da, db) = (a.data_registers(), b.data_registers());
-    if returns_value && da[0] != db[0] {
+    if abi.returns_value && da[0] != db[0] {
         return Err(format!("D0: original={:08X}, Rust={:08X}", da[0], db[0]));
     }
-    if da[2..] != db[2..] || a.address_registers()[2..] != b.address_registers()[2..] {
-        return Err("MCC68K callee-saved register mismatch (D2-D7/A2-A6)".into());
+    for index in 0..8 {
+        if (abi.strict_registers || abi.preserved_data & (1 << index) != 0)
+            && da[index] != db[index]
+        {
+            return Err(format!(
+                "ABI-preserved D{index}: original={:08X}, Rust={:08X}",
+                da[index], db[index]
+            ));
+        }
+    }
+    for index in 0..7 {
+        if (abi.strict_registers || abi.preserved_address & (1 << index) != 0)
+            && a.address_registers()[index] != b.address_registers()[index]
+        {
+            return Err(format!("ABI-preserved A{index} mismatch"));
+        }
+    }
+    let sr_mask = if abi.strict_registers { 0xFFFF } else { 0xFFE0 };
+    if a.status_register() & sr_mask != b.status_register() & sr_mask {
+        return Err(format!(
+            "SR control bits: original={:04X}, Rust={:04X}",
+            a.status_register(),
+            b.status_register()
+        ));
     }
     let (a, b) = (original.hybrid_bus_mut(), translated.hybrid_bus_mut());
     let (ra, aa) = a.memory.debug_ram_view();
@@ -537,14 +647,145 @@ fn compare_calls(
     if aa != ab {
         return Err("Z80 audio RAM differs".into());
     }
-    if a.vdp.hybrid_memories() != b.vdp.hybrid_memories() {
-        return Err("VDP VRAM/CRAM/VSRAM differs".into());
+    if a.z80_signals != b.z80_signals
+        || a.z80_bank != b.z80_bank
+        || a.pending_writes != b.pending_writes
+    {
+        return Err("Z80 bus/reset/bank or pending CPU write state differs".into());
     }
-    if a.vdp.hybrid_registers() != b.vdp.hybrid_registers() {
-        return Err("VDP registers differ".into());
+    if !a.vdp.hybrid_state_eq(&b.vdp) {
+        return Err(
+            "VDP state differs (ports/latches/FIFO/DMA/render state/memories/registers)".into(),
+        );
+    }
+    if a.hybrid_accesses != b.hybrid_accesses {
+        let a = a.hybrid_accesses.as_deref().unwrap_or(&[]);
+        let b = b.hybrid_accesses.as_deref().unwrap_or(&[]);
+        let index = a
+            .iter()
+            .zip(b)
+            .position(|(a, b)| a != b)
+            .unwrap_or(a.len().min(b.len()));
+        return Err(format!(
+            "ordered device read/write trace differs at {index}: original={:?}, Rust={:?}",
+            a.get(index),
+            b.get(index)
+        ));
     }
     if a.hybrid_writes != b.hybrid_writes {
         return Err("VDP/YM2612/PSG write trace differs".into());
     }
     Ok(dead_bytes)
+}
+
+/// Compare RAM as observed at every device write, not merely after return. Sparse
+/// overlays avoid copying 64 KiB at every port access and tolerate redundant stores.
+fn compare_io_ram_order(
+    original: &[OrderedWrite],
+    translated: &[OrderedWrite],
+    entry_ram: &[u16],
+    entry_sp: u32,
+) -> std::result::Result<(), String> {
+    fn next_device<'a>(
+        events: &mut impl Iterator<Item = &'a OrderedWrite>,
+        overlay: &mut BTreeMap<u32, u8>,
+        entry_sp: u32,
+    ) -> Option<&'a OrderedWrite> {
+        for event in events {
+            if let OrderedWrite::Ram { address, value } = *event {
+                if address >= entry_sp.min(catalogue::STACK_TOP) {
+                    overlay.insert(address, value);
+                }
+            } else {
+                return Some(event);
+            }
+        }
+        None
+    }
+    let (mut a, mut b) = (original.iter(), translated.iter());
+    let (mut ma, mut mb) = (BTreeMap::new(), BTreeMap::new());
+    loop {
+        let (ea, eb) = (
+            next_device(&mut a, &mut ma, entry_sp),
+            next_device(&mut b, &mut mb, entry_sp),
+        );
+        if ea.is_none() && eb.is_none() {
+            return Ok(());
+        }
+        if ea != eb {
+            return Err("RAM/device ordered write trace differs".into());
+        }
+        for address in ma.keys().chain(mb.keys()) {
+            let offset = (address & 0xffff) as usize;
+            let initial = entry_ram[offset / 2].to_be_bytes()[offset % 2];
+            if ma.get(address).copied().unwrap_or(initial)
+                != mb.get(address).copied().unwrap_or(initial)
+            {
+                return Err(format!("RAM {address:06X} differs at device access {ea:?}"));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod checker_regressions {
+    use super::*;
+    use genesis_core::GenesisBus;
+    use jgenesis_common::{debug::DebugMemoryView, frontend::TimingMode};
+    use m68000_emu::BusInterface;
+
+    #[test]
+    fn immutable_vdp_comparison_observes_memories_registers_and_command_latch() {
+        let bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
+        let mutations: [fn(&mut GenesisBus); 4] = [
+            |bus| bus.vdp.debug_vram_view().write(10, 1),
+            |bus| bus.vdp.debug_cram_view().write(1, 2),
+            |bus| bus.vdp.debug_vsram_view().write(1, 2),
+            |bus| bus.vdp.write_control(0x8701),
+        ];
+        for mutate in mutations {
+            let mut changed = bus.partial_clone();
+            mutate(&mut changed);
+            assert!(!bus.vdp.hybrid_state_eq(&changed.vdp));
+        }
+        let mut original = bus.partial_clone();
+        original.vdp.write_control(0x4000);
+        let mut changed = original.partial_clone();
+        changed.vdp.read_status(0, 7);
+        assert!(!original.vdp.hybrid_state_eq(&changed.vdp));
+        let mut pending = bus.partial_clone();
+        pending.write_word(0xc00004, 0x8701);
+        assert_ne!(bus.pending_writes, pending.pending_writes);
+    }
+
+    #[test]
+    fn ram_io_timeline_compares_intermediate_not_only_final_values() {
+        let ram = [0_u16; 32768];
+        let device = OrderedWrite::DeviceWord {
+            address: 0xc00000,
+            value: 1,
+        };
+        let mirror = OrderedWrite::Ram {
+            address: 0xff8000,
+            value: 1,
+        };
+        assert!(
+            compare_io_ram_order(
+                &[device.clone(), mirror.clone()],
+                &[device.clone(), mirror.clone()],
+                &ram,
+                0xff7ffc
+            )
+            .is_ok()
+        );
+        assert!(
+            compare_io_ram_order(
+                &[device.clone(), mirror.clone()],
+                &[mirror, device],
+                &ram,
+                0xff7ffc
+            )
+            .is_err()
+        );
+    }
 }

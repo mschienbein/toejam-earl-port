@@ -6,7 +6,7 @@ use bincode::{Decode, Encode};
 // Sprites with X = $080 display at the left edge of the screen
 pub const SPRITE_H_DISPLAY_START: u16 = 0x080;
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
 pub struct SpriteState {
     overflow: bool,
     collision: bool,
@@ -75,7 +75,7 @@ impl SpriteState {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct SpriteBuffers {
     pub scanned_ids: Vec<u8>,
     pub sprites: Vec<SpriteData>,

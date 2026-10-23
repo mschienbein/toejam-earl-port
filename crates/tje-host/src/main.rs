@@ -7,13 +7,10 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
-use tje_host::{
-    FrameSnapshot, Host, Mode, catalogue::FunctionCatalogue, hooks::HookRegistry,
-    input::InputScript,
-};
+use tje_host::{FrameSnapshot, Host, Mode, hooks::HookRegistry, input::InputScript};
 
 #[derive(Parser)]
-#[command(about = "Headless ToeJam & Earl REV 02 reference/hybrid host")]
+#[command(about = "Headless ToeJam & Earl REV 02/REV 00 reference/hybrid host")]
 struct Arguments {
     #[arg(long)]
     rom: PathBuf,
@@ -23,14 +20,6 @@ struct Arguments {
     mode: Mode,
     #[arg(long)]
     input: Option<PathBuf>,
-    /// Public decomp metadata; both --catalogue and --names must be provided.
-    #[arg(long, requires = "names")]
-    catalogue: Option<PathBuf>,
-    #[arg(long, requires = "catalogue")]
-    names: Option<PathBuf>,
-    /// Use only the PreGenerateRandoms hook; GetRandomNumber remains untranslated.
-    #[arg(long)]
-    nested_demo: bool,
     /// Private output: per-frame RAM/VDP bytes and frames.jsonl. Never commit it.
     #[arg(long)]
     snapshot_dir: Option<PathBuf>,
@@ -107,18 +96,9 @@ fn main() -> Result<()> {
     let arguments = Arguments::parse();
     ensure!(arguments.frames > 0, "--frames must be positive");
     let bytes = fs::read(&arguments.rom).context("read private ROM")?;
-    let catalogue = match (&arguments.catalogue, &arguments.names) {
-        (Some(catalogue), Some(names)) => FunctionCatalogue::from_decomp(
-            &fs::read_to_string(catalogue)?,
-            &fs::read_to_string(names)?,
-        )?,
-        _ => FunctionCatalogue::rev02_demo(),
-    };
-    let registry = if arguments.nested_demo {
-        HookRegistry::nested_demo(&catalogue)?
-    } else {
-        HookRegistry::demo(&catalogue)?
-    };
+    let rom = tje_rom::Rom::import(&bytes)?;
+    let revision = rom.revision();
+    let registry = HookRegistry::translated(revision)?;
     let script = match arguments.input {
         Some(path) => InputScript::parse(&fs::read_to_string(path)?)?,
         None => InputScript::default(),
@@ -131,11 +111,18 @@ fn main() -> Result<()> {
     } else {
         None
     };
-    let mut host = Host::new(&bytes, arguments.mode, registry)?;
+    let mut host = Host::from_rom(rom, arguments.mode, registry)?;
     let start = Instant::now();
     let mut final_counter = 0;
+    let mut run_error = None;
     for frame in 0..arguments.frames {
-        let snapshot = host.run_frame(script.at(frame))?;
+        let snapshot = match host.run_frame(script.at(frame)) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                run_error = Some(error);
+                break;
+            }
+        };
         final_counter = snapshot.frame_counter;
         if let (Some(directory), Some(log)) = (&arguments.snapshot_dir, &mut snapshots) {
             save_snapshot(directory, log, &snapshot)?;
@@ -161,13 +148,16 @@ fn main() -> Result<()> {
     let draws = game_draws.unwrap_or(&[]);
     let idle_total: u64 = draws.iter().sum();
     let summary = serde_json::json!({
+        "revision": revision.name(),
+        "error": run_error.as_ref().map(ToString::to_string),
         "mode": format!("{:?}", arguments.mode), "frames": host.frame_count(),
         "elapsed_seconds": elapsed, "headless_fps": arguments.frames as f64 / elapsed,
         "final_frame_counter": final_counter,
         "intro_frame": host.measurements.intro_frame, "title_frame": host.measurements.title_frame,
         "menu_frame": host.measurements.menu_frame, "game_frame": host.measurements.game_frame,
         "logic_ticks": host.measurements.logic_ticks, "checked_calls": host.checks.calls,
-        "checked_by_function": host.checks.by_function, "mismatches": host.checks.mismatches,
+        "coverage_by_function": host.checks.by_function, "mismatches": host.checks.mismatches,
+        "unexercised": host.checks.unexercised,
         "nested_original_calls": host.checks.nested_original_calls,
         "dead_stack_differing_calls": host.checks.dead_stack_differing_calls,
         "dead_stack_differing_bytes": host.checks.dead_stack_differing_bytes,
@@ -188,6 +178,9 @@ fn main() -> Result<()> {
                 "summary": summary, "checks": host.checks, "measurements": host.measurements,
             }),
         )?;
+    }
+    if let Some(error) = run_error {
+        return Err(error.into());
     }
     ensure!(
         !arguments.require_title || host.measurements.title_frame.is_some(),

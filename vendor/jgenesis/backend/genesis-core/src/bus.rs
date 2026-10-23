@@ -45,7 +45,7 @@ impl Z80BankRegister {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct Z80Signals {
     busreq: bool,
     reset: bool,
@@ -63,7 +63,7 @@ impl Z80Signals {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
 pub struct PendingWrites {
     byte: Vec<(u32, u8)>,
     word: Vec<(u32, u16)>,
@@ -111,6 +111,14 @@ pub enum HybridWrite {
     Psg { value: u8 },
 }
 
+/// TJE hybrid observation of ordered 68000 device accesses, including reads
+/// whose values/latch effects matter even when there is no resulting write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum HybridAccess {
+    Read { address: u32, word: bool, value: u16 },
+    Write { address: u32, word: bool, value: u16 },
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisBus {
     #[partial_clone(partial)]
@@ -130,6 +138,7 @@ pub struct GenesisBus {
     pub m68k_reset: bool,
     // TJE hybrid observation is opt-in; ordinary emulation does not allocate a trace.
     pub hybrid_writes: Option<Vec<HybridWrite>>,
+    pub hybrid_accesses: Option<Vec<HybridAccess>>,
 }
 
 impl GenesisBus {
@@ -165,6 +174,7 @@ impl GenesisBus {
             open_bus: 0,
             m68k_opcode: 0,
             hybrid_writes: None,
+            hybrid_accesses: None,
             m68k_reset: true,
         }
     }
@@ -342,6 +352,12 @@ impl GenesisBus {
             self.open_bus.set_msb(value as u8);
         }
 
+        if (0x800000..0xE00000).contains(&address)
+            && let Some(trace) = &mut self.hybrid_accesses
+        {
+            trace.push(HybridAccess::Read { address, word: WORD, value });
+        }
+
         value
     }
 
@@ -352,6 +368,11 @@ impl GenesisBus {
 
     fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16) {
         let address = address & 0xFFFFFF;
+        if (0x800000..0xE00000).contains(&address)
+            && let Some(trace) = &mut self.hybrid_accesses
+        {
+            trace.push(HybridAccess::Write { address, word: WORD, value });
+        }
 
         if WORD {
             log::trace!("Main bus word write: address={address:06X}, value={value:04X}");

@@ -14,6 +14,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tje-rom = { path = "../tje-rom" }
+tje-mem = { path = "../tje-mem" }
+tje-game = { path = "../tje-game" }
 genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core" }
 genesis-components = { path = "../../vendor/jgenesis/backend/genesis-components" }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }

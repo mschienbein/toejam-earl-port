@@ -18,7 +18,7 @@ pub enum VramWriteSize {
     Byte,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct VdpFifoEntry {
     pub mode: DataPortMode,
     pub location: DataPortLocation,
@@ -65,7 +65,7 @@ impl Default for VdpFifoEntry {
 
 const FIFO_LEN: u8 = 4;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct VdpFifo {
     buffer: [VdpFifoEntry; FIFO_LEN as usize],
     push_idx: u8,

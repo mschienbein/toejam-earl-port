@@ -26,11 +26,11 @@ Local changes are marked `TJE hybrid` or `TJE standalone cutover` in code:
 
 - `backend/genesis-core/Cargo.toml`: remove CD, 32X, SH-2 and addon debugger-test dependencies.
 - `backend/genesis-core/src/api.rs`: standalone-only construction/reset/render/tick/save API, remove addon/channel-debugger paths, and add narrow CPU/bus borrow accessors for instruction-boundary interception.
-- `backend/genesis-core/src/lib.rs`: re-export the bus type and opt-in hardware-write event type.
-- `backend/genesis-core/src/bus.rs`: remove addon fields, memory-map dispatch, clocks and debugger coupling; expose pending-write flush; record VDP/YM2612/PSG writes at chip dispatch, including Z80 writes.
+- `backend/genesis-core/src/lib.rs`: re-export the bus type, opt-in hardware-write events and ordered 68000 device-read/write observations.
+- `backend/genesis-core/src/bus.rs`: remove addon fields, memory-map dispatch, clocks and debugger coupling; expose pending-write flush; record VDP/YM2612/PSG writes at chip dispatch, including Z80 writes; optionally observe ordered byte/word 68000 device reads and writes without altering dispatch; derive equality for Z80 bus/reset signals and pending CPU writes.
 - `backend/genesis-core/src/audio.rs`: remove absent CD PCM/CD-DA/32X PWM models and resamplers; retain Genesis filters/resamplers and the upstream standalone sample addition order (including zero contributions for IEEE-754 bit identity).
-- `backend/genesis-components/src/vdp.rs`: immutable VRAM/CRAM/VSRAM/register accessors and public typed register definitions.
-- `backend/genesis-components/src/vdp/registers.rs`: derive equality for allocation-free comparisons of immutable register views.
+- `backend/genesis-components/src/vdp.rs`: immutable VRAM/CRAM/VSRAM/register accessors, public typed register definitions and allocation-free comparison of every mutable VDP port/render state field (including control address/code/latch, DMA, FIFO, pending writes, sprite state, CRAM dots, pixel buffers and latched registers).
+- `backend/genesis-components/src/vdp/{registers,fifo,sprites,cramdots}.rs`: derive equality for the typed state borrowed by hybrid comparisons; no device behavior changes.
 - `cpu/m68000-emu/src/core.rs`: readiness query prevents hooks from running before IRQ handling, stopped CPUs or bus stalls.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:

@@ -10,7 +10,6 @@ use std::marker::PhantomData;
 pub use tje_rom::Revision;
 
 pub mod arithmetic;
-pub mod examples;
 mod generated;
 pub use generated::*;
 

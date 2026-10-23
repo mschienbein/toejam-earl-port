@@ -190,7 +190,7 @@ pub enum DataPortLocation {
     Invalid,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct ControlPort {
     mode: DataPortMode,
     location_bits: u8,
@@ -280,7 +280,7 @@ impl Default for PendingWrite {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct InternalState {
     // Whether the VDP is actively raising INT6
     v_interrupt_pending: bool,
@@ -345,7 +345,7 @@ impl InternalState {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
 struct CachedSpriteData {
     v_position: u16,
     h_size_cells: u8,
@@ -372,7 +372,7 @@ impl CachedSpriteData {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct SpriteData {
     pattern_generator: u16,
     v_position: u16,
@@ -413,14 +413,14 @@ impl SpriteData {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
 struct TilePixel {
     color: u8,
     palette: u8,
     priority: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct BgBuffers {
     plane_a_pixels: [TilePixel; MAX_SCREEN_WIDTH],
     plane_b_pixels: [TilePixel; MAX_SCREEN_WIDTH],
@@ -581,6 +581,35 @@ impl Vdp {
 
     pub fn hybrid_registers(&self) -> &registers::Registers {
         &self.registers
+    }
+
+    /// TJE hybrid inspection: compare every mutable port/render state field by
+    /// borrow, without serializing/allocating or advancing clocks. Immutable
+    /// timing/configuration/color lookup tables are shared by the state forks.
+    pub fn hybrid_state_eq(&self, other: &Self) -> bool {
+        self.control_port == other.control_port
+            && self.state == other.state
+            && self.fifo == other.fifo
+            && self.dma_latency == other.dma_latency
+            && self.pending_fifo_writes == other.pending_fifo_writes
+            && self.sprite_state == other.sprite_state
+            && self.registers == other.registers
+            && self.debug_register == other.debug_register
+            && self.latched_registers == other.latched_registers
+            && self.latched_h_scroll == other.latched_h_scroll
+            && self.latched_full_screen_v_scroll == other.latched_full_screen_v_scroll
+            && self.cached_sprite_attributes == other.cached_sprite_attributes
+            && self.latched_sprite_attributes == other.latched_sprite_attributes
+            && self.bg_buffers == other.bg_buffers
+            && self.sprite_buffers == other.sprite_buffers
+            && self.interlaced_sprite_buffers == other.interlaced_sprite_buffers
+            && self.vdp_event_times == other.vdp_event_times
+            && self.vdp_event_idx == other.vdp_event_idx
+            && self.cram_dots == other.cram_dots
+            && self.vram.as_ref() == other.vram.as_ref()
+            && self.cram.as_ref() == other.cram.as_ref()
+            && self.vsram.as_ref() == other.vsram.as_ref()
+            && self.frame_buffer.as_ref() == other.frame_buffer.as_ref()
     }
 
     #[allow(clippy::missing_panics_doc)]

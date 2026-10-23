@@ -491,7 +491,7 @@ game equivalence.
 ## Three worked, tested translations
 
 The complete implementations and all synthetic-memory tests live together in
-[`crates/tje-mem/src/examples.rs`](../crates/tje-mem/src/examples.rs). The snippets
+[`crates/tje-game/src/examples.rs`](../crates/tje-game/src/examples.rs). The snippets
 below explain those implementations, not alternate untested versions. Tests use
 only constructed RAM/ROM bytes, never cartridge assets.
 

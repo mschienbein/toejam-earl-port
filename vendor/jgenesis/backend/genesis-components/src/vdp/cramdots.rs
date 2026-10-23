@@ -11,7 +11,7 @@ use std::{array, mem};
 // Use NonZeroU16 to cut the buffer sizes in half
 type LineDotBuffer = [Option<NonZeroU16>; MAX_SCREEN_WIDTH];
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct LineBuffer {
     dots: Box<LineDotBuffer>,
     any: bool,
@@ -28,7 +28,7 @@ impl LineBuffer {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct CramDotBuffer {
     prev_line: LineBuffer,
     current_line: LineBuffer,
