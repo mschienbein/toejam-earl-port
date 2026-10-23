@@ -149,8 +149,8 @@ cargo run --release -p tje-host -- --rom "$P/roms/rev00.bin" --mode check \
   --require-title --require-game --metrics "$P/scratch/Porting/rev00.json"
 ```
 
-Check mode forks live state, executes the original and Rust atomically, and leaves
-the live machine running the original instructions/timing. It compares return
+Default Atomic check mode forks live state and freezes the original/Rust function
+calls; the live machine keeps original instructions/timing. It compares return
 PC/SP, D0 where defined, per-inventory preserved registers, SR control bits, live
 RAM, Z80 RAM, all mutable VDP state (including command latch/address/code, FIFO,
 DMA/pending writes, rendering caches and pixels), ordered hardware writes, and
@@ -162,15 +162,37 @@ device accesses use immediate `Platform` methods or `HookContext::bus()`'s
 immediate facade. Both preserve mixed byte/word order, flush before reads and
 nested execution, and do not expose a mutable raw deferred bus. The upstream
 instruction queues themselves are unchanged.
+Functional and TimeAware contracts are explicit opt-ins with the different
+comparison obligations documented below; they do not silently relax Atomic.
+
+Raw device read observations retain every access/value. Comparisons require the
+same addresses, widths and order, but compare only hardware-driven status bits:
+
+| Device read | Word mask | Byte mask |
+|---|---:|---:|
+| VDP status, C00004–C00007 aliases | `03ff` | even `03`, odd `ff` |
+| Z80 BUSACK, A11100 | `0100` | `01` |
+| VDP data/HV, controller ports, Z80 RAM, YM status | full `ffff` | full `ff` |
+
+The excluded status bits are open-bus/prefetch values, not device outputs.
+Writes are compared in full. Additional partially driven register variants need
+source-backed masks; do not insert fabricated ROM reads to mimic prefetch bits.
+
 
 Differences in dead stack bytes below entry SP are counted, not silently reported
-as exact RAM equivalence. Any read-before-write of such bytes **in either the
-original or Rust body** fails approval, including mirrored RAM, typed Bus views,
+as exact RAM equivalence. Any **semantic** read-before-write of such bytes in
+either the original or Rust body fails approval, including mirrored RAM, typed Bus views,
 the immediate hardware facade and nested original callees. Checked Rust writes
 mark bytes initialized; a wrong Rust body cannot pass by reading a spill left by
 an earlier original call whose Rust replacement omitted it. Residual stack state
 must be modeled before replacement is safe. Check mode does not claim that
 atomic replacement is CPU-cycle-equivalent.
+The 68000 bus path labels semantic, discarded and instruction-prefetch reads.
+CLR's unused read-before-write and MOVEM's terminal unused word still perform
+their real bus/MMIO transactions, but their values are not stack dependencies.
+A real consumed read at those same addresses is still audited; no address is
+whitelisted. No additional Scc bus cycle is invented where upstream models none.
+
 
 ## 4. Drive and report coverage honestly
 
@@ -181,6 +203,14 @@ functions; an unselected subsystem has zero registered entries, not coverage of
 its untranslated functions. Per-function `calls_checked`, `calls_replaced`,
 `mismatches` and global `unexercised` remain available. A zero-mismatch run is not
 evidence for a zero-call function. The CLI writes metrics even after a mismatch.
+
+Counters are internally keyed by stable registration indices, not freshly owned
+strings; serialization still presents canonical function names. Constructor and
+reset initialize every registered zero-call entry and unexercised set. Realtime
+replacement skips check-only stack/write logs and updates existing counters
+without per-call allocation; waits move reusable audio buffers rather than copy
+them. The opt-in replacement allocation test measures actual dispatched calls
+after buffer warm-up in both revisions.
 
 Drive unexercised paths with recorded controller inputs that select the relevant
 menu/player/present/level. For rare and boundary paths, use `Host::check_fixture` on a

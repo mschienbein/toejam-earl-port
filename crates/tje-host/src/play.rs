@@ -19,6 +19,8 @@ impl Host {
                     .into(),
             ));
         }
+        self.wait_clock.frame = self.frame;
+        self.wait_clock.inputs = inputs;
         self.audio.samples.clear();
         let mut trace = self.emulator.hybrid_bus_mut().hybrid_writes.take();
         if let Some(trace) = &mut trace {
@@ -28,6 +30,7 @@ impl Host {
         self.emulator.hybrid_bus_mut().hybrid_writes = trace;
         result?;
         self.frame += 1;
+        self.wait_clock.frame = self.frame;
         Ok(&self.audio.samples)
     }
 
@@ -56,6 +59,7 @@ impl Host {
                     && let Some(hook) = self.registry.at(pc).cloned()
                 {
                     self.replace_hook(&hook)?;
+                    inputs.0 = self.wait_clock.inputs;
                     continue;
                 }
             }
@@ -97,12 +101,14 @@ impl Host {
     pub fn reset(&mut self) {
         self.emulator.hard_reset(&mut self.saves);
         self.frame = 0;
+        self.wait_clock.frame = 0;
+        self.wait_clock.inputs = GenesisInputs::default();
         self.main_idle = false;
         self.session_trace = None;
         self.emulator
             .update_audio_output_frequency(u64::from(self.audio_sample_rate));
         self.audio.samples.clear();
-        self.checks = Default::default();
+        self.checks = crate::CheckReport::registered(&self.registry);
         self.measurements = Default::default();
         self.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
     }

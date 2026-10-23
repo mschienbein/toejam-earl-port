@@ -1,15 +1,18 @@
 //! MCC68K C ABI: caller-owned 32-bit argument slots, D0 result, D2-D7 and
 //! A2-A6 preserved. Short/byte arguments occupy the low part of their slot.
-//! Differential calls are atomic: peripheral clocks are frozen and interrupts
-//! masked on both forks; the live check-mode machine retains original timing.
+//! Default atomic calls freeze clocks; explicitly registered functional checks
+//! quotient device latency, and time-aware calls run real clocks/interrupts.
+//! Check-mode live execution retains the original instruction timing.
 
-use crate::execution::{ClockRun, WaitClock, run_original_timed, run_wait};
+use crate::execution::{
+    ClockRun, WaitClock, run_original_timed_with_audio, run_wait, run_wait_with_audio,
+};
 use crate::{
     HostError, Result,
     catalogue::{STACK_BOTTOM, STACK_TOP},
 };
 use genesis_core::{GenesisBus, GenesisEmulator};
-use m68000_emu::{BusInterface, M68000, debug::DummyM68000Debugger};
+use m68000_emu::{BusInterface, M68000, ReadPurpose, debug::DummyM68000Debugger};
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeSet};
 use tje_game::execution::{ExecutionClass, WaitRequest};
@@ -103,13 +106,23 @@ impl BusInterface for StackAuditBus<'_> {
     where
         Self: 'a;
     fn read_byte(&mut self, address: u32) -> u8 {
-        self.read(address);
-        self.inner.read_byte(address)
+        self.read_byte_tagged(address, ReadPurpose::Semantic)
     }
     fn read_word(&mut self, address: u32) -> u16 {
-        self.read(address);
-        self.read(address.wrapping_add(1));
-        self.inner.read_word(address)
+        self.read_word_tagged(address, ReadPurpose::Semantic)
+    }
+    fn read_byte_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u8 {
+        if purpose == ReadPurpose::Semantic {
+            self.read(address);
+        }
+        self.inner.read_byte_tagged(address, purpose)
+    }
+    fn read_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u16 {
+        if purpose == ReadPurpose::Semantic {
+            self.read(address);
+            self.read(address.wrapping_add(1));
+        }
+        self.inner.read_word_tagged(address, purpose)
     }
     fn write_byte(&mut self, address: u32, value: u8) {
         self.write(address, value);
@@ -150,8 +163,16 @@ pub(crate) fn run_original_atomic(
     emulator: &mut GenesisEmulator,
     return_pc: u32,
     return_sp: u32,
+    observe: bool,
 ) -> Result<AtomicRun> {
     let (cpu, bus) = emulator.hybrid_parts();
+    if !observe {
+        return run_atomic_loop(cpu, bus, return_pc, return_sp, |cpu, bus| {
+            let cycles = cpu.execute_instruction(bus);
+            bus.apply_pending_writes();
+            cycles
+        });
+    }
     let mut audit = StackAuditBus {
         inner: bus,
         entry_sp: canonical_ram_address(cpu.stack_pointer()),
@@ -160,6 +181,24 @@ pub(crate) fn run_original_atomic(
         reads: BTreeSet::new(),
         writes: Vec::new(),
     };
+    let mut result = run_atomic_loop(cpu, &mut audit, return_pc, return_sp, |cpu, audit| {
+        audit.pc = cpu.pc();
+        let cycles = cpu.execute_instruction(audit);
+        audit.inner.apply_pending_writes();
+        cycles
+    })?;
+    result.uninitialized_reads = audit.reads;
+    result.writes = audit.writes;
+    Ok(result)
+}
+
+fn run_atomic_loop<B: BusInterface>(
+    cpu: &mut M68000,
+    bus: &mut B,
+    return_pc: u32,
+    return_sp: u32,
+    mut step: impl FnMut(&mut M68000, &mut B) -> u32,
+) -> Result<AtomicRun> {
     let mut result = AtomicRun::default();
     while cpu.pc() != return_pc || cpu.stack_pointer() != return_sp {
         if result.instructions == MAX_CALL_INSTRUCTIONS {
@@ -168,13 +207,9 @@ pub(crate) fn run_original_atomic(
                 return_pc,
             });
         }
-        audit.pc = cpu.pc();
-        result.cycles += u64::from(cpu.execute_instruction(&mut audit));
-        audit.inner.apply_pending_writes();
+        result.cycles += u64::from(step(cpu, bus));
         result.instructions += 1;
     }
-    result.uninitialized_reads = audit.reads;
-    result.writes = audit.writes;
     Ok(result)
 }
 
@@ -239,6 +274,11 @@ impl<'a> HookContext<'a> {
     /// Merge real IRQ/recipe accesses into the existing active-frame audit.
     /// A wait must never reset initialized bytes or replace the frame identity.
     fn merge_clock_run(&mut self, run: ClockRun) {
+        if self.stack_audit.is_none() {
+            self.time_audio = run.audio;
+            self.time_frames += run.frames;
+            return;
+        }
         for (pc, access) in run.accesses {
             let (address, word, value, writing, semantic) = match access {
                 genesis_core::HybridAccess::Read {
@@ -297,7 +337,7 @@ impl<'a> HookContext<'a> {
                 });
             }
         }
-        self.time_audio.extend(run.audio);
+        self.time_audio = run.audio;
         self.time_frames += run.frames;
     }
 
@@ -369,10 +409,12 @@ impl<'a> HookContext<'a> {
         match address {
             0..=0x3F_FFFF => {} // Cartridge ROM is immutable.
             0xE00000..=0xFFFFFF => {
-                self.writes.push(OrderedWrite::Ram {
-                    address: 0xFF0000 | (address & 0xFFFF),
-                    value,
-                });
+                if self.stack_audit.is_some() {
+                    self.writes.push(OrderedWrite::Ram {
+                        address: 0xFF0000 | (address & 0xFFFF),
+                        value,
+                    });
+                }
                 bus.memory.write_main_ram_byte(address, value);
             }
             _ => panic!("write_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
@@ -469,16 +511,23 @@ impl<'a> HookContext<'a> {
             || (execution_class == ExecutionClass::Functional
                 && !self.emulator.hybrid_bus().hybrid_functional_mode())
         {
-            let (_, clock_run) = run_original_timed(
+            let (_, clock_run) = run_original_timed_with_audio(
                 self.emulator,
                 &mut self.wait_clock,
                 CALL_SENTINEL,
                 cleanup_sp,
+                std::mem::take(&mut self.time_audio),
+                self.stack_audit.is_some(),
             )?;
             self.merge_clock_run(clock_run);
             AtomicRun::default()
         } else {
-            run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp)?
+            run_original_atomic(
+                self.emulator,
+                CALL_SENTINEL,
+                cleanup_sp,
+                self.stack_audit.is_some(),
+            )?
         };
         for write in &audit.writes {
             if let OrderedWrite::Ram { address, .. } = *write {
@@ -587,8 +636,19 @@ impl tje_game::Platform for HookContext<'_> {
                 "a wait requires an explicit time-aware execution contract".into(),
             ));
         }
-        let run = run_wait(self.emulator, &mut self.wait_clock, request)
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
+        let observe = self.stack_audit.is_some();
+        let result = if observe && self.time_audio.is_empty() {
+            run_wait(self.emulator, &mut self.wait_clock, request)
+        } else {
+            run_wait_with_audio(
+                self.emulator,
+                &mut self.wait_clock,
+                request,
+                std::mem::take(&mut self.time_audio),
+                observe,
+            )
+        };
+        let run = result.map_err(|error| tje_game::Error::Platform(error.to_string()))?;
         self.merge_clock_run(run);
         Ok(())
     }
@@ -608,10 +668,12 @@ impl tje_game::Platform for HookContext<'_> {
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
         self.audit_translated_write(address);
-        self.writes.push(OrderedWrite::DeviceByte {
-            address: address & 0xFF_FFFF,
-            value,
-        });
+        if self.stack_audit.is_some() {
+            self.writes.push(OrderedWrite::DeviceByte {
+                address: address & 0xFF_FFFF,
+                value,
+            });
+        }
         let bus = self.emulator.hybrid_bus_mut();
         bus.write_byte(address, value);
         bus.apply_pending_writes();
@@ -619,10 +681,12 @@ impl tje_game::Platform for HookContext<'_> {
     fn write_device_u16(&mut self, address: u32, value: u16) {
         self.audit_translated_write(address);
         self.audit_translated_write(address.wrapping_add(1));
-        self.writes.push(OrderedWrite::DeviceWord {
-            address: address & 0xFF_FFFF,
-            value,
-        });
+        if self.stack_audit.is_some() {
+            self.writes.push(OrderedWrite::DeviceWord {
+                address: address & 0xFF_FFFF,
+                value,
+            });
+        }
         let bus = self.emulator.hybrid_bus_mut();
         bus.write_word(address, value);
         bus.apply_pending_writes();

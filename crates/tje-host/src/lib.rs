@@ -1,14 +1,16 @@
 //! Headless REV 02/REV 00 reference and hybrid host built on jgenesis.
 //!
-//! `Check` compares atomic function contracts on independent state forks, with
-//! interrupts/peripheral clocks frozen, then lets the live ROM execute with its
-//! original instruction timing. This preserves timing-dependent random draws and
-//! lag measurements. `Replace` runs Rust instead, but is NOT cycle-equivalent.
-//! Dead stack bytes below the entry SP are informational, not native game state;
-//! reads of those bytes before a write are explicitly audited on the original.
+//! Checks compare independent state forks while live Check retains original ROM
+//! timing. Atomic freezes clocks and compares full device state; explicitly
+//! registered Functional and TimeAware contracts use the documented transaction
+//! and logical-state projections. Replace is not cycle-equivalent. Both original
+//! and Rust semantic reads of dead stack are audited; discarded CPU bus reads
+//! retain their device effects but are not software data dependencies.
 
 pub mod abi;
 pub mod catalogue;
+mod coverage;
+pub use coverage::FunctionCoverageTable;
 pub mod execution;
 pub mod hooks;
 pub mod input;
@@ -160,7 +162,7 @@ pub struct SubsystemCoverage {
 #[derive(Debug, Default, Serialize)]
 pub struct CheckReport {
     pub calls: u64,
-    pub by_function: BTreeMap<String, FunctionCoverage>,
+    pub by_function: FunctionCoverageTable,
     pub by_subsystem: BTreeMap<String, SubsystemCoverage>,
     /// Registered entries with no checked or replacement call in this run.
     pub unexercised: BTreeSet<String>,
@@ -172,14 +174,41 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
-    fn record_function(&mut self, name: &str, subsystem: &str, checked: bool) {
-        let coverage = self.by_function.entry(name.to_owned()).or_default();
+    pub(crate) fn registered(registry: &HookRegistry) -> Self {
+        let mut report = Self {
+            by_function: FunctionCoverageTable::registered(registry),
+            ..Self::default()
+        };
+        for subsystem in tje_game::SUBSYSTEMS {
+            report
+                .by_subsystem
+                .insert(subsystem.name.to_owned(), SubsystemCoverage::default());
+        }
+        for hook in registry.iter() {
+            report.unexercised.insert(hook.symbol.name.to_owned());
+            let coverage = report
+                .by_subsystem
+                .entry(hook.symbol.subsystem.to_owned())
+                .or_default();
+            coverage.registered_functions += 1;
+            coverage.unexercised.insert(hook.symbol.name.to_owned());
+        }
+        report
+    }
+
+    fn record_function(&mut self, hook: &Hook, checked: bool) {
+        let name = hook.symbol.name;
+        let subsystem = hook.symbol.subsystem;
+        let coverage = self.by_function.at_mut(hook.coverage_index);
+        let first = coverage.calls_checked == 0 && coverage.calls_replaced == 0;
         if checked {
             coverage.calls_checked += 1;
         } else {
             coverage.calls_replaced += 1;
         }
-        self.unexercised.remove(name);
+        if first {
+            self.unexercised.remove(name);
+        }
         let coverage = self
             .by_subsystem
             .get_mut(subsystem)
@@ -189,7 +218,9 @@ impl CheckReport {
         } else {
             coverage.calls_replaced += 1;
         }
-        coverage.unexercised.remove(name);
+        if first {
+            coverage.unexercised.remove(name);
+        }
     }
 }
 
@@ -241,24 +272,7 @@ impl Host {
             &mut saves,
         );
         emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
-        let mut checks = CheckReport::default();
-        for subsystem in tje_game::SUBSYSTEMS {
-            checks
-                .by_subsystem
-                .insert(subsystem.name.to_owned(), SubsystemCoverage::default());
-        }
-        for hook in registry.iter() {
-            checks
-                .by_function
-                .insert(hook.symbol.name.to_owned(), FunctionCoverage::default());
-            checks.unexercised.insert(hook.symbol.name.to_owned());
-            let coverage = checks
-                .by_subsystem
-                .entry(hook.symbol.subsystem.to_owned())
-                .or_default();
-            coverage.registered_functions += 1;
-            coverage.unexercised.insert(hook.symbol.name.to_owned());
-        }
+        let checks = CheckReport::registered(&registry);
         Ok(Self {
             emulator,
             registry,
@@ -505,7 +519,7 @@ impl Host {
                 )?;
                 Ok(audit)
             } else {
-                run_original_atomic(emulator, return_pc, sp.wrapping_add(4))
+                run_original_atomic(emulator, return_pc, sp.wrapping_add(4), true)
             }
         })?;
         self.measurements.check_original_wait_frames +=
@@ -532,8 +546,7 @@ impl Host {
             })?;
         self.measurements.check_rust_wait_frames += translated_frames;
         self.checks.calls += 1;
-        self.checks
-            .record_function(hook.symbol.name, hook.symbol.subsystem, true);
+        self.checks.record_function(hook, true);
         self.checks.nested_original_calls += nested_calls;
         let stack_dependency = !audit.uninitialized_reads.is_empty() || !nested_reads.is_empty();
         for UninitializedStackRead { pc, address } in
@@ -565,8 +578,7 @@ impl Host {
                 self.checks.mismatches += 1;
                 self.checks
                     .by_function
-                    .get_mut(hook.symbol.name)
-                    .expect("registered hook")
+                    .at_mut(hook.coverage_index)
                     .mismatches += 1;
                 self.checks
                     .by_subsystem
@@ -583,21 +595,28 @@ impl Host {
     }
 
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
+        let progresses_time = hook.execution_class != ExecutionClass::Atomic;
         let mut context = HookContext::new(
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
-        )
-        .with_execution(hook.execution_class, self.wait_clock.clone());
-        let value = hook.execute(&mut context)?;
-        context.return_to_caller(value);
+        );
+        if progresses_time {
+            context = context.with_execution(hook.execution_class, self.wait_clock.clone());
+            context.time_audio = std::mem::take(&mut self.audio.samples);
+        }
+        let result = hook
+            .execute(&mut context)
+            .map(|value| context.return_to_caller(value));
         self.checks.nested_original_calls += context.nested_calls;
-        self.wait_clock = context.wait_clock;
-        self.frame = self.wait_clock.frame;
-        self.measurements.wait_video_frames += context.time_frames;
-        self.audio.samples.extend(context.time_audio);
-        self.checks
-            .record_function(hook.symbol.name, hook.symbol.subsystem, false);
+        if progresses_time {
+            self.wait_clock = context.wait_clock;
+            self.frame = self.wait_clock.frame;
+            self.measurements.wait_video_frames += context.time_frames;
+            self.audio.samples = context.time_audio;
+        }
+        result?;
+        self.checks.record_function(hook, false);
         Ok(())
     }
 
@@ -639,13 +658,13 @@ impl Host {
         self.check_hook(&hook)?;
         match hook.execution_class {
             ExecutionClass::Atomic => {
-                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp)?;
+                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp, false)?;
             }
             ExecutionClass::Functional => {
                 self.emulator
                     .hybrid_bus_mut()
                     .hybrid_set_functional_mode(true);
-                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp)?;
+                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp, false)?;
             }
             ExecutionClass::TimeAware => {
                 run_original_timed(
@@ -955,6 +974,42 @@ mod checker_regressions {
     use genesis_core::GenesisBus;
     use jgenesis_common::{debug::DebugMemoryView, frontend::TimingMode};
     use m68000_emu::BusInterface;
+
+    #[test]
+    fn device_reads_compare_driven_bits_without_dropping_accesses() {
+        use genesis_core::HybridAccess;
+        use m68000_emu::ReadPurpose;
+        let read = |address, word, value| HybridAccess::Read {
+            address,
+            word,
+            value,
+            purpose: ReadPurpose::Semantic,
+        };
+        for (address, word, mask) in [
+            (0xc00004, true, 0x03ff_u16),
+            (0xc00004, false, 0x0003),
+            (0xc00005, false, 0x00ff),
+            (0xa11100, true, 0x0100),
+            (0xa11100, false, 0x0001),
+        ] {
+            let width = if word { 0xffff } else { 0x00ff };
+            let baseline = read(address, word, 0);
+            let open_bus_difference = read(address, word, width & !mask);
+            assert!(accesses_match(&baseline, &open_bus_difference));
+            let driven_difference = read(address, word, mask.isolate_lowest_one());
+            assert!(!accesses_match(&baseline, &driven_difference));
+            assert!(!accesses_match(&baseline, &read(address + 2, word, 0)));
+            assert!(!accesses_match(&baseline, &read(address, !word, 0)));
+        }
+        let baseline = read(0xc00000, true, 0);
+        assert!(!accesses_match(&baseline, &read(0xc00000, true, 1)));
+        let write = HybridAccess::Write {
+            address: 0xc00004,
+            word: true,
+            value: 0,
+        };
+        assert!(!accesses_match(&baseline, &write));
+    }
 
     #[test]
     fn immutable_vdp_comparison_observes_memories_registers_and_command_latch() {

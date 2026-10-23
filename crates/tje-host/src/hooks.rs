@@ -34,6 +34,7 @@ impl Deref for HookSymbol {
 pub struct Hook {
     pub symbol: HookSymbol,
     pub execution_class: ExecutionClass,
+    pub(crate) coverage_index: usize,
     body: Body,
 }
 impl Hook {
@@ -158,11 +159,13 @@ impl HookRegistry {
                 "duplicate hook at {address:06X}"
             )));
         }
+        let coverage_index = self.hooks.len();
         self.hooks.insert(
             address,
             Hook {
                 symbol,
                 execution_class,
+                coverage_index,
                 body,
             },
         );
