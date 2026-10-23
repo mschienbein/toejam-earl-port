@@ -86,6 +86,8 @@ pub fn animate_players_into_split_views(
 
 /// G/src/camera/split_screen_wipe.c:12 (`AnimateSplitScreenWipe`).
 /// Both two-pass loops retain their final lower-row command, including pass two.
+/// The allocation loop preserves entry D4: c_split_screen_wipe.s:4-46 does not
+/// initialize it before AllocateEntityViewportSprites's residual-tile bug path.
 pub fn animate_split_screen_wipe(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     for player in 0..2 {

@@ -92,11 +92,6 @@ pub static TRANSLATIONS: &[Translation] = &[
         id: ids::MAP_CLEAR_ACTIVE_LEVEL_OBJECTS,
         function: map_clear_active_level_objects,
     },
-];
-
-/// Complete Rust bodies awaiting both-revision execution-class proof; never
-/// registered by the production dispatcher until a passing proof activates them.
-pub static PENDING_TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
         function: elevator_load_ride_background_tiles,
@@ -109,6 +104,11 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         id: ids::LOAD_FINAL_LEVEL_MAP,
         function: load_final_level_map,
     },
+];
+
+/// Complete Rust bodies awaiting both-revision execution-class proof; never
+/// registered by the production dispatcher until a passing proof activates them.
+pub static PENDING_TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::MAP_ENTER_FINAL_LEVEL,
         function: map_enter_final_level,

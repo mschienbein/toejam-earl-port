@@ -10,7 +10,7 @@ mod tiles;
 mod uploads;
 
 pub use animations::{animate_players_into_split_views, animate_split_screen_wipe};
-pub use follow::get_player_camera_velocity;
+pub use follow::{get_player_camera_velocity, update_camera_following};
 pub use movement::{
     move_camera_down, move_camera_left, move_camera_right, move_camera_up, try_update_camera_x,
     try_update_camera_y,
@@ -59,11 +59,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::GET_PLAYER_CAMERA_VELOCITY,
         function: get_player_camera_velocity,
     },
-];
-
-/// Complete Rust bodies awaiting both-revision execution-class proof. This table
-/// is deliberately not part of the production dispatcher or hook registry.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::UPDATE_CAMERA_Y,
         function: update_camera_y,
@@ -84,6 +79,11 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::SET_CAMERA_POSITION,
         function: set_camera_position,
     },
+];
+
+/// Complete Rust bodies awaiting both-revision execution-class proof. This table
+/// is deliberately not part of the production dispatcher or hook registry.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::TRY_UPDATE_CAMERA_Y,
         function: try_update_camera_y,
@@ -115,6 +115,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
         function: animate_players_into_split_views,
+    },
+    crate::Translation {
+        id: ids::UPDATE_CAMERA_FOLLOWING,
+        function: update_camera_following,
     },
 ];
 

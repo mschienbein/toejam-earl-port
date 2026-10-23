@@ -1,4 +1,13 @@
 //! R011 collision queries. Word wrapping and N-only magnitude tests are deliberate.
+//!
+//! Production ABI qualification: every catalogued caller of these five queries
+//! is matched MCC68K C (`G/docs/COMPILER.md:70-79`), which treats D1 and CCR as
+//! call-clobbered scratch. `strict_registers = false` is therefore intentional,
+//! not an approval of D1/CCR equivalence by ordinary production checks. The exact
+//! inverse caller sets and their C ABI are pinned in the caller-provenance test;
+//! a new assembly or unknown caller must fail that test and trigger ABI review.
+//! Bodies nevertheless preserve the full assembly outputs, independently proven
+//! by the stronger all-register/CCR contracts in `check_world.rs` on both ROMs.
 
 use crate::{Context, Result, Translation, ids};
 use tje_mem::{Address, ObjectState, ram};

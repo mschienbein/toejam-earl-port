@@ -7,11 +7,121 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use tje_game::{Context, FunctionId, execution::ExecutionClass, ids};
+use tje_game::{
+    Context, FunctionId, Translation, camera, elevator, execution::ExecutionClass, ids,
+};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
 
 static FAILURES: AtomicUsize = AtomicUsize::new(0);
+
+// Fixed proof batches, rather than a snapshot of whichever entries happen to
+// be globally registered. Proof overlays preserve Rust-to-Rust composition.
+const FUNCTIONAL_PROOF: &[Translation] = &[
+    Translation {
+        id: ids::UPDATE_CAMERA_Y,
+        function: camera::update_camera_y,
+    },
+    Translation {
+        id: ids::UPDATE_CAMERA_X,
+        function: camera::update_camera_x,
+    },
+    Translation {
+        id: ids::REDRAW_CAMERA_TILE_ROWS,
+        function: camera::redraw_camera_tile_rows,
+    },
+    Translation {
+        id: ids::SET_CAMERA_VIEW_ORIGIN,
+        function: camera::set_camera_view_origin,
+    },
+    Translation {
+        id: ids::SET_CAMERA_POSITION,
+        function: camera::set_camera_position,
+    },
+    Translation {
+        id: ids::LOAD_FINAL_LEVEL_MAP,
+        function: elevator::load_final_level_map,
+    },
+    Translation {
+        id: ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
+        function: elevator::elevator_load_ride_background_tiles,
+    },
+    Translation {
+        id: ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
+        function: elevator::elevator_alternate_ride_entities,
+    },
+];
+
+const TIME_PROOF: &[Translation] = &[
+    Translation {
+        id: ids::UPDATE_CAMERA_FOLLOWING,
+        function: camera::update_camera_following,
+    },
+    Translation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: camera::try_update_camera_y,
+    },
+    Translation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: camera::try_update_camera_x,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_UP,
+        function: camera::move_camera_up,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: camera::move_camera_down,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: camera::move_camera_left,
+    },
+    Translation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: camera::move_camera_right,
+    },
+    Translation {
+        id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
+        function: camera::animate_split_screen_wipe,
+    },
+    Translation {
+        id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        function: camera::animate_players_into_split_views,
+    },
+    Translation {
+        id: ids::MAP_ENTER_FINAL_LEVEL,
+        function: elevator::map_enter_final_level,
+    },
+    Translation {
+        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        function: elevator::elevator_prepare_ride_dialogue,
+    },
+    Translation {
+        id: ids::ELEVATOR_RIDE_V_BLANK,
+        function: elevator::elevator_ride_v_blank,
+    },
+    Translation {
+        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
+        function: elevator::elevator_begin_ride_scene,
+    },
+    Translation {
+        id: ids::ELEVATOR_END_RIDE_SCENE,
+        function: elevator::elevator_end_ride_scene,
+    },
+    Translation {
+        id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
+        function: elevator::elevator_advance_riders_to_next_level,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATOR_STEP1,
+        function: elevator::process_elevator_step1,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATORS,
+        function: elevator::process_elevators,
+    },
+];
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     // Fixtures follow the explicit execution-class selection; unregistered
@@ -197,6 +307,18 @@ fn elevator_fixtures(host: &mut Host) {
             );
         }
     }
+    // ASL.W #7 + ADDA.W: player 512 wraps to slot zero, not ROM at
+    // gPlayerInfo + 65536. Negative indexes preserve the same word arithmetic.
+    for player in [-512_i16, -1, 512] {
+        ram::g_player_elevator_flags(revision)
+            .at(i32::from(player))
+            .write(&mut host.context(), 0);
+        check(
+            host,
+            ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT,
+            &[player as u32, 0, (-1_i32) as u32, 0],
+        );
+    }
     for delay in [i8::MIN, -1, 0, 1, 2, i8::MAX] {
         for height in [0_i16, 24, 28, 29, i16::MAX] {
             let mut c = host.context();
@@ -313,6 +435,69 @@ fn elevator_fixtures(host: &mut Host) {
 
 fn time_fixtures(host: &mut Host) {
     let revision = host.revision();
+    check(host, ids::UPDATE_CAMERA_FOLLOWING, &[]);
+    for split in [0_i8, 1] {
+        for lives in [(3_i8, 3_i8), (3, -1), (-1, 3)] {
+            for velocity in [-512_i16, 0, 512] {
+                let mut c = host.context();
+                ram::g_split_screen_enabled(revision).write(&mut c, split);
+                for (player, life) in [lives.0, lives.1].into_iter().enumerate() {
+                    let player = player as i32;
+                    ram::g_player_lives(revision).at(player).write(&mut c, life);
+                    ram::g_player_inventory_open(revision)
+                        .at(player)
+                        .write(&mut c, 0);
+                    ram::g_player_fall_states(revision)
+                        .at(player)
+                        .write(&mut c, 0);
+                    let entity = ram::g_player_info(revision).at(player);
+                    entity.x().write(&mut c, 260);
+                    entity.y().write(&mut c, 200);
+                    entity.height().write(&mut c, 0);
+                    entity.height_pixels().write(&mut c, 32);
+                    entity.frame_phase().write(&mut c, 0);
+                    entity.animation_motion_axes().write(&mut c, 0);
+                    entity.draw_flags().write(&mut c, 1);
+                    entity.animation_group_mask().write(&mut c, 0);
+                    entity.sprite_state().write(&mut c, 0);
+                    entity.velocity_x().write(&mut c, velocity);
+                    entity.velocity_y().write(&mut c, velocity);
+                    entity.velocity_height().write(&mut c, 0);
+                    ram::g_camera_row_upload_pending(revision)
+                        .at(player)
+                        .write(&mut c, 0);
+                    ram::g_camera_column_upload_pending(revision)
+                        .at(player)
+                        .write(&mut c, 0);
+                }
+                for position in [
+                    ram::g_camera1_pending_x(revision),
+                    ram::g_camera1_pending_y(revision),
+                    ram::g_camera2_pending_x(revision),
+                    ram::g_camera2_pending_y(revision),
+                ] {
+                    position.write(&mut c, 100);
+                }
+                for fixed in [
+                    ram::g_camera1_follow_x_fixed(revision),
+                    ram::g_camera1_follow_y_fixed(revision),
+                    ram::g_camera2_follow_x_fixed(revision),
+                    ram::g_camera2_follow_y_fixed(revision),
+                ] {
+                    fixed.write(&mut c, 100 << 8);
+                }
+                for cursor in [
+                    ram::g_camera1_tile_row_cursor(revision),
+                    ram::g_camera2_tile_row_cursor(revision),
+                    ram::g_camera1_tile_column_cursor(revision),
+                    ram::g_camera2_tile_column_cursor(revision),
+                ] {
+                    cursor.write(&mut c, 11);
+                }
+                check(host, ids::UPDATE_CAMERA_FOLLOWING, &[]);
+            }
+        }
+    }
     for camera in 0..2 {
         {
             let mut c = host.context();
@@ -468,10 +653,9 @@ fn main() {
     let root = Path::new(&args[1]);
     let evidence = Path::new(&args[2]);
     let frames: u64 = args.get(3).map_or(10000, |value| value.parse().unwrap());
-    let selection = args.get(4).map_or("logic", String::as_str);
-    assert!(matches!(selection, "atomic" | "logic" | "time"));
+    let selection = args.get(4).map_or("functional", String::as_str);
+    assert!(matches!(selection, "atomic" | "functional" | "time"));
     let timed = selection == "time";
-    let atomic_only = selection == "atomic";
     fs::create_dir_all(evidence).unwrap();
     let script = Arc::new(
         InputScript::parse(
@@ -485,29 +669,23 @@ fn main() {
         } else {
             "rev00"
         };
-        let mut registry = HookRegistry::empty(revision);
-        for translation in tje_game::translations()
-            .filter(|entry| {
+        let registry = if timed {
+            HookRegistry::proof(revision, TIME_PROOF).unwrap()
+        } else if selection == "functional" {
+            HookRegistry::proof(revision, FUNCTIONAL_PROOF).unwrap()
+        } else {
+            let mut registry = HookRegistry::empty(revision);
+            for translation in tje_game::translations().filter(|entry| {
                 ["camera", "elevator"].contains(&entry.id.metadata().subsystem)
                     && entry.id.metadata().wave > 0
-            })
-            .chain(tje_game::camera::PENDING_TRANSLATIONS)
-            .chain(tje_game::elevator::PENDING_TRANSLATIONS)
-        {
-            let class = tje_game::camera::EXECUTION_CONTRACTS
-                .iter()
-                .chain(tje_game::elevator::EXECUTION_CONTRACTS)
-                .find(|(id, _)| *id == translation.id)
-                .map_or(ExecutionClass::Atomic, |(_, class)| *class);
-            if (class == ExecutionClass::TimeAware) != timed
-                || (atomic_only && class != ExecutionClass::Atomic)
-            {
-                continue;
+                    && tje_game::execution_class(entry.id) == Some(ExecutionClass::Atomic)
+            }) {
+                registry
+                    .register_translation_with_execution(*translation, ExecutionClass::Atomic)
+                    .unwrap();
             }
             registry
-                .register_translation_with_execution(*translation, class)
-                .unwrap();
-        }
+        };
         let mut host = Host::new(
             &fs::read(root.join(format!("roms/{name}.bin"))).unwrap(),
             Mode::Check,

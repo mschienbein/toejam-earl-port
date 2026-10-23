@@ -341,11 +341,20 @@ pub fn process_elevator_step1(context: &mut dyn Context, _: &[u32]) -> Result<Op
             )?;
         }
         if next == 11 {
-            call(
+            // Matching caller allocation: D3.low holds state, A3 gPlayerInfo.
+            // AdvanceRiders consumes these on its original uninitialized paths.
+            let saved_d3 = context.data_register(3);
+            let saved_a3 = context.address_register(3);
+            context.set_data_register(3, (saved_d3 & !0xff) | u32::from(state as u8));
+            context.set_address_register(3, ram::g_player_info(revision).address());
+            let result = call(
                 context,
                 ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
                 &[i32::from(handle) as u32],
-            )?;
+            );
+            context.set_data_register(3, saved_d3);
+            context.set_address_register(3, saved_a3);
+            result?;
         }
     }
     Ok(None)

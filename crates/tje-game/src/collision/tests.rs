@@ -233,3 +233,69 @@ fn broad_phase_uses_current_y_and_stops_without_scanning_later_links() {
         assert_eq!(machine.sr, 0x2714);
     }
 }
+
+#[test]
+fn r011_scratch_abi_is_qualified_by_exact_compiled_c_caller_sets() {
+    // These sets are the complete direct/indirect caller union in the inventory,
+    // independently inverted from the committed dependency graph below.
+    let expected: &[(crate::FunctionId, &[&str])] = &[
+        (
+            ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
+            &[
+                "EarthlingMoveOnAllowedTerrain",
+                "PlayerProcessTerrainMotion",
+                "PlayerTeleportThroughDoorway",
+            ],
+        ),
+        (
+            ids::ENTITY_FIND_MENU_AWARE_COLLISION_AT_POSITION,
+            &[
+                "EarthlingMoveOnAllowedTerrain",
+                "EarthlingMoveWithinMapBounds",
+            ],
+        ),
+        (
+            ids::ENTITY_FIND_VOLUME_COLLISION_AT_POSITION,
+            &["ProcessMovement"],
+        ),
+        (
+            ids::PROJECTILE_FIND_COLLISION_EXCLUDING_OWNER,
+            &["ProcessTomatoRain"],
+        ),
+        (
+            ids::ENTITY_FIND_HORIZONTAL_COLLISION_AT_X,
+            &["EarthlingSelectTurnState"],
+        ),
+    ];
+    for &(query, expected_callers) in expected {
+        let metadata = query.metadata();
+        assert_eq!(metadata.classification, "not_reproducible_c");
+        assert_eq!(metadata.abi.kind, "stack_assembly");
+        assert!(
+            !metadata.abi.strict_registers,
+            "{} has a reviewed C-consumer ABI",
+            metadata.name
+        );
+        let mut actual = Vec::new();
+        for caller in crate::functions().filter(|function| function.callees.contains(&query)) {
+            assert_eq!(
+                caller.classification, "compiled_c",
+                "{} -> {}",
+                caller.name, metadata.name
+            );
+            assert_eq!(
+                caller.abi.kind, "mcc68k_c",
+                "{} -> {}",
+                caller.name, metadata.name
+            );
+            actual.push(caller.name);
+        }
+        actual.sort_unstable();
+        assert_eq!(
+            actual.as_slice(),
+            expected_callers,
+            "{} caller ABI needs review",
+            metadata.name
+        );
+    }
+}
