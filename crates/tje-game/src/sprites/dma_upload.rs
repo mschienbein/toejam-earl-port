@@ -44,6 +44,8 @@ fn upload_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u
     let tiles_only = arguments[1] as i16;
     context.set_address_register(2, ram::g_hardware_sprite_table(revision).address());
     if pending.read(context) == 0 && force == 0 && tiles_only == 0 {
+        // c_load_sprites.s:8-14: zero TST sets Z, clears N/V/C, and retains X.
+        context.set_status_register((context.status_register() & !0x0f) | 4);
         return Ok(None);
     }
     if tiles_only == 0 {
@@ -100,6 +102,9 @@ fn upload_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u
     ram::g_sprite_tile_buffer_offset(revision).write(context, 0);
     ram::g_sprite_tile_upload_queue_word_count(revision).write(context, 0);
     pending.write(context, 0);
+    // c_load_sprites.s:64-66: the final CLR.W/CLR.B/CLR.B set Z and clear N/V/C.
+    // X survives (zero after DMA/index increments; entry X on an empty tiles-only path).
+    context.set_status_register((context.status_register() & !0x0f) | 4);
     Ok(None)
 }
 

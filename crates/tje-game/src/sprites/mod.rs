@@ -62,7 +62,7 @@ pub fn update_attached_entity_position(
     }
 }
 
-/// G/src/sprites/select_first_link.c: SelectSpriteChainStart (REV 02 0x00CFBA).
+/// G/src/sprites/select_first_link.c:6, SelectSpriteChainStart (REV 02 0x00CFBA).
 /// Hardware writes precede the RAM mirror update, preserving the original order.
 pub fn select_sprite_chain_start(
     bus: &mut (impl Bus + Platform + ?Sized),
@@ -288,20 +288,13 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::UPDATE_ATTACHED_ENTITY_POSITION,
-    crate::ids::SELECT_SPRITE_CHAIN_START,
-    // All W0 leaves below have no original callees, hardware polls, or waits.
-    // The live VDP patches perform only bounded command/data writes.
+    // The W0 memory leaves below have no original callees or device accesses.
     crate::ids::IS_ENTITY_VISIBLE_IN_VIEWPORT,
     crate::ids::SORT_ENTITIES_FOR_SPRITE_DRAW,
     crate::ids::CLIP_SPRITE_PIXELS_BELOW_CUTOFF,
     crate::ids::CLEAR_SPRITE_MASK_PIXELS,
     crate::ids::APPEND_SPRITE_TILES_TO_BUFFER,
     crate::ids::SET_SPRITE,
-    crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
-    crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
-    crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
-    crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
-    crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
     crate::ids::SET_RAM_INDEXES,
     crate::ids::FREE_SPRITE_SLOTS,
     crate::ids::FREE_SPRITE_SLOT,
@@ -343,6 +336,35 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 
 /// Reviewed non-atomic original entries. Classification is not translation proof.
 pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+    // G/src/sprites/select_first_link.c:6-18, sprite_links_vdp.c:6-35,
+    // hide_player_sprites.c:7-29: bounded ordered command/data writes and RAM
+    // reads/root-link stores, but a full FIFO needs peripheral progress.
+    // No status/HV/FIFO/busy reads, DMA launches or cross-processor mailboxes.
+    // Functional completion is required even without an explicit C poll loop.
+    (
+        crate::ids::SELECT_SPRITE_CHAIN_START,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
+        crate::execution::ExecutionClass::Functional,
+    ),
     // G/src/sprites/load_sprites.c:8-31: closed stable-RAM DMA sources and
     // ordered register writes, with no status/raster read or concurrent observer.
     // DmaCopyWordsToVram (G/src/asm/dma.s:15-75) needs transaction completion.
@@ -371,6 +393,24 @@ mod tests {
 
     fn memory(revision: Revision) -> AddressSpace {
         AddressSpace::new(vec![0; 64], revision)
+    }
+
+    #[test]
+    fn live_port_writers_require_functional_transaction_completion() {
+        for id in [
+            crate::ids::SELECT_SPRITE_CHAIN_START,
+            crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
+            crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
+            crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
+            crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
+            crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
+        ] {
+            assert!(!ATOMIC_CAPABLE.contains(&id));
+            assert_eq!(
+                crate::execution_class(id),
+                Some(crate::execution::ExecutionClass::Functional)
+            );
+        }
     }
 
     #[test]

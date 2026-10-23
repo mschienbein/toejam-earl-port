@@ -1,4 +1,6 @@
-use super::{frame_rendering, lifecycle, links, queue_update, rendering, slots, unpack, updates};
+use super::{
+    dma_upload, frame_rendering, lifecycle, links, queue_update, rendering, slots, unpack, updates,
+};
 use crate::{
     Context, Dispatcher, FunctionId, Result,
     call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments},
@@ -813,6 +815,23 @@ fn ram_index_initializer_keeps_exact_scratch_residue_for_modal_callers() {
                 );
                 assert_eq!(machine.address[1], 0xffe900);
                 assert_eq!(machine.sr, 0xa704);
+            }
+        }
+    }
+}
+
+#[test]
+fn upload_empty_and_no_work_return_flags_preserve_every_entry_x() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        for ccr in 0..32u16 {
+            for tiles_only in [0u32, 1] {
+                machine.sr = 0x2700 | ccr;
+                ram::g_sprite_graphics_upload_pending(revision).write(&mut machine, 0);
+                ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut machine, 0);
+                dma_upload::upload_queued_sprite_graphics(&mut machine, &[0, tiles_only]).unwrap();
+                assert_eq!(machine.sr, 0x2704 | (ccr & 0x10));
+                assert!(machine.writes.is_empty());
             }
         }
     }

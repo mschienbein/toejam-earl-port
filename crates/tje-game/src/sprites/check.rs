@@ -8,6 +8,7 @@ use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 mod check_callers;
 mod check_dma;
 mod check_frames;
+mod check_ports;
 mod check_registers;
 mod check_updates;
 
@@ -539,6 +540,7 @@ fn main() {
             serde_json::to_vec_pretty(&boundary).unwrap(),
         )
         .unwrap();
+        check_ports::fixtures(&mut checked, &script);
         fixture_coverage(&mut checked);
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());
@@ -572,7 +574,7 @@ fn main() {
                 id.metadata().name
             );
         }
-        let result = serde_json::json!({"revision":revision.name(), "frames":frames, "title_frame":checked.measurements.title_frame,"menu_frame":checked.measurements.menu_frame,"game_frame":checked.measurements.game_frame,"logic_ticks":checked.measurements.logic_ticks,"whole_session_comparison":"RAM, VDP, writes, RNG draws, lag events, bitwise audio, pixels: exact every frame", "natural":natural,"with_live_fixtures":checked.checks});
+        let result = serde_json::json!({"revision":revision.name(), "frames":frames, "title_frame":checked.measurements.title_frame,"menu_frame":checked.measurements.menu_frame,"game_frame":checked.measurements.game_frame,"logic_ticks":checked.measurements.logic_ticks,"whole_session_comparison":"Natural moving-player segment: RAM, VDP, writes, RNG draws, lag events, bitwise audio, pixels exact every requested frame", "live_frames_after_fixtures":checked.frame_count(), "natural":natural,"with_live_fixtures":checked.checks});
         fs::write(
             evidence.join(format!("{key}-coverage.json")),
             serde_json::to_vec_pretty(&result).unwrap(),

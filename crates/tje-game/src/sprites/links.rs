@@ -1,4 +1,4 @@
-//! Bounded live-VDP patches: no status polling or wait paths.
+//! Bounded VDP patches without explicit polls; full FIFOs still need device progress.
 use crate::{Context, Result};
 use tje_mem::ram;
 
