@@ -434,6 +434,15 @@ relative to pre-local-allocation SP without LINK; it intentionally bounds-checks
 no emulated C array. The helpers model MOVEM/UNLK values, not a single-register
 MOVE restore's CCR side effects: reproduce those explicitly when source requires.
 
+The predecrement MOVEM saves each long's **low word first**, then its high word,
+while transferring selected registers in descending register order. LINK and
+JSR return-address pushes retain their separate high-word-first rule. Do not
+infer all stack stores from one generic predecrement: a source `MOVE.L Dn,-(SP)`
+has its own word ordering. If an outgoing store's bus order is observable,
+perform those source-ordered writes and adopt the area with
+`OutgoingArguments::existing`, rather than assuming the value-only push helper
+decodes the caller's instructions.
+
 For an exact outgoing call, cite the original JSR/BSR return address in each
 revision and use `CallSite::new(pc)` or `CallSite::relative(caller, revision,
 offset)`. The caller must have the original SP/layout/residual registers at that

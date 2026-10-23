@@ -118,13 +118,15 @@ impl LocalFrame {
         for index in (0..7).rev() {
             if layout.address_mask & (1 << index) != 0 {
                 sp = sp.wrapping_sub(4);
-                context.write_u32(sp, context.address_register(index));
+                let value = context.address_register(index);
+                save_movem_long(context, sp, value);
             }
         }
         for index in (0..8).rev() {
             if layout.data_mask & (1 << index) != 0 {
                 sp = sp.wrapping_sub(4);
-                context.write_u32(sp, context.data_register(index));
+                let value = context.data_register(index);
+                save_movem_long(context, sp, value);
             }
         }
         context.set_stack_pointer(sp)?;
@@ -196,6 +198,13 @@ impl LocalFrame {
         }
         Ok(())
     }
+}
+
+// MOVEM.L -(An) transfers its low word first, unlike LINK/JSR stack pushes.
+// Authority: vendored m68000 core/instructions/load.rs::movem_predecrement.
+fn save_movem_long(context: &mut dyn Context, address: u32, value: u32) {
+    context.write_u16(address.wrapping_add(2), value as u16);
+    context.write_u16(address, (value >> 16) as u16);
 }
 
 /// A caller-owned outgoing argument area. It stays allocated after each callee

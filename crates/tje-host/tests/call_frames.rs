@@ -233,6 +233,7 @@ struct Native {
     sp: u32,
     frame: FrameState,
     dispatcher: Dispatcher,
+    word_writes: Vec<(u32, u16)>,
 }
 impl Native {
     fn new(revision: Revision, dispatcher: Dispatcher) -> Self {
@@ -244,6 +245,7 @@ impl Native {
             sp,
             frame: FrameState::new(sp),
             dispatcher,
+            word_writes: Vec::new(),
         }
     }
 }
@@ -253,6 +255,43 @@ impl Bus for Native {
     }
     fn write_u8(&mut self, address: u32, value: u8) {
         self.memory.write_u8(address, value);
+    }
+    fn write_u16(&mut self, address: u32, value: u16) {
+        self.word_writes.push((address & 0xff_ffff, value));
+        self.memory.write_u16(address, value);
+    }
+    fn write_u32(&mut self, address: u32, value: u32) {
+        self.write_u16(address, (value >> 16) as u16);
+        self.write_u16(address.wrapping_add(2), value as u16);
+    }
+}
+
+// A bus observer for authored instructions, independent of the frame helpers.
+impl m68000_emu::BusInterface for Native {
+    type DebugView<'a> = m68000_emu::debug::DummyM68000Debugger;
+    fn read_byte(&mut self, address: u32) -> u8 {
+        self.read_u8(address)
+    }
+    fn read_word(&mut self, address: u32) -> u16 {
+        self.read_u16(address)
+    }
+    fn write_byte(&mut self, address: u32, value: u8) {
+        self.write_u8(address, value);
+    }
+    fn write_word(&mut self, address: u32, value: u16) {
+        self.write_u16(address, value);
+    }
+    fn interrupt_level(&self) -> u8 {
+        0
+    }
+    fn acknowledge_interrupt(&mut self, _: u8) {
+        panic!("RAM-only instruction fixture received an interrupt");
+    }
+    fn halt(&self) -> bool {
+        false
+    }
+    fn reset(&self) -> bool {
+        false
     }
 }
 impl tje_mem::Platform for Native {
@@ -367,5 +406,57 @@ fn native_slots_locals_missing_arguments_and_saved_register_aliases_are_real_ram
         assert_eq!(output.read(&context), 26);
         frame.leave(&mut context).unwrap();
         assert_eq!(context.sp, 0xff8000);
+    }
+}
+
+#[test]
+fn movem_saves_match_real_instruction_word_order_without_reversing_link() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for linked in [false, true] {
+            let dispatcher = Dispatcher::hybrid_with(&[]);
+            let mut translated = Native::new(revision, dispatcher);
+            translated.data = std::array::from_fn(|index| 0x89ab_4567 + index as u32);
+            translated.address = std::array::from_fn(|index| 0x1234_5678 + index as u32);
+            let mut reference_bus = Native::new(revision, dispatcher);
+            let mut cpu = m68000_emu::M68000::default();
+            cpu.set_status_register(0x2700);
+            cpu.set_data_registers(translated.data);
+            cpu.set_address_registers(translated.address, 0xff4000, translated.sp);
+            let data_mask = 0x89;
+            let address_mask = 0x42;
+            let ordinary_mask = u16::from(data_mask) | (u16::from(address_mask) << 8);
+            // Authored LINK A6,#-8 or LEA -8(SP),SP, then MOVEM.L
+            // D0/D3/D7/A1/A6,-(SP). Opcode masks reverse ordinary register order.
+            let words = [
+                if linked { 0x4e56 } else { 0x4fef },
+                0xfff8,
+                0x48e7,
+                ordinary_mask.reverse_bits(),
+                0x4e71,
+                0x4e71,
+            ];
+            for (index, word) in words.into_iter().enumerate() {
+                reference_bus
+                    .memory
+                    .write_u16(CODE + 2 * index as u32, word);
+            }
+            cpu.set_pc(CODE, &mut reference_bus);
+            cpu.execute_instruction(&mut reference_bus);
+            cpu.execute_instruction(&mut reference_bus);
+            let layout = if linked {
+                FrameLayout::link(8, data_mask, address_mask)
+            } else {
+                FrameLayout::movem(8, data_mask, address_mask)
+            };
+            let frame = LocalFrame::enter(&mut translated, layout).unwrap();
+            assert_eq!(translated.word_writes, reference_bus.word_writes);
+            assert_eq!(translated.sp, cpu.stack_pointer());
+            assert_eq!(translated.address, cpu.address_registers());
+            assert_eq!(translated.data, cpu.data_registers());
+            assert_eq!(frame.save_base(), cpu.stack_pointer());
+            for &(address, value) in &reference_bus.word_writes {
+                assert_eq!(translated.read_u16(address), value);
+            }
+        }
     }
 }

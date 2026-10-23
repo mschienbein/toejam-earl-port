@@ -450,7 +450,10 @@ fn dma_publishes_ram_command_before_split_port_writes_and_preserves_saved_regist
         let mut trace_index = 0;
         for &value in data[2..5].iter().rev() {
             saved_sp -= 4;
-            for (offset, byte) in value.to_be_bytes().into_iter().enumerate() {
+            let bytes = value.to_be_bytes();
+            // Predecrement MOVEM.L puts the low word on the bus first.
+            for offset in [2_usize, 3, 0, 1] {
+                let byte = bytes[offset];
                 assert_eq!(
                     context.trace[trace_index],
                     Access::RamByte(saved_sp + offset as u32, byte)
