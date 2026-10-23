@@ -58,6 +58,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
     ids::SEGA_LOGO_V_BLANK,
     ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
+    // Source-backed frame/local/callsite bodies; await readable-layer timed proof.
+    ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+    ids::PLAY_ENDING_SEQUENCE,
 ];
 
 /// Opt-in fixture roots only. The production dispatcher never consumes this list.
@@ -201,6 +204,14 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
         function: title_and_transition::sega_and_intro_video_routine,
+    },
+    crate::Translation {
+        id: ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+        function: ending::ending_play_bouncing_rocketship_scene,
+    },
+    crate::Translation {
+        id: ids::PLAY_ENDING_SEQUENCE,
+        function: ending::play_ending_sequence,
     },
 ];
 mod collision_scene_entities;
@@ -675,6 +686,29 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::Executio
         ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
         crate::execution::ExecutionClass::TimeAware,
     ),
+    // cutscene_text.c:62,91: arbitrary embedded controls reach
+    // inventory.c:666-682's VDP writes; repeated controls exceed a frozen FIFO.
+    (
+        ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // cutscene_text.c:164,194,133: inherit those ordered control-code VDP writes.
+    (
+        ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        ids::CUTSCENE_TEXT_LOAD,
+        crate::execution::ExecutionClass::Functional,
+    ),
 ];
 
 /// Reviewed atomic original entries and translations. Constructors, positioners
@@ -683,7 +717,7 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::Executio
 /// only on the RAM seed, never on asynchronous progress.
 ///
 /// Reviewed originals with no clock/interrupt dependency. The W0 leaves below
-/// are call-free; the later entity/text constructors and releases make bounded
+/// are call-free; later entity constructors and releases make bounded
 /// RAM/ROM calls only (G/src/cutscenes/{cutscene_text,composite_entities,
 /// rocketship_allocate,rocketship_foreground,rocketship_release,
 /// ending_player_entities,collision_scene_entities,title_and_transition,
@@ -749,12 +783,8 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
     ids::INTRO_POSITION_FALLING_ROCKETSHIP,
     ids::ENDING_RESTART_ELEVATED_COMPOSITE_SEQUENCE,
-    // W1: bounded font copies and RAM-only character mapping.
-    ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
-    ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
     // W2: allocation, initialization, and viewport bookkeeping are RAM-only.
     ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR,
-    ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
     ids::CUTSCENE_SET_FOREGROUND_ROCKETSHIP_POSE,
     ids::ENDING_CREATE_ACTIVE_PLAYER_ENTITIES,
     ids::ENDING_CREATE_ELEVATED_THREE_PIECE_COMPOSITE,
@@ -774,9 +804,6 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::ENDING_RELEASE_SIX_PIECE_COMPOSITE,
     ids::INTRO_RELEASE_COLLISION_SCENE_ENTITIES,
     ids::INTRO_RELEASE_FALLING_ROCKETSHIP,
-    // W4: text scan, allocation, queued font copies, and sprite-table RAM.
-    ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
-    ids::CUTSCENE_TEXT_LOAD,
 ];
 
 /// G/src/cutscenes/cutscene_text.c:26 (`CutsceneAppendRemappedFontTiles`).

@@ -1,3 +1,4 @@
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
 use crate::{Context, Result, call, ids};
 use tje_mem::{ram, rom};
 
@@ -7,7 +8,21 @@ pub fn ending_play_descending_rocketship_scene(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
+    // Its saved A2 low word becomes the following bouncing scene's residual
+    // -2(A6) input in PlayEndingSequence; keep this predecessor frame as well.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x0c))?;
+    let result = descending_body(context);
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn descending_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    context.set_address_register(2, ram::g_cutscene_script_state(revision).address());
+    context.set_address_register(3, ram::g_mode2_reg_softcopy(revision).address());
     call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
     call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
     ram::g_cutscene_script_countdown(revision).write(context, 42);
@@ -624,4 +639,481 @@ fn decrement(context: &mut dyn Context, word: tje_mem::Address<i16>) -> i16 {
 fn increment(context: &mut dyn Context, word: tje_mem::Address<i16>) {
     let next = word.read(context).wrapping_add(1);
     word.write(context, next);
+}
+
+/// G/src/cutscenes/ending.c:466 (`EndingPlayBouncingRocketshipScene`).
+/// TimeAware. Matching c_ending.s:1116-1117 is LINK #-4 then MOVEM
+/// D2-D6/A2-A4. The ORIGINAL movement_frame word at -2(A6) is never initialized.
+/// Return offsets below come from matching c_ending.o, whose REV00/02 assembly
+/// sources are identical; the function starts at object-section offset 0xdda.
+pub fn ending_play_bouncing_rocketship_scene(
+    context: &mut dyn Context,
+    _: &[u32],
+) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
+    let result = bouncing_body(context, &frame);
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let caller = ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE;
+    context.set_address_register(
+        3,
+        ids::COPY_PALETTE_TO_CRAM_SLOT.metadata().address(revision),
+    );
+    context.set_address_register(4, ram::g_mode2_reg_softcopy(revision).address());
+    context.set_address_register(
+        2,
+        ids::ENDING_SET_POSE_COMPOSITE.metadata().address(revision),
+    );
+    framed_ending_call(
+        context,
+        caller,
+        0xdfa - 0xdda,
+        ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0xe00 - 0xdda,
+        ids::ENDING_CREATE_POSE_COMPOSITE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0xe06 - 0xdda,
+        ids::ENDING_CREATE_RIGHT_OFFSET_COMPOSITE,
+        &[],
+    )?;
+    let palettes = [
+        retained_ending_call(
+            context,
+            caller,
+            0xe10 - 0xdda,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_game_line1(revision).address(), 0],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0xe1c - 0xdda,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_game_line2(revision).address(), 1],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0xe28 - 0xdda,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_space_screen_bank2(revision).address(), 2],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0xe34 - 0xdda,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::ending_palette_b(revision).address(), 3],
+        )?,
+    ];
+    framed_ending_call(
+        context,
+        caller,
+        0xe3a - 0xdda,
+        ids::ENDING_FILL_REPEATED_METATILE_BACKGROUND,
+        &[],
+    )?;
+    for arguments in palettes.into_iter().rev() {
+        arguments.release(context)?;
+    }
+    let mut character_y = 72_i16;
+    let mut character_x = 152_i16;
+    let mut scroll = 0_i16;
+    context.set_data_register(2, 72);
+    set_word_register(context, 3, character_x);
+    set_word_register(context, 6, scroll);
+    context.write_vdp_command(0x7c00_0003);
+    context.write_vdp_data(scroll as u16);
+    let mut velocity_y = 0_i16;
+    let mut acceleration_y = 1_i16;
+    set_word_register(context, 4, velocity_y);
+    context.set_data_register(5, 1);
+    let ship = retained_ending_call(
+        context,
+        caller,
+        0xe70 - 0xdda,
+        ids::CUTSCENE_SET_FOREGROUND_ROCKETSHIP_POSE,
+        &[3, character_x as i32 as u32, character_y as i32 as u32],
+    )?;
+    let pose = retained_ending_call(
+        context,
+        caller,
+        0xe80 - 0xdda,
+        ids::ENDING_SET_POSE_COMPOSITE,
+        &[1, character_x as i32 as u32, 127],
+    )?;
+    let wait = retained_ending_call(
+        context,
+        caller,
+        0xe8a - 0xdda,
+        ids::WAIT_FOR_NEXT_V_BLANK,
+        &[1],
+    )?;
+    let mode = ram::g_mode2_reg_softcopy(revision);
+    let current = mode.read(context);
+    mode.write(context, current | 64);
+    wait.release(context)?;
+    pose.release(context)?;
+    ship.release(context)?;
+    context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
+    let state = ram::g_cutscene_script_state(revision);
+    state.write(context, 0);
+    ram::g_cutscene_script_countdown(revision).write(context, 17);
+    let movement_frame = frame.local::<i16>(-2);
+    while state.read(context) != -1 {
+        ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
+        framed_ending_call(
+            context,
+            caller,
+            0xec0 - 0xdda,
+            ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+            &[],
+        )?;
+        let wait = retained_ending_call(
+            context,
+            caller,
+            0xeca - 0xdda,
+            ids::WAIT_FOR_NEXT_V_BLANK,
+            &[1],
+        )?;
+        let upload = retained_ending_call(
+            context,
+            caller,
+            0xed4 - 0xdda,
+            ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+            &[0, 0],
+        )?;
+        upload.release(context)?;
+        wait.release(context)?;
+        context.write_vdp_command(0x7c00_0003);
+        context.write_vdp_data(scroll as u16);
+        let viewport = retained_ending_call(
+            context,
+            caller,
+            0xef0 - 0xdda,
+            ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+            &[0],
+        )?;
+        scroll = scroll.wrapping_add(5);
+        set_word_register(context, 6, scroll);
+        let next_state = state.read(context).wrapping_add(1);
+        state.write(context, next_state);
+        viewport.release(context)?;
+        if next_state & 1 != 0 {
+            character_x = character_x.wrapping_sub(1);
+            set_word_register(context, 3, character_x);
+        }
+        character_y = character_y.wrapping_add(velocity_y);
+        set_word_register(context, 2, character_y);
+        // Read the actual residual local word, not an invented initial phase.
+        let phase = movement_frame.read(context).wrapping_add(1);
+        movement_frame.write(context, phase);
+        if i32::from(phase) % 9 == 0 {
+            velocity_y = velocity_y.wrapping_add(acceleration_y);
+            set_word_register(context, 4, velocity_y);
+        }
+        if character_y >= 137 {
+            if velocity_y == 0 {
+                acceleration_y = 0;
+                set_word_register(context, 5, acceleration_y);
+            } else {
+                velocity_y = (1_i32 - i32::from(velocity_y)) as i16;
+                set_word_register(context, 4, velocity_y);
+            }
+        }
+        if character_y >= 127 {
+            let ship = retained_ending_call(
+                context,
+                caller,
+                0xf5a - 0xdda,
+                ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR,
+                &[character_x as i32 as u32, 127],
+            )?;
+            let companion = retained_ending_call(
+                context,
+                caller,
+                0xf6a - 0xdda,
+                ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
+                &[character_x as i32 as u32, 127],
+            )?;
+            let pose = retained_ending_call(
+                context,
+                caller,
+                0xf78 - 0xdda,
+                ids::ENDING_SET_POSE_COMPOSITE,
+                &[0, character_x as i32 as u32, 127],
+            )?;
+            pose.release(context)?;
+            companion.release(context)?;
+            ship.release(context)?;
+        } else {
+            let ship = retained_ending_call(
+                context,
+                caller,
+                0xf90 - 0xdda,
+                ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR,
+                &[character_x as i32 as u32, character_y as i32 as u32],
+            )?;
+            let companion = retained_ending_call(
+                context,
+                caller,
+                0xfa0 - 0xdda,
+                ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
+                &[character_x as i32 as u32, (-50_i32) as u32],
+            )?;
+            companion.release(context)?;
+            ship.release(context)?;
+            framed_ending_call(
+                context,
+                caller,
+                0xfc8 - 0xdda,
+                ids::ENDING_SET_POSE_COMPOSITE,
+                &[u32::from(character_y < 107), character_x as i32 as u32, 127],
+            )?;
+        }
+        if character_x < -30 {
+            state.write(context, -1);
+        }
+    }
+    let current = mode.read(context);
+    mode.write(context, current & 60);
+    context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
+    framed_ending_call(
+        context,
+        caller,
+        0x1000 - 0xdda,
+        ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x1006 - 0xdda,
+        ids::ENDING_RELEASE_POSE_COMPOSITE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x100c - 0xdda,
+        ids::ENDING_RELEASE_RIGHT_OFFSET_COMPOSITE,
+        &[],
+    )?;
+    let cadence = retained_ending_call(
+        context,
+        caller,
+        0x1016 - 0xdda,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        &[0, 0],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x101c - 0xdda,
+        ids::CLEAR_LOWER_VRAM_TILEMAP,
+        &[],
+    )?;
+    cadence.release(context)?;
+    scroll = 0;
+    set_word_register(context, 6, scroll);
+    context.write_vdp_command(0x7c00_0003);
+    context.write_vdp_data(scroll as u16);
+    Ok(Some(0))
+}
+
+/// G/src/cutscenes/ending.c:28 (`PlayEndingSequence`).
+/// TimeAware; exact MOVEM A2-A4 frame and retained 40-byte outgoing area.
+/// Callsite offsets are matching c_ending.o return PCs, identical in both revisions.
+pub fn play_ending_sequence(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x1c))?;
+    let result = ending_sequence_body(context);
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn ending_sequence_body(context: &mut dyn Context) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let caller = ids::PLAY_ENDING_SEQUENCE;
+    let x = ram::g_camera1_pending_x(revision);
+    let y = ram::g_camera1_pending_y(revision);
+    context.set_address_register(
+        2,
+        ids::COPY_PALETTE_TO_CRAM_SLOT.metadata().address(revision),
+    );
+    context.set_address_register(3, y.address());
+    context.set_address_register(4, x.address());
+    ram::g_requested_music_selection(revision).write(context, 0);
+    let wait = retained_ending_call(context, caller, 0x26, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    let mode = ram::g_mode2_reg_softcopy(revision);
+    let current = mode.read(context);
+    mode.write(context, current & 60);
+    wait.release(context)?;
+    context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
+    framed_ending_call(context, caller, 0x4a, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    x.write(context, 0);
+    y.write(context, 0);
+    context.write_vdp_control(0x8228);
+    context.write_vdp_command(0x4000_0010);
+    context.write_vdp_data(y.read(context) as u16);
+    context.write_vdp_command(0x7c00_0003);
+    context.write_vdp_data(x.read(context) as u16);
+    context.write_vdp_command(0x4002_0010);
+    context.write_vdp_data(y.read(context) as u16);
+    context.write_vdp_command(0x7c02_0003);
+    context.write_vdp_data(x.read(context) as u16);
+    framed_ending_call(context, caller, 0x9c, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+    ram::g_camera_tile_attributes(revision).write(context, 0x8000);
+    context.write_vdp_command(0x7000_0002);
+    let words = i32::from(rom::font_data_size(revision).read(context)).wrapping_shl(4) as u32;
+    framed_ending_call(
+        context,
+        caller,
+        0xc6,
+        ids::MOVE_DATA_TO_VRAM,
+        &[rom::image_text_base(revision).address(), words],
+    )?;
+    context.write_vdp_command(0x4000_0000);
+    let words = i32::from(rom::level_tiles_size(revision).read(context)).wrapping_shl(4) as u32;
+    let level = retained_ending_call(
+        context,
+        caller,
+        0xea,
+        ids::MOVE_DATA_TO_VRAM,
+        &[rom::level_tiles(revision).address(), words],
+    )?;
+    let palettes = [
+        retained_ending_call(
+            context,
+            caller,
+            0xf4,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_title_screen_bank0(revision).address(), 0],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0x100,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_title_screen_bank1(revision).address(), 1],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0x10c,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_title_screen_bank2(revision).address(), 2],
+        )?,
+        retained_ending_call(
+            context,
+            caller,
+            0x118,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+            &[rom::palette_title_screen_bank3(revision).address(), 3],
+        )?,
+    ];
+    framed_ending_call(context, caller, 0x11e, ids::DRAW_STARFIELD_PLANE, &[])?;
+    framed_ending_call(
+        context,
+        caller,
+        0x122,
+        ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x128,
+        ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x12e,
+        ids::ENDING_PLAY_SCROLLING_CREDITS,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x134,
+        ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x13a,
+        ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+        &[],
+    )?;
+    framed_ending_call(
+        context,
+        caller,
+        0x142,
+        ids::CUTSCENE_RELEASE_TEXT_ENTITIES,
+        &[],
+    )?;
+    framed_ending_call(context, caller, 0x148, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
+    framed_ending_call(
+        context,
+        caller,
+        0x14e,
+        ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE,
+        &[],
+    )?;
+    for arguments in palettes.into_iter().rev() {
+        arguments.release(context)?;
+    }
+    level.release(context)?;
+    Ok(None)
+}
+
+fn set_word_register(context: &mut dyn Context, index: usize, value: i16) {
+    let old = context.data_register(index);
+    context.set_data_register(index, (old & 0xffff_0000) | u32::from(value as u16));
+}
+
+fn framed_ending_call(
+    context: &mut dyn Context,
+    caller: crate::FunctionId,
+    offset: u32,
+    callee: crate::FunctionId,
+    arguments: &[u32],
+) -> Result<u32> {
+    let site = CallSite::relative(caller, context.revision(), offset);
+    crate::call_at(context, callee, arguments, site)
+}
+
+fn retained_ending_call(
+    context: &mut dyn Context,
+    caller: crate::FunctionId,
+    offset: u32,
+    callee: crate::FunctionId,
+    arguments: &[u32],
+) -> Result<OutgoingArguments> {
+    let site = CallSite::relative(caller, context.revision(), offset);
+    let area = OutgoingArguments::push(context, arguments)?;
+    let dispatcher = context.dispatcher();
+    area.call(context, dispatcher, callee, site)?;
+    Ok(area)
 }

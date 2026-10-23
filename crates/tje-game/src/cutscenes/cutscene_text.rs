@@ -2,7 +2,7 @@ use crate::{Context, Result, call, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/cutscene_text.c:62 (`CutsceneQueueCenteredRemappedTextLine`).
-/// Atomic: bounded font copies and the character mapper touch RAM/ROM only.
+/// Functional: embedded controls in the mapper emit ordered VDP data words.
 pub fn cutscene_queue_centered_remapped_text_line(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -11,7 +11,7 @@ pub fn cutscene_queue_centered_remapped_text_line(
 }
 
 /// G/src/cutscenes/cutscene_text.c:91 (`CutsceneQueueCenteredOriginalPaletteTextLine`).
-/// Atomic: bounded font copies and the character mapper touch RAM/ROM only.
+/// Functional: embedded controls in the mapper emit ordered VDP data words.
 pub fn cutscene_queue_centered_original_palette_text_line(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -74,7 +74,7 @@ fn queue_centered_line(
 }
 
 /// G/src/cutscenes/cutscene_text.c:164 (`CutsceneLoadSecondTextLine`).
-/// Atomic: scans and queues text into RAM, without a device transfer or wait.
+/// Functional: inherits the queue's ordered embedded-control VDP writes.
 pub fn cutscene_load_second_text_line(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -84,7 +84,7 @@ pub fn cutscene_load_second_text_line(
 }
 
 /// G/src/cutscenes/cutscene_text.c:194 (`CutsceneLoadOriginalPaletteTextLine`).
-/// Atomic: ordered text release, scan, allocation and RAM-only font preparation.
+/// Functional: release/prepare RAM work plus embedded-control VDP writes.
 pub fn cutscene_load_original_palette_text_line(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -95,7 +95,7 @@ pub fn cutscene_load_original_palette_text_line(
 }
 
 /// G/src/cutscenes/cutscene_text.c:133 (`CutsceneTextLoad`).
-/// Atomic: ordered text release, scan, allocation and RAM-only font preparation.
+/// Functional: release/prepare RAM work plus embedded-control VDP writes.
 pub fn cutscene_text_load(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     let slot = ram::g_cutscene_first_text_entity(context.revision());
