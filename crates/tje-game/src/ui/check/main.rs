@@ -15,6 +15,15 @@ fn save(path: &Path, value: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
+fn add_counts<'a>(
+    totals: &mut BTreeMap<String, u64>,
+    counts: impl IntoIterator<Item = (&'a str, u64)>,
+) {
+    for (name, calls) in counts {
+        *totals.entry(name.to_owned()).or_default() += calls;
+    }
+}
+
 fn run_session(
     bytes: &[u8],
     revision: Revision,
@@ -24,15 +33,17 @@ fn run_session(
     output: &Path,
 ) -> Result<Host> {
     let script = InputScript::parse(source)?;
-    let mut registry = HookRegistry::filtered(revision, &["ui"], &[])?;
-    // This standalone opt-in binary is the only place pending bodies are hooked.
-    // Production frontends see TRANSLATIONS, never PENDING_TRANSLATIONS.
-    for &translation in ui::PENDING_TRANSLATIONS {
+    let mut registry = HookRegistry::proof(revision, ui::PENDING_TRANSLATIONS)?;
+    // Pending callees overlay all proven Rust bodies only in this opt-in binary.
+    for &translation in ui::TRANSLATIONS {
         let class = if ui::ATOMIC_CAPABLE.contains(&translation.id) {
             ExecutionClass::Atomic
         } else {
-            ui::EXECUTION_CONTRACTS.iter().find(|(id, _)| *id == translation.id)
-                .map(|(_, class)| *class).ok_or("pending UI entry has no reviewed class")?
+            ui::EXECUTION_CONTRACTS
+                .iter()
+                .find(|(id, _)| *id == translation.id)
+                .map(|(_, class)| *class)
+                .ok_or("pending UI entry has no reviewed class")?
         };
         registry.register_translation_with_execution(translation, class)?;
     }
@@ -99,6 +110,17 @@ fn run_session(
         if name == "two-player" && inventory_frames.contains(&0) {
             return Err(
                 format!("{revision:?} two-player script did not open both inventories").into(),
+            );
+        }
+        if name == "refresh"
+            && checked
+                .checks
+                .by_function
+                .get("InventoryRefreshContentsAndWait")
+                .is_none_or(|coverage| coverage.calls_checked == 0)
+        {
+            return Err(
+                format!("{revision:?}: drop-mode script did not exercise redraw wait").into(),
             );
         }
         Ok(())
@@ -335,10 +357,15 @@ fn drive_fixtures(host: &mut Host) -> Result<()> {
     for selection in [-1_i32, 0, 1] {
         fixture(host, ids::DRAW_PAUSE_CHOICE_PANEL, &[selection as u32])?;
     }
-    fixture(host, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-    for player in [0, 1] {
-        ram::g_inventory_redraw_phase(revision).write(&mut host.context(), 0);
-        fixture(host, ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT, &[player])?;
+    // Frozen Functional/Atomic fixtures are valid at this frame boundary. IRQ
+    // waits require an unmasked caller entry; never force SR to manufacture one.
+    // Natural refresh/menu sessions exercise these roots when this is ineligible.
+    if host.cpu().status_register() & 0x0700 == 0 {
+        fixture(host, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+        for player in [0, 1] {
+            ram::g_inventory_redraw_phase(revision).write(&mut host.context(), 0);
+            fixture(host, ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT, &[player])?;
+        }
     }
     Ok(())
 }
@@ -353,77 +380,158 @@ fn main() -> Result<()> {
     let rom_directory = Path::new(&arguments[0]);
     let output = Path::new(&arguments[1]);
     fs::create_dir_all(output)?;
-    let roots: Vec<_> = ui::TRANSLATIONS.iter().chain(ui::PENDING_TRANSLATIONS)
-        .map(|entry| entry.id).collect();
+    let roots: Vec<_> = ui::TRANSLATIONS
+        .iter()
+        .chain(ui::PENDING_TRANSLATIONS)
+        .map(|entry| entry.id)
+        .collect();
     let native_missing: Vec<_> = Dispatcher::native(&roots)
         .err()
         .unwrap_or_default()
         .into_iter()
         .map(|id| id.metadata().name)
         .collect();
+    let mut failures = Vec::new();
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let rom_name = match revision {
-            Revision::Rev02 => "rev02.bin",
-            Revision::Rev00 => "rev00.bin",
-        };
-        let bytes = fs::read(rom_directory.join(rom_name))?;
-        run_session(
-            &bytes,
-            revision,
-            "standard",
-            include_str!("../../../../tje-host/examples/start-game.json"),
-            10_000,
-            output,
-        )?;
-        run_session(
-            &bytes,
-            revision,
-            "inventory",
-            include_str!("inventory.json"),
-            2_500,
-            output,
-        )?;
-        let mut host = run_session(
-            &bytes,
-            revision,
-            "two-player",
-            include_str!("two-player.json"),
-            2_500,
-            output,
-        )?;
-        let before: BTreeMap<_, _> = host
-            .checks
-            .by_function
-            .iter()
-            .map(|(name, coverage)| (name.to_string(), coverage.calls_checked))
-            .collect();
-        let result = drive_fixtures(&mut host);
-        let fixture_calls: BTreeMap<_, _> = host
-            .checks
-            .by_function
-            .iter()
-            .map(|(name, coverage)| (name.to_string(), coverage.calls_checked - before[name]))
-            .collect();
-        save(
-            &output.join(format!("{}-live-fixtures.json", revision.name())),
-            &serde_json::json!({
-                "revision": revision.name(), "coverage_source": "labelled live-state fixtures after 2500-frame two-player session",
-                "error": result.as_ref().err().map(ToString::to_string), "fixture_calls": fixture_calls,
-                "checks_including_two_player_session": host.checks,
-                "native_ui_closure_complete": native_missing.is_empty(),
-                "native_missing": native_missing,
-            }),
-        )?;
-        result?;
-        if host.checks.mismatches != 0
-            || !host.checks.uninitialized_stack_reads.is_empty()
-            || !host.checks.unexercised.is_empty()
-        {
-            return Err(format!("{revision:?}: incomplete UI fixture evidence").into());
+        let outcome = (|| -> Result<()> {
+            let rom_name = match revision {
+                Revision::Rev02 => "rev02.bin",
+                Revision::Rev00 => "rev00.bin",
+            };
+            let bytes = fs::read(rom_directory.join(rom_name))?;
+            let mut combined = BTreeMap::new();
+            let standard = run_session(
+                &bytes,
+                revision,
+                "standard",
+                include_str!("../../../../tje-host/examples/start-game.json"),
+                10_000,
+                output,
+            )?;
+            add_counts(
+                &mut combined,
+                standard
+                    .checks
+                    .by_function
+                    .iter()
+                    .map(|(name, coverage)| (name, coverage.calls_checked)),
+            );
+            let inventory = run_session(
+                &bytes,
+                revision,
+                "inventory",
+                include_str!("inventory.json"),
+                2_500,
+                output,
+            )?;
+            add_counts(
+                &mut combined,
+                inventory
+                    .checks
+                    .by_function
+                    .iter()
+                    .map(|(name, coverage)| (name, coverage.calls_checked)),
+            );
+            let refresh = run_session(
+                &bytes,
+                revision,
+                "refresh",
+                include_str!("refresh.json"),
+                2_500,
+                output,
+            )?;
+            add_counts(
+                &mut combined,
+                refresh
+                    .checks
+                    .by_function
+                    .iter()
+                    .map(|(name, coverage)| (name, coverage.calls_checked)),
+            );
+            let mut host = run_session(
+                &bytes,
+                revision,
+                "two-player",
+                include_str!("two-player.json"),
+                2_500,
+                output,
+            )?;
+            let fixture_entry_sr = host.cpu().status_register();
+            let fixture_entry_pc = host.cpu().pc();
+            let before: BTreeMap<_, _> = host
+                .checks
+                .by_function
+                .iter()
+                .map(|(name, coverage)| (name.to_string(), coverage.calls_checked))
+                .collect();
+            let result = drive_fixtures(&mut host);
+            let fixture_calls: BTreeMap<_, _> = host
+                .checks
+                .by_function
+                .iter()
+                .map(|(name, coverage)| (name.to_string(), coverage.calls_checked - before[name]))
+                .collect();
+            add_counts(
+                &mut combined,
+                host.checks
+                    .by_function
+                    .iter()
+                    .map(|(name, coverage)| (name, coverage.calls_checked)),
+            );
+            let unexercised: Vec<_> = roots
+                .iter()
+                .map(|id| id.metadata().name)
+                .filter(|name| combined.get(*name).copied().unwrap_or(0) == 0)
+                .collect();
+            save(
+                &output.join(format!("{}-live-fixtures.json", revision.name())),
+                &serde_json::json!({
+                    "revision": revision.name(), "coverage_source": "labelled live-state fixtures after two-player gameplay",
+                    "fixture_entry_sr": fixture_entry_sr, "fixture_entry_pc": fixture_entry_pc,
+                    "time_aware_fixture_eligible": fixture_entry_sr & 0x0700 == 0,
+                    "time_aware_fixture_skipped_reason": if fixture_entry_sr & 0x0700 != 0 {
+                        Some("video-frame entry has IRQ mask set; IRQ-wait roots exercised naturally instead")
+                    } else { None },
+                    "error": result.as_ref().err().map(ToString::to_string), "fixture_calls": fixture_calls,
+                    "checks_including_two_player_session": host.checks,
+                    "combined_calls_checked": combined, "unexercised_across_all_sessions": unexercised,
+                    "native_ui_closure_complete": native_missing.is_empty(),
+                    "native_missing": native_missing,
+                }),
+            )?;
+            result?;
+            if host.checks.mismatches != 0
+                || !host.checks.uninitialized_stack_reads.is_empty()
+                || !unexercised.is_empty()
+            {
+                return Err(format!("{revision:?}: incomplete UI fixture evidence").into());
+            }
+            println!(
+                "{revision:?}: every UI hook exercised, zero mismatches; native missing={native_missing:?}"
+            );
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            eprintln!("{revision:?}: {error}");
+            failures.push(format!("{revision:?}: {error}"));
         }
-        println!(
-            "{revision:?}: every UI hook exercised, zero mismatches; native missing={native_missing:?}"
-        );
+    }
+    if !failures.is_empty() {
+        return Err(failures.join("; ").into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coverage_unions_independent_sessions_instead_of_requiring_every_root_in_the_last_one() {
+        let mut totals = BTreeMap::new();
+        add_counts(&mut totals, [("redraw_wait", 1), ("panel", 0)]);
+        add_counts(&mut totals, [("redraw_wait", 0), ("panel", 3)]);
+        assert_eq!(totals["redraw_wait"], 1);
+        assert_eq!(totals["panel"], 3);
+    }
 }

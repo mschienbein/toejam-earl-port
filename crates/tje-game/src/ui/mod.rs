@@ -98,12 +98,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::POSITION_MENU_CURSOR_ENTITY,
         function: position_menu_cursor_entity,
     },
-];
-
-/// Opt-in differential candidates, deliberately absent from production dispatch.
-/// Blocker: shared Functional/TimeAware production registration and both-revision
-/// evidence must land before moving any entry into TRANSLATIONS.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::HUD_HIDE_PLAYER_SPRITES,
         function: hud_hide_player_sprites,
@@ -146,19 +140,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Unproven W0/W1 bodies awaiting the shared execution-class proof path.
-pub static PENDING: &[crate::FunctionId] = &[
-    crate::ids::HUD_HIDE_PLAYER_SPRITES,
-    crate::ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
-    crate::ids::DRAW_NESTED_WINDOW_FRAME,
-    crate::ids::DRAW_PAUSE_CHOICE_PANEL,
-    crate::ids::DRAW_PRESENT_DISPLAY_PANEL,
-    crate::ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
-    crate::ids::HUD_LOAD_LIVES_SPRITE_TILES,
-    crate::ids::TEXT_ANIMATE_FONT_BANKS,
-    crate::ids::TEXT_WRITE_STRING_TILES,
-    ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
-];
+/// Opt-in unproven bodies, never part of production dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+/// No unproven entries in the completed W0/W1 batch.
+pub static PENDING: &[crate::FunctionId] = &[];
 
 /// Reviewed ORIGINAL atomic entries, translated or still residual.
 /// Classification describes clock/interrupt requirements, not translation readiness:
