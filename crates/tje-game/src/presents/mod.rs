@@ -233,10 +233,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: item_frames::entity_update_level_item_visibility,
     },
     crate::Translation {
-        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
-        function: items::present_try_end_active_powerup,
-    },
-    crate::Translation {
         id: ids::EAT_YUMMY_FOOD,
         function: items::eat_yummy_food,
     },
@@ -310,6 +306,14 @@ pub static PENDING_FRAMES: &[crate::Translation] = &[];
 /// dual-revision differential proofs pass. The opt-in lane harness may register
 /// these explicitly; frontends and Dispatcher::hybrid never consult this list.
 pub static PENDING: &[crate::Translation] = &[
+    // Corpus REV00 cooperation frame12219: an extra original HBlank inside
+    // expiry leaves VDP control_port.mode Read vs Rust Write (13 differences).
+    // Await the timing schedule or a reviewed commutation projection; the
+    // smaller six-fixture passing receipt does not override this failure.
+    crate::Translation {
+        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        function: items::present_try_end_active_powerup,
+    },
     // Redraw fixture fails strict main/ISR observations in both revisions:
     // REV02 Z80 A0004A operand0/1; REV00 missing/shifted vector28 boundary.
     crate::Translation {
