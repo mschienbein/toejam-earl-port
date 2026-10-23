@@ -46,6 +46,64 @@ fn terrain_from_cell(
         & 0xF0
 }
 
+#[derive(Clone, Copy)]
+struct EdgeAlternatives {
+    values: tje_mem::Address<u8>,
+    count: u8,
+}
+
+/// First-cell edge replacement from MapConsumePathCellDirections with its
+/// original initial traversal=-1. This observes every possible random choice,
+/// without drawing randomness or modifying the game's map.
+fn edge_alternatives(
+    rom: &Cartridge<'_>,
+    memory: &Ram<'_>,
+    revision: Revision,
+    bank: usize,
+    cell: u16,
+    position: (i32, i32),
+) -> Option<EdgeAlternatives> {
+    let (row, column) = position;
+    let directions = |row, column| {
+        (ram::g_map_path_direction_banks(revision)
+            .at(row)
+            .at(column)
+            .read(memory)
+            >> (bank * 4))
+            & 15
+    };
+    if cell & 0x4000 == 0 || directions(row, column) != 0 {
+        return None;
+    }
+    let shape = if directions(row - 1, column) & 4 != 0 {
+        16
+    } else if directions(row, column + 1) & 8 != 0 {
+        17
+    } else if directions(row + 1, column) & 1 != 0 {
+        18
+    } else if directions(row, column - 1) & 2 != 0 {
+        19
+    } else {
+        return None;
+    };
+    let tables = tje_mem::rom::map_generation_lookup_tables(revision);
+    let kind = if cell & 0x8000 != 0 {
+        tables.edge_alternate()
+    } else {
+        tables.edge_plain()
+    }
+    .at(shape)
+    .read(rom);
+    let values = tje_mem::rom::tile_alternative_pointers(revision)
+        .at(i32::from(kind))
+        .read(rom)
+        .target();
+    Some(EdgeAlternatives {
+        values,
+        count: values.read(rom),
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Travel {
     Land,
@@ -58,6 +116,7 @@ pub struct Navigator {
     level: i8,
     map: Vec<u16>,
     terrain: Vec<u8>,
+    safe_footing: Vec<bool>,
     cost: Vec<u16>,
     dynamic_cost: Vec<u16>,
     parents: Vec<usize>,
@@ -77,6 +136,7 @@ impl Navigator {
             level: -1,
             map: vec![0; 26 * 19],
             terrain: vec![0x90; CELLS],
+            safe_footing: vec![true; CELLS],
             cost: vec![0; CELLS],
             dynamic_cost: vec![0; CELLS],
             parents: vec![usize::MAX; CELLS],
@@ -136,7 +196,7 @@ impl Navigator {
             || (0..26).any(|row| {
                 (0..19).any(|col| {
                     self.map[(row * 19 + col) as usize]
-                        != bank.at(row).at(col).read(memory) & 0x1FFF
+                        != bank.at(row).at(col).read(memory) & 0xDFFF
                 })
             });
         if changed {
@@ -144,10 +204,15 @@ impl Navigator {
             for row in 0..26 {
                 for col in 0..19 {
                     self.map[(row * 19 + col) as usize] =
-                        bank.at(row).at(col).read(memory) & 0x1FFF;
+                        bank.at(row).at(col).read(memory) & 0xDFFF;
                 }
             }
-            self.decode(rom, revision);
+            self.decode(
+                rom,
+                revision,
+                memory,
+                usize::from(bank.address() == ram::g_player2_level_map(revision).address()),
+            );
             self.target = None;
         }
         if manhattan(position, self.previous) > 64 {
@@ -279,6 +344,7 @@ impl Navigator {
         let mut best = None;
         while let Some(Reverse((_, _, cell))) = self.frontier.pop() {
             if self.terrain[cell] <= 0x50
+                && self.safe_footing[cell]
                 && accept(cell, &self.terrain)
                 && best.is_none_or(|old| {
                     manhattan(cell_position(cell), desired) < manhattan(cell_position(old), desired)
@@ -287,7 +353,10 @@ impl Navigator {
                 best = Some(cell);
             }
             for next in neighbors(cell).into_iter().flatten() {
-                if self.parents[next] == usize::MAX && self.terrain[next] <= 0x50 {
+                if self.parents[next] == usize::MAX
+                    && self.terrain[next] <= 0x50
+                    && self.safe_footing[next]
+                {
                     self.parents[next] = cell;
                     self.frontier.push(Reverse((0, 0, next)));
                 }
@@ -296,8 +365,19 @@ impl Navigator {
         best.map(cell_position)
     }
 
-    fn decode(&mut self, rom: &[u8], revision: Revision) {
+    fn decode(&mut self, rom: &[u8], revision: Revision, memory: &Ram<'_>, bank: usize) {
         let image = Cartridge(rom);
+        let future_edges: [Option<EdgeAlternatives>; 26 * 19] = std::array::from_fn(|index| {
+            edge_alternatives(
+                &image,
+                memory,
+                revision,
+                bank,
+                self.map[index],
+                ((index / 19) as i32, (index % 19) as i32),
+            )
+        });
+        self.safe_footing.fill(true);
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let index = y * WIDTH + x;
@@ -312,6 +392,14 @@ impl Navigator {
                 let map = self.map[(y / 8 - 1) * 19 + x / 16 - 1];
                 self.terrain[index] =
                     terrain_from_cell(&image, revision, map, (y % 8) as u16, (x % 16) as u16);
+                if let Some(alternatives) = future_edges[(y / 8 - 1) * 19 + x / 16 - 1] {
+                    self.safe_footing[index] = (1..=alternatives.count).all(|choice| {
+                        let future = (map & 0x9F00)
+                            | u16::from(alternatives.values.offset(i32::from(choice)).read(&image));
+                        terrain_from_cell(&image, revision, future, (y % 8) as u16, (x % 16) as u16)
+                            <= 0x50
+                    });
+                }
             }
         }
         for cell in 0..CELLS {
@@ -486,15 +574,13 @@ impl Navigator {
             for next in neighbors(cell).into_iter().flatten() {
                 let column = (next % WIDTH) as i32;
                 let row = (next / WIDTH) as i32;
-                let terrain = if doorway_ground.iter().flatten().any(|&(left, top)| {
+                let doorway = doorway_ground.iter().flatten().any(|&(left, top)| {
                     column >= left && column < left + 4 && row >= top && row < top + 3
-                }) {
-                    0x10
-                } else {
-                    self.terrain[next]
-                };
+                });
+                let terrain = if doorway { 0x10 } else { self.terrain[next] };
                 let permitted = goal.1 == Travel::Fly
-                    || terrain <= 0x50
+                    || (terrain <= 0x50
+                        && (doorway || self.safe_footing[next] || goal.1 == Travel::Fall))
                     || (goal.1 == Travel::Swim && terrain == 0x80)
                     || (goal.1 == Travel::Fall
                         && (next == goal_cell
@@ -872,6 +958,105 @@ mod tests {
                     (164, 300)
                 ),
                 None
+            );
+        }
+    }
+
+    #[test]
+    fn pending_edges_keep_real_terrain_but_reject_footing_lost_by_any_replacement() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            // A below-cell UP link supplies source edge shape 18.
+            ram::g_map_path_direction_banks(revision)
+                .at(1)
+                .at(0)
+                .write(&mut memory, 1);
+            let mut bytes = vec![0; revision.rom_size()];
+            let tables = tje_mem::rom::map_generation_lookup_tables(revision);
+            bytes[tables.edge_plain().at(18).address() as usize] = 42;
+            let pointer = tje_mem::rom::tile_alternative_pointers(revision)
+                .at(42)
+                .address() as usize;
+            bytes[pointer..pointer + 4].copy_from_slice(&0x400_u32.to_be_bytes());
+            bytes[0x400] = 2;
+            bytes[0x401] = 5;
+            bytes[0x402] = 6;
+            let base = tje_mem::rom::level_metatile_maps(revision).address() as usize;
+            for word in 0..128 {
+                for (metatile, tile) in [(0, 1_u16), (5, 1), (6, 2)] {
+                    let offset = base + metatile * 256 + word * 2;
+                    bytes[offset..offset + 2].copy_from_slice(&tile.to_be_bytes());
+                }
+            }
+            let properties = tje_mem::rom::player_tile_property_lookup(revision).address() as usize;
+            bytes[properties + 1] = 0x10;
+            bytes[properties + 2] = 0x90;
+            let mut navigator = Navigator::new();
+            navigator.level = 5;
+            navigator.map[0] = 0x4000;
+            navigator.decode(&bytes, revision, &Ram(memory.ram()), 0);
+            let cell = position_cell((132, 68)).unwrap();
+            assert_eq!(navigator.terrain_at((132, 68)), 0x10);
+            assert!(!navigator.safe_footing[cell]);
+            // The prediction consumes no game RNG or direction bits.
+            assert_eq!(
+                ram::g_map_path_direction_banks(revision)
+                    .at(1)
+                    .at(0)
+                    .read(&memory),
+                1
+            );
+            bytes[properties + 2] = 0x10;
+            navigator.decode(&bytes, revision, &Ram(memory.ram()), 0);
+            assert!(navigator.safe_footing[cell]);
+        }
+    }
+
+    #[test]
+    fn pending_edge_prediction_uses_the_active_direction_nibble() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            ram::g_map_path_direction_banks(revision)
+                .at(1)
+                .at(0)
+                .write(&mut memory, 0x10);
+            let image = vec![0; revision.rom_size()];
+            assert!(
+                edge_alternatives(
+                    &Cartridge(&image),
+                    &Ram(memory.ram()),
+                    revision,
+                    0,
+                    0x4000,
+                    (0, 0)
+                )
+                .is_none()
+            );
+            assert!(
+                edge_alternatives(
+                    &Cartridge(&image),
+                    &Ram(memory.ram()),
+                    revision,
+                    1,
+                    0x4000,
+                    (0, 0)
+                )
+                .is_some()
+            );
+            ram::g_map_path_direction_banks(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 0x10);
+            assert!(
+                edge_alternatives(
+                    &Cartridge(&image),
+                    &Ram(memory.ram()),
+                    revision,
+                    1,
+                    0x4000,
+                    (0, 0)
+                )
+                .is_none()
             );
         }
     }

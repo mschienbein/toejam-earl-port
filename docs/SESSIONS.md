@@ -193,6 +193,11 @@ a disconnected component, the campaign targets reachable ground inside a live
 `0x4000` marked metatile with an adjacent terrain class at least `0x50`. This is
 the original grounded `ProcessLand` trigger; only the game's ensuing path animation
 changes terrain, and the planner then replans. No invisible road is fabricated.
+For a pending zero-direction edge cell, the navigator also observes the original
+first-cell replacement rule and all cartridge-backed random alternatives. It
+avoids standing where any such replacement would remove support. This separate
+footing constraint never changes the reported current terrain, consumes no RNG
+and writes no RAM; it is not a fabricated map update.
 On later campaign levels, existing super-hitops presents can be opened for real
 speed and the original A-modified terrain-edge hop. The bot releases A near
 interaction/elevator targets rather than treating the speed power as a grant.
