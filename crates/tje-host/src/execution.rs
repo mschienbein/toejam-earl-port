@@ -135,6 +135,15 @@ fn condition_holds(
                     "wait condition is not an aligned device word".into(),
                 ));
             }
+            if mask & !crate::open_bus::driven_mask(bus, address, true) != 0 {
+                return Err(tje_game::Error::from(
+                    tje_game::open_bus::OpenBusError::SourceRequired {
+                        address: address & tje_mem::ADDRESS_MASK,
+                        word: true,
+                    },
+                )
+                .into());
+            }
             bus.read_word(address) & mask == value
         }
         WaitCondition::DeviceByte {
@@ -146,6 +155,15 @@ fn condition_holds(
                 return Err(HostError::Metadata(
                     "wait condition is not a device byte".into(),
                 ));
+            }
+            if u16::from(mask) & !crate::open_bus::driven_mask(bus, address, false) != 0 {
+                return Err(tje_game::Error::from(
+                    tje_game::open_bus::OpenBusError::SourceRequired {
+                        address: address & tje_mem::ADDRESS_MASK,
+                        word: false,
+                    },
+                )
+                .into());
             }
             bus.read_byte(address) & mask == value
         }

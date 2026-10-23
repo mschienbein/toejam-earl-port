@@ -305,6 +305,8 @@ pub struct HookContext<'a> {
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
     pub(crate) stack_reads:
         RefCell<Option<Vec<crate::dependent_equivalence::journal::JournalRead>>>,
+    pub(crate) exact_device_reads: Vec<usize>,
+    mmio_contract_error: Option<tje_game::Error>,
     stack_audit: Option<StackAuditState>,
     frame_state: FrameState,
     pub(crate) execution_class: ExecutionClass,
@@ -331,6 +333,8 @@ impl<'a> HookContext<'a> {
             nested_calls: 0,
             uninitialized_reads: RefCell::new(BTreeSet::new()),
             stack_reads: RefCell::new(None),
+            exact_device_reads: Vec::new(),
+            mmio_contract_error: None,
             stack_audit: None,
             frame_state,
             execution_class: ExecutionClass::Atomic,
@@ -350,6 +354,20 @@ impl<'a> HookContext<'a> {
                 && !self.emulator.hybrid_bus().hybrid_functional_mode());
         self.wait_clock = clock;
         self
+    }
+
+    fn latch_mmio_error(&mut self, error: tje_game::Error) -> tje_game::Error {
+        if self.mmio_contract_error.is_none() {
+            self.mmio_contract_error = Some(error.clone());
+        }
+        error
+    }
+
+    fn game_platform_error(error: HostError) -> tje_game::Error {
+        match error {
+            HostError::Translation(error) => error,
+            other => tje_game::Error::Platform(other.to_string()),
+        }
     }
 
     /// Merge real IRQ/recipe accesses into the existing active-frame audit.
@@ -486,6 +504,17 @@ impl<'a> HookContext<'a> {
     }
 
     fn read_bus_tagged(&mut self, address: u32, word: bool, purpose: ReadPurpose) -> u16 {
+        self.emulator.hybrid_bus_mut().apply_pending_writes();
+        self.read_prepared_bus_tagged(address, word, purpose, false)
+    }
+
+    fn read_prepared_bus_tagged(
+        &mut self,
+        address: u32,
+        word: bool,
+        purpose: ReadPurpose,
+        exact_operand: bool,
+    ) -> u16 {
         if purpose == ReadPurpose::Semantic {
             self.audit_translated_read(address);
             if word {
@@ -493,20 +522,59 @@ impl<'a> HookContext<'a> {
             }
         }
         let bus = self.emulator.hybrid_bus_mut();
-        bus.apply_pending_writes();
+        let full = if word { 0xffff } else { 0xff };
+        let driven = if purpose == ReadPurpose::Semantic && !exact_operand {
+            crate::open_bus::driven_mask(bus, address, word)
+        } else {
+            full
+        };
         let value = if word {
             bus.read_word_tagged(address, purpose)
         } else {
             u16::from(bus.read_byte_tagged(address, purpose))
         };
         self.record_stack_read(address, word, purpose, value);
-        self.record_logic_access(genesis_core::HybridAccess::Read {
-            address: address & 0xffffff,
-            word,
-            value,
-            purpose,
-        });
+        self.record_logic_operand(
+            genesis_core::HybridAccess::Read {
+                address: address & 0xffffff,
+                word,
+                value,
+                purpose,
+            },
+            exact_operand,
+        );
+        if driven != full {
+            self.latch_mmio_error(
+                tje_game::open_bus::OpenBusError::SourceRequired {
+                    address: address & tje_mem::ADDRESS_MASK,
+                    word,
+                }
+                .into(),
+            );
+        }
         value
+    }
+
+    fn read_bus_with_open_bus(
+        &mut self,
+        address: u32,
+        word: bool,
+        source: tje_game::open_bus::OpenBusSource,
+    ) -> tje_game::Result<u16> {
+        tje_game::Platform::check_mmio_contract(self)?;
+        let prepared = crate::open_bus::prepare(self.emulator, address, word, source);
+        let exact_trace_index = match prepared {
+            Ok(bus) => bus.hybrid_accesses.as_ref().map(Vec::len),
+            Err(error) => return Err(self.latch_mmio_error(error.into())),
+        };
+        let value = self.read_prepared_bus_tagged(address, word, ReadPurpose::Semantic, true);
+        if self.stack_audit.is_some()
+            && let Some(index) = exact_trace_index
+        {
+            self.exact_device_reads.push(index);
+        }
+        tje_game::Platform::check_mmio_contract(self)?;
+        Ok(value)
     }
 
     fn translated_stack_offset(&self, address: u32) -> Option<usize> {
@@ -676,6 +744,7 @@ impl<'a> HookContext<'a> {
         execution_class: ExecutionClass,
         arguments: &[u32],
     ) -> Result<u32> {
+        tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(contract.id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
                 "{} has a non-RTS exit; ordinary original fallback cannot unwind it",
@@ -735,12 +804,14 @@ impl<'a> HookContext<'a> {
         let result = cpu.data_registers()[0];
         set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
+        tje_game::Platform::check_mmio_contract(self)?;
         Ok(result)
     }
 
     /// Run an original with the caller's exact outgoing area/return PC already
     /// present. Unlike call_original_with_execution_contract, push no new slots.
     fn call_original_prepared(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
                 "{} has a non-RTS exit; prepared original fallback cannot unwind it",
@@ -787,10 +858,12 @@ impl<'a> HookContext<'a> {
             .get_mut()
             .extend(audit.uninitialized_reads);
         self.nested_calls += 1;
+        tje_game::Platform::check_mmio_contract(self)?;
         Ok(self.emulator.hybrid_cpu().data_registers()[0])
     }
 
-    pub(crate) fn return_to_caller(&mut self, value: Option<u32>) {
+    pub(crate) fn return_to_caller(&mut self, value: Option<u32>) -> Result<()> {
+        tje_game::Platform::check_mmio_contract(self)?;
         let sp = self.emulator.hybrid_cpu().stack_pointer();
         let return_pc = self.read_u32(sp);
         let (cpu, bus) = self.emulator.hybrid_parts();
@@ -802,12 +875,15 @@ impl<'a> HookContext<'a> {
         set_sp(cpu, sp.wrapping_add(4));
         cpu.set_pc(return_pc, bus);
         bus.apply_pending_writes();
+        Ok(())
     }
 
-    pub(crate) fn transfer_to(&mut self, pc: u32) {
+    pub(crate) fn transfer_to(&mut self, pc: u32) -> Result<()> {
+        tje_game::Platform::check_mmio_contract(self)?;
         let (cpu, bus) = self.emulator.hybrid_parts();
         cpu.set_pc(pc, bus);
         bus.apply_pending_writes();
+        Ok(())
     }
 
     pub(crate) fn exception_returned(&mut self) {
@@ -896,38 +972,60 @@ impl tje_mem::Platform for HookContext<'_> {
     }
 }
 impl tje_game::Platform for HookContext<'_> {
-    fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
-        if self.execution_class == ExecutionClass::Atomic {
-            return Err(tje_game::Error::Platform(
-                "an atomic function cannot wait".into(),
-            ));
+    fn check_mmio_contract(&self) -> tje_game::Result<()> {
+        if let Some(error) = &self.mmio_contract_error {
+            return Err(error.clone());
         }
-        if self.execution_class == ExecutionClass::Functional {
-            if !crate::execution::functional_wait_supported(request) {
+        if let Some(address) = self.emulator.hybrid_bus().hybrid_functional_violation {
+            return Err(tje_game::Error::Platform(format!(
+                "functional contract observed VDP status/HV at {address:06X}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn discard_z80_bus_request_read(&mut self) -> tje_game::Result<()> {
+        self.check_mmio_contract()?;
+        self.read_bus_tagged(0xa11100, true, ReadPurpose::Discarded);
+        self.check_mmio_contract()
+    }
+
+    fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
+        self.check_mmio_contract()?;
+        let result = (|| {
+            if self.execution_class == ExecutionClass::Atomic {
                 return Err(tje_game::Error::Platform(
-                    "Functional admits only reviewed YM/BUSACK readiness".into(),
+                    "an atomic function cannot wait".into(),
                 ));
             }
-            if self.emulator.hybrid_bus().hybrid_functional_mode() {
-                return crate::execution::discharge_functional_wait(self.emulator, request)
-                    .map_err(|error| tje_game::Error::Platform(error.to_string()));
+            if self.execution_class == ExecutionClass::Functional {
+                if !crate::execution::functional_wait_supported(request) {
+                    return Err(tje_game::Error::Platform(
+                        "Functional admits only reviewed YM/BUSACK readiness".into(),
+                    ));
+                }
+                if self.emulator.hybrid_bus().hybrid_functional_mode() {
+                    return crate::execution::discharge_functional_wait(self.emulator, request)
+                        .map_err(Self::game_platform_error);
+                }
             }
-        }
-        let observe = self.stack_audit.is_some();
-        let result = if observe && self.time_audio.is_empty() {
-            run_wait(self.emulator, &mut self.wait_clock, request)
-        } else {
-            run_wait_with_audio(
-                self.emulator,
-                &mut self.wait_clock,
-                request,
-                std::mem::take(&mut self.time_audio),
-                observe,
-            )
-        };
-        let run = result.map_err(|error| tje_game::Error::Platform(error.to_string()))?;
-        self.merge_clock_run(run);
-        Ok(())
+            let observe = self.stack_audit.is_some();
+            let result = if observe && self.time_audio.is_empty() {
+                run_wait(self.emulator, &mut self.wait_clock, request)
+            } else {
+                run_wait_with_audio(
+                    self.emulator,
+                    &mut self.wait_clock,
+                    request,
+                    std::mem::take(&mut self.time_audio),
+                    observe,
+                )
+            };
+            let run = result.map_err(Self::game_platform_error)?;
+            self.merge_clock_run(run);
+            Ok(())
+        })();
+        result.map_err(|error| self.latch_mmio_error(error))
     }
 
     fn read_device_u8(&mut self, address: u32) -> u8 {
@@ -936,6 +1034,23 @@ impl tje_game::Platform for HookContext<'_> {
     fn read_device_u16(&mut self, address: u32) -> u16 {
         self.read_bus_tagged(address, true, ReadPurpose::Semantic)
     }
+    fn read_device_u8_with_open_bus(
+        &mut self,
+        address: u32,
+        source: tje_game::open_bus::OpenBusSource,
+    ) -> tje_game::Result<u8> {
+        self.read_bus_with_open_bus(address, false, source)
+            .map(|value| value as u8)
+    }
+
+    fn read_device_u16_with_open_bus(
+        &mut self,
+        address: u32,
+        source: tje_game::open_bus::OpenBusSource,
+    ) -> tje_game::Result<u16> {
+        self.read_bus_with_open_bus(address, true, source)
+    }
+
     fn write_device_u8(&mut self, address: u32, value: u8) {
         self.audit_translated_write(address);
         self.record_logic_access(genesis_core::HybridAccess::Write {

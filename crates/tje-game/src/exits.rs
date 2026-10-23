@@ -344,6 +344,7 @@ pub fn enter(
     entry: FunctionId,
     arguments: &[u32],
 ) -> Result<EntryOutcome> {
+    context.check_mmio_contract()?;
     let translation = context
         .dispatcher()
         .resolve_entry(entry)?
@@ -357,6 +358,7 @@ fn enter_body(
     arguments: &[u32],
     body: crate::TranslatedEntry,
 ) -> Result<EntryOutcome> {
+    context.check_mmio_contract()?;
     let class = crate::execution_class(entry).ok_or(Error::Unclassified(entry))?;
     let parent = context.execution_class();
     if !parent.permits(class) {
@@ -374,6 +376,7 @@ fn enter_body(
     } else {
         Ok(())
     };
+    context.check_mmio_contract()?;
     restore?;
     let outcome = validate(entry, contract(entry), result, context.revision())?;
     if let EntryOutcome::Returned(Some(value)) = outcome {

@@ -748,6 +748,110 @@ then settles before Player's original level/x/y writes and `EntityIsNearPosition
 call. Its source-cited local predicate keeps this host regression independent of
 translation-lane promotion.
 
+## 6. Observed open-bus bits and explicit prefetch sources
+
+An unused device bit is not necessarily unobservable software state. The
+68000's bus latch is deterministic: a partially driven read can retain bits from
+the original instruction's prefetched ROM word. If the program stores, returns,
+branches on, or performs arithmetic with those bits, a defined-bit-only device
+comparison is insufficient. Keep the strict RAM/register/CCR contract.
+
+Use the `OpenBusSource` type from `tje_game::open_bus`, binding its
+`prefetch(address)` source to `Platform::read_device_u8_with_open_bus` or
+`read_device_u16_with_open_bus`. The
+source is an **address in the user's ROM**, never an embedded opcode or literal
+bus word. Cite the matching instruction layout and derive it separately for each
+revision. For `LoadSoundDriverToZ80`, G `src/asm/z80bus.s:17-18` places the BUSACK
+MOVE at entry + `0x14` and the prefetched following BTST at entry + `0x1a`:
+
+```rust
+use tje_game::{ids, open_bus::OpenBusSource};
+
+let function = ids::LOAD_SOUND_DRIVER_TO_Z80.metadata();
+let entry = function.address(context.revision());
+let source = OpenBusSource::prefetch(entry + 0x1a);
+let status = context.read_device_u16_with_open_bus(0xa11100, source)?;
+```
+
+The corresponding source addresses are REV 02 `0x03f594` and REV 00 `0x03f524`.
+The upload consumes the full BUSACK word in D1 and two MULU operations; masking
+the undefined bits or preserving an unrelated function-entry latch changes its
+D0/D1 residues.
+
+The same contract applies to value-returning convenience reads, not only the
+generic MMIO methods. `GameProgram`'s initial status TST is at entry `0x2fc`;
+the following JSR opcode is its prefetch source at entry + 6 (`0x302`) in both
+revisions. Its `read_vdp_status(source)?` retains the full observed status and
+real read side effects before the interrupt-mask call. Any test harness that
+includes the canonical body must expose the same `open_bus` type, rather than
+substitute the old source-less helper.
+
+Ordinary, explicit-source and discarded reads share the host's central tagged
+bus reader and observation path. Each actual access is dispatched once and
+retains its width, purpose, value, dependent-read journal position and readable
+logic event. A missing-source semantic read still performs and records the
+real access before poisoning the contract; failure never erases device effects.
+
+The hybrid platform validates an aligned, present ROM word, performs the declared
+`ReadPurpose::Prefetch` read on the real bus, then dispatches the actual MMIO
+read. Hardware-defined bits still come from the real device; the ROM cannot grant
+BUSACK, clear YM BUSY, replace controller pins, or alter VDP flags. Normal device
+read side effects and the resulting bus latch are retained. Explicit-source reads
+are marked for **full raw operand equality** in check mode, in addition to the
+ordinary ordered transaction comparison; a wrong prefetch source cannot pass
+merely because the readiness bit or final ABI outputs happen to match.
+
+A native platform resolves the same big-endian word with
+`OpenBusSource::word_from_rom(user_rom)`, then uses its device model's driven-bit
+mask. A missing/unaligned/non-ROM source is an error, never a fabricated zero or
+ready value. The default Platform methods reject unsupported implementations.
+Ordinary value-returning read helpers are for fully driven values only.
+`read_vdp_status(source)` and `read_z80_bus_request(source)` require the explicit
+source too. A raw partially driven read still performs its actual access, then
+poisons the execution context; returning the right registers cannot conceal the
+missing declaration. Invalid-source failures are sticky even if Rust catches
+their immediate error. Entry/return validation covers nested value and framed
+calls, original bridges and live returns, restoring scope/frame bookkeeping on
+failure. Control-transfer mint/finish paths must validate the same contract
+before treating a transfer as success.
+
+The narrow `discard_z80_bus_request_read()` operation preserves CLR.W's real
+read-before-write without exposing a value. It is accepted only against an
+original discarded read; a semantic BUSACK operand cannot be relabelled
+discarded to evade the source requirement. Reviewed readiness predicates remain
+narrow mask-only operations, not a global guard toggle. Wait masks that observe
+undefined bits (including a denied Z80 memory window) fail instead of reading
+the synthetic idle loop's unrelated bus value.
+
+### Which reads use the CPU bus latch?
+
+This table is the current vendored standalone model's contract
+(`genesis-core/src/bus.rs`), not a claim that every unused electrical pin on every
+Genesis revision behaves identically:
+
+| Read | Driven bits / source |
+| --- | --- |
+| BUSACK word `0xa11100` | Bit `0x0100` is real active-low grant; all other bits are CPU open bus |
+| BUSACK byte `0xa11100` | Bit `0x01` is grant; remaining bits use the prefetched word's high byte |
+| Byte `0xa11101` | Unmapped in this decoder: prefetched low byte, not another grant bit |
+| VDP status words `0xc00004..07` | `0x03ff` comes from VDP; `0xfc00` from CPU open bus |
+| VDP status byte, even / odd alias | Even: low two bits driven, high six from prefetched high byte; odd: all eight status bits driven |
+| VDP data / HV words `0xc00000..03`, `08..0b` | No CPU-open-bus substitution; preserve actual VDP FIFO/read-buffer/counter semantics |
+| PSG/write-only/unused VDP reads `0xc0000c..1f` | Whole word is CPU open bus; byte accesses select the addressed byte |
+| Controller/version/control/I/O block `0xa10000..1f` | I/O model supplies the entire byte; word reads mirror it into both lanes. Pin defaults and reserved-register defaults are not replaced with ROM bits |
+| Z80 window `0xa00000..a0ffff` | Granted: real Z80 memory/device byte, mirrored for word reads. Denied: CPU open bus |
+| Other unmapped/write-only addresses, e.g. reset read `0xa11200` | CPU open bus, subject to the normal cartridge/device decoder |
+
+Byte reads retain the upstream bus-latch update rule too. VDP-internal undefined
+data/read-buffer bits and YM cached status are device-model state, not permission
+to merge in arbitrary CPU-ROM bits. Expansion/cartridge register branches keep
+their actual decoder behavior.
+
+This API specifies an observable operand, **not** CPU timing, instruction-cycle
+charges, IRQ admission phase, or a replacement for the frame scheduler. It does
+not bypass Functional's status/HV restriction or solve the separate
+`WaitForNextVBlank` full-music ISR-phase issue.
+
 [decomp]: https://github.com/mschienbein/toejam-earl-decomp
 
 ## Source-backed frame-sensitive calls

@@ -261,6 +261,7 @@ impl OutgoingArguments {
         site: CallSite,
     ) -> Result<u32> {
         site.validate()?;
+        context.check_mmio_contract()?;
         let parent = context.frame_state().ok_or(FrameError::Unavailable)?;
         let current_sp = context.stack_pointer()?;
         if current_sp != self.base {
@@ -293,6 +294,10 @@ impl OutgoingArguments {
             dispatcher.call_prepared(context, id)
         } else {
             context.call_original_entry(id, class)
+        };
+        let result = match context.check_mmio_contract() {
+            Ok(()) => result,
+            Err(error) => Err(error),
         };
         if result
             .as_ref()
@@ -329,6 +334,7 @@ impl OutgoingArguments {
         // frame bookkeeping so a checked diagnostic can report them safely.
         context.set_stack_pointer(self.base)?;
         context.set_frame_state(parent)?;
+        context.check_mmio_contract()?;
         result
     }
     pub fn release(self, context: &mut dyn Context) -> Result<()> {
@@ -360,8 +366,13 @@ pub fn call_at(
     site: CallSite,
 ) -> Result<u32> {
     site.validate()?;
+    context.check_mmio_contract()?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let result = outgoing.call(context, dispatcher, id, site);
+    let result = match context.check_mmio_contract() {
+        Ok(()) => result,
+        Err(error) => Err(error),
+    };
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -369,6 +380,7 @@ pub fn call_at(
         return result;
     }
     let release = outgoing.release(context);
+    context.check_mmio_contract()?;
     match (result, release) {
         (Err(error), _) | (_, Err(error)) => Err(error),
         (Ok(value), Ok(())) => Ok(value),

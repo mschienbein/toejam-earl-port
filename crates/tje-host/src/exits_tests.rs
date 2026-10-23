@@ -44,7 +44,7 @@ fn machine(revision: Revision, words: &[u16]) -> GenesisEmulator {
         for index in 0..7 {
             context.set_address_register(index, 0x56780000 + index as u32);
         }
-        context.transfer_to(CODE);
+        context.transfer_to(CODE).unwrap();
     }
     emulator
 }
@@ -273,6 +273,41 @@ fn non_rts_comparison_rejects_scratch_register_and_inactive_bank_corruption() {
             .unwrap_err()
             .contains("banked")
     );
+}
+
+fn missing_source_then_transfer(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+    let _ = tje_game::Platform::read_device_u16(context, 0xa11100);
+    tje_game::exits::terminal(ids::GET_RANDOM_NUMBER).map_err(HostError::from)
+}
+
+fn missing_source_then_error(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+    let _ = tje_game::Platform::read_device_u16(context, 0xa11100);
+    Err(HostError::Metadata("ordinary body error".into()))
+}
+
+#[test]
+fn poisoned_mmio_cannot_be_finalized_as_a_terminal_transfer() {
+    for body in [
+        missing_source_then_transfer as crate::hooks::HookFn,
+        missing_source_then_error,
+    ] {
+        let revision = Revision::Rev02;
+        let mut emulator = machine(revision, &[0x60fe]);
+        let hook = hook(revision, ExitContract::Terminal, body);
+        let mut context = HookContext::new(&mut emulator, revision, Dispatcher::hybrid_with(&[]));
+        let before = (context.cpu().pc(), context.cpu().stack_pointer());
+        let error = hook.execute(&mut context).unwrap_err();
+        assert!(
+            matches!(&error, HostError::Translation(tje_game::Error::OpenBus(_))),
+            "{error}"
+        );
+        let transfer = match tje_game::exits::terminal::<()>(ids::GET_RANDOM_NUMBER) {
+            Err(tje_game::Error::ControlTransfer(transfer)) => transfer,
+            other => panic!("expected authored transfer: {other:?}"),
+        };
+        assert!(finish(&mut context, &hook, EntryOutcome::Transfer(transfer)).is_err());
+        assert_eq!((context.cpu().pc(), context.cpu().stack_pointer()), before);
+    }
 }
 
 #[path = "exits_idle_tests.rs"]

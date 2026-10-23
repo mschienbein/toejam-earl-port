@@ -47,6 +47,7 @@ pub(crate) struct EntryState {
 }
 impl EntryState {
     pub(crate) fn capture(context: &HookContext<'_>, contract: ExitContract) -> Result<Self> {
+        tje_game::Platform::check_mmio_contract(context)?;
         let banks = context.stack_banks()?;
         let sp = if context.status_register() & 0x2000 != 0 {
             banks.supervisor
@@ -132,20 +133,21 @@ pub(crate) fn finish(
     hook: &Hook,
     outcome: EntryOutcome,
 ) -> Result<()> {
+    tje_game::Platform::check_mmio_contract(context)?;
     match outcome {
-        EntryOutcome::Returned(value) => context.return_to_caller(value),
+        EntryOutcome::Returned(value) => context.return_to_caller(value)?,
         EntryOutcome::Transfer(transfer) => match transfer.exit {
             Exit::ExceptionReturn => {
                 let restored = exits::restore_exception(context)?;
-                context.transfer_to(restored.program_counter);
+                context.transfer_to(restored.program_counter)?;
                 context.exception_returned();
             }
             Exit::Tail { target } => {
-                context.transfer_to(target.metadata().address(context.revision()))
+                context.transfer_to(target.metadata().address(context.revision()))?
             }
             Exit::Call { target, return_pc } => {
                 exits::push_call(context, return_pc)?;
-                context.transfer_to(target.metadata().address(context.revision()));
+                context.transfer_to(target.metadata().address(context.revision()))?;
             }
             Exit::Terminal => {
                 let pc = if transfer.entry == hook.symbol.id {
@@ -153,7 +155,7 @@ pub(crate) fn finish(
                 } else {
                     transfer.entry.metadata().address(context.revision())
                 };
-                context.transfer_to(pc);
+                context.transfer_to(pc)?;
             }
             Exit::MainLoop { stage } => {
                 let (reviewed, address) = if transfer.entry == hook.symbol.id {
@@ -167,7 +169,7 @@ pub(crate) fn finish(
                 let pc = reviewed
                     .checkpoint_at(address, stage)
                     .ok_or_else(|| HostError::Metadata("missing main-loop checkpoint".into()))?;
-                context.transfer_to(pc);
+                context.transfer_to(pc)?;
             }
         },
     }

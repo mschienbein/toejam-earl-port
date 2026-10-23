@@ -54,8 +54,21 @@ impl Default for Z80Signals {
 }
 
 impl Z80Signals {
-    fn busack(self) -> bool {
+    // TJE hybrid inspection: read-only drive-mask query; no signal/timing change.
+    #[inline]
+    pub fn busack(self) -> bool {
         self.busreq && !self.reset
+    }
+
+    // TJE hybrid inspection: actual signal fields, never a bus/MMIO read.
+    #[inline]
+    pub fn bus_requested(self) -> bool {
+        self.busreq
+    }
+
+    #[inline]
+    pub fn reset_asserted(self) -> bool {
+        self.reset
     }
 }
 

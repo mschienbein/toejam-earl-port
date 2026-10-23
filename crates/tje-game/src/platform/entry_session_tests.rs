@@ -1,7 +1,7 @@
 //! Natural non-RTS sessions exclude the still-pending cold-start Rust body.
 use std::{fs, path::PathBuf, sync::Arc};
 use tje_game::Translation;
-pub use tje_game::{Context, Result, call_at, call_frame, execution, exits, ids};
+pub use tje_game::{Context, Result, call_at, call_frame, execution, exits, ids, open_bus};
 #[path = "entries.rs"]
 pub mod entries;
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};

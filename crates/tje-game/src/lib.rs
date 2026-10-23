@@ -20,6 +20,7 @@ mod framed_entry;
 pub mod jamout;
 pub mod map;
 mod metadata;
+pub mod open_bus;
 pub mod platform;
 pub mod player;
 pub mod presents;
@@ -112,6 +113,7 @@ pub enum Error {
     Frame(call_frame::FrameError),
     /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
     ControlTransfer(exits::ControlTransfer),
+    OpenBus(open_bus::OpenBusError),
     Platform(String),
 }
 impl fmt::Display for Error {
@@ -136,6 +138,7 @@ impl fmt::Display for Error {
                 transfer.entry.metadata().name,
                 transfer.exit,
             ),
+            Self::OpenBus(error) => fmt::Display::fmt(error, formatter),
             Self::Platform(message) => formatter.write_str(message),
         }
     }
@@ -149,6 +152,11 @@ impl From<ArithmeticTrap> for Error {
 impl From<call_frame::FrameError> for Error {
     fn from(value: call_frame::FrameError) -> Self {
         Self::Frame(value)
+    }
+}
+impl From<open_bus::OpenBusError> for Error {
+    fn from(value: open_bus::OpenBusError) -> Self {
+        Self::OpenBus(value)
     }
 }
 impl Error {
@@ -169,6 +177,38 @@ pub trait Platform: tje_mem::Platform {
     fn write_device_u8(&mut self, address: u32, value: u8);
     fn write_device_u16(&mut self, address: u32, value: u16);
 
+    /// Read a partially driven device operand with the original instruction's
+    /// explicitly declared ROM prefetch source. Native platforms resolve that
+    /// source from the user's ROM; unsupported platforms fail closed.
+    fn read_device_u8_with_open_bus(
+        &mut self,
+        _address: u32,
+        _source: open_bus::OpenBusSource,
+    ) -> Result<u8> {
+        Err(open_bus::OpenBusError::UnsupportedPlatform.into())
+    }
+
+    fn read_device_u16_with_open_bus(
+        &mut self,
+        _address: u32,
+        _source: open_bus::OpenBusSource,
+    ) -> Result<u16> {
+        Err(open_bus::OpenBusError::UnsupportedPlatform.into())
+    }
+
+    /// Deferred device violations survive nested scopes and handled errors.
+    /// Eagerly validating platforms have no deferred violation to report.
+    fn check_mmio_contract(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// The original CLR.W pre-read is observable, but its value is discarded.
+    /// This narrow operation exposes no undefined bits to translated software.
+    fn discard_z80_bus_request_read(&mut self) -> Result<()> {
+        let _ = self.read_device_u16(0xa11100);
+        self.check_mmio_contract()
+    }
+
     /// Suspend while the platform makes real clock/interrupt progress. Native
     /// platforms implement the same condition with their frame scheduler.
     fn wait_until(&mut self, _request: execution::WaitRequest) -> Result<()> {
@@ -185,8 +225,8 @@ pub trait Platform: tje_mem::Platform {
         self.wait_until(execution::WaitRequest::interrupt())
     }
 
-    fn read_vdp_status(&mut self) -> u16 {
-        self.read_device_u16(0xc00004)
+    fn read_vdp_status(&mut self, source: open_bus::OpenBusSource) -> Result<u16> {
+        self.read_device_u16_with_open_bus(0xc00004, source)
     }
     fn read_vdp_data(&mut self) -> u16 {
         self.read_device_u16(0xc00000)
@@ -209,8 +249,8 @@ pub trait Platform: tje_mem::Platform {
     fn write_z80_bus_request(&mut self, value: u16) {
         self.write_device_u16(0xa11100, value);
     }
-    fn read_z80_bus_request(&mut self) -> u16 {
-        self.read_device_u16(0xa11100)
+    fn read_z80_bus_request(&mut self, source: open_bus::OpenBusSource) -> Result<u16> {
+        self.read_device_u16_with_open_bus(0xa11100, source)
     }
     fn write_z80_reset(&mut self, value: u16) {
         self.write_device_u16(0xa11200, value);
@@ -479,6 +519,7 @@ impl Dispatcher {
         )
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
+        context.check_mmio_contract()?;
         let entry = self.resolve_entry(id)?;
         if let Some(entry) = entry {
             self.invoke_translated(context, entry, Some(arguments))
@@ -490,13 +531,16 @@ impl Dispatcher {
                     callee: class,
                 });
             }
-            context.call_original_with_execution(id, arguments, class)
+            let result = context.call_original_with_execution(id, arguments, class);
+            context.check_mmio_contract()?;
+            result
         } else {
             Err(Error::Untranslated(id))
         }
     }
 
     pub(crate) fn call_prepared(self, context: &mut dyn Context, id: FunctionId) -> Result<u32> {
+        context.check_mmio_contract()?;
         let entry = self.resolve_entry(id)?.ok_or(Error::Untranslated(id))?;
         self.invoke_translated(context, entry, None)
     }
@@ -507,6 +551,7 @@ impl Dispatcher {
         entry: TranslatedEntry,
         arguments: Option<&[u32]>,
     ) -> Result<u32> {
+        context.check_mmio_contract()?;
         let class = execution_class(entry.id()).ok_or(Error::Unclassified(entry.id()))?;
         let parent = context.execution_class();
         if !parent.permits(class) {
@@ -523,7 +568,11 @@ impl Dispatcher {
             Some(arguments) => entry.invoke_values(context, arguments),
             None => entry.invoke_prepared(context),
         };
-        let result = exits::validate_call(entry.id(), result, context.revision()).map(|value| {
+        let result = match context.check_mmio_contract() {
+            Ok(()) => exits::validate_call(entry.id(), result, context.revision()),
+            Err(error) => Err(error),
+        }
+        .map(|value| {
             if let Some(value) = value {
                 context.set_data_register(0, value);
             }
@@ -534,6 +583,7 @@ impl Dispatcher {
         } else {
             Ok(())
         };
+        context.check_mmio_contract()?;
         match (result, restore) {
             (Err(error), _) | (_, Err(error)) => Err(error),
             (Ok(value), Ok(())) => Ok(value),

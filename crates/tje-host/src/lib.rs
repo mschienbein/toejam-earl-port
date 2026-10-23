@@ -21,6 +21,7 @@ mod exits;
 pub mod fixture;
 pub mod hooks;
 pub mod input;
+mod open_bus;
 mod play;
 pub mod session_trace;
 mod sinks;
@@ -570,6 +571,7 @@ impl Host {
                 translated: translated_run.logic_trace.events,
             });
         }
+
         match comparison {
             Ok(dead_bytes) => {
                 self.checks.dead_stack_differing_bytes += dead_bytes;
@@ -865,6 +867,22 @@ pub(crate) fn accesses_match(
     b: &genesis_core::HybridAccess,
 ) -> bool {
     use genesis_core::HybridAccess;
+    if matches!(
+        b,
+        HybridAccess::Read {
+            purpose: m68000_emu::ReadPurpose::Discarded,
+            ..
+        }
+    ) && !matches!(
+        a,
+        HybridAccess::Read {
+            purpose: m68000_emu::ReadPurpose::Discarded,
+            ..
+        }
+    ) {
+        // A value-consuming original cannot be disguised as a no-value read.
+        return false;
+    }
     match (*a, *b) {
         (
             HybridAccess::Read {

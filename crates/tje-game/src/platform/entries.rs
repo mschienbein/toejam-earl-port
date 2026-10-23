@@ -4,6 +4,7 @@ use crate::{
     call_frame::{CallSite, FrameLayout, LocalFrame},
     execution::WaitRequest,
     exits, ids,
+    open_bus::OpenBusSource,
 };
 use tje_mem::{ram, rom_symbol};
 
@@ -63,7 +64,10 @@ pub fn restart_from_reset_entry(context: &mut dyn Context, _: &[u32]) -> Result<
 /// G/src/asm/interrupts.s:14 (`GameProgram`): clear all work RAM, retaining the
 /// full postincrement A0 value, and expose the final real JSR boundary, not an RTS.
 pub fn game_program(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    let status = context.read_vdp_status();
+    let entry = ids::GAME_PROGRAM.metadata();
+    // TST.W at entry prefetches the following JSR opcode at entry + 6.
+    let source = OpenBusSource::prefetch(entry.address(context.revision()).wrapping_add(6));
+    let status = context.read_vdp_status(source)?;
     test_flags(context, u32::from(status), 0x8000);
     let site = CallSite::relative(ids::GAME_PROGRAM, context.revision(), 10);
     call_at(context, ids::DISABLE_ALL_INTERRUPTS, &[], site)?;
@@ -75,7 +79,6 @@ pub fn game_program(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     context.set_address_register(0, destination);
     context.set_data_register(0, (context.data_register(0) & 0xffff_0000) | 0xffff);
     test_flags(context, 0, 0x8000_0000);
-    let entry = ids::GAME_PROGRAM.metadata();
     let return_pc = entry
         .address(context.revision())
         .wrapping_add(entry.size(context.revision()));

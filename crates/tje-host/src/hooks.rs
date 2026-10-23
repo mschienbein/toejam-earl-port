@@ -51,6 +51,7 @@ impl Hook {
     }
 
     pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
+        tje_game::Platform::check_mmio_contract(context)?;
         if let Some((frame, expected_sp)) = self.frame_state {
             let sp = context.stack_pointer()?;
             let physical_sp = crate::abi::canonical_ram_address(sp);
@@ -73,7 +74,10 @@ impl Hook {
             Body::Host(function) => match function(context) {
                 Ok(value) => Ok(value),
                 Err(HostError::Translation(error)) => Err(error),
-                Err(error) => return Err(error),
+                Err(error) => {
+                    tje_game::Platform::check_mmio_contract(context)?;
+                    return Err(error);
+                }
             },
             Body::Framed(translation) => {
                 TranslatedEntry::Framed(translation).invoke_prepared(context)
@@ -87,6 +91,7 @@ impl Hook {
                 (translation.function)(context, &arguments[..count])
             }
         };
+        tje_game::Platform::check_mmio_contract(context)?;
         Ok(exits::validate_at(
             self.symbol.id,
             self.exit_contract,

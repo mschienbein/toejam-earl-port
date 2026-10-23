@@ -1,6 +1,8 @@
 //! Opt-in non-RTS proofs. These bodies remain pending until both revisions pass.
 use std::{fs, path::PathBuf, sync::Arc};
-pub use tje_game::{Context, Platform, Result, call_at, call_frame, execution, exits, ids};
+pub use tje_game::{
+    Context, Platform, Result, call_at, call_frame, execution, exits, ids, open_bus,
+};
 use tje_game::{
     FunctionId, Translation,
     exits::{EntryOutcome, Exit, StackBanks},

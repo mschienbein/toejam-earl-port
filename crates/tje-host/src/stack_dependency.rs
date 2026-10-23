@@ -40,6 +40,7 @@ pub(super) struct CheckRun {
     pub nested_calls: u64,
     pub wait_frames: u64,
     pub dependent_writes: Option<crate::dependent_equivalence::RamWriteFootprint>,
+    pub exact_device_reads: Vec<usize>,
 }
 
 impl Host {
@@ -86,6 +87,7 @@ impl Host {
                         nested_calls: 0,
                         wait_frames: clock.frame - entry_frame,
                         dependent_writes: None,
+                        exact_device_reads: Vec::new(),
                     }
                 }
                 CheckSide::Rust => {
@@ -109,6 +111,7 @@ impl Host {
                         nested_calls: context.nested_calls,
                         wait_frames: context.time_frames,
                         dependent_writes: None,
+                        exact_device_reads: context.exact_device_reads,
                     }
                 }
             };
@@ -279,6 +282,26 @@ pub(super) fn compare_check_runs(
             live_start,
         )?;
     } else {
+        let original_accesses = original
+            .hybrid_bus()
+            .hybrid_accesses
+            .as_deref()
+            .unwrap_or(&[]);
+        let translated_accesses = translated
+            .hybrid_bus()
+            .hybrid_accesses
+            .as_deref()
+            .unwrap_or(&[]);
+        crate::open_bus::compare_exact_reads(
+            original_accesses,
+            translated_accesses,
+            &original_run.exact_device_reads,
+        )?;
+        crate::open_bus::compare_exact_reads(
+            original_accesses,
+            translated_accesses,
+            &translated_run.exact_device_reads,
+        )?;
         compare_io_ram_order(
             &original_run.audit.writes,
             &translated_run.audit.writes,
