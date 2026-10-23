@@ -307,6 +307,41 @@ the final parser rejects old unlabelled tuples rather than keeping a compatibili
 format. Function checking and replacement are separate modes, not a claim that
 untimed replacements already match the original's whole-game timing.
 
+## Expanded deterministic checkpoint
+
+The original six recordings plus the following paired streams total **18 sessions,
+179,351 video frames**. Every stream is input-only from power-on; none contains RAM
+writes or a stored state. Independent reference/reference comparisons matched every
+frame, including all RAM, VDP state, pixels, ordered sound-chip writes and PCM:
+**179,351 / 179,351 comparisons, zero divergences, no skipped lag frames**.
+
+| Added scenario | REV 02 frames / entries | REV 00 frames / entries |
+| --- | ---: | ---: |
+| Full natural intro | 11,467 / 160 | 11,467 / 160 |
+| All eight Jam Out choices | 24,047 / 144 | 24,047 / 144 |
+| Controller/pause/map/inventory menus | 2,746 / 280 | 2,746 / 280 |
+| Split/rejoin, health clap, shared elevator | 3,754 / 343 | 3,740 / 346 |
+| Natural last life and game over | 5,527 / 269 | 5,527 / 269 |
+| Explicit original secret-ending input | 11,071 / 394 | 11,212 / 402 |
+
+Independent reference entry coverage is **REV 02: 509 / 648; REV 00: 517 / 648;
+combined: 517 / 648**. Reports retain all 648 counts, including zeroes. These
+numbers cover only the committed 18-stream checkpoint, not private bot experiments
+or subsequently added content recordings.
+
+Both revisions now exercise complete intro playback, all eight Jam Out modes,
+controller options, inventory drop, pause, actual two-player separation/rejoin and
+health clap, both elevator ends, last-life exit, game over, the ending, scrolling
+credits and final level 26. The ending recordings explicitly use the original
+hidden pause-controller sequence: they are **not** evidence that all ten pieces
+were collected naturally. Only the actual remaining pickup is counted.
+
+The whole-corpus check-mode replay is a separate gate; reference determinism does
+not establish Rust-translation correctness. The natural ten-piece campaign,
+level-zero services, remaining present identities/Earthlings and paid interactions
+remain separate coverage work. No missing normal entry is labelled unreachable
+merely because this checkpoint did not execute it.
+
 ## Unreachable and exceptional entries
 
 The report keeps the full **648** denominator and lists every zero-count entry
