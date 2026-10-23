@@ -1,0 +1,31 @@
+[package]
+name = "tje-native"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "toejam-earl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+bytemuck = "1"
+clap = { version = "4", features = ["derive"] }
+cpal = "=0.16.0"
+crossbeam-queue = "0.3"
+directories = "6"
+gilrs = "=0.11.2"
+png = "0.18"
+pollster = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+wgpu = "=30.0.1"
+winit = { version = "=0.30.13", features = ["serde"] }
+tje-host = { path = "../tje-host" }
+tje-rom = { path = "../tje-rom" }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
+tje-mem = { path = "../tje-mem" }
