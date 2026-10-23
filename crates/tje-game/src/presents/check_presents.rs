@@ -256,7 +256,12 @@ fn main() {
             "rev00"
         };
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
-        let registry = registry(revision);
+        let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
+        let registry = if frame_mode {
+            HookRegistry::proof(revision, tje_game::presents::PENDING_FRAMES).unwrap()
+        } else {
+            registry(revision)
+        };
         let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
@@ -308,12 +313,16 @@ fn main() {
                 serde_json::to_vec_pretty(&host.checks).unwrap(),
             )
             .unwrap();
-            fixtures(&mut host);
-            wave2_fixtures(&mut host);
-            wave3_fixtures(&mut host);
-            later_atomic_fixtures(&mut host);
-            wave67_atomic_fixtures(&mut host);
-            word_index_fixtures(&mut host);
+            if frame_mode {
+                placement_frame_fixtures(&mut host);
+            } else {
+                fixtures(&mut host);
+                wave2_fixtures(&mut host);
+                wave3_fixtures(&mut host);
+                later_atomic_fixtures(&mut host);
+                wave67_atomic_fixtures(&mut host);
+                word_index_fixtures(&mut host);
+            }
         }));
         fs::write(
             evidence.join(format!("{name}-with-fixtures.json")),
@@ -905,4 +914,122 @@ fn word_index_fixtures(host: &mut Host) {
         }
         fixture(host, ids::CHECK_TOMATO_RAIN_TIMER, &[index as u32]);
     }
+}
+
+fn placement_frame_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    let item = ram::g_object_table(revision).at(0).at(31);
+    for large in [0_u32, 1, 0xffff] {
+        for seed in 1..=16 {
+            ram::g_rng_state(revision).write(&mut host.context(), seed);
+            fixture(
+                host,
+                ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
+                &[item.x().address(), item.y().address(), 1, large],
+            );
+        }
+    }
+    for seed in 1..=16 {
+        ram::g_rng_state(revision).write(&mut host.context(), seed);
+        fixture(
+            host,
+            ids::MAP_PLACE_LARGE_LEVEL_ITEMS,
+            &[ram::g_object_table(revision).at(0).address(), 1],
+        );
+    }
+    for level in [0_i16, 1, 2, 26] {
+        for bank in 0..2 {
+            ram::g_item_bank_users(revision)
+                .at(bank)
+                .write(&mut host.context(), 0);
+            ram::g_item_bank_levels(revision)
+                .at(bank)
+                .write(&mut host.context(), -1);
+        }
+        ram::g_player1_map_level(revision)
+            .write(&mut host.context(), if level == 2 { 2 } else { 1 });
+        ram::g_player_lives(revision)
+            .at(0)
+            .write(&mut host.context(), 3);
+        ram::g_player_lives(revision)
+            .at(1)
+            .write(&mut host.context(), -1);
+        fixture(host, ids::LOAD_LEVEL_ITEM_BANK, &[level as u32]);
+    }
+    ram::g_item_bank_users(revision)
+        .at(0)
+        .write(&mut host.context(), 1);
+    ram::g_item_bank_levels(revision)
+        .at(0)
+        .write(&mut host.context(), 1);
+    fixture(host, ids::LOAD_LEVEL_ITEM_BANK, &[1]);
+    ram::g_player1_map_level(revision).write(&mut host.context(), 1);
+    for index in 0..2 {
+        ram::g_player_info(revision)
+            .at(index)
+            .level()
+            .write(&mut host.context(), 1);
+        ram::g_player_info(revision)
+            .at(index)
+            .x()
+            .write(&mut host.context(), -10000);
+        ram::g_player_info(revision)
+            .at(index)
+            .y()
+            .write(&mut host.context(), -10000);
+        for telephone in 0..2 {
+            ram::g_telephone_states(revision)
+                .at(telephone)
+                .level()
+                .write(&mut host.context(), 0);
+        }
+        fixture(
+            host,
+            ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
+            &[index as u32],
+        );
+    }
+    item.level().write(&mut host.context(), 1);
+    item.x().write(&mut host.context(), 400);
+    item.y().write(&mut host.context(), 400);
+    for full in [false, true] {
+        for slot in 0..34 {
+            ram::g_dynamic_entity_slot_allocated(revision)
+                .at(slot)
+                .write(&mut host.context(), i8::from(full));
+        }
+        for kind in [0_i8, 27, 64, 80, 81, 83] {
+            item.kind().write(&mut host.context(), kind);
+            for residue in [0_u32, 1, 0xffff] {
+                host.context().set_address_register(2, residue);
+                fixture(host, ids::ENTITY_CREATE_LEVEL_ITEM, &[item.address()]);
+            }
+        }
+    }
+    let visible = ram::g_dropped_present_table(revision).at(0);
+    let camera_x = ram::g_camera1_pending_x(revision).read(&host.context());
+    let camera_y = ram::g_camera1_pending_y(revision).read(&host.context());
+    visible.kind().write(&mut host.context(), 27);
+    visible.level().write(&mut host.context(), 1);
+    visible
+        .x()
+        .write(&mut host.context(), camera_x.wrapping_add(100));
+    visible
+        .y()
+        .write(&mut host.context(), camera_y.wrapping_add(100));
+    visible.object().write(&mut host.context(), 0);
+    fixture(
+        host,
+        ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+        &[visible.address(), 1],
+    );
+    visible
+        .x()
+        .write(&mut host.context(), camera_x.wrapping_sub(21));
+    visible.object().write(&mut host.context(), 39);
+    fixture(
+        host,
+        ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+        &[visible.address(), 1],
+    );
 }

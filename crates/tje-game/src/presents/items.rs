@@ -186,68 +186,6 @@ pub fn eat_fudge_sundae(context: &mut dyn Context, arguments: &[u32]) -> Result<
     Ok(None)
 }
 
-/// G/src/presents/item_updates.c:84 (`EntityUpdateLevelItemVisibility`).
-/// Atomic: RAM camera bounds and entity allocation/release. EntityCreateLevelItem's
-/// missing fourth argument consumes its saved entry A2, so this caller supplies
-/// the item pointer residue observed in G/build/{rev02,rev00}/asm/c_item_updates.s.
-pub fn entity_update_level_item_visibility(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
-    let revision = context.revision();
-    let items = Address::<LevelItem>::new(arguments[0]);
-    let count = i32::from(arguments[1] as i16);
-    for index in 0..count {
-        let item = items.offset(index);
-        let first_x = item
-            .x()
-            .read(context)
-            .wrapping_sub(ram::g_camera1_pending_x(revision).read(context));
-        let first_y = item
-            .y()
-            .read(context)
-            .wrapping_sub(ram::g_camera1_pending_y(revision).read(context));
-        let second_x = item
-            .x()
-            .read(context)
-            .wrapping_sub(ram::g_camera2_pending_x(revision).read(context));
-        let second_y = item
-            .y()
-            .read(context)
-            .wrapping_sub(ram::g_camera2_pending_y(revision).read(context));
-        if item.kind().read(context) != -1
-            && ((item.level().read(context) == ram::g_player1_map_level(revision).read(context)
-                && i32::from(first_x) + 20 > 0
-                && first_x < 340
-                && i32::from(first_y) + 20 > 0
-                && ((item.kind().read(context) < 81 && first_y < 244)
-                    || (item.kind().read(context) >= 81 && first_y < 288)))
-                || (item.level().read(context) == ram::g_player2_map_level(revision).read(context)
-                    && ram::g_split_screen_enabled(revision).read(context) != 0
-                    && i32::from(second_x) + 20 > 0
-                    && second_x < 340
-                    && i32::from(second_y) + 20 > 0
-                    && ((item.kind().read(context) < 81 && second_y < 132)
-                        || (item.kind().read(context) >= 81 && second_y < 176))))
-        {
-            if item.object().read(context) == 0 {
-                let saved_a2 = context.address_register(2);
-                context.set_address_register(2, item.address());
-                let result = call(context, ids::ENTITY_CREATE_LEVEL_ITEM, &[item.address()]);
-                context.set_address_register(2, saved_a2);
-                result?;
-            }
-        } else {
-            let number = item.object().read(context);
-            if number != 0 {
-                call(context, ids::FREE_ENTITY, &[number as u32])?;
-                item.object().write(context, 0);
-            }
-        }
-    }
-    Ok(None)
-}
-
 /// G/src/presents/item_updates.c:156 (`PlayerCollectNearbyItems`).
 /// TimeAware: pickup speech/dialogue may wait for graphics IRQ progress.
 /// Full-health food is still removed, and collected bits use the original

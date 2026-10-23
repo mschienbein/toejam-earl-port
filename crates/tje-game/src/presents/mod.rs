@@ -6,8 +6,11 @@ use tje_mem::{Address, ObjectState, ram, rom};
 mod dispatch;
 
 mod effects;
+mod hazard_frames;
+mod item_frames;
 mod items;
 mod placement;
+mod placement_frames;
 mod projectiles;
 mod telephone;
 
@@ -208,6 +211,35 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
+/// Source-backed framed candidates held for the nested-original stack audit fix.
+/// Earlier fixture receipts are provisional; re-prove before production dispatch.
+pub static PENDING_FRAMES: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
+        function: placement_frames::map_find_item_placement_position,
+    },
+    crate::Translation {
+        id: ids::MAP_PLACE_LARGE_LEVEL_ITEMS,
+        function: placement_frames::map_place_large_level_items,
+    },
+    crate::Translation {
+        id: ids::LOAD_LEVEL_ITEM_BANK,
+        function: placement_frames::load_level_item_bank,
+    },
+    crate::Translation {
+        id: ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
+        function: placement_frames::telephone_place_outside_player_views,
+    },
+    crate::Translation {
+        id: ids::ENTITY_CREATE_LEVEL_ITEM,
+        function: item_frames::entity_create_level_item,
+    },
+    crate::Translation {
+        id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+        function: item_frames::entity_update_level_item_visibility,
+    },
+];
+
 /// Complete candidate bodies held outside production dispatch until their
 /// dual-revision differential proofs pass. The opt-in lane harness may register
 /// these explicitly; frontends and Dispatcher::hybrid never consult this list.
@@ -245,12 +277,6 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::PRESENT_UPDATE_BURPS,
         function: effects::present_update_burps,
     },
-    // W5 Atomic: entry A2 residue is now supplied for EntityCreateLevelItem's
-    // allocation-failure bug; its differential proof has not yet been run.
-    crate::Translation {
-        id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
-        function: items::entity_update_level_item_visibility,
-    },
     // W5-W6 TimeAware: awaiting differential proof through HookRegistry::proof.
     crate::Translation {
         id: ids::SETUP_SELECTED_PRESENT,
@@ -284,6 +310,15 @@ pub static PENDING: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
         function: items::map_update_items_and_presents,
+    },
+    // Partial EarthlingState frames also need the nested-original audit fix.
+    crate::Translation {
+        id: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+        function: hazard_frames::player_check_level_item_hazards,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
+        function: hazard_frames::present_update_terrain_effects,
     },
 ];
 

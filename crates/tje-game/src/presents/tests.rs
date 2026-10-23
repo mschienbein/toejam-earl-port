@@ -79,10 +79,21 @@ fn every_original_is_classified_and_pending_bodies_are_not_dispatched() {
             .filter(|(id, _)| *id == function.id)
             .count();
         assert_eq!(usize::from(atomic) + other, 1, "{}", function.name);
+        let bodies = super::TRANSLATIONS
+            .iter()
+            .chain(super::PENDING)
+            .chain(super::PENDING_FRAMES)
+            .filter(|translation| translation.id == function.id)
+            .count();
+        assert_eq!(
+            bodies, 1,
+            "{} has missing or duplicate bodies",
+            function.name
+        );
         count += 1;
     }
     assert_eq!(count, 65);
-    for candidate in super::PENDING {
+    for candidate in super::PENDING.iter().chain(super::PENDING_FRAMES) {
         assert!(
             crate::Dispatcher::hybrid()
                 .translation(candidate.id)
