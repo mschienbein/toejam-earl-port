@@ -203,7 +203,7 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// dual-revision differential proofs pass. The opt-in lane harness may register
 /// these explicitly; frontends and Dispatcher::hybrid never consult this list.
 pub static PENDING: &[crate::Translation] = &[
-    // W3-W5 TimeAware: awaiting shared production execution-class wiring and proof.
+    // W3-W5 TimeAware: awaiting differential proof through HookRegistry::proof.
     crate::Translation {
         id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
         function: items::present_try_end_active_powerup,
@@ -236,13 +236,13 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::PRESENT_UPDATE_BURPS,
         function: effects::present_update_burps,
     },
-    // W5 Atomic: the original EntityCreateLevelItem allocation-failure path
-    // consumes an omitted argument from the caller's residual local frame.
+    // W5 Atomic: entry A2 residue is now supplied for EntityCreateLevelItem's
+    // allocation-failure bug; its differential proof has not yet been run.
     crate::Translation {
         id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
         function: items::entity_update_level_item_visibility,
     },
-    // W5-W6 TimeAware: awaiting shared production execution-class wiring and proof.
+    // W5-W6 TimeAware: awaiting differential proof through HookRegistry::proof.
     crate::Translation {
         id: ids::SETUP_SELECTED_PRESENT,
         function: dispatch::setup_selected_present,
@@ -255,7 +255,7 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::BUMMER_LIFE_PROMO,
         function: effects::bummer_life_promo,
     },
-    // W9-W15 TimeAware: awaiting the shared time-aware production/callee contract.
+    // W9-W15 TimeAware: VBlank/input/redraw paths still need differential proof.
     crate::Translation {
         id: ids::PROCESS_PRESENTS,
         function: dispatch::process_presents,

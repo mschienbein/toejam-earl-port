@@ -188,7 +188,8 @@ pub fn eat_fudge_sundae(context: &mut dyn Context, arguments: &[u32]) -> Result<
 
 /// G/src/presents/item_updates.c:84 (`EntityUpdateLevelItemVisibility`).
 /// Atomic: RAM camera bounds and entity allocation/release. EntityCreateLevelItem's
-/// missing-argument failure path remains in its original callee.
+/// missing fourth argument consumes its saved entry A2, so this caller supplies
+/// the item pointer residue observed in G/build/{rev02,rev00}/asm/c_item_updates.s.
 pub fn entity_update_level_item_visibility(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -230,7 +231,11 @@ pub fn entity_update_level_item_visibility(
                         || (item.kind().read(context) >= 81 && second_y < 176))))
         {
             if item.object().read(context) == 0 {
-                call(context, ids::ENTITY_CREATE_LEVEL_ITEM, &[item.address()])?;
+                let saved_a2 = context.address_register(2);
+                context.set_address_register(2, item.address());
+                let result = call(context, ids::ENTITY_CREATE_LEVEL_ITEM, &[item.address()]);
+                context.set_address_register(2, saved_a2);
+                result?;
             }
         } else {
             let number = item.object().read(context);
