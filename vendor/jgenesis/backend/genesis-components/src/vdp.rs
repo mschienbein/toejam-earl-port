@@ -1873,13 +1873,12 @@ impl Vdp {
     }
 
     fn apply_pending_writes(&mut self) {
-        let mut pending_writes = [PendingWrite::default(); 10];
+        // TJE hybrid: clock-free port batches can exceed the CPU instruction's
+        // small spill allowance. Replay this prefix without a fixed scratch
+        // limit; a write that starts another DMA can append deferred writes.
         let pending_writes_len = self.state.pending_writes.len();
-        pending_writes[..pending_writes_len].copy_from_slice(&self.state.pending_writes);
-        self.state.pending_writes.clear();
-
-        for &pending_write in &pending_writes[..pending_writes_len] {
-            match pending_write {
+        for index in 0..pending_writes_len {
+            match self.state.pending_writes[index] {
                 PendingWrite::Control(value) => {
                     self.write_control(value);
                 }
@@ -1888,6 +1887,8 @@ impl Vdp {
                 }
             }
         }
+        // Keep writes deferred again by a chained DMA, in their issue order.
+        drop(self.state.pending_writes.drain(..pending_writes_len));
     }
 
     #[inline]
