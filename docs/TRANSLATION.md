@@ -381,6 +381,8 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 | `ShipPieceAbility` → `StartDialogue` | saved entry D2 (omitted speaker) | as above |
 | `ElevatorAdvanceRidersToNextLevel` | entry D3 low byte, entry A3 | uninitialised destination/elevator paths |
 | `IntroCreateCollisionSceneEntities` | entry A3 (parent) | parent allocation fails, attached succeeds |
+| `EarthlingUpdateBouncingDamageState` → `GetMapTerrainAtWorldPosition` | entry D1 low word (map number) | neither loaded map's level matches the object's level |
+| `EntityCreateLevelItem` → `MapFindItemPlacementPosition` | fourth argument slot = low word of `EntityCreateLevelItem`'s saved entry A2 (its caller `EntityUpdateLevelItemVisibility` leaves A2 = item) | allocation failure |
 
 Add new cases here when you find them.
 
