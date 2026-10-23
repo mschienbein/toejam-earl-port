@@ -574,10 +574,10 @@ fn capture(path: &Path, frame: VideoFrame<'_>) -> Result<()> {
     // captures are written as opaque RGB.
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
-    let rgb: Vec<u8> = frame
-        .rgba
-        .chunks_exact(4)
-        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+    let (pixels, _) = frame.rgba.as_chunks::<4>();
+    let rgb: Vec<u8> = pixels
+        .iter()
+        .flat_map(|&[red, green, blue, _]| [red, green, blue])
         .collect();
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&rgb)?;
