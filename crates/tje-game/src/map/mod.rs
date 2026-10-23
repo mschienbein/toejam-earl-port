@@ -294,24 +294,8 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: entity_release_one_by_priority,
     },
     crate::Translation {
-        id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
-        function: entity_reserve_land_path_animations,
-    },
-    crate::Translation {
         id: ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS,
         function: map_draw_fixed_background_decorations,
-    },
-    crate::Translation {
-        id: ids::DRAW_MAP_CHARACTERS,
-        function: draw_map_characters,
-    },
-    crate::Translation {
-        id: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
-        function: map_queue_visible_metatile_column,
-    },
-    crate::Translation {
-        id: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
-        function: map_queue_visible_metatile_row,
     },
     crate::Translation {
         id: ids::MAP_DRAW_ELEVATOR,
@@ -328,10 +312,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::DISPLAY_MAP,
         function: display_map,
-    },
-    crate::Translation {
-        id: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
-        function: map_upload_cover_animation_frame,
     },
     crate::Translation {
         id: ids::LOAD_MAP_INTO_VRAM,
@@ -375,6 +355,19 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::MAP_ASSIGN_TRANSITION_CHAIN,
     // Corpus REV00 frame19456: HBlank vector28 versus main-thread RAM write at trace467.
     ids::ENTITY_START_LAND_PATH_ANIMATION,
+    // Corpus REV00 cooperation frame21497 trace237: Z80 A0004A original03/Rust04.
+    ids::DRAW_MAP_CHARACTERS,
+    // Corpus REV00 later frame19906 trace7 vector30, REV02 effects frame22877
+    // trace19 vector28: original interrupt entry versus Rust main-thread write.
+    ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+    // Corpus REV00 later frame19472 trace29 vector30, REV02 effects frame22851
+    // trace31 vector28: original interrupt entry versus Rust main-thread write.
+    ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+    // Corpus REV00 cooperation frame21442 trace887: Z80 A0004A original03/Rust04.
+    ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+    // Corpus REV00 cooperation frame30142: logical VDP control_address
+    // original51967/Rust36610; shared interrupt-phase contract is still unproven.
+    ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
     // Clock contract: settled original performs one additional VBlank/ISR.
     ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
     // Clock contract: marked-path branch observes two additional original ISR ticks.
@@ -393,6 +386,26 @@ pub static PENDING: &[crate::FunctionId] = &[
 /// Opt-in proof hooks only; production never registers this table.
 /// Keeping body references here also exercises the ordinary library target.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
+        function: entity_reserve_land_path_animations,
+    },
+    crate::Translation {
+        id: ids::DRAW_MAP_CHARACTERS,
+        function: draw_map_characters,
+    },
+    crate::Translation {
+        id: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+        function: map_queue_visible_metatile_column,
+    },
+    crate::Translation {
+        id: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+        function: map_queue_visible_metatile_row,
+    },
+    crate::Translation {
+        id: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+        function: map_upload_cover_animation_frame,
+    },
     crate::Translation {
         id: ids::ENTITY_START_LAND_PATH_ANIMATION,
         function: entity_start_land_path_animation,
