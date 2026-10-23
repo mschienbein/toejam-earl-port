@@ -123,3 +123,24 @@ fn metatile_lookup_reads_revision_rom_and_preserves_word_effective_addresses() {
         );
     }
 }
+
+#[test]
+fn corpus_interrupt_timing_failures_remain_pending_and_unregistered() {
+    for id in [
+        ids::UPDATE_CAMERA_FOLLOWING,
+        ids::MOVE_CAMERA_UP,
+        ids::MOVE_CAMERA_DOWN,
+        ids::MOVE_CAMERA_LEFT,
+        ids::MOVE_CAMERA_RIGHT,
+    ] {
+        assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(!TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(
+            crate::Dispatcher::hybrid()
+                .resolve_entry(id)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(crate::execution_class(id), Some(ExecutionClass::TimeAware));
+    }
+}

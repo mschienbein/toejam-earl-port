@@ -87,6 +87,26 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::TRY_UPDATE_CAMERA_X,
         function: try_update_camera_x,
     },
+];
+
+/// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
+/// This table is deliberately not part of the production dispatcher or registry.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
+    // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
+    crate::Translation {
+        id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
+        function: animate_split_screen_wipe,
+    },
+    // Same live caller envelope: completed ISR reads A0004A as 4 versus 3.
+    // Neither this read nor the wipe's read is an eligible YM BUSY stutter.
+    crate::Translation {
+        id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        function: animate_players_into_split_views,
+    },
+    // Full cooperation corpus: interrupt timing inside these calls admits an
+    // extra original HBlank IRQ. Await the timing schedule/commutation projection
+    // before re-proving them; short start-game fixtures are not sufficient.
     crate::Translation {
         id: ids::MOVE_CAMERA_UP,
         function: move_camera_up,
@@ -106,23 +126,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::UPDATE_CAMERA_FOLLOWING,
         function: update_camera_following,
-    },
-];
-
-/// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
-/// This table is deliberately not part of the production dispatcher or registry.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
-    // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
-    crate::Translation {
-        id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
-        function: animate_split_screen_wipe,
-    },
-    // Same live caller envelope: completed ISR reads A0004A as 4 versus 3.
-    // Neither this read nor the wipe's read is an eligible YM BUSY stutter.
-    crate::Translation {
-        id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
-        function: animate_players_into_split_views,
     },
 ];
 
