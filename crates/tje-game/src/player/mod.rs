@@ -8,6 +8,28 @@ use crate::execution::ExecutionClass;
 use crate::{Context, Result, ids};
 use tje_mem::{Address, LevelItem, ObjectState, Ptr, ram, rom};
 
+mod cooperation;
+mod counters;
+mod damage;
+mod directional;
+mod effects;
+mod falling;
+mod hottub;
+mod indexing;
+mod jump;
+mod levels;
+mod mole;
+mod movement;
+mod poses;
+mod priority;
+mod projectiles;
+mod reactions;
+mod rocket;
+mod sleep;
+mod state;
+mod terrain;
+mod update;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -37,6 +59,266 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::GET_LEVEL_ZERO_EARTHLING_POSITION,
         function: get_level_zero_earthling_position,
+    },
+    crate::Translation {
+        id: ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER,
+        function: priority::map_clear_tile_priority_near_player,
+    },
+    crate::Translation {
+        id: ids::ENTITY_IS_NEAR_POSITION,
+        function: terrain::entity_is_near_position,
+    },
+    crate::Translation {
+        id: ids::ENTITY_IS_WITHIN_RANGE,
+        function: terrain::entity_is_within_range,
+    },
+    crate::Translation {
+        id: ids::OPEN_ROCKET_SKATES,
+        function: rocket::open_rocket_skates,
+    },
+    crate::Translation {
+        id: ids::OPEN_SCHOOL_BOOK,
+        function: state::open_school_book,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_ROCKET_SKATES_INPUT,
+        function: rocket::player_apply_rocket_skates_input,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_TERRAIN_DESTINATION,
+        function: terrain::player_apply_terrain_destination,
+    },
+    crate::Translation {
+        id: ids::PLAYER_START_TEETERING_FALL,
+        function: state::player_start_teetering_fall,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_ROCKET_SKATES_SPRITE,
+        function: rocket::player_update_rocket_skates_sprite,
+    },
+    crate::Translation {
+        id: ids::DO_MOLE_ABILITY,
+        function: mole::do_mole_ability,
+    },
+    crate::Translation {
+        id: ids::ENTITY_SPAWN_TIMED_EFFECT,
+        function: effects::entity_spawn_timed_effect,
+    },
+    crate::Translation {
+        id: ids::GET_ACTIVE_PRESENT_SPRITE,
+        function: poses::get_active_present_sprite,
+    },
+    crate::Translation {
+        id: ids::PLAYER_CHECK_TERRAIN_EDGE_HOP,
+        function: cooperation::player_check_terrain_edge_hop,
+    },
+    crate::Translation {
+        id: ids::PLAYER_LAUNCH_PRESENT_PROJECTILE,
+        function: projectiles::player_launch_present_projectile,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_HEALTH_SHARING_CLAP,
+        function: cooperation::player_update_health_sharing_clap,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_JUMP_LANDING_ANIMATION,
+        function: poses::player_update_jump_landing_animation,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_ROCKET_SKATES_MOTION,
+        function: rocket::player_update_rocket_skates_motion,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_SPRING_SHOE_JUMP,
+        function: poses::player_update_spring_shoe_jump,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_TEETERING,
+        function: poses::player_update_teetering,
+    },
+    crate::Translation {
+        id: ids::PLAYER_SQUISH,
+        function: damage::player_squish,
+    },
+    crate::Translation {
+        id: ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT,
+        function: effects::entity_release_finished_timed_effect,
+    },
+    crate::Translation {
+        id: ids::PLAYER1_PROCESS_TERRAIN_MOTION,
+        function: terrain::player1_process_terrain_motion,
+    },
+    crate::Translation {
+        id: ids::PLAYER2_PROCESS_TERRAIN_MOTION,
+        function: terrain::player2_process_terrain_motion,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_PRESENT_COMPLETION_AND_TERRAIN_POSE,
+        function: poses::player_update_present_completion_and_terrain_pose,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_PRESENT_SHOOTING,
+        function: projectiles::player_update_present_shooting,
+    },
+    crate::Translation {
+        id: ids::PROCESS_MOVEMENT,
+        function: movement::process_movement,
+    },
+    crate::Translation {
+        id: ids::PROCESS_SLEEP,
+        function: sleep::process_sleep,
+    },
+    crate::Translation {
+        id: ids::WHIRL_WIND_ABILITY,
+        function: damage::whirl_wind_ability,
+    },
+    crate::Translation {
+        id: ids::MOLE_ABILITY,
+        function: mole::mole_ability,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_START_HORIZONTAL_ATTACK,
+        function: damage::earthling_start_horizontal_attack,
+    },
+    crate::Translation {
+        id: ids::CUPID_ABILITY,
+        function: damage::cupid_ability,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_BOUNCING_DAMAGE_STATE,
+        function: damage::earthling_update_bouncing_damage_state,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_CHECK_DECOY_ATTACK_RANGE,
+        function: damage::earthling_check_decoy_attack_range,
+    },
+];
+
+/// Entries requiring the shared residual call-frame contract before proof.
+pub static FRAME_BLOCKED: &[crate::FunctionId] = &[
+    ids::PLAYER_PROCESS_TERRAIN_MOTION, // 12-byte local packet passed by address.
+    ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION, // Mutates incoming sprite argument slot.
+    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Partial byte store then word read at A6-6.
+    ids::SPRITE_CHECKS, // Calls the residual-mode-frame-dependent directional chooser.
+    ids::CHECK_PLAYER_FALLING, // Local falling[2] is passed by address.
+];
+
+/// G/src/player/active_present_falling_and_respawn.c:956: the game-over branch
+/// calls ShowGameOverAndReset and does not return; native terminal/reset support
+/// is a shared prerequisite, not permission to replace that branch with a return.
+pub static TERMINAL_BLOCKED: &[crate::FunctionId] = &[ids::PLAYER_FINALIZE_LAST_LIFE_EXIT];
+
+/// Complete bodies not yet admitted to production: both-revision proofs are
+/// still required. These entries are never part of the production dispatcher.
+pub static PENDING: &[crate::FunctionId] = &[
+    ids::KILL_THE_PLAYER, // Both revisions: ordered device-write trace mismatch.
+    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Observed uninitialized mode-word high byte at A6-6.
+    ids::SPRITE_CHECKS,   // Transitive residual-mode dependency in PlayerChooseDirectionalMovement.
+    ids::PLAYER_START_FALLING, // Both revisions: original terrain-priority wait did not return.
+    ids::PLAYER_UPDATE_TERRAIN_SINKING, // Both revisions: ordered device-write trace mismatch.
+    ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_RESOLVE_DESCENDING_TERRAIN, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_APPLY_PHASED_JUMP_INPUT, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_UPDATE_PHASED_JUMP_MOTION, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_YOUCH,    // Both revisions: device-write trace mismatch.
+    ids::HULA_ABILITY,    // Both revisions: device-write trace mismatch.
+    ids::HOTTUB_ABILITY,  // Both revisions: device-write trace mismatch.
+    ids::CHICKEN_ABILITY, // Both revisions: device-write trace mismatch.
+    ids::AI_BOOGIE_TOUCH, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY, // Both revisions: device-write trace mismatch.
+    ids::LEMONADE_ABILITY, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, // Both revisions: original call did not return.
+    ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL, // Both revisions: original call did not return.
+    ids::MAKE_PLAYER_FALL, // Both revisions: logical VDP state mismatch.
+    ids::PLAYER_UPDATE_DEATH_ANIMATION, // Both revisions: device-write trace mismatch.
+    ids::PROCESS_PLAYERS, // Both revisions: device-write trace mismatch.
+];
+
+/// Non-registered pending bodies retained for the opt-in lane proof harness.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::KILL_THE_PLAYER,
+        function: state::kill_the_player,
+    },
+    crate::Translation {
+        id: ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+        function: directional::player_choose_directional_movement,
+    },
+    crate::Translation {
+        id: ids::SPRITE_CHECKS,
+        function: directional::sprite_checks,
+    },
+    crate::Translation {
+        id: ids::PLAYER_START_FALLING,
+        function: falling::player_start_falling,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_TERRAIN_SINKING,
+        function: falling::player_update_terrain_sinking,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
+        function: falling::player_update_hurt_recovery_and_idle,
+    },
+    crate::Translation {
+        id: ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
+        function: falling::player_resolve_descending_terrain,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
+        function: jump::player_apply_phased_jump_input,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
+        function: jump::player_update_phased_jump_motion,
+    },
+    crate::Translation {
+        id: ids::PLAYER_YOUCH,
+        function: reactions::player_youch,
+    },
+    crate::Translation {
+        id: ids::HULA_ABILITY,
+        function: reactions::hula_ability,
+    },
+    crate::Translation {
+        id: ids::HOTTUB_ABILITY,
+        function: hottub::hottub_ability,
+    },
+    crate::Translation {
+        id: ids::CHICKEN_ABILITY,
+        function: reactions::chicken_ability,
+    },
+    crate::Translation {
+        id: ids::AI_BOOGIE_TOUCH,
+        function: reactions::ai_boogie_touch,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
+        function: reactions::player_update_whirlwind_and_recovery,
+    },
+    crate::Translation {
+        id: ids::LEMONADE_ABILITY,
+        function: levels::lemonade_ability,
+    },
+    crate::Translation {
+        id: ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+        function: levels::player_advance_to_next_level,
+    },
+    crate::Translation {
+        id: ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+        function: levels::player_relocate_to_partner_or_next_level,
+    },
+    crate::Translation {
+        id: ids::MAKE_PLAYER_FALL,
+        function: levels::make_player_fall,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_DEATH_ANIMATION,
+        function: update::player_update_death_animation,
+    },
+    crate::Translation {
+        id: ids::PROCESS_PLAYERS,
+        function: update::process_players,
     },
 ];
 

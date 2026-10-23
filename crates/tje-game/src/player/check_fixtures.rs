@@ -10,6 +10,12 @@ use tje_game::{Dispatcher, FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
+mod wave1_fixtures;
+mod wave2_fixtures;
+mod wave3_fixtures;
+mod wave4_fixtures;
+mod wave5_fixtures;
+
 const ROOTS: &[FunctionId] = &[
     ids::MAP_GET_SHIP_PIECE_WORLD_POSITION,
     ids::EARTHLING_CLEAR_MOLE_PLAYER_CONTACT_FLAGS,
@@ -507,8 +513,14 @@ fn main() {
         assert!(checked.measurements.menu_frame.is_some());
         assert!(checked.measurements.game_frame.is_some());
         let natural = serde_json::to_value(&checked.checks).unwrap();
-        let fixture_result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fixtures(&mut checked)));
+        let fixture_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fixtures(&mut checked);
+            wave1_fixtures::run(&mut checked);
+            wave2_fixtures::run(&mut checked);
+            wave3_fixtures::run(&mut checked);
+            wave4_fixtures::run(&mut checked);
+            wave5_fixtures::run(&mut checked);
+        }));
         let metrics = serde_json::json!({
             "revision": name,
             "frames": frames,
@@ -534,7 +546,22 @@ fn main() {
         }
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());
-        assert!(checked.checks.unexercised.is_empty());
+        for translation in tje_game::player::TRANSLATIONS {
+            let name = translation.id.metadata().name;
+            let coverage = checked
+                .checks
+                .by_function
+                .get(name)
+                .expect("registered player hook");
+            assert!(
+                coverage.calls_checked > 0,
+                "{name}: unexercised player hook in {revision:?}"
+            );
+            assert_eq!(
+                coverage.mismatches, 0,
+                "{name}: player mismatch in {revision:?}"
+            );
+        }
         println!(
             "ACTOR_PROOF {name} frames={frames} calls={} mismatches={} nested={} dead_stack_calls={} dead_stack_bytes={}",
             checked.checks.calls,
