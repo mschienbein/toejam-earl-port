@@ -278,7 +278,11 @@ fn pads_preserve_full_assembly_contract_and_ordered_sound_coupling() {
 
 #[test]
 fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
-    let roots: Vec<_> = TRANSLATIONS.iter().map(|entry| entry.id).collect();
+    let roots: Vec<_> = TRANSLATIONS
+        .iter()
+        .filter(|entry| entry.id.metadata().wave == 0)
+        .map(|entry| entry.id)
+        .collect();
     assert!(Dispatcher::native(&roots).is_ok());
     for id in [
         crate::ids::DMA_COPY_WORDS_TO_VRAM,
@@ -295,6 +299,15 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
         assert!(!crate::is_atomic_capable(id), "{}", id.metadata().name);
         assert!(Dispatcher::hybrid().translation(id).is_some());
         assert!(EXECUTION_CONTRACTS.contains(&(id, ExecutionClass::Functional)));
+    }
+}
+
+#[test]
+fn pending_entries_are_never_production_hooks() {
+    for &id in PENDING {
+        assert!(Dispatcher::hybrid().translation(id).is_none());
+        assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(!crate::is_atomic_capable(id));
     }
 }
 
