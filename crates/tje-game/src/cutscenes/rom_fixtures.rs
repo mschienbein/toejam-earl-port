@@ -6,7 +6,26 @@ use tje_game::{FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
-const SUBSYSTEMS: &[&str] = &["cutscenes", "speech", "ship"];
+// This suite proves the original sixteen W0 leaves, not newer translations or
+// their growing dependency closures in the three shared subsystem registries.
+const W0_ROOTS: &[FunctionId] = &[
+    ids::CUTSCENE_APPEND_REMAPPED_FONT_TILES,
+    ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
+    ids::INTRO_SET_DRIVING_PART_SEQUENCE,
+    ids::ENDING_GET_FIRST_PLAYER_ANIMATION_FRAME,
+    ids::INTRO_REVEAL_FRAME_ENTITIES,
+    ids::CUTSCENE_MOVE_ROCKETSHIP_PAIR_LEFT,
+    ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR,
+    ids::ENDING_SET_POSE_COMPOSITE,
+    ids::ENDING_POSITION_SIX_PIECE_COMPOSITE,
+    ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
+    ids::INTRO_POSITION_FALLING_ROCKETSHIP,
+    ids::ENDING_RESTART_ELEVATED_COMPOSITE_SEQUENCE,
+    ids::SET_NEXT_SPEECH_LIFETIME,
+    ids::IS_SPEECH_BUBBLE_ENTITY,
+    ids::HAS_SPEAKER_SPEECH,
+    ids::FILL_SPRITE_OPAQUE_PIXELS,
+];
 const FRAMES: u64 = 10_000;
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) -> u32 {
@@ -38,7 +57,7 @@ fn run_session(revision: Revision, script: &InputScript) -> Host {
         Revision::Rev00 => "TJE_REV00_ROM",
     };
     let rom = fs::read(std::env::var_os(key).unwrap_or_else(|| panic!("set {key}"))).unwrap();
-    let registry = HookRegistry::filtered(revision, SUBSYSTEMS, &[]).unwrap();
+    let registry = HookRegistry::filtered(revision, &[], W0_ROOTS).unwrap();
     let mut checked = Host::new(&rom, Mode::Check, registry.clone()).unwrap();
     let mut reference = Host::new(&rom, Mode::Reference, registry).unwrap();
     for frame in 0..FRAMES {
