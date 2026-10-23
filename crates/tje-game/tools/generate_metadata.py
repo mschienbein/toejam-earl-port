@@ -8,18 +8,6 @@ import json
 from pathlib import Path
 import re
 
-# Explicit reviewed atomic contracts, not an inference from W0 or absence of a
-# hardware annotation. Other entries must be classified before atomic fallback.
-ATOMIC_CAPABLE = {
-    "abs", "lmodt", "ldivt", "lmult", "ulmodt", "uldivt",
-    "GetRandomNumber", "StackBasedRandom", "PreGenerateRandoms",
-    "DisableBlankingGraphics", "EnableBlankingGraphics", "GetVBlankGraphicsEnabled",
-    "ReadMappedPlayerInput", "SetCameraTilePriorityEnabled", "EnableTextFontAnimation",
-    "DisableTextFontAnimationIfMenusClosed", "PlayerGetMaximumHealth", "GetScoreForPromo",
-    "StopPlayer", "PlayerInitializePhasedJumpMotion", "EntityHasFreeTimedEffectSlot",
-    "SetNextSpeechLifetime", "GetLevelMusicIndex", "UpdateAttachedEntityPosition",
-    "SelectSpriteChainStart", "EnableAllInterrupts", "DisableAllInterrupts", "ResetVDP",
-}
 
 
 def constant(name: str) -> str:
@@ -89,7 +77,6 @@ def generate(inventory: Path) -> dict[str, str]:
                 "source_line": str(entry["source_line"]),
                 "wave": str(entry["leaf_first"]["wave"]),
                 "callees": "&[" + ", ".join(dependencies) + "]",
-                "atomic_capable": str(entry["name"] in ATOMIC_CAPABLE).lower(),
                 "abi": "Abi { " + ", ".join([
                     "kind: " + quoted(abi["kind"]),
                     "signature: " + quoted(signature),

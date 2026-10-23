@@ -23,16 +23,15 @@ fn contract(
     returns: bool,
     arguments: u8,
     atomic: bool,
-) -> FunctionMetadata {
+) -> (FunctionMetadata, bool) {
     let mut contract = ids::GET_RANDOM_NUMBER.metadata().clone();
     contract.name = name;
     contract.addresses = [address; 2];
     contract.sizes = [32; 2];
     contract.source = "authored synthetic test routine";
-    contract.atomic_capable = atomic;
     contract.abi.argument_count = arguments;
     contract.abi.returns_value = returns;
-    contract
+    (contract, atomic)
 }
 fn code(host: &mut Host, address: u32, words: &[u16]) {
     for (index, word) in words.iter().enumerate() {
@@ -41,11 +40,13 @@ fn code(host: &mut Host, address: u32, words: &[u16]) {
 }
 fn fixture_host(
     revision: Revision,
-    contract: FunctionMetadata,
+    contract: (FunctionMetadata, bool),
     hook: tje_host::hooks::HookFn,
 ) -> Host {
     let mut registry = HookRegistry::empty(revision);
-    registry.register_contract(contract, hook).unwrap();
+    registry
+        .register_contract(contract.0, contract.1, hook)
+        .unwrap();
     Host::new(&bytes(revision), Mode::Check, registry).unwrap()
 }
 
@@ -150,7 +151,7 @@ fn immediate_mixed_width_bus_and_nested_sentinel() {
         let (sp, pc) = (host.cpu().stack_pointer(), host.cpu().pc());
         assert_eq!(
             host.context()
-                .call_original_with_contract(&outer, &[])
+                .call_original_with_contract(&outer.0, outer.1, &[])
                 .unwrap(),
             42
         );
@@ -172,8 +173,12 @@ fn sequential_dead_stack_composition_fails_approval() {
     let b = contract("ReadsPreviousLocal", CODE + 0x20, true, 0, true);
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut registry = HookRegistry::empty(revision);
-        registry.register_contract(a.clone(), omitted).unwrap();
-        registry.register_contract(b.clone(), previous).unwrap();
+        registry
+            .register_contract(a.0.clone(), a.1, omitted)
+            .unwrap();
+        registry
+            .register_contract(b.0.clone(), b.1, previous)
+            .unwrap();
         for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
             let mut host = Host::new(&bytes(revision), mode, registry.clone()).unwrap();
             code(&mut host, CODE, &[0x2f7c, 0x1234, 0x5678, 0xfffc, 0x4e75]);
@@ -213,6 +218,83 @@ fn sequential_dead_stack_composition_fails_approval() {
 
 #[test]
 #[ignore = "requires both private ROMs"]
+fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
+    fn omitted(_: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        Ok(None)
+    }
+    fn inherent(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        let address = c.cpu().stack_pointer().wrapping_sub(4);
+        Ok(Some(c.read_u32(address)))
+    }
+    fn view(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        let address = 0xef0000 | (c.cpu().stack_pointer().wrapping_sub(4) & 0xffff);
+        Ok(Some(tje_mem::Address::<u32>::new(address).read(c)))
+    }
+    fn facade(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        let address = 0xe00000 | (c.cpu().stack_pointer().wrapping_sub(4) & 0xffff);
+        let high = c.bus().read_word(address);
+        let low = c.bus().read_word(address + 2);
+        Ok(Some((u32::from(high) << 16) | u32::from(low)))
+    }
+    fn initialized(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        let address = c.cpu().stack_pointer().wrapping_sub(4);
+        c.write_u32(address, 0x12345678);
+        Ok(Some(tje_mem::Address::<u32>::new(address).read(c)))
+    }
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for read in [inherent as tje_host::hooks::HookFn, view, facade] {
+            let mut registry = HookRegistry::empty(revision);
+            let (a, atomic) = contract("OmittedDeadStore", CODE, false, 0, true);
+            registry.register_contract(a, atomic, omitted).unwrap();
+            let (b, atomic) = contract("ConstantOriginalRustStackRead", CODE + 0x20, true, 0, true);
+            registry.register_contract(b, atomic, read).unwrap();
+            for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
+                let mut host = Host::new(&bytes(revision), mode, registry.clone()).unwrap();
+                code(&mut host, CODE, &[0x2f7c, 0x1234, 0x5678, 0xfffc, 0x4e75]);
+                // Original B returns a constant; only the incorrect Rust body reads stack.
+                code(&mut host, CODE + 0x20, &[0x203c, 0x1234, 0x5678, 0x4e75]);
+                code(
+                    &mut host,
+                    CODE + 0x100,
+                    &[
+                        0x4eb9, 0x00ff, 0xf000, 0x4eb9, 0x00ff, 0xf020, 0x23c0, 0x00ff, 0xe000,
+                        0x60fe,
+                    ],
+                );
+                let mut cpu = host.cpu().clone();
+                cpu.set_pc(CODE + 0x100, &mut host.context().bus());
+                *host.context().cpu() = cpu;
+                let result = host.run_frame(InputScript::default().at(0));
+                if mode == Mode::Check {
+                    let error = result.unwrap_err();
+                    assert!(
+                        error.to_string().contains("uninitialized stack read"),
+                        "{error}"
+                    );
+                    assert_eq!(host.checks.calls, 2);
+                    assert_eq!(host.checks.mismatches, 1);
+                    assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                } else {
+                    result.unwrap();
+                    let expected = if mode == Mode::Reference {
+                        0x12345678
+                    } else {
+                        0
+                    };
+                    assert_eq!(host.context().read_u32(0xffe000), expected);
+                }
+            }
+        }
+        let spec = contract("InitializedRustLocal", CODE, true, 0, true);
+        let mut host = fixture_host(revision, spec, initialized);
+        code(&mut host, CODE, &[0x203c, 0x1234, 0x5678, 0x4e75]);
+        host.check_fixture(CODE, &[]).unwrap();
+        assert!(host.checks.uninitialized_stack_reads.is_empty());
+    }
+}
+
+#[test]
+#[ignore = "requires both private ROMs"]
 fn missing_reset_write_is_rejected_even_when_register_value_was_already_zero() {
     fn passthrough(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         c.call_original(ids::RESET_VDP.metadata().address(c.revision()), &[])?;
@@ -231,12 +313,12 @@ fn missing_reset_write_is_rejected_even_when_register_value_was_already_zero() {
     }
     for revision in [Revision::Rev02, Revision::Rev00] {
         let source = ids::RESET_VDP.metadata();
-        let mut correct = fixture_host(revision, source.clone(), passthrough);
+        let mut correct = fixture_host(revision, (source.clone(), true), passthrough);
         correct
             .check_fixture(source.address(revision), &[])
             .unwrap();
         assert_eq!(correct.checks.mismatches, 0);
-        let mut incorrect = fixture_host(revision, source.clone(), missing_final_write);
+        let mut incorrect = fixture_host(revision, (source.clone(), true), missing_final_write);
         let error = incorrect
             .check_fixture(source.address(revision), &[])
             .unwrap_err();
@@ -267,9 +349,9 @@ fn non_atomic_contracts_are_rejected_before_execution() {
             );
         }
         let mut registry = HookRegistry::empty(revision);
+        let (contract, atomic) = contract("StopNeedsInterrupt", CODE, false, 0, false);
         assert!(matches!(
-            registry
-                .register_contract(contract("StopNeedsInterrupt", CODE, false, 0, false), never),
+            registry.register_contract(contract, atomic, never),
             Err(HostError::NotAtomicCapable { .. })
         ));
     }
@@ -282,12 +364,8 @@ fn registers_650_explicit_contracts_without_demo_table() {
     }
     let mut registry = HookRegistry::empty(Revision::Rev02);
     for index in 0..650 {
-        registry
-            .register_contract(
-                contract("AuthoredHook", 0x100000 + index * 4, false, 0, true),
-                never,
-            )
-            .unwrap();
+        let (contract, atomic) = contract("AuthoredHook", 0x100000 + index * 4, false, 0, true);
+        registry.register_contract(contract, atomic, never).unwrap();
     }
     assert_eq!(registry.len(), 650);
     assert!(registry.at(0x100000 + 649 * 4).is_some());

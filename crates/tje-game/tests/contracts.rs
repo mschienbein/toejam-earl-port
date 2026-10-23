@@ -139,7 +139,7 @@ fn native_never_falls_back_and_translated_nested_calls_stay_rust() {
         ram::g_cached_random_values(Revision::Rev02)
             .at(0)
             .read(&context),
-        tje_game::random::park_miller(12345) as u16
+        tje_game::map::park_miller(12345) as u16
     );
     assert_eq!(
         dispatcher.call(&mut context, ids::FURTHER_INITIALISATION, &[]),

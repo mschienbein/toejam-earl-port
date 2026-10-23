@@ -141,9 +141,19 @@ pub struct FunctionCoverage {
 }
 
 #[derive(Debug, Default, Serialize)]
+pub struct SubsystemCoverage {
+    pub registered_functions: usize,
+    pub calls_checked: u64,
+    pub calls_replaced: u64,
+    pub mismatches: u64,
+    pub unexercised: BTreeSet<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
 pub struct CheckReport {
     pub calls: u64,
     pub by_function: BTreeMap<String, FunctionCoverage>,
+    pub by_subsystem: BTreeMap<String, SubsystemCoverage>,
     /// Registered entries with no checked or replacement call in this run.
     pub unexercised: BTreeSet<String>,
     pub mismatches: u64,
@@ -154,7 +164,7 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
-    fn record_function(&mut self, name: &str, checked: bool) {
+    fn record_function(&mut self, name: &str, subsystem: &str, checked: bool) {
         let coverage = self.by_function.entry(name.to_owned()).or_default();
         if checked {
             coverage.calls_checked += 1;
@@ -162,6 +172,16 @@ impl CheckReport {
             coverage.calls_replaced += 1;
         }
         self.unexercised.remove(name);
+        let coverage = self
+            .by_subsystem
+            .get_mut(subsystem)
+            .expect("registered subsystem");
+        if checked {
+            coverage.calls_checked += 1;
+        } else {
+            coverage.calls_replaced += 1;
+        }
+        coverage.unexercised.remove(name);
     }
 }
 
@@ -212,11 +232,22 @@ impl Host {
         );
         emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
         let mut checks = CheckReport::default();
+        for subsystem in tje_game::SUBSYSTEMS {
+            checks
+                .by_subsystem
+                .insert(subsystem.name.to_owned(), SubsystemCoverage::default());
+        }
         for hook in registry.iter() {
             checks
                 .by_function
                 .insert(hook.symbol.name.to_owned(), FunctionCoverage::default());
             checks.unexercised.insert(hook.symbol.name.to_owned());
+            let coverage = checks
+                .by_subsystem
+                .entry(hook.symbol.subsystem.to_owned())
+                .or_default();
+            coverage.registered_functions += 1;
+            coverage.unexercised.insert(hook.symbol.name.to_owned());
         }
         Ok(Self {
             emulator,
@@ -446,16 +477,18 @@ impl Host {
         let (nested_calls, translated_writes, nested_reads) =
             self.execute_fork(&mut translated, |emulator| {
                 let mut context = HookContext::new(emulator, revision, dispatcher);
+                context.enable_stack_audit();
                 let value = hook.execute(&mut context)?;
                 context.return_to_caller(value);
                 Ok((
                     context.nested_calls,
                     context.writes,
-                    context.uninitialized_reads,
+                    context.uninitialized_reads.into_inner(),
                 ))
             })?;
         self.checks.calls += 1;
-        self.checks.record_function(hook.symbol.name, true);
+        self.checks
+            .record_function(hook.symbol.name, hook.symbol.subsystem, true);
         self.checks.nested_original_calls += nested_calls;
         let stack_dependency = !audit.uninitialized_reads.is_empty() || !nested_reads.is_empty();
         for UninitializedStackRead { pc, address } in
@@ -490,6 +523,11 @@ impl Host {
                     .get_mut(hook.symbol.name)
                     .expect("registered hook")
                     .mismatches += 1;
+                self.checks
+                    .by_subsystem
+                    .get_mut(hook.symbol.subsystem)
+                    .expect("registered subsystem")
+                    .mismatches += 1;
                 Err(HostError::Mismatch {
                     frame: self.frame,
                     function: hook.symbol.name.to_owned(),
@@ -508,7 +546,8 @@ impl Host {
         let value = hook.execute(&mut context)?;
         context.return_to_caller(value);
         self.checks.nested_original_calls += context.nested_calls;
-        self.checks.record_function(hook.symbol.name, false);
+        self.checks
+            .record_function(hook.symbol.name, hook.symbol.subsystem, false);
         Ok(())
     }
 

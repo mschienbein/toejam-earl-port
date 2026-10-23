@@ -45,3 +45,41 @@ fn unsigned_divmod(context: &mut dyn Context, quotient: bool) -> Result<Option<u
         arithmetic::rem_u32(dividend, divisor)?
     }))
 }
+
+/// Available Rust entries owned by this subsystem.
+pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::ABS,
+        function: abs,
+    },
+    crate::Translation {
+        id: crate::ids::LMODT,
+        function: lmodt,
+    },
+    crate::Translation {
+        id: crate::ids::LDIVT,
+        function: ldivt,
+    },
+    crate::Translation {
+        id: crate::ids::LMULT,
+        function: lmult,
+    },
+    crate::Translation {
+        id: crate::ids::ULMODT,
+        function: ulmodt,
+    },
+    crate::Translation {
+        id: crate::ids::ULDIVT,
+        function: uldivt,
+    },
+];
+
+/// Reviewed original entries that return without clock/interrupt progress.
+pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    crate::ids::ABS,
+    crate::ids::LMODT,
+    crate::ids::LDIVT,
+    crate::ids::LMULT,
+    crate::ids::ULMODT,
+    crate::ids::ULDIVT,
+];

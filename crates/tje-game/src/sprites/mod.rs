@@ -3,12 +3,6 @@
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
-/// G/src/core/startup_and_main_loop.c: GetLevelMusicIndex (REV 02 0x001262).
-/// The subtraction is promoted to 32-bit int before the signed remainder.
-pub fn get_level_music_index(selection: i16) -> i16 {
-    ((i32::from(selection) - 1) % 6) as i16
-}
-
 /// G/src/sprites/entity_sprite_rendering.c: UpdateAttachedEntityPosition
 /// (REV 02 0x00C170). Signed parent offsets deliberately differ from camera offsets.
 pub fn update_attached_entity_position(
@@ -67,13 +61,6 @@ pub fn select_sprite_chain_start(
     bus.write_vdp_data(u16::from(link));
     ram::g_hardware_sprite_root_link(revision).write(bus, link);
 }
-
-/// G/src/core/startup_and_main_loop.c: GetLevelMusicIndex, MCC68K entry bridge.
-pub fn music_hook(_: &mut dyn crate::Context, arguments: &[u32]) -> crate::Result<Option<u32>> {
-    Ok(Some(
-        i32::from(get_level_music_index(arguments[0] as i16)) as u32
-    ))
-}
 /// G/src/sprites/entity_sprite_rendering.c: UpdateAttachedEntityPosition bridge.
 pub fn attachment_hook(
     context: &mut dyn crate::Context,
@@ -91,6 +78,23 @@ pub fn chain_hook(
     Ok(None)
 }
 
+/// Available Rust entries owned by this subsystem.
+pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::UPDATE_ATTACHED_ENTITY_POSITION,
+        function: attachment_hook,
+    },
+    crate::Translation {
+        id: crate::ids::SELECT_SPRITE_CHAIN_START,
+        function: chain_hook,
+    },
+];
+
+/// Reviewed original entries that return without clock/interrupt progress.
+pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    crate::ids::UPDATE_ATTACHED_ENTITY_POSITION,
+    crate::ids::SELECT_SPRITE_CHAIN_START,
+];
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,27 +102,6 @@ mod tests {
 
     fn memory(revision: Revision) -> AddressSpace {
         AddressSpace::new(vec![0; 64], revision)
-    }
-
-    #[test]
-    fn leaf_arithmetic_reads_and_writes_synthetic_memory() {
-        let mut bus = memory(Revision::Rev02);
-        for (argument, expected) in [
-            (i16::MIN, -3),
-            (-1, -2),
-            (0, -1),
-            (1, 0),
-            (2, 1),
-            (6, 5),
-            (7, 0),
-            (i16::MAX, 0),
-        ] {
-            bus.write_i16(RAM_START, argument);
-            let result = get_level_music_index(bus.read_i16(RAM_START));
-            bus.write_i16(RAM_START + 2, result);
-            assert_eq!(bus.read_i16(RAM_START + 2), expected);
-        }
-        assert_eq!(bus.ram()[0..2], [0x7f, 0xff]);
     }
 
     #[test]

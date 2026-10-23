@@ -13,15 +13,31 @@ both revisions' source branches, ABI, dependencies, indirect targets and hardwar
 uses. The committed `tje_game::functions()` metadata covers all 648 catalogue
 entries (645 functions and three fragments), with stable inventory identities,
 revision addresses/sizes, source path/line, classification, wave, signature,
-complete ABI JSON, dependency IDs and a reviewed `atomic_capable` flag. Fragments are not ordinary RTS hooks.
+complete ABI JSON and dependency IDs. Fragments are not ordinary RTS hooks.
 
-The metadata generator reads the inventory, never ROM contents, disassembly or
-assets. Normal builds use committed modules, each below the public 1-MB limit:
+Generated metadata is stable input to translation lanes: **do not edit or
+regenerate it to add a translation or review atomic capability**. Maintainers
+regenerate only when the inventory changes; the generator reads metadata, never
+ROM contents, disassembly or assets. Normal builds use committed modules, each
+below the public 1-MB limit.
 
-```sh
-python3 crates/tje-game/tools/generate_metadata.py --inventory "$P/scratch/Inventory/functions.json"
-python3 crates/tje-game/tools/generate_metadata.py --inventory "$P/scratch/Inventory/functions.json" --check
-```
+### Lane ownership
+
+Each lane owns only `crates/tje-game/src/<subsystem>/` (its `mod.rs`, private child
+modules and tests). The 17 inventory subsystem names have modules registered once
+in `lib.rs`: `audio`, `camera`, `collision`, `core`, `cutscenes`, `earthlings`,
+`elevator`, `jamout`, `map`, `platform`, `player`, `presents`, `runtime`, `ship`,
+`speech`, `sprites`, `ui`. Runtime/platform assembly remains cited to G's
+`src/asm`; other game code follows G's subsystem directories.
+
+Every subsystem exports its own `TRANSLATIONS: &[Translation]` and
+`ATOMIC_CAPABLE: &[FunctionId]`. Add bodies, tests and entries **in the owning
+subsystem only**. Shared `SUBSYSTEMS`, the dispatcher/context, host and generated
+metadata require no lane edits. `tje_game::translations()` aggregates the slices
+without allocation; ownership tests reject duplicate IDs or a function registered
+under another subsystem. A lane owning several subsystems edits each one's module.
+If an original callee belongs to another lane, ask that owner to review/classify
+it; do not add its ID to your own subsystem's list.
 
 ## 2. Translate into `tje-game`
 
@@ -58,11 +74,13 @@ must be included in the closure through the inventory's indirect dependencies.
 
 Do not translate time-dependent waits using the atomic bridge: peripheral clocks
 are frozen inside check calls. Registration and nested original calls require an
-explicit `atomic_capable` contract. The generator's reviewed allow-list contains
-the pilot plus the nonwaiting reset-register/interrupt-control fixtures; unknown
-entries fail closed, not optimistically inferred safe from W0 membership or
-missing hardware annotations. Classify a new batch and its original callees only
-after inspecting their return paths. `SetupYM2612`, VBlank waits and STOP/IRQ
+explicit reviewed atomic contract. Each subsystem's `ATOMIC_CAPABLE` slice lists
+its **translated entries and any still-original callees** reviewed to return
+without clock/interrupt progress. Host registration and nested original fallback
+look up these local lists; generated metadata contains no atomic policy. Missing
+IDs fail closed, not optimistically inferred safe from W0 membership or missing
+hardware annotations. Read every relevant return/wait path before adding an ID;
+record its source and reasoning in the lane's evidence. `SetupYM2612`, VBlank waits and STOP/IRQ
 fixtures are rejected before atomic execution. A future wait/interrupt translation
 needs an explicit time-progressing platform contract, never a fabricated ready
 bit or a larger instruction bound. Even a nominally bounded VDP writer needs a
@@ -70,14 +88,39 @@ live entry state in which its frozen FIFO can accept the original access.
 
 ## 3. Register and test
 
-Add the function ID and its Rust entry to `tje_game::TRANSLATIONS`. The host's
-`HookRegistry::translated(revision)` registers every available translation using
-the generated address/ABI for **both** revisions; there is no separate REV 02-only
-demo table. `Host::new` rejects a registry/ROM revision mismatch. The CLI identifies
-the user's cartridge automatically. Custom host instrumentation hooks remain
-explicit; they do not hold game implementations. `register_contract` owns authored
-synthetic contracts (with ABI and atomic capability) for checker regression tests;
-production registration borrows generated metadata without allocating.
+Add the function ID and Rust body to the owning module's `TRANSLATIONS` slice and
+classify it in that module's `ATOMIC_CAPABLE`. The host's
+`HookRegistry::translated(revision)` registers all available entries using the
+generated address/ABI for **both** revisions. `Host::new` rejects a registry/ROM
+revision mismatch. Custom authored checker fixtures use explicit capability
+arguments to `register_contract` / `call_original_with_contract`, separate from
+inventory metadata; production registration always consults the owning module.
+
+For fast lane iteration, check only your subsystem(s) or an explicit list of
+canonical function names/inventory IDs (`func_...`):
+
+```sh
+cargo run --release -p tje-host -- --rom "$P/roms/rev02.bin" --mode check \
+  --subsystem sprites --frames 10000 \
+  --input crates/tje-host/examples/moving-player.json --require-game \
+  --metrics "$P/scratch/MyLane/rev02.json"
+cargo run --release -p tje-host -- --rom "$P/roms/rev00.bin" --mode check \
+  --subsystem collision,camera,elevator --frames 10000 \
+  --input crates/tje-host/examples/start-game.json --require-game \
+  --metrics "$P/scratch/MyLane/rev00.json"
+cargo run --release -p tje-host -- --rom "$P/roms/rev02.bin" --mode check \
+  --function GetRandomNumber,func_004ee8 --frames 1300 \
+  --input crates/tje-host/examples/start-game.json --require-game
+```
+
+`--subsystem` and `--function` are repeatable/comma-separated and combine by
+**union**. Unknown subsystems/functions and requested untranslated IDs are errors,
+not silent omissions. Selection is check-mode-only. It limits entry hooks, **not
+callee dispatch**: a selected Rust caller still invokes every available Rust
+callee, even outside the selection. `HookRegistry::filtered(revision, subsystems,
+ids)` provides the same behavior for lane-owned fixture tests. Only checked hook
+entries contribute per-function coverage; a Rust callee invoked inside one is not
+independently counted as checked.
 
 Run ROM-free checks first, then the private differential tests. From the repo root
 (`P` is this checkout; all generated evidence stays in ignored scratch):
@@ -121,23 +164,35 @@ nested execution, and do not expose a mutable raw deferred bus. The upstream
 instruction queues themselves are unchanged.
 
 Differences in dead stack bytes below entry SP are counted, not silently reported
-as exact RAM equivalence. Any read-before-write of such bytes, including mirrored
-RAM and nested original callees, **fails approval**: the function depends on
-residual stack state that has to be modeled before replacement is safe. Check
-mode does not claim that atomic replacement is CPU-cycle-equivalent.
+as exact RAM equivalence. Any read-before-write of such bytes **in either the
+original or Rust body** fails approval, including mirrored RAM, typed Bus views,
+the immediate hardware facade and nested original callees. Checked Rust writes
+mark bytes initialized; a wrong Rust body cannot pass by reading a spill left by
+an earlier original call whose Rust replacement omitted it. Residual stack state
+must be modeled before replacement is safe. Check mode does not claim that
+atomic replacement is CPU-cycle-equivalent.
 
 ## 4. Drive and report coverage honestly
 
-Every report initializes an entry for every registered hook, including zero calls.
-It reports `calls_checked`, `calls_replaced`, `mismatches`, and the explicit
-`unexercised` list. A zero-mismatch run is not evidence for a zero-call function.
-The CLI writes its metrics even if a mismatch aborts the session.
+Every report initializes an entry for every registered hook, including zero calls,
+and every subsystem. `by_subsystem` / CLI `coverage_by_subsystem` reports registered
+function count, checked/replaced calls, mismatches and explicitly unexercised
+functions; an unselected subsystem has zero registered entries, not coverage of
+its untranslated functions. Per-function `calls_checked`, `calls_replaced`,
+`mismatches` and global `unexercised` remain available. A zero-mismatch run is not
+evidence for a zero-call function. The CLI writes metrics even after a mismatch.
 
 Drive unexercised paths with recorded controller inputs that select the relevant
 menu/player/present/level. For rare and boundary paths, use `Host::check_fixture` on a
 fork of live state after reaching gameplay, with correct stack arguments or D0/D1
 register inputs. Label these **live-state fixtures**, separately from natural
 session calls; do not claim the normal game generated their synthetic inputs.
+Put lane-specific live-state fixture tests inside your owned subsystem, using a
+separate opt-in host harness when necessary; do not add fixtures to another lane's
+module or rewrite the shared pilot acceptance test. Report natural session calls
+and added fixture calls separately. A filtered 10,000-frame session plus labeled
+live-state fixtures must exercise every delivered hook in both revisions; leave
+any zero-call entry explicitly unexercised rather than claiming approval.
 `check_fixture` restores CPU, RAM and hardware afterward while retaining coverage,
 so repeated diagnostic writes cannot fill the live machine's frozen VDP FIFO.
 Use the explicitly state-mutating `check_call` only when the fixture deliberately
@@ -157,9 +212,10 @@ or count a helper skipped by the script as verified.
 
 A batch handoff must state:
 
-- commit, translated IDs, wave/subsystems, decomp sources and ABI decisions;
-- exact commands, toolchain, frames, revision and title/menu/game milestones;
-- per-function natural and fixture calls, mismatches and remaining unexercised IDs;
+- commit, owned paths, translated IDs, wave/subsystems, decomp sources and ABI decisions;
+- atomic-capability additions with source-backed no-wait reasoning and original callees;
+- exact commands and hook filters, toolchain, frames, revision and gameplay milestones;
+- per-subsystem summary plus per-function natural/fixture calls, mismatches and unexercised IDs;
 - whole-session comparison results, dead-stack differences/audited dependencies,
   nested fallback counts, exceptional or time-dependent paths not exercised;
 - native startup closure result, tests/build/lint/public-audit results, and open

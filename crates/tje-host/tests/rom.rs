@@ -1,7 +1,7 @@
 //! Opt-in tests: TJE_REV02_ROM/TJE_REV00_ROM point to private retail cartridges.
 use m68000_emu::BusInterface;
 use std::{fs, path::PathBuf};
-use tje_game::{Context, FunctionId, Translation, ids, random};
+use tje_game::{Context, FunctionId, Translation, ids, map};
 use tje_host::{
     Host, HostError, Mode,
     abi::HookContext,
@@ -35,7 +35,7 @@ fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) -> u32 {
         .unwrap_or_else(|error| panic!("{}: {error}", id.metadata().name))
 }
 fn translated_rng(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-    Ok(random::get_random_number(context, &[])?)
+    Ok(map::get_random_number(context, &[])?)
 }
 
 #[test]
@@ -62,12 +62,12 @@ fn native_leaves_match_original_including_seed_edges() {
             );
             assert_eq!(
                 host.context().read_u32(catalogue::RNG_STATE),
-                random::normalize_seed(seed) as u32
+                map::normalize_seed(seed) as u32
             );
             host.context().write_u32(catalogue::RNG_STATE, seed as u32);
             assert_eq!(
                 check(&mut host, ids::GET_RANDOM_NUMBER, &[]),
-                u32::from(random::park_miller(seed) as u16)
+                u32::from(map::park_miller(seed) as u16)
             );
         }
         for _ in 0..1000 {
@@ -82,7 +82,7 @@ fn native_leaves_match_original_including_seed_edges() {
 fn translated_call_dispatches_rust_or_nested_original_by_identity() {
     static NESTED: &[Translation] = &[Translation {
         id: ids::PRE_GENERATE_RANDOMS,
-        function: random::pre_generate_randoms,
+        function: map::pre_generate_randoms,
     }];
     for revision in [Revision::Rev02, Revision::Rev00] {
         for (registry, expected_nested) in [
@@ -98,7 +98,7 @@ fn translated_call_dispatches_rust_or_nested_original_by_identity() {
             assert_eq!(host.context().read_u32(catalogue::RNG_STATE), 12345);
             let mut expected = 12345;
             for index in 0..59 {
-                expected = random::park_miller(expected);
+                expected = map::park_miller(expected);
                 assert_eq!(
                     host.context().read_u16(0xFF916A + 2 * index),
                     expected as u16
@@ -231,7 +231,7 @@ fn check_mode_rejects_register_sr_read_latch_and_ram_io_order_mutations() {
     fn skipped_owner_zero(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         let entity = Address::<tje_mem::ObjectState>::new(c.argument_u32(0));
         if entity.owner().read(c) != 0 {
-            tje_game::examples::update_attached_entity_position(c, c.revision(), entity);
+            tje_game::sprites::update_attached_entity_position(c, c.revision(), entity);
         }
         Ok(None)
     }
@@ -243,7 +243,7 @@ fn check_mode_rejects_register_sr_read_latch_and_ram_io_order_mutations() {
         let mut contract = ids::GET_RANDOM_NUMBER.metadata().clone();
         contract.name = "AuthoredNestedStackRead";
         contract.addresses = [0xFFF000; 2];
-        c.call_original_with_contract(&contract, &[])?;
+        c.call_original_with_contract(&contract, true, &[])?;
         Ok(result)
     }
     for revision in [Revision::Rev02, Revision::Rev00] {

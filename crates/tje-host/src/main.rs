@@ -20,6 +20,12 @@ struct Arguments {
     mode: Mode,
     #[arg(long)]
     input: Option<PathBuf>,
+    /// Check only these subsystem hooks (repeat or comma-separate).
+    #[arg(long, value_delimiter = ',')]
+    subsystem: Vec<String>,
+    /// Check only these canonical function names or inventory func_ IDs.
+    #[arg(long, value_delimiter = ',')]
+    function: Vec<String>,
     /// Private output: per-frame RAM/VDP bytes and frames.jsonl. Never commit it.
     #[arg(long)]
     snapshot_dir: Option<PathBuf>,
@@ -98,7 +104,23 @@ fn main() -> Result<()> {
     let bytes = fs::read(&arguments.rom).context("read private ROM")?;
     let rom = tje_rom::Rom::import(&bytes)?;
     let revision = rom.revision();
-    let registry = HookRegistry::translated(revision)?;
+    ensure!(
+        arguments.mode == Mode::Check
+            || (arguments.subsystem.is_empty() && arguments.function.is_empty()),
+        "hook selection requires --mode check"
+    );
+    let selected_subsystems: Vec<_> = arguments.subsystem.iter().map(String::as_str).collect();
+    let selected_functions = arguments
+        .function
+        .iter()
+        .map(|name| {
+            tje_game::functions()
+                .find(|function| function.name == name || function.inventory_id == name)
+                .map(|function| function.id)
+                .with_context(|| format!("unknown function name or inventory ID: {name}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let registry = HookRegistry::filtered(revision, &selected_subsystems, &selected_functions)?;
     let script = match arguments.input {
         Some(path) => InputScript::parse(&fs::read_to_string(path)?)?,
         None => InputScript::default(),
@@ -157,6 +179,7 @@ fn main() -> Result<()> {
         "menu_frame": host.measurements.menu_frame, "game_frame": host.measurements.game_frame,
         "logic_ticks": host.measurements.logic_ticks, "checked_calls": host.checks.calls,
         "coverage_by_function": host.checks.by_function, "mismatches": host.checks.mismatches,
+        "coverage_by_subsystem": host.checks.by_subsystem,
         "unexercised": host.checks.unexercised,
         "nested_original_calls": host.checks.nested_original_calls,
         "dead_stack_differing_calls": host.checks.dead_stack_differing_calls,

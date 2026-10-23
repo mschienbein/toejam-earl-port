@@ -10,7 +10,7 @@ use crate::{
 use genesis_core::{GenesisBus, GenesisEmulator};
 use m68000_emu::{BusInterface, M68000, debug::DummyM68000Debugger};
 use serde::Serialize;
-use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeSet};
 use tje_game::{Dispatcher, FunctionId};
 use tje_rom::Revision;
 
@@ -186,6 +186,11 @@ pub(crate) fn set_sp(cpu: &mut M68000, value: u32) {
     cpu.set_address_registers(cpu.address_registers(), usp, ssp);
 }
 
+struct TranslatedStackAudit {
+    entry_sp: u32,
+    written: [u64; 512],
+}
+
 /// A Rust translation sees the actual emulated address space and stack arguments.
 /// It keeps its own locals in Rust; it never recreates the compiler's save area.
 pub struct HookContext<'a> {
@@ -194,7 +199,8 @@ pub struct HookContext<'a> {
     revision: Revision,
     dispatcher: Dispatcher,
     pub(crate) writes: Vec<OrderedWrite>,
-    pub(crate) uninitialized_reads: BTreeSet<UninitializedStackRead>,
+    pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
+    stack_audit: Option<TranslatedStackAudit>,
 }
 
 impl<'a> HookContext<'a> {
@@ -209,13 +215,52 @@ impl<'a> HookContext<'a> {
             dispatcher,
             writes: Vec::new(),
             nested_calls: 0,
-            uninitialized_reads: BTreeSet::new(),
+            uninitialized_reads: RefCell::new(BTreeSet::new()),
+            stack_audit: None,
+        }
+    }
+
+    pub(crate) fn enable_stack_audit(&mut self) {
+        self.stack_audit = Some(TranslatedStackAudit {
+            entry_sp: canonical_ram_address(self.emulator.hybrid_cpu().stack_pointer()),
+            written: [0; 512],
+        });
+    }
+
+    fn translated_stack_offset(&self, address: u32) -> Option<usize> {
+        let audit = self.stack_audit.as_ref()?;
+        let physical = canonical_ram_address(address);
+        (STACK_BOTTOM..audit.entry_sp.min(STACK_TOP))
+            .contains(&physical)
+            .then_some(physical.wrapping_sub(STACK_BOTTOM) as usize)
+    }
+
+    fn audit_translated_read(&self, address: u32) {
+        if let Some(offset) = self.translated_stack_offset(address)
+            && self.stack_audit.as_ref().expect("enabled audit").written[offset / 64]
+                & (1 << (offset % 64))
+                == 0
+        {
+            self.uninitialized_reads
+                .borrow_mut()
+                .insert(UninitializedStackRead {
+                    pc: self.emulator.hybrid_cpu().pc(),
+                    address: canonical_ram_address(address),
+                });
+        }
+    }
+
+    fn audit_translated_write(&mut self, address: u32) {
+        if let Some(offset) = self.translated_stack_offset(address) {
+            self.stack_audit.as_mut().expect("enabled audit").written[offset / 64] |=
+                1 << (offset % 64);
         }
     }
 
     /// Side-effect-free ROM/RAM read. For hardware reads use `bus()` so that
     /// read side effects and open-bus behavior remain explicit.
     pub fn read_u8(&self, address: u32) -> u8 {
+        self.audit_translated_read(address);
         let address = address & 0xFF_FFFF;
         let bus = self.emulator.hybrid_bus();
         match address {
@@ -237,6 +282,7 @@ impl<'a> HookContext<'a> {
             | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     pub fn write_u8(&mut self, address: u32, value: u8) {
+        self.audit_translated_write(address);
         let address = address & 0xFF_FFFF;
         let bus = self.emulator.hybrid_bus_mut();
         match address {
@@ -289,16 +335,17 @@ impl<'a> HookContext<'a> {
         let id = tje_game::function_at(self.revision, address).ok_or_else(|| {
             HostError::Metadata(format!("no declared atomic call contract at {address:06X}"))
         })?;
-        self.call_original_with_contract(id.metadata(), arguments)
+        self.call_original_with_contract(id.metadata(), tje_game::is_atomic_capable(id), arguments)
     }
 
     /// Explicit contracts also support authored, ROM-free machine-code fixtures.
     pub fn call_original_with_contract(
         &mut self,
         contract: &tje_game::FunctionMetadata,
+        atomic_capable: bool,
         arguments: &[u32],
     ) -> Result<u32> {
-        if !contract.atomic_capable {
+        if !atomic_capable {
             return Err(HostError::NotAtomicCapable {
                 function: contract.name.to_owned(),
             });
@@ -319,8 +366,15 @@ impl<'a> HookContext<'a> {
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
         let audit = run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp)?;
+        for write in &audit.writes {
+            if let OrderedWrite::Ram { address, .. } = *write {
+                self.audit_translated_write(address);
+            }
+        }
         self.writes.extend(audit.writes);
-        self.uninitialized_reads.extend(audit.uninitialized_reads);
+        self.uninitialized_reads
+            .get_mut()
+            .extend(audit.uninitialized_reads);
         self.nested_calls += 1;
         let (cpu, bus) = self.emulator.hybrid_parts();
         let result = cpu.data_registers()[0];
@@ -414,16 +468,20 @@ impl tje_mem::Platform for HookContext<'_> {
 }
 impl tje_game::Platform for HookContext<'_> {
     fn read_device_u8(&mut self, address: u32) -> u8 {
+        self.audit_translated_read(address);
         let bus = self.emulator.hybrid_bus_mut();
         bus.apply_pending_writes();
         bus.read_byte(address)
     }
     fn read_device_u16(&mut self, address: u32) -> u16 {
+        self.audit_translated_read(address);
+        self.audit_translated_read(address.wrapping_add(1));
         let bus = self.emulator.hybrid_bus_mut();
         bus.apply_pending_writes();
         bus.read_word(address)
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
+        self.audit_translated_write(address);
         self.writes.push(OrderedWrite::DeviceByte {
             address: address & 0xFF_FFFF,
             value,
@@ -433,6 +491,8 @@ impl tje_game::Platform for HookContext<'_> {
         bus.apply_pending_writes();
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
+        self.audit_translated_write(address);
+        self.audit_translated_write(address.wrapping_add(1));
         self.writes.push(OrderedWrite::DeviceWord {
             address: address & 0xFF_FFFF,
             value,

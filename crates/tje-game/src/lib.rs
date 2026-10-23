@@ -6,11 +6,24 @@
 use std::fmt;
 use tje_mem::{Bus, Revision, arithmetic::ArithmeticTrap};
 
-pub mod examples;
-pub mod leaves;
+pub mod audio;
+pub mod camera;
+pub mod collision;
+pub mod core;
+pub mod cutscenes;
+pub mod earthlings;
+pub mod elevator;
+pub mod jamout;
+pub mod map;
 mod metadata;
-pub mod random;
+pub mod platform;
+pub mod player;
+pub mod presents;
 pub mod runtime;
+pub mod ship;
+pub mod speech;
+pub mod sprites;
+pub mod ui;
 pub use metadata::ids;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,8 +64,6 @@ pub struct FunctionMetadata {
     pub source_line: u32,
     pub wave: u8,
     pub callees: &'static [FunctionId],
-    /// Explicit reviewed contract: no clock/interrupt progress is needed to return.
-    pub atomic_capable: bool,
     pub abi: Abi,
 }
 
@@ -181,20 +192,49 @@ pub struct Translation {
     pub function: TranslationFn,
 }
 
+/// A lane owns its module's entries and atomic classification. The shared list is
+/// assembled once; adding a translation never requires changing generated data.
+pub struct Subsystem {
+    pub name: &'static str,
+    pub translations: &'static [Translation],
+    pub atomic_capable: &'static [FunctionId],
+}
+
+pub fn subsystem(name: &str) -> Option<&'static Subsystem> {
+    SUBSYSTEMS.iter().find(|subsystem| subsystem.name == name)
+}
+
+pub fn is_atomic_capable(id: FunctionId) -> bool {
+    subsystem(id.metadata().subsystem)
+        .is_some_and(|subsystem| subsystem.atomic_capable.contains(&id))
+}
+
+pub fn translations() -> impl Iterator<Item = &'static Translation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.translations.iter())
+}
+
 #[derive(Clone, Copy)]
 pub struct Dispatcher {
     translations: &'static [Translation],
+    subsystems: &'static [Subsystem],
     original_fallback: bool,
 }
 impl Dispatcher {
     pub const fn hybrid() -> Self {
-        Self::hybrid_with(TRANSLATIONS)
+        Self {
+            translations: &[],
+            subsystems: SUBSYSTEMS,
+            original_fallback: true,
+        }
     }
     /// A deliberately bounded hybrid registry is useful when verifying nested
     /// original calls. Missing callees are explicit calls through Context.
     pub const fn hybrid_with(translations: &'static [Translation]) -> Self {
         Self {
             translations,
+            subsystems: &[],
             original_fallback: true,
         }
     }
@@ -202,7 +242,8 @@ impl Dispatcher {
     /// entry. Failure lists every missing target; it never enables ROM fallback.
     pub fn native(roots: &[FunctionId]) -> std::result::Result<Self, Vec<FunctionId>> {
         let dispatcher = Self {
-            translations: TRANSLATIONS,
+            translations: &[],
+            subsystems: SUBSYSTEMS,
             original_fallback: false,
         };
         let mut visited = std::collections::BTreeSet::new();
@@ -225,13 +266,16 @@ impl Dispatcher {
         }
     }
     pub fn translation(self, id: FunctionId) -> Option<Translation> {
-        self.translations
-            .iter()
+        self.translations()
             .find(|translation| translation.id == id)
             .copied()
     }
-    pub fn translations(self) -> &'static [Translation] {
-        self.translations
+    pub fn translations(self) -> impl Iterator<Item = &'static Translation> + Clone {
+        self.translations.iter().chain(
+            self.subsystems
+                .iter()
+                .flat_map(|subsystem| subsystem.translations.iter()),
+        )
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
         if let Some(translation) = self.translation(id) {
@@ -252,106 +296,91 @@ pub fn call(context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Res
     context.dispatcher().call(context, id, arguments)
 }
 
-pub static TRANSLATIONS: &[Translation] = &[
-    Translation {
-        id: ids::ABS,
-        function: runtime::abs,
+pub static SUBSYSTEMS: &[Subsystem] = &[
+    Subsystem {
+        name: "audio",
+        translations: audio::TRANSLATIONS,
+        atomic_capable: audio::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::LMODT,
-        function: runtime::lmodt,
+    Subsystem {
+        name: "camera",
+        translations: camera::TRANSLATIONS,
+        atomic_capable: camera::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::LDIVT,
-        function: runtime::ldivt,
+    Subsystem {
+        name: "collision",
+        translations: collision::TRANSLATIONS,
+        atomic_capable: collision::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::LMULT,
-        function: runtime::lmult,
+    Subsystem {
+        name: "core",
+        translations: core::TRANSLATIONS,
+        atomic_capable: core::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::ULMODT,
-        function: runtime::ulmodt,
+    Subsystem {
+        name: "cutscenes",
+        translations: cutscenes::TRANSLATIONS,
+        atomic_capable: cutscenes::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::ULDIVT,
-        function: runtime::uldivt,
+    Subsystem {
+        name: "earthlings",
+        translations: earthlings::TRANSLATIONS,
+        atomic_capable: earthlings::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::GET_RANDOM_NUMBER,
-        function: random::get_random_number,
+    Subsystem {
+        name: "elevator",
+        translations: elevator::TRANSLATIONS,
+        atomic_capable: elevator::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::STACK_BASED_RANDOM,
-        function: random::stack_based_random,
+    Subsystem {
+        name: "jamout",
+        translations: jamout::TRANSLATIONS,
+        atomic_capable: jamout::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::PRE_GENERATE_RANDOMS,
-        function: random::pre_generate_randoms,
+    Subsystem {
+        name: "map",
+        translations: map::TRANSLATIONS,
+        atomic_capable: map::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::DISABLE_BLANKING_GRAPHICS,
-        function: leaves::disable_blanking_graphics,
+    Subsystem {
+        name: "platform",
+        translations: platform::TRANSLATIONS,
+        atomic_capable: platform::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::GET_LEVEL_MUSIC_INDEX,
-        function: examples::music_hook,
+    Subsystem {
+        name: "player",
+        translations: player::TRANSLATIONS,
+        atomic_capable: player::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::UPDATE_ATTACHED_ENTITY_POSITION,
-        function: examples::attachment_hook,
+    Subsystem {
+        name: "presents",
+        translations: presents::TRANSLATIONS,
+        atomic_capable: presents::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::SELECT_SPRITE_CHAIN_START,
-        function: examples::chain_hook,
+    Subsystem {
+        name: "runtime",
+        translations: runtime::TRANSLATIONS,
+        atomic_capable: runtime::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::ENABLE_BLANKING_GRAPHICS,
-        function: leaves::enable_blanking_graphics,
+    Subsystem {
+        name: "ship",
+        translations: ship::TRANSLATIONS,
+        atomic_capable: ship::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::GET_V_BLANK_GRAPHICS_ENABLED,
-        function: leaves::get_vblank_graphics_enabled,
+    Subsystem {
+        name: "speech",
+        translations: speech::TRANSLATIONS,
+        atomic_capable: speech::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::READ_MAPPED_PLAYER_INPUT,
-        function: leaves::read_mapped_player_input,
+    Subsystem {
+        name: "sprites",
+        translations: sprites::TRANSLATIONS,
+        atomic_capable: sprites::ATOMIC_CAPABLE,
     },
-    Translation {
-        id: ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
-        function: leaves::set_camera_tile_priority_enabled,
-    },
-    Translation {
-        id: ids::ENABLE_TEXT_FONT_ANIMATION,
-        function: leaves::enable_text_font_animation,
-    },
-    Translation {
-        id: ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
-        function: leaves::disable_text_font_animation_if_menus_closed,
-    },
-    Translation {
-        id: ids::PLAYER_GET_MAXIMUM_HEALTH,
-        function: leaves::player_get_maximum_health,
-    },
-    Translation {
-        id: ids::GET_SCORE_FOR_PROMO,
-        function: leaves::get_score_for_promo,
-    },
-    Translation {
-        id: ids::STOP_PLAYER,
-        function: leaves::stop_player,
-    },
-    Translation {
-        id: ids::PLAYER_INITIALIZE_PHASED_JUMP_MOTION,
-        function: leaves::player_initialize_phased_jump_motion,
-    },
-    Translation {
-        id: ids::ENTITY_HAS_FREE_TIMED_EFFECT_SLOT,
-        function: leaves::entity_has_free_timed_effect_slot,
-    },
-    Translation {
-        id: ids::SET_NEXT_SPEECH_LIFETIME,
-        function: leaves::set_next_speech_lifetime,
+    Subsystem {
+        name: "ui",
+        translations: ui::TRANSLATIONS,
+        atomic_capable: ui::ATOMIC_CAPABLE,
     },
 ];
 
@@ -387,8 +416,33 @@ mod tests {
         assert!(missing.contains(&startup));
         assert!(missing.len() > 100);
         let mut seen = std::collections::BTreeSet::new();
-        for translation in TRANSLATIONS {
+        for translation in translations() {
             assert!(seen.insert(translation.id));
         }
+    }
+
+    #[test]
+    fn subsystem_ownership_and_atomic_review_are_complete_and_disjoint() {
+        let mut names = std::collections::BTreeSet::new();
+        let mut atomic = std::collections::BTreeSet::new();
+        let mut translated = std::collections::BTreeSet::new();
+        for owner in SUBSYSTEMS {
+            assert!(names.insert(owner.name));
+            for id in owner.atomic_capable {
+                assert_eq!(id.metadata().subsystem, owner.name);
+                assert!(atomic.insert(*id));
+            }
+            for entry in owner.translations {
+                assert_eq!(entry.id.metadata().subsystem, owner.name);
+                assert!(translated.insert(entry.id));
+                assert!(is_atomic_capable(entry.id));
+            }
+        }
+        for function in functions() {
+            assert!(subsystem(function.subsystem).is_some());
+        }
+        assert!(!is_atomic_capable(ids::SETUP_YM2612));
+        let waiting = ids::WAIT_FOR_NEXT_V_BLANK;
+        assert!(!is_atomic_capable(waiting));
     }
 }

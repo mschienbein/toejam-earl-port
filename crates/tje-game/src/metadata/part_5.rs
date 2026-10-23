@@ -17,7 +17,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 241,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroCreateAsteroidEntity()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/large_player_parts.c:241\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -33,7 +32,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 264,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseAsteroidEntity()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/large_player_parts.c:264\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -49,7 +47,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 10,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroCreateCollisionSceneEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/collision_scene_entities.c:10\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -65,7 +62,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 68,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseCollisionSceneEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/collision_scene_entities.c:68\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -81,7 +77,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 18,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreateActivePlayerEntities(unsigned short x, unsigned short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"unsigned short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"unsigned short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending_player_entities.c:18\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -97,7 +92,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 8,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleaseActivePlayerEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending_player_release.c:8\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -113,7 +107,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 22,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingGetFirstPlayerAnimationFrame()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending_player_release.c:22\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -129,7 +122,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 16,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroCreateHiddenFrameEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro_frame_entities.c:16\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -145,7 +137,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 7,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroRevealFrameEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro_frame_reveal.c:7\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -161,7 +152,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 8,
         wave: 3,
         callees: &[FunctionId(16), FunctionId(175), FunctionId(177), FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseFrameEntitiesAndRefresh()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro_frame_release.c:8\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -177,7 +167,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 10,
         wave: 2,
         callees: &[FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneAllocateRocketshipPair()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/rocketship_allocate.c:10\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -193,7 +182,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 6,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneReleaseRocketshipPair()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/rocketship_release.c:6\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -209,7 +197,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 10,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(196)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneSetRocketshipPairPose(short animation, short x, short y)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"animation\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":12,\"entry_sp_value_offset\":14,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/rocketship_pose.c:10\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -225,7 +212,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 11,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(196)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneSetForegroundRocketshipPose(short animation, short x, short y)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"animation\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":12,\"entry_sp_value_offset\":14,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/rocketship_foreground.c:11\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -241,7 +227,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 7,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneMoveRocketshipPairLeft(long distance)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":32,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":4,\"name\":\"distance\",\"slot_bytes\":4,\"type\":\"long\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/rocketship_move.c:7\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -257,7 +242,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 19,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutscenePositionRocketshipPair(int x, int y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"int\"},{\"entry_sp_slot_offset\":8,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"int\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:19\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -273,7 +257,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 33,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreatePoseComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:33\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -289,7 +272,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 58,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingSetPoseComposite(short frame, short x, short y)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"frame\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":12,\"entry_sp_value_offset\":14,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:58\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -305,7 +287,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 77,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleasePoseComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:77\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -321,7 +302,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 85,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreateSixPieceComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:85\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -337,7 +317,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 108,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingPositionSixPieceComposite(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:108\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -353,7 +332,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 122,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleaseSixPieceComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:122\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -369,7 +347,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 130,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreateRightOffsetComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:130\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -385,7 +362,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 154,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingPositionRightOffsetComposite(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:154\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -401,7 +377,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 167,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleaseRightOffsetComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:167\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -417,7 +392,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 175,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroCreateFallingRocketship()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:175\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -433,7 +407,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 198,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseFallingRocketship()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:198\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -449,7 +422,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 206,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroPositionFallingRocketship(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:206\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -465,7 +437,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 219,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreateElevatedThreePieceComposite(unsigned short x, unsigned short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"unsigned short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"unsigned short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:219\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -481,7 +452,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 245,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleaseElevatedThreePieceComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:245\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -497,7 +467,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 253,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingRestartElevatedCompositeSequence()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/composite_entities.c:253\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -513,7 +482,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 17,
         wave: 2,
         callees: &[FunctionId(70), FunctionId(195), FunctionId(198), FunctionId(502)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneCreateDriftingEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/drifting_entities.c:17\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -529,7 +497,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 55,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneReleaseDriftingEntities()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/drifting_entities.c:55\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -545,7 +512,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 68,
         wave: 2,
         callees: &[FunctionId(70), FunctionId(502)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneUpdateDriftingEntities(short scene)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"scene\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/drifting_entities.c:68\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -561,7 +527,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 94,
         wave: 2,
         callees: &[FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroAllocateFlyingEntitySlots()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/drifting_entities.c:94\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -577,7 +542,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 111,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseFlyingEntitySlots()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/drifting_entities.c:111\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -593,7 +557,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 15,
         wave: 2,
         callees: &[FunctionId(70), FunctionId(195), FunctionId(196), FunctionId(502)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroUpdateRightwardFlyingEntity(short restart, short scene)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"restart\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"scene\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/flying_entities.c:15\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -609,7 +572,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 50,
         wave: 2,
         callees: &[FunctionId(70), FunctionId(195), FunctionId(196), FunctionId(502)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroUpdateFlyingEntityMotion(short scene)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"scene\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/flying_entities.c:50\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -625,7 +587,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 15,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroCreateRocketshipImpact(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:15\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -641,7 +602,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 39,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroReleaseRocketshipImpact()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:39\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -657,7 +617,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 46,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneCreatePlanetEntity(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:46\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -673,7 +632,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 70,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void CutsceneReleasePlanetEntity()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:70\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -689,7 +647,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 77,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingCreateStationaryComposite(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:77\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -705,7 +662,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 103,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void EndingReleaseStationaryComposite()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/impact_and_planet_entities.c:103\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -721,7 +677,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 26,
         wave: 6,
         callees: &[FunctionId(16), FunctionId(496), FunctionId(498), FunctionId(508), FunctionId(509), FunctionId(510), FunctionId(512), FunctionId(517), FunctionId(524), FunctionId(586), FunctionId(587), FunctionId(588), FunctionId(589), FunctionId(590), FunctionId(591), FunctionId(592), FunctionId(593), FunctionId(594), FunctionId(595), FunctionId(596)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "int IntroVideo()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:26\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"int\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -737,7 +692,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 85,
         wave: 4,
         callees: &[FunctionId(507), FunctionId(528), FunctionId(533)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void IntroBeginLargePlayerScene(short background)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"background\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:85\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -753,7 +707,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 97,
         wave: 5,
         callees: &[FunctionId(499), FunctionId(500), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(526), FunctionId(529), FunctionId(531), FunctionId(534), FunctionId(585)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart1()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:97\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -769,7 +722,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 314,
         wave: 5,
         callees: &[FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(547), FunctionId(548), FunctionId(549)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart2()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:314\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -785,7 +737,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 383,
         wave: 5,
         callees: &[FunctionId(499), FunctionId(500), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(526), FunctionId(529), FunctionId(531), FunctionId(534), FunctionId(585)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart3()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:383\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -801,7 +752,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 455,
         wave: 5,
         callees: &[FunctionId(11), FunctionId(16), FunctionId(17), FunctionId(175), FunctionId(177), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(512), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(526), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(554), FunctionId(571), FunctionId(572), FunctionId(573)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart4()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:455\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -817,7 +767,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 524,
         wave: 4,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(508), FunctionId(513), FunctionId(518), FunctionId(535), FunctionId(536), FunctionId(537), FunctionId(538), FunctionId(539), FunctionId(574), FunctionId(575), FunctionId(577), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart5()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:524\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -833,7 +782,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 628,
         wave: 4,
         callees: &[FunctionId(499), FunctionId(500), FunctionId(507), FunctionId(518), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(574), FunctionId(575), FunctionId(576), FunctionId(645)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart6()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:628\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -849,7 +797,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 711,
         wave: 4,
         callees: &[FunctionId(16), FunctionId(17), FunctionId(175), FunctionId(177), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(507), FunctionId(518), FunctionId(535), FunctionId(536), FunctionId(537), FunctionId(538), FunctionId(540), FunctionId(541), FunctionId(574), FunctionId(575), FunctionId(577), FunctionId(641), FunctionId(645)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart7()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:711\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -865,7 +812,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 819,
         wave: 4,
         callees: &[FunctionId(11), FunctionId(16), FunctionId(496), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(508), FunctionId(509), FunctionId(510), FunctionId(518), FunctionId(542), FunctionId(543), FunctionId(623), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart8()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:819\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -881,7 +827,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 866,
         wave: 4,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(507), FunctionId(513), FunctionId(518), FunctionId(565), FunctionId(566), FunctionId(567)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart9()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:866\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -897,7 +842,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 912,
         wave: 5,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(512), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(565), FunctionId(566), FunctionId(567), FunctionId(578), FunctionId(579), FunctionId(580), FunctionId(581), FunctionId(645)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart10()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro.c:912\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -913,7 +857,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 16,
         wave: 5,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(508), FunctionId(512), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(526), FunctionId(528), FunctionId(529), FunctionId(530), FunctionId(531), FunctionId(532), FunctionId(533), FunctionId(534)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short IntroPart11()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/intro_part11.c:16\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -929,7 +872,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 28,
         wave: 6,
         callees: &[FunctionId(11), FunctionId(13), FunctionId(16), FunctionId(496), FunctionId(498), FunctionId(509), FunctionId(510), FunctionId(517), FunctionId(524), FunctionId(598), FunctionId(599), FunctionId(600), FunctionId(601), FunctionId(602)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void PlayEndingSequence()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:28\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -945,7 +887,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 68,
         wave: 5,
         callees: &[FunctionId(16), FunctionId(17), FunctionId(175), FunctionId(177), FunctionId(498), FunctionId(510), FunctionId(515), FunctionId(518), FunctionId(524), FunctionId(527), FunctionId(544), FunctionId(545), FunctionId(546), FunctionId(550), FunctionId(551), FunctionId(553), FunctionId(555), FunctionId(556), FunctionId(557), FunctionId(558), FunctionId(559), FunctionId(560), FunctionId(561), FunctionId(568), FunctionId(569), FunctionId(570), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingPlayDialogueAndDeparture()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:68\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -961,7 +902,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 221,
         wave: 5,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(512), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(555), FunctionId(580), FunctionId(581)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingPlayUpwardRocketshipDeparture()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:221\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -977,7 +917,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 287,
         wave: 5,
         callees: &[FunctionId(11), FunctionId(16), FunctionId(17), FunctionId(175), FunctionId(177), FunctionId(498), FunctionId(502), FunctionId(512), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(526), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(554), FunctionId(571), FunctionId(572), FunctionId(573)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingPlayScrollingCredits()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:287\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -993,7 +932,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 405,
         wave: 4,
         callees: &[FunctionId(16), FunctionId(498), FunctionId(512), FunctionId(518), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(555), FunctionId(582), FunctionId(583)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingPlayDescendingRocketshipScene()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:405\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1009,7 +947,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 466,
         wave: 4,
         callees: &[FunctionId(16), FunctionId(17), FunctionId(175), FunctionId(177), FunctionId(498), FunctionId(502), FunctionId(510), FunctionId(516), FunctionId(518), FunctionId(550), FunctionId(551), FunctionId(553), FunctionId(555), FunctionId(556), FunctionId(557), FunctionId(558), FunctionId(562), FunctionId(563), FunctionId(564)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "short EndingPlayBouncingRocketshipScene()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/ending.c:466\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"short\",\"register\":\"D0\"},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: true, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1025,7 +962,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 11,
         wave: 5,
         callees: &[FunctionId(17), FunctionId(177), FunctionId(498), FunctionId(639)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void SegaLogoVBlank()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/sega_logo_vblank.c:11\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1041,7 +977,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 24,
         wave: 1,
         callees: &[FunctionId(492), FunctionId(494), FunctionId(496)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void SegaLogoClearVideoPlanes()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/sega_logo.c:24\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1057,7 +992,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 36,
         wave: 4,
         callees: &[FunctionId(11), FunctionId(175), FunctionId(496), FunctionId(497), FunctionId(498), FunctionId(550), FunctionId(551), FunctionId(552), FunctionId(555), FunctionId(604), FunctionId(606), FunctionId(607), FunctionId(641), FunctionId(645)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void SEGAVideo()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/sega_logo.c:36\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1073,7 +1007,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 125,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void SegaLogoCreateTrademarkEntity()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/sega_logo.c:125\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1089,7 +1022,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 148,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void SegaLogoReleaseTrademarkEntity()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/cutscenes/sega_logo.c:148\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1105,7 +1037,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 30,
         wave: 6,
         callees: &[FunctionId(16), FunctionId(70), FunctionId(496), FunctionId(498), FunctionId(499), FunctionId(500), FunctionId(502), FunctionId(509), FunctionId(510), FunctionId(517), FunctionId(518), FunctionId(524), FunctionId(525), FunctionId(611), FunctionId(612), FunctionId(614), FunctionId(615), FunctionId(620), FunctionId(621), FunctionId(627), FunctionId(629), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void StartJamOut(short song)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"song\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:30\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1121,7 +1052,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 149,
         wave: 5,
         callees: &[FunctionId(499), FunctionId(500), FunctionId(631), FunctionId(634), FunctionId(639), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutVBlank()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:149\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1137,7 +1067,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 223,
         wave: 5,
         callees: &[FunctionId(70), FunctionId(499), FunctionId(500), FunctionId(502), FunctionId(627), FunctionId(629), FunctionId(631), FunctionId(639), FunctionId(641)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutRandomSampleVBlank()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:223\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1153,7 +1082,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 310,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutUpdateLeadAnimations()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:310\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1169,7 +1097,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 352,
         wave: 5,
         callees: &[FunctionId(524), FunctionId(622), FunctionId(624), FunctionId(625)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutUpdateLayoutsAndScroll(short reset)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"reset\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:352\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1185,7 +1112,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 418,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutSynchronizeEntityCopies()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:418\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1201,7 +1127,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 442,
         wave: 2,
         callees: &[FunctionId(195), FunctionId(198)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutCreateCharacterCopies()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:442\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1217,7 +1142,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 509,
         wave: 3,
         callees: &[FunctionId(199)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutReleaseCharacterCopies()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:509\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1233,7 +1157,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 525,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutPositionToejamCopy(int slot, int x, int y)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"slot\",\"slot_bytes\":4,\"type\":\"int\"},{\"entry_sp_slot_offset\":8,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"int\"},{\"entry_sp_slot_offset\":12,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"int\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:525\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1249,7 +1172,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 537,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutPositionEarlCopy(int slot, int x, int y)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"slot\",\"slot_bytes\":4,\"type\":\"int\"},{\"entry_sp_slot_offset\":8,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"int\"},{\"entry_sp_slot_offset\":12,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"int\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:537\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1265,7 +1187,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 549,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutHideToejamCopy(int slot)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"slot\",\"slot_bytes\":4,\"type\":\"int\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:549\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1281,7 +1202,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 561,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutHideEarlCopy(int slot)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"slot\",\"slot_bytes\":4,\"type\":\"int\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:561\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1297,7 +1217,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 573,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutSetToejamSequence(char * sequence, short period)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":32,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":4,\"name\":\"sequence\",\"slot_bytes\":4,\"type\":\"char *\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"period\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:573\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1313,7 +1232,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 591,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutSetEarlSequence(char * sequence, short period)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":32,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":4,\"name\":\"sequence\",\"slot_bytes\":4,\"type\":\"char *\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"period\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:591\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1329,7 +1247,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 609,
         wave: 4,
         callees: &[FunctionId(508), FunctionId(509), FunctionId(616), FunctionId(617), FunctionId(618), FunctionId(619)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutShowLeadPairLayout()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:609\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1345,7 +1262,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 635,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutDrawPackedBackgroundBlock(short x, short y)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"x\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"y\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:635\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1361,7 +1277,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 654,
         wave: 2,
         callees: &[FunctionId(509), FunctionId(616), FunctionId(617), FunctionId(618), FunctionId(619), FunctionId(623)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutShowFourPairLayout()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:654\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1377,7 +1292,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 677,
         wave: 4,
         callees: &[FunctionId(508), FunctionId(509), FunctionId(616), FunctionId(617)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void JamOutShowNinePairLayout()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/jamout/jamout.c:677\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1393,7 +1307,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 12,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined MusicRestoreInitialState()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound_init.s:12\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[],\"preserved_registers\":[\"D1\",\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 254, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1409,7 +1322,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 5,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void MusicRequestTrackPointerReset()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/audio/request_track_reset.c:5\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1425,7 +1337,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 9,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined MusicClearTrackPointers()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound_clear.s:9\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[],\"preserved_registers\":[\"D1\",\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 254, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1441,7 +1352,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 5,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void AudioRequestFmChannelRelease()", details_json: "{\"argument_count\":0,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/audio/request_channel_release.c:5\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1457,7 +1367,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 9,
         wave: 1,
         callees: &[FunctionId(637)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined AudioReleaseAllFmChannels()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D1\",\"CCR\"],\"evidence\":[\"src/asm/sound_channels.s:9\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"Saves/restores D3/A5 around the six register-convention FM releases.\"],\"preserved_registers\":[\"D0\",\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 253, preserved_address: 127, strict_registers: true },
     },
     FunctionMetadata {
@@ -1473,7 +1382,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 12,
         wave: 2,
         callees: &[FunctionId(632)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined MusicSelectSongTemplateBank(long song_template_index)", details_json: "{\"argument_count\":1,\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"song_template_index\",\"read_width_bits\":32,\"slot_bytes\":4,\"type\":\"long\"}],\"clobbers\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound_schedule.s:12\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"MusicSelectSongTemplateBank mutates the low word of its caller-owned argument slot by +7 in the alternate bank, then shares the loader.\"],\"preserved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1489,7 +1397,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 24,
         wave: 2,
         callees: &[FunctionId(626), FunctionId(630)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined MusicLoadSongChannelTemplates(long song_template_index)", details_json: "{\"argument_count\":1,\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"song_template_index\",\"read_width_bits\":32,\"slot_bytes\":4,\"type\":\"long\"}],\"clobbers\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound_schedule.s:24\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"Effective D1 clobber comes from AudioReleaseAllFmChannels.\"],\"preserved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1505,7 +1412,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 44,
         wave: 3,
         callees: &[FunctionId(631), FunctionId(632)],
-        atomic_capable: false,
         abi: Abi { kind: "register_callback", signature: "register-defined MusicProcessTemplateRestartHook()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound_schedule.s:44\",\"docs/subsystems/platform.md\"],\"kind\":\"register_callback\",\"notes\":[\"Effective A0/A1 clobbers occur on template-loader paths; sequencer saves its channel pointer around the callback.\"],\"preserved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{\"A0\":\"Current 38-byte music-channel record; callback field is cleared at offset 8.\"},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1521,7 +1427,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 5,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void AudioRequestChannelTemplateEffect(short effect_number)", details_json: "{\"argument_count\":1,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"effect_number\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/audio/request_template_effect.c:5\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 1, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1537,7 +1442,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 9,
         wave: 1,
         callees: &[FunctionId(637)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined AudioLoadPendingChannelTemplateEffect()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"D3\",\"A0\",\"A1\",\"A5\",\"CCR\"],\"evidence\":[\"src/asm/sound.s:9\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"D3/A5 are clobbered through AudioWriteFmChannelReleaseMask; this is not an ordinary C-preserving leaf.\"],\"preserved_registers\":[\"D2\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 244, preserved_address: 92, strict_registers: true },
     },
     FunctionMetadata {
@@ -1553,7 +1457,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 71,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "register_assembly", signature: "register-defined SetupYM2612()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D1\",\"D2\",\"D3\",\"D7\",\"A4\",\"A5\",\"CCR\"],\"evidence\":[\"src/asm/sound.s:71\",\"docs/subsystems/platform.md\"],\"kind\":\"register_assembly\",\"notes\":[\"No register save prologue; D4/D5 are inputs and remain unchanged.\"],\"preserved_registers\":[\"D0\",\"D4\",\"D5\",\"D6\",\"A0\",\"A1\",\"A2\",\"A3\",\"A6\"],\"register_inputs\":{\"D1.b\":\"FM channel, sign-extended to word.\",\"D3.b\":\"Patch index, sign-extended before lookup.\",\"D4.b\":\"Frequency high byte.\",\"D5.b\":\"Frequency low byte.\"},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 113, preserved_address: 79, strict_registers: true },
     },
     FunctionMetadata {
@@ -1569,7 +1472,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 670,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "register_assembly", signature: "register-defined AudioWriteFmChannelReleaseMask()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D1\",\"D3\",\"A5\",\"CCR\"],\"evidence\":[\"src/asm/sound.s:670\",\"docs/subsystems/platform.md\"],\"kind\":\"register_assembly\",\"notes\":[],\"preserved_registers\":[\"D0\",\"D2\",\"D4\",\"D5\",\"D6\",\"D7\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A6\"],\"register_inputs\":{\"D1.w\":\"FM channel index.\"},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 245, preserved_address: 95, strict_registers: true },
     },
     FunctionMetadata {
@@ -1585,7 +1487,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 709,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "register_assembly", signature: "register-defined YM2612UpdateFrequency()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D1\",\"D7\",\"A5\",\"CCR\"],\"evidence\":[\"src/asm/sound.s:709\",\"docs/subsystems/platform.md\"],\"kind\":\"register_assembly\",\"notes\":[],\"preserved_registers\":[\"D0\",\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A6\"],\"register_inputs\":{\"D1.w\":\"FM channel index.\",\"D4.b\":\"Frequency high byte.\",\"D5.b\":\"Frequency low byte.\"},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 125, preserved_address: 95, strict_registers: true },
     },
     FunctionMetadata {
@@ -1601,7 +1502,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 762,
         wave: 4,
         callees: &[FunctionId(628), FunctionId(630), FunctionId(633), FunctionId(635), FunctionId(636), FunctionId(637), FunctionId(638), FunctionId(643), FunctionId(644), FunctionId(647)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined MusicUpdateSequencer()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/sound.s:762\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"Explicitly saves D2-D7/A2-A6, protecting callers from register-convention FM services.\",\"Callback receives channel in A0; caller saves D0/A0 around that callback.\"],\"preserved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1617,7 +1517,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 10,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined LoadSoundDriverToZ80()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"src/asm/z80bus.s:10\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"D2 explicitly saved/restored; bus timeout still sets music restart state.\"],\"preserved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: true },
     },
     FunctionMetadata {
@@ -1633,7 +1532,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 15,
         wave: 1,
         callees: &[FunctionId(629)],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void PlaySoundEffect(long sample, short priority, short stop_channels)", details_json: "{\"argument_count\":3,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":32,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":4,\"name\":\"sample\",\"slot_bytes\":4,\"type\":\"long\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"priority\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":12,\"entry_sp_value_offset\":14,\"name\":\"stop_channels\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/audio/play_sound_effect.c:15\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 3, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1649,7 +1547,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 10,
         wave: 0,
         callees: &[FunctionId(643)],
-        atomic_capable: false,
         abi: Abi { kind: "retry_fragment", signature: "register-defined AudioRetryPendingPcmMailbox()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"D2\",\"A0\",\"CCR\"],\"evidence\":[\"src/asm/sound_pcm.s:10\",\"docs/subsystems/platform.md\"],\"kind\":\"retry_fragment\",\"notes\":[\"Fragment itself changes D0/CCR and releases Z80 bus; listed clobbers include the continuation owner.\"],\"preserved_registers\":[\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"Fallthrough into owner routine, then owner RTS\"}", argument_count: 0, returns_value: false, preserved_data: 248, preserved_address: 126, strict_registers: true },
     },
     FunctionMetadata {
@@ -1665,7 +1562,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 21,
         wave: 0,
         callees: &[FunctionId(642)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined AudioSubmitPendingPcmSample()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"D2\",\"A0\",\"CCR\"],\"evidence\":[\"src/asm/sound_pcm.s:21\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"D2 is not saved. Retry transfers into preceding fragment and falls back into this entry.\"],\"preserved_registers\":[\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 248, preserved_address: 126, strict_registers: true },
     },
     FunctionMetadata {
@@ -1681,7 +1577,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 74,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined AudioTrySubmitSequencerPcmSample(PCM header pointer sample)", details_json: "{\"argument_count\":1,\"arguments\":[{\"entry_sp_slot_offset\":4,\"name\":\"sample\",\"read_width_bits\":32,\"slot_bytes\":4,\"type\":\"PCM header pointer\"}],\"clobbers\":[\"CCR\"],\"evidence\":[\"src/asm/sound_pcm.s:74\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"Explicitly preserves D0-D2/A0 and frame A6; all data/address registers survive.\"],\"preserved_registers\":[\"D0\",\"D1\",\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 1, returns_value: false, preserved_data: 255, preserved_address: 127, strict_registers: true },
     },
     FunctionMetadata {
@@ -1697,7 +1592,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 13,
         wave: 0,
         callees: &[],
-        atomic_capable: false,
         abi: Abi { kind: "mcc68k_c", signature: "void PlaySound(short sound_number, short priority)", details_json: "{\"argument_count\":2,\"argument_order\":\"Caller pushes right-to-left; first slot is entry SP+4 after return address.\",\"arguments\":[{\"declared_width_bits\":16,\"entry_sp_slot_offset\":4,\"entry_sp_value_offset\":6,\"name\":\"sound_number\",\"slot_bytes\":4,\"type\":\"short\"},{\"declared_width_bits\":16,\"entry_sp_slot_offset\":8,\"entry_sp_value_offset\":10,\"name\":\"priority\",\"slot_bytes\":4,\"type\":\"short\"}],\"clobbers_allowed\":[\"D0\",\"D1\",\"A0\",\"A1\",\"CCR\"],\"evidence\":[\"K&R definition at src/audio/play_sound.c:13\",\"docs/COMPILER.md:18-19\",\"docs/COMPILER.md:70-79\",\"docs/subsystems/platform.md:63-66; src/asm/interrupts.s:56-63\"],\"kind\":\"mcc68k_c\",\"return\":{\"declared_type\":\"void\",\"register\":null},\"saved_registers\":[\"D2\",\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"stack_balanced_on_return\":true,\"stack_cleanup\":\"caller\"}", argument_count: 2, returns_value: false, preserved_data: 252, preserved_address: 124, strict_registers: false },
     },
     FunctionMetadata {
@@ -1713,7 +1607,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 9,
         wave: 0,
         callees: &[FunctionId(647)],
-        atomic_capable: false,
         abi: Abi { kind: "retry_fragment", signature: "register-defined AudioRetryPendingPsgMailbox()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"D2\",\"CCR\"],\"evidence\":[\"src/asm/sound_psg.s:9\",\"docs/subsystems/platform.md\"],\"kind\":\"retry_fragment\",\"notes\":[\"Fragment itself changes D0/CCR and releases Z80 bus; listed clobbers include the continuation owner.\"],\"preserved_registers\":[\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"Fallthrough into owner routine, then owner RTS\"}", argument_count: 0, returns_value: false, preserved_data: 248, preserved_address: 127, strict_registers: true },
     },
     FunctionMetadata {
@@ -1729,7 +1622,6 @@ pub static FUNCTIONS: [FunctionMetadata; 108] = [
         source_line: 20,
         wave: 0,
         callees: &[FunctionId(646)],
-        atomic_capable: false,
         abi: Abi { kind: "stack_assembly", signature: "register-defined AudioSubmitPendingIndexedCommand()", details_json: "{\"argument_count\":0,\"arguments\":[],\"clobbers\":[\"D0\",\"D1\",\"D2\",\"CCR\"],\"evidence\":[\"src/asm/sound_psg.s:20\",\"docs/subsystems/platform.md\"],\"kind\":\"stack_assembly\",\"notes\":[\"D2 is not saved. Retry transfers into preceding fragment and falls back into this entry.\"],\"preserved_registers\":[\"D3\",\"D4\",\"D5\",\"D6\",\"D7\",\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"A5\",\"A6\"],\"register_inputs\":{},\"register_outputs\":{},\"return_mechanism\":\"68000 subroutine return\"}", argument_count: 0, returns_value: false, preserved_data: 248, preserved_address: 127, strict_registers: true },
     },
 ];

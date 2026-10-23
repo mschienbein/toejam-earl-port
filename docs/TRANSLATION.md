@@ -490,8 +490,9 @@ game equivalence.
 
 ## Three worked, tested translations
 
-The complete implementations and all synthetic-memory tests live together in
-[`crates/tje-game/src/examples.rs`](../crates/tje-game/src/examples.rs). The snippets
+The complete implementations and synthetic-memory tests live in their owning
+[`core`](../crates/tje-game/src/core/mod.rs) and
+[`sprites`](../crates/tje-game/src/sprites/mod.rs) subsystem modules. The snippets
 below explain those implementations, not alternate untested versions. Tests use
 only constructed RAM/ROM bytes, never cartridge assets.
 

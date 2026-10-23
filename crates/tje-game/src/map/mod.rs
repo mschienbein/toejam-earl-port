@@ -58,6 +58,28 @@ pub fn pre_generate_randoms(context: &mut dyn Context, _: &[u32]) -> Result<Opti
     Ok(None)
 }
 
+/// Available Rust entries owned by this subsystem.
+pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::GET_RANDOM_NUMBER,
+        function: get_random_number,
+    },
+    crate::Translation {
+        id: crate::ids::STACK_BASED_RANDOM,
+        function: stack_based_random,
+    },
+    crate::Translation {
+        id: crate::ids::PRE_GENERATE_RANDOMS,
+        function: pre_generate_randoms,
+    },
+];
+
+/// Reviewed original entries that return without clock/interrupt progress.
+pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    crate::ids::GET_RANDOM_NUMBER,
+    crate::ids::STACK_BASED_RANDOM,
+    crate::ids::PRE_GENERATE_RANDOMS,
+];
 #[cfg(test)]
 mod tests {
     use super::*;

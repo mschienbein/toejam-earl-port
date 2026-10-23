@@ -4,7 +4,7 @@ use crate::{
     catalogue::{FunctionCatalogue, FunctionSymbol},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
-use tje_game::{Dispatcher, Translation};
+use tje_game::{Dispatcher, FunctionId, Translation};
 use tje_rom::Revision;
 
 pub type HookFn = fn(&mut HookContext<'_>) -> Result<Option<u32>>;
@@ -70,7 +70,43 @@ impl HookRegistry {
         }
     }
     pub fn translated(revision: Revision) -> Result<Self> {
-        Self::from_translations(revision, tje_game::TRANSLATIONS)
+        Self::filtered(revision, &[], &[])
+    }
+    /// Hook selection changes what is checked, not translated-callee dispatch.
+    /// A selected caller still uses every Rust callee available in the game.
+    pub fn filtered(
+        revision: Revision,
+        subsystems: &[&str],
+        functions: &[FunctionId],
+    ) -> Result<Self> {
+        for name in subsystems {
+            if tje_game::subsystem(name).is_none() {
+                return Err(HostError::Metadata(format!("unknown subsystem: {name}")));
+            }
+        }
+        let dispatcher = Dispatcher::hybrid();
+        for id in functions {
+            if dispatcher.translation(*id).is_none() {
+                return Err(HostError::Metadata(format!(
+                    "requested function is not translated: {}",
+                    id.metadata().name
+                )));
+            }
+        }
+        let mut registry = Self::empty(revision);
+        let all = subsystems.is_empty() && functions.is_empty();
+        for &translation in tje_game::translations() {
+            let symbol = translation.id.metadata();
+            if all || subsystems.contains(&symbol.subsystem) || functions.contains(&translation.id)
+            {
+                registry.insert(
+                    HookSymbol::Generated(symbol),
+                    tje_game::is_atomic_capable(symbol.id),
+                    Body::Game(translation),
+                )?;
+            }
+        }
+        Ok(registry)
     }
     pub fn from_translations(
         revision: Revision,
@@ -81,13 +117,14 @@ impl HookRegistry {
         for &translation in translations {
             registry.insert(
                 HookSymbol::Generated(translation.id.metadata()),
+                tje_game::is_atomic_capable(translation.id),
                 Body::Game(translation),
             )?;
         }
         Ok(registry)
     }
-    fn insert(&mut self, symbol: HookSymbol, body: Body) -> Result<()> {
-        if !symbol.atomic_capable {
+    fn insert(&mut self, symbol: HookSymbol, atomic_capable: bool, body: Body) -> Result<()> {
+        if !atomic_capable {
             return Err(HostError::NotAtomicCapable {
                 function: symbol.name.to_owned(),
             });
@@ -129,12 +166,25 @@ impl HookRegistry {
         let symbol = catalogue
             .named(name)
             .ok_or_else(|| HostError::Metadata(format!("function not catalogued: {name}")))?;
-        self.insert(HookSymbol::Generated(symbol), Body::Host(function))
+        self.insert(
+            HookSymbol::Generated(symbol),
+            tje_game::is_atomic_capable(symbol.id),
+            Body::Host(function),
+        )
     }
     /// An explicit synthetic/instrumentation contract. The caller supplies its
-    /// real ABI and atomic capability; production entries use generated metadata.
-    pub fn register_contract(&mut self, symbol: FunctionSymbol, function: HookFn) -> Result<()> {
-        self.insert(HookSymbol::Authored(Arc::new(symbol)), Body::Host(function))
+    /// real ABI and atomic capability; production entries use subsystem-owned lists.
+    pub fn register_contract(
+        &mut self,
+        symbol: FunctionSymbol,
+        atomic_capable: bool,
+        function: HookFn,
+    ) -> Result<()> {
+        self.insert(
+            HookSymbol::Authored(Arc::new(symbol)),
+            atomic_capable,
+            Body::Host(function),
+        )
     }
     pub fn revision(&self) -> Revision {
         self.revision
@@ -164,8 +214,8 @@ mod tests {
     fn complete_revision_tables_and_rejected_duplicates() {
         for revision in [Revision::Rev02, Revision::Rev00] {
             let registry = HookRegistry::translated(revision).unwrap();
-            assert_eq!(registry.len(), tje_game::TRANSLATIONS.len());
-            for translation in tje_game::TRANSLATIONS {
+            assert_eq!(registry.len(), tje_game::translations().count());
+            for translation in tje_game::translations() {
                 assert_eq!(
                     registry
                         .at(translation.id.metadata().address(revision))
@@ -187,5 +237,32 @@ mod tests {
                 .register(&catalogue, ids::GET_RANDOM_NUMBER.metadata().name, dummy)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn filters_select_hook_entries_without_disabling_rust_callees() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let map = HookRegistry::filtered(revision, &["map"], &[]).unwrap();
+            assert_eq!(map.len(), tje_game::map::TRANSLATIONS.len());
+            assert!(map.iter().all(|hook| hook.symbol.subsystem == "map"));
+            assert!(map.at(ids::LMULT.metadata().address(revision)).is_none());
+            assert!(map.dispatcher().translation(ids::LMULT).is_some());
+            let union = HookRegistry::filtered(revision, &["camera"], &[ids::ABS]).unwrap();
+            assert_eq!(union.len(), 2);
+            let one = HookRegistry::filtered(revision, &[], &[ids::PRE_GENERATE_RANDOMS]).unwrap();
+            assert_eq!(one.len(), 1);
+            assert!(
+                one.dispatcher()
+                    .translation(ids::GET_RANDOM_NUMBER)
+                    .is_some()
+            );
+            assert!(
+                HookRegistry::filtered(revision, &["audio"], &[])
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(HookRegistry::filtered(revision, &["unknown"], &[]).is_err());
+            assert!(HookRegistry::filtered(revision, &[], &[ids::FURTHER_INITIALISATION]).is_err());
+        }
     }
 }
