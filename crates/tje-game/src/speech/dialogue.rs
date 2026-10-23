@@ -1,5 +1,5 @@
 use crate::{Context, Result, execution::WaitRequest, ids};
-use tje_mem::{Address, DialogueDescriptor, ObjectState, Ptr, ram, rom};
+use tje_mem::{Address, DialogueDescriptor, ObjectState, Ptr, Revision, ram, rom};
 
 fn decrement_bubble_lifetime(value: i8) -> (i8, bool) {
     // SUBQ.B/BLT consumes the original subtraction overflow at -128.
@@ -7,12 +7,19 @@ fn decrement_bubble_lifetime(value: i8) -> (i8, bool) {
     (difference as i8, difference < 0)
 }
 
-fn object(context: &dyn Context, index: i16) -> Address<ObjectState> {
+fn object(revision: Revision, index: i16) -> Address<ObjectState> {
     // The matching compiler uses ASL.W #7 followed by ADDA.W, not a long
     // multiply. Preserve the wrapped signed word even for an invalid speaker.
-    ram::g_player_info(context.revision())
+    ram::g_player_info(revision)
         .cast::<ObjectState>()
         .byte_offset(i32::from(index.wrapping_shl(7)))
+}
+
+fn dialogue_record(revision: Revision, index: i16) -> Address<DialogueDescriptor> {
+    // The compiler's ASL.W/ADD.W sequence multiplies by twelve before ADDA.W.
+    rom::dialogue_descriptors(revision)
+        .cast::<DialogueDescriptor>()
+        .byte_offset(i32::from(index.wrapping_mul(12)))
 }
 
 /// G/src/speech/speech_and_dialogue.c:71 (`GenerateSpeech`).
@@ -23,7 +30,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
     let speaker = arguments[0] as i16;
     let text = arguments[1];
     let replace_attached = arguments[2] as i8;
-    let source = object(context, speaker);
+    let source = object(revision, speaker);
     if source.draw_flags().read(context) & 6 == 0 {
         return Ok(Some(0));
     }
@@ -36,7 +43,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         for slot in 0..4 {
             let number = i16::from(entities.at(slot).read(context));
             if number != 0 {
-                let bubble = object(context, number);
+                let bubble = object(revision, number);
                 if bubble.behavior_flags().read(context) & 8 != 0
                     && i16::from(bubble.owner().read(context)) == speaker
                 {
@@ -72,7 +79,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
     if allocated == 0 {
         return Ok(Some(0));
     }
-    let bubble = object(context, i16::from(entities.at(slot).read(context)));
+    let bubble = object(revision, i16::from(entities.at(slot).read(context)));
     let x = source.x().read(context);
     bubble.x().write(context, x);
     let y = (i32::from(source.y().read(context)) + 15) as i16;
@@ -175,7 +182,7 @@ pub fn clear_speech_bubbles_and_replies(
 
 /// G/src/speech/speech_and_dialogue.c:200 (`StartDialogue`).
 /// The speaker is read as the incoming word even for original callers that omit
-/// its argument; those callers require the separate residual call-frame API.
+/// it; those callers must supply their recovered saved-D2 slot, not a fixed player.
 pub fn start_dialogue(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let dialogue_number = arguments[0] as i16;
@@ -190,9 +197,7 @@ pub fn start_dialogue(context: &mut dyn Context, arguments: &[u32]) -> Result<Op
     } else {
         0
     };
-    let dialogue = rom::dialogue_descriptors(revision)
-        .cast::<DialogueDescriptor>()
-        .byte_offset(i32::from(dialogue_number.wrapping_mul(12)));
+    let dialogue = dialogue_record(revision, dialogue_number);
     if dialogue.first_speaker().read(context) <= 1 {
         speaker = i16::from(dialogue.first_speaker().read(context));
     } else if timers.at(slot ^ 1).read(context) != 0
@@ -266,7 +271,7 @@ pub fn update_speech_and_dialogue(
     for slot in 0..4 {
         let number = i16::from(entities.at(slot).read(context));
         if number != 0 {
-            let bubble = object(context, number);
+            let bubble = object(revision, number);
             let (lifetime, expired) = decrement_bubble_lifetime(lifetimes.at(slot).read(context));
             lifetimes.at(slot).write(context, lifetime);
             if expired || bubble.draw_flags().read(context) & 6 == 0 {
@@ -297,7 +302,7 @@ pub fn update_speech_and_dialogue(
     if crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 0x1fff == 1 {
         let player = (crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 1) as i8;
         let mask = u32::from(
-            object(context, i16::from(player))
+            object(revision, i16::from(player))
                 .draw_flags()
                 .read(context)
                 & 6,
@@ -322,8 +327,8 @@ pub fn update_speech_and_dialogue(
             }
         }
     }
-    let first = object(context, 0);
-    let second = object(context, 1);
+    let first = object(revision, 0);
+    let second = object(revision, 1);
     if first.level().read(context) == second.level().read(context) {
         let dx = i32::from(first.x().read(context)) - i32::from(second.x().read(context));
         let distance_x = crate::call(context, ids::ABS, &[dx as u32])? as i16;
@@ -370,7 +375,8 @@ pub fn update_speech_and_dialogue(
 
 #[cfg(test)]
 mod tests {
-    use super::decrement_bubble_lifetime;
+    use super::{decrement_bubble_lifetime, dialogue_record, object};
+    use tje_mem::{Revision, ram, rom};
 
     #[test]
     fn every_bubble_lifetime_byte_preserves_subq_blt_overflow() {
@@ -381,6 +387,30 @@ mod tests {
             let overflow = bits == 0x80;
             assert_eq!(stored as u8, result);
             assert_eq!(expired, negative != overflow, "lifetime {bits:#04x}");
+        }
+    }
+
+    #[test]
+    fn every_word_index_keeps_object_and_dialogue_effective_address_wrap() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let objects = ram::g_player_info(revision).address();
+            let dialogues = rom::dialogue_descriptors(revision).address();
+            for bits in 0..=65535_u32 {
+                let index = bits as u16 as i16;
+                let object_displacement = ((bits * 128) & 0xffff) as u16 as i16;
+                let dialogue_displacement = ((bits * 12) & 0xffff) as u16 as i16;
+                assert_eq!(
+                    object(revision, index).address(),
+                    objects.wrapping_add(i32::from(object_displacement) as u32)
+                );
+                assert_eq!(
+                    dialogue_record(revision, index).address(),
+                    dialogues.wrapping_add(i32::from(dialogue_displacement) as u32)
+                );
+            }
+            assert_eq!(object(revision, 512).address(), objects);
+            assert_eq!(object(revision, -1).address(), objects - 128);
+            assert_eq!(dialogue_record(revision, 5461).address(), dialogues - 4);
         }
     }
 }

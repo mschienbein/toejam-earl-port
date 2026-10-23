@@ -1,5 +1,12 @@
 use crate::{Context, Result, ids};
-use tje_mem::{Address, EarthlingState, ObjectState, ram, rom, rom_symbol};
+use tje_mem::{Address, EarthlingState, ObjectState, Revision, ram, rom, rom_symbol};
+
+fn player_record(revision: Revision, index: i16) -> Address<ObjectState> {
+    // ShipPieceAbility emits ASL.W #7 / ADDA.W, not a full-width record product.
+    ram::g_player_info(revision)
+        .cast::<ObjectState>()
+        .byte_offset(i32::from(index.wrapping_shl(7)))
+}
 
 /// G/src/ship/ship_screen_and_collection.c:614 (`ShipUpdatePendingPieceIndicator`).
 /// The allocation result narrows to the signed handle byte, including zero: the
@@ -200,9 +207,7 @@ pub fn ship_piece_ability(context: &mut dyn Context, arguments: &[u32]) -> Resul
     if ship_piece.object().read(context) == 0 {
         return Ok(None);
     }
-    let player = ram::g_player_info(revision)
-        .cast::<ObjectState>()
-        .byte_offset(i32::from(player_number.wrapping_shl(7)));
+    let player = player_record(revision, player_number);
     let _object_number = ship_piece.object().read(context);
     let mut piece_number = 0_i16;
     while piece_number < 10 {
@@ -262,4 +267,26 @@ pub fn show_random_uncollected_ship_piece(
         &[i32::from(piece) as u32, 2],
     )?;
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::player_record;
+    use tje_mem::{Revision, ram};
+
+    #[test]
+    fn every_collection_player_word_keeps_compiled_record_offset_wrap() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let base = ram::g_player_info(revision).address();
+            for bits in 0..=65535_u32 {
+                let displacement = ((bits * 128) & 0xffff) as u16 as i16;
+                assert_eq!(
+                    player_record(revision, bits as u16 as i16).address(),
+                    base.wrapping_add(i32::from(displacement) as u32)
+                );
+            }
+            assert_eq!(player_record(revision, 512).address(), base);
+            assert_eq!(player_record(revision, -1).address(), base - 128);
+        }
+    }
 }
