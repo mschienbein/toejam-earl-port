@@ -375,7 +375,7 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 
 | Callee | Residue consumed | When |
 | --- | --- | --- |
-| `AllocateEntityViewportSprites` | entry D4 low byte (as tile) | shared tiles, no resident view, selector failure |
+| `AllocateEntityViewportSprites` | entry D4 low word (as tile; MOVE.W D4,D0 then EXT.L) | shared tiles, no resident view, selector failure |
 | `ShowShipPieceName` | entry D3 (piece name) | default path |
 | `UpdateSpeechAndDialogue` → `StartDialogue` | saved entry D2 at the caller's SP (omitted speaker) | reunion calls |
 | `ShipPieceAbility` → `StartDialogue` | saved entry D2 (omitted speaker) | as above |
@@ -383,6 +383,9 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 | `IntroCreateCollisionSceneEntities` | entry A3 (parent) | parent allocation fails, attached succeeds |
 | `EarthlingUpdateBouncingDamageState` → `GetMapTerrainAtWorldPosition` | entry D1 low word (map number) | neither loaded map's level matches the object's level |
 | `EntityCreateLevelItem` → `MapFindItemPlacementPosition` | fourth argument slot = low word of `EntityCreateLevelItem`'s saved entry A2 (its caller `EntityUpdateLevelItemVisibility` leaves A2 = item) | allocation failure |
+| `MapConsumePathCellDirections` | entry D6 low byte (as shape) | pending cell has no local or adjacent directions |
+| `EntityReserveLandPathAnimations` → `AllocateEntityViewportSprites` | D4 low word = animation index 0..7 (compiled caller CLR.W D4, then ADDQ.W) | as `AllocateEntityViewportSprites` above |
+| `GenerateSpeech` → `AllocateEntityViewportSprites` | D4 low word = slot | as above |
 
 Add new cases here when you find them.
 
