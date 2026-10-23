@@ -102,9 +102,14 @@ const PARK_PC: u32 = STACK_BOTTOM;
 const PARK_BYTES: u32 = 4;
 const MAX_TIMED_TICKS: u64 = 1_000_000;
 
-fn condition_holds(emulator: &mut GenesisEmulator, condition: WaitCondition) -> Result<bool> {
+fn condition_holds(
+    emulator: &mut GenesisEmulator,
+    condition: WaitCondition,
+    interrupt_returned: bool,
+) -> Result<bool> {
     let bus = emulator.hybrid_bus_mut();
     Ok(match condition {
+        WaitCondition::Interrupt => interrupt_returned,
         WaitCondition::RamWordChanged { address, previous } => {
             let address = canonical_ram_address(address);
             if !(0xff0000..=0xfffffe).contains(&address) || address & 1 != 0 {
@@ -209,6 +214,11 @@ pub(crate) fn run_wait_with_audio(
             "a wait requires a time-aware contract".into(),
         ));
     }
+    if emulator.hybrid_cpu().status_register() & 0x8000 != 0 {
+        return Err(HostError::Metadata(
+            "trace exceptions are not an interrupt-wait contract".into(),
+        ));
+    }
     emulator.hybrid_bus_mut().apply_pending_writes();
     let saved_pc = emulator.hybrid_cpu().pc();
     let saved_sp = emulator.hybrid_cpu().stack_pointer();
@@ -236,17 +246,19 @@ pub(crate) fn run_wait_with_audio(
     }
     let mut run = ClockRun::default();
     let mut audio = HeadlessAudio { samples };
+    let mut handler_entered = false;
     let result = (|| {
         loop {
             let parked = emulator.hybrid_cpu().pc() == PARK_PC
                 && emulator.hybrid_cpu().stack_pointer() == saved_sp;
+            handler_entered |= !parked;
             if parked {
                 if emulator.hybrid_bus().memory.read_main_ram::<true>(PARK_PC) != 0x60fe {
                     return Err(HostError::Metadata(
                         "an ISR overwrote the wait sentinel".into(),
                     ));
                 }
-                let satisfied = condition_holds(emulator, request.condition)?;
+                let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
                 drain_accesses(emulator, PARK_PC, &mut run);
                 if satisfied {
                     return Ok(());
@@ -647,5 +659,44 @@ mod tests {
                 .len(),
             4
         );
+    }
+
+    #[test]
+    fn interrupt_wait_does_not_succeed_without_an_accepted_handler() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        set_sp(emulator.hybrid_parts().0, 0xff7ffc);
+        emulator.hybrid_parts().0.set_status_register(0x2700);
+        let request = WaitRequest {
+            max_ticks: 3,
+            ..WaitRequest::interrupt()
+        };
+        let error = run_wait(&mut emulator, &mut WaitClock::default(), request).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("was not satisfied after 3 real ticks")
+        );
+    }
+
+    #[test]
+    fn trace_mode_cannot_masquerade_as_an_external_interrupt() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        set_sp(emulator.hybrid_parts().0, 0xff7ffc);
+        emulator.hybrid_parts().0.set_status_register(0xa000);
+        let error = run_wait(
+            &mut emulator,
+            &mut WaitClock::default(),
+            WaitRequest::interrupt(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("trace exceptions"));
     }
 }

@@ -310,6 +310,11 @@ violations, not masked or given fabricated ready bits.
 `max_ticks` is an error bound, never a synthetic cycle charge or permission to
 resume with an unsatisfied condition. A native implementation uses its frame and
 device scheduler; no emulator type or ROM instruction address enters this trait.
+`WaitRequest::interrupt()` resumes only after an unmasked interrupt has actually
+entered and its original handler has returned. A STOP translation first applies
+the source instruction's SR, then requests that wait; the primitive never lowers
+the interrupt mask to make progress. Trace mode is rejected, not mistaken for an
+external interrupt.
 
 The hybrid implementation parks the CPU in a synthetic idle loop in disjoint,
 temporarily reserved stack space, retaining the suspended frame's SP and original

@@ -19,9 +19,22 @@ pub enum ExecutionClass {
 /// this is not permission to invent ready bits or erase polling transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitCondition {
-    RamWordChanged { address: u32, previous: u16 },
-    DeviceWord { address: u32, mask: u16, value: u16 },
-    DeviceByte { address: u32, mask: u8, value: u8 },
+    RamWordChanged {
+        address: u32,
+        previous: u16,
+    },
+    DeviceWord {
+        address: u32,
+        mask: u16,
+        value: u16,
+    },
+    DeviceByte {
+        address: u32,
+        mask: u8,
+        value: u8,
+    },
+    /// Resume only after an actually accepted, unmasked interrupt handler returns.
+    Interrupt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,5 +81,9 @@ impl WaitRequest {
             mask: 0x80,
             value: 0,
         })
+    }
+
+    pub const fn interrupt() -> Self {
+        Self::new(WaitCondition::Interrupt)
     }
 }
