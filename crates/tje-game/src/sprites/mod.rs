@@ -3,6 +3,8 @@
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
+mod frame_rendering;
+mod lifecycle;
 mod links;
 mod rendering;
 mod slots;
@@ -179,6 +181,34 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::SPRITE_UNPACK_RAW,
         function: unpack::sprite_unpack_raw,
+    },
+    crate::Translation {
+        id: crate::ids::ALLOCATE_ENTITY,
+        function: lifecycle::allocate_entity,
+    },
+    crate::Translation {
+        id: crate::ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
+        function: lifecycle::allocate_entity_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::RELEASE_ENTITY_SHADOWS,
+        function: lifecycle::release_entity_shadows,
+    },
+    crate::Translation {
+        id: crate::ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
+        function: lifecycle::release_entity_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::POSITION_ENTITY_SPRITES,
+        function: frame_rendering::position_entity_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
+        function: frame_rendering::prepare_entity_sprite_frame,
+    },
+    crate::Translation {
+        id: crate::ids::QUEUE_SPRITE_PIECE_TILES,
+        function: frame_rendering::queue_sprite_piece_tiles,
     },
 ];
 

@@ -1,4 +1,4 @@
-use super::{links, rendering, slots, unpack};
+use super::{frame_rendering, lifecycle, links, rendering, slots, unpack};
 use crate::{Context, Dispatcher, FunctionId, Result};
 use tje_mem::{Address, AddressSpace, Bus, Platform, Ptr, RenderPiece, Revision, ram, rom};
 
@@ -390,4 +390,127 @@ fn flagged_hiding_prefers_primary_list_and_does_not_mutate_the_ram_table() {
     links::hide_flagged_player_sprites(&mut machine, &[0]).unwrap();
     assert_eq!(machine.writes, [(4, 0x78c8), (4, 3), (0, 1)]);
     assert_eq!(machine.memory.ram().as_slice(), before);
+}
+
+#[test]
+fn entity_allocation_respects_gameplay_limit_and_keeps_stable_index() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let flags = ram::g_dynamic_entity_slot_allocated(revision);
+    for index in 0..34 {
+        flags.at(index).write(&mut machine, 1);
+    }
+    flags.at(20).write(&mut machine, 0);
+    assert_eq!(
+        lifecycle::allocate_entity(&mut machine, &[]).unwrap(),
+        Some(0)
+    );
+    ram::g_player1_map_level(revision).write(&mut machine, 26);
+    let entity = ram::g_player_info(revision).at(26);
+    entity.entity_index().write(&mut machine, 26);
+    entity.x().write(&mut machine, 123);
+    assert_eq!(
+        lifecycle::allocate_entity(&mut machine, &[]).unwrap(),
+        Some(26)
+    );
+    assert_eq!(entity.x().read(&machine), 0);
+    assert_eq!(entity.draw_flags().read(&machine), 1);
+    assert_eq!(entity.entity_index().read(&machine), 26);
+}
+
+#[test]
+fn viewport_release_reclaims_only_last_unshared_view_and_its_shadow() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let entity = ram::g_player_info(revision).at(6);
+    entity.draw_flags().write(&mut machine, 3);
+    entity.tile().write(&mut machine, 640);
+    entity.tile_count().write(&mut machine, 8);
+    entity.sprite_count().write(&mut machine, 1);
+    entity.primary_sprites().at(0).write(&mut machine, 25);
+    entity.primary_shadow().write(&mut machine, 29);
+    ram::g_viewport_sprite_slot_flags(revision)
+        .at(0)
+        .write(&mut machine, 3);
+    ram::g_viewport_sprite_slot_flags(revision)
+        .at(4)
+        .write(&mut machine, 1);
+    ram::g_sprite_tile_group_allocated(revision)
+        .at(0)
+        .write(&mut machine, 1);
+    lifecycle::release_entity_viewport_sprites(&mut machine, &[entity.address(), 0]).unwrap();
+    assert_eq!(entity.draw_flags().read(&machine), 1);
+    assert_eq!(entity.primary_shadow().read(&machine), 0);
+    assert_eq!(
+        ram::g_viewport_sprite_slot_flags(revision)
+            .at(0)
+            .read(&machine),
+        0
+    );
+    assert_eq!(
+        ram::g_viewport_sprite_slot_flags(revision)
+            .at(4)
+            .read(&machine),
+        0
+    );
+    assert_eq!(
+        ram::g_sprite_tile_group_allocated(revision)
+            .at(0)
+            .read(&machine),
+        0
+    );
+}
+
+#[test]
+fn frame_preparation_masks_pixels_then_appends_the_original_tile_run() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let buffer = machine.buffer();
+    let frame = Address::<tje_mem::RenderFrame>::new(buffer + 7168);
+    let piece = Address::<RenderPiece>::new(frame.address() + 4);
+    let source = buffer + 7900;
+    frame.piece_count().write(&mut machine, 1);
+    piece.width().write(&mut machine, 1);
+    piece.height().write(&mut machine, 1);
+    piece.tile_format().write(&mut machine, 2);
+    piece.tile_data().write(&mut machine, Ptr::new(source));
+    machine.write_u8(source, 0x60);
+    let entity = ram::g_player_info(revision).at(6);
+    entity.entity_index().write(&mut machine, 6);
+    entity.tile().write(&mut machine, 640);
+    entity.behavior_flags().write(&mut machine, 0x20);
+    entity.primary_sprites().at(0).write(&mut machine, 25);
+    frame_rendering::prepare_entity_sprite_frame(
+        &mut machine,
+        &[entity.address(), frame.address(), 0, 0],
+    )
+    .unwrap();
+    assert!((0..32).all(|index| machine.read_u8(buffer + index) == 0));
+    assert_eq!(
+        ram::g_sprite_tile_buffer_offset(revision).read(&machine),
+        32
+    );
+    assert_eq!(
+        ram::g_sprite_tile_upload_queue_word_count(revision).read(&machine),
+        2
+    );
+    assert_eq!(
+        ram::g_sprite_tile_upload_runs(revision)
+            .at(0)
+            .read(&machine),
+        640
+    );
+    assert_eq!(
+        ram::g_sprite_tile_upload_runs(revision)
+            .at(1)
+            .read(&machine),
+        1
+    );
+    assert_eq!(
+        ram::g_hardware_sprite_table(revision)
+            .at(25)
+            .tile()
+            .read(&machine),
+        0x4280
+    );
 }

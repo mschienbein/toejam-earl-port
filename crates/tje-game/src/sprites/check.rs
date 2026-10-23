@@ -5,6 +5,8 @@ use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 
+mod check_callers;
+
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     if !host.checks.by_function.contains_key(id.metadata().name) {
         return; // Explicit function filtering also filters synthetic fixture calls.
@@ -308,6 +310,7 @@ fn fixture_coverage(host: &mut Host) {
             .write(&mut host.context(), 78);
         check(host, ids::HIDE_FLAGGED_PLAYER_SPRITES, &[0]);
     }
+    check_callers::fixtures(host);
 }
 
 fn seed_registers(host: &mut Host) {
@@ -453,5 +456,18 @@ fn main() {
         .iter()
         .map(|translation| translation.id)
         .collect();
-    assert!(tje_game::Dispatcher::native(&roots).is_ok());
+    let missing: Vec<_> = tje_game::Dispatcher::native(&roots)
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| id.metadata().name)
+        .collect();
+    let closure =
+        serde_json::json!({"native_closure_complete":missing.is_empty(), "missing":missing});
+    fs::write(
+        evidence.join("native-closure.json"),
+        serde_json::to_vec_pretty(&closure).unwrap(),
+    )
+    .unwrap();
+    println!("NATIVE_CLOSURE {closure}");
 }
