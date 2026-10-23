@@ -272,20 +272,18 @@ impl<'a> HookContext<'a> {
                                 value as u8
                             },
                         });
-                    } else if semantic {
-                        if let Some(index) = self.translated_stack_offset(address) {
-                            if self.stack_audit.as_ref().expect("enabled audit").written[index / 64]
-                                & (1 << (index % 64))
-                                == 0
-                            {
-                                self.uninitialized_reads
-                                    .get_mut()
-                                    .insert(UninitializedStackRead {
-                                        pc,
-                                        address: canonical_ram_address(address),
-                                    });
-                            }
-                        }
+                    } else if semantic
+                        && let Some(index) = self.translated_stack_offset(address)
+                        && self.stack_audit.as_ref().expect("enabled audit").written[index / 64]
+                            & (1 << (index % 64))
+                            == 0
+                    {
+                        self.uninitialized_reads
+                            .get_mut()
+                            .insert(UninitializedStackRead {
+                                pc,
+                                address: canonical_ram_address(address),
+                            });
                     }
                 }
             } else if writing {
