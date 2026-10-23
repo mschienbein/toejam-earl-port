@@ -248,7 +248,7 @@ mod tests {
             assert!(map.at(ids::LMULT.metadata().address(revision)).is_none());
             assert!(map.dispatcher().translation(ids::LMULT).is_some());
             let union = HookRegistry::filtered(revision, &["camera"], &[ids::ABS]).unwrap();
-            assert_eq!(union.len(), 2);
+            assert_eq!(union.len(), tje_game::camera::TRANSLATIONS.len() + 1);
             let one = HookRegistry::filtered(revision, &[], &[ids::PRE_GENERATE_RANDOMS]).unwrap();
             assert_eq!(one.len(), 1);
             assert!(
@@ -256,10 +256,11 @@ mod tests {
                     .translation(ids::GET_RANDOM_NUMBER)
                     .is_some()
             );
-            assert!(
+            assert_eq!(
                 HookRegistry::filtered(revision, &["audio"], &[])
                     .unwrap()
-                    .is_empty()
+                    .len(),
+                tje_game::audio::TRANSLATIONS.len()
             );
             assert!(HookRegistry::filtered(revision, &["unknown"], &[]).is_err());
             assert!(HookRegistry::filtered(revision, &[], &[ids::FURTHER_INITIALISATION]).is_err());

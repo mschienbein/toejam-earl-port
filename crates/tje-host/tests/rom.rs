@@ -436,6 +436,43 @@ fn drive_live_fixture_coverage(host: &mut Host) {
     check(host, ids::PRE_GENERATE_RANDOMS, &[]);
 }
 
+fn assert_pilot_coverage(host: &Host) {
+    // Independent fixed acceptance denominator. Future lanes own their additional
+    // fixture coverage; their globally unexercised entries remain in the report.
+    for id in [
+        ids::ABS,
+        ids::LMODT,
+        ids::LDIVT,
+        ids::LMULT,
+        ids::ULMODT,
+        ids::ULDIVT,
+        ids::GET_RANDOM_NUMBER,
+        ids::STACK_BASED_RANDOM,
+        ids::PRE_GENERATE_RANDOMS,
+        ids::DISABLE_BLANKING_GRAPHICS,
+        ids::ENABLE_BLANKING_GRAPHICS,
+        ids::GET_V_BLANK_GRAPHICS_ENABLED,
+        ids::READ_MAPPED_PLAYER_INPUT,
+        ids::GET_LEVEL_MUSIC_INDEX,
+        ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
+        ids::ENABLE_TEXT_FONT_ANIMATION,
+        ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
+        ids::PLAYER_GET_MAXIMUM_HEALTH,
+        ids::GET_SCORE_FOR_PROMO,
+        ids::STOP_PLAYER,
+        ids::PLAYER_INITIALIZE_PHASED_JUMP_MOTION,
+        ids::ENTITY_HAS_FREE_TIMED_EFFECT_SLOT,
+        ids::SET_NEXT_SPEECH_LIFETIME,
+        ids::UPDATE_ATTACHED_ENTITY_POSITION,
+        ids::SELECT_SPRITE_CHAIN_START,
+    ] {
+        let name = id.metadata().name;
+        let coverage = &host.checks.by_function[name];
+        assert!(coverage.calls_checked > 0, "unexercised pilot: {name}");
+        assert_eq!(coverage.mismatches, 0, "{name}");
+    }
+}
+
 #[test]
 #[ignore = "requires both private retail ROMs"]
 fn repeated_diagnostic_hardware_calls_do_not_fill_live_frozen_fifo() {
@@ -448,7 +485,7 @@ fn repeated_diagnostic_hardware_calls_do_not_fill_live_frozen_fifo() {
         assert!(host.measurements.game_frame.is_some());
         drive_live_fixture_coverage(&mut host);
         assert_eq!(host.frame_count(), 1300);
-        assert!(host.checks.unexercised.is_empty());
+        assert_pilot_coverage(&host);
         assert_eq!(host.checks.mismatches, 0);
     }
 }
@@ -501,7 +538,7 @@ fn gameplay_10000_frames_both_revisions_and_every_pilot_hook() {
         drive_live_fixture_coverage(&mut checked);
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());
-        assert!(checked.checks.unexercised.is_empty());
+        assert_pilot_coverage(&checked);
         println!(
             "PILOT_COVERAGE {}",
             serde_json::json!({"revision":revision.name(),"frames":checked.frame_count(),"title_frame":checked.measurements.title_frame,"menu_frame":checked.measurements.menu_frame,"game_frame":checked.measurements.game_frame,"logic_ticks":checked.measurements.logic_ticks,"natural":natural_coverage,"with_live_fixtures":checked.checks})

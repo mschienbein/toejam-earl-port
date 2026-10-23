@@ -17,8 +17,12 @@ fn filtered_live_fixtures_report_subsystems_and_unexercised_entries() {
             .unwrap_or_else(|| PathBuf::from("../../roms").join(file));
         let registry = HookRegistry::filtered(
             revision,
-            &["camera", "speech"],
-            &[ids::PRE_GENERATE_RANDOMS],
+            &[],
+            &[
+                ids::PRE_GENERATE_RANDOMS,
+                ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
+                ids::SET_NEXT_SPEECH_LIFETIME,
+            ],
         )
         .unwrap();
         let mut host = Host::new(&fs::read(path).unwrap(), Mode::Check, registry).unwrap();
