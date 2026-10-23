@@ -115,7 +115,7 @@ pub fn map_release_level_item_bank(
 pub fn drop_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let index = i32::from(arguments[0] as i16);
-    let player = ram::g_player_info(revision).at(index);
+    let player = super::word_indexed_player(revision, index);
     if player.animation_group_mask().read(context) & 0x800 != 0
         || matches!(player.sprite_state().read(context), 3 | 7)
     {

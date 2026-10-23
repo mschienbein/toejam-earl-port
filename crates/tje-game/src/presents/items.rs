@@ -27,7 +27,7 @@ pub fn present_try_end_active_powerup(
 ) -> Result<Option<u32>> {
     let revision = context.revision();
     let index = i32::from(arguments[0] as i16);
-    let player = ram::g_player_info(revision).at(index);
+    let player = super::word_indexed_player(revision, index);
     let terrain = if index == 0 {
         ram::g_player1_terrain_underfoot(revision).read(context)
     } else {
@@ -261,7 +261,7 @@ pub fn player_collect_nearby_items(
     let items = Address::<LevelItem>::new(arguments[1]);
     let count = i32::from(arguments[2] as i16);
     let record = arguments[3] as i8;
-    let player = ram::g_player_info(revision).at(index);
+    let player = super::word_indexed_player(revision, index);
     if ram::g_player_lives(revision).at(index).read(context) < 0
         || player.height().read(context) >= 4
         || matches!(player.sprite_state().read(context), 3 | 7 | 77)

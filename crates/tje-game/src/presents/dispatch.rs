@@ -112,7 +112,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
     let revision = context.revision();
     let index = i32::from(arguments[0] as i16);
     let mut present = arguments[1] as i16;
-    let player = ram::g_player_info(revision).at(index);
+    let player = super::word_indexed_player(revision, index);
     if ram::g_player_elevator_flags(revision)
         .at(index)
         .read(context)

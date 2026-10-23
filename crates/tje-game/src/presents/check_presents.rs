@@ -313,6 +313,7 @@ fn main() {
             wave3_fixtures(&mut host);
             later_atomic_fixtures(&mut host);
             wave67_atomic_fixtures(&mut host);
+            word_index_fixtures(&mut host);
         }));
         fs::write(
             evidence.join(format!("{name}-with-fixtures.json")),
@@ -750,4 +751,158 @@ fn wave67_atomic_fixtures(host: &mut Host) {
         fixture(host, ids::PLAYER_REMAP_DIRECTIONAL_INPUT, &[0]);
     }
     fixture(host, ids::NO_OP, &[]);
+}
+
+fn word_index_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    // These are labelled interventions on the live gameplay fork, not ordinary
+    // player identities. The independent fixture arithmetic is the reviewed
+    // 16-bit scale/sign-extension, rather than the game's addressing helper.
+    // Index 256 reaches unknown RAM FF22A6 in the original, which the checker
+    // rejects as a stateful dead-stack dependency (retained failed receipt).
+    // Exhaustive address-only tests still cover that displacement and i16::MIN.
+    for index in [-512_i16, -1, 0, 1, 512] {
+        let index32 = i32::from(index);
+        let player = ram::g_player_info(revision)
+            .at(0)
+            .byte_offset(i32::from(index.wrapping_mul(128)));
+        player.x().write(&mut host.context(), 400);
+        player.y().write(&mut host.context(), 400);
+        player.level().write(&mut host.context(), 23);
+        player.sprite_state().write(&mut host.context(), 0);
+        player.animation_group_mask().write(&mut host.context(), 0);
+        ram::g_player_lives(revision)
+            .at(index32 ^ 1)
+            .write(&mut host.context(), -1);
+        ram::g_player_transient_effect_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 38);
+        let object = ram::g_player_info(revision).at(39);
+        object.draw_flags().write(&mut host.context(), 1);
+        object.sprite_state().write(&mut host.context(), 0);
+        object.behavior_flags().write(&mut host.context(), 0);
+        object.level().write(&mut host.context(), 23);
+        ram::g_player_rain_cloud_states(revision)
+            .at(index32)
+            .write(&mut host.context(), 39);
+        ram::g_player_elevator_flags(revision)
+            .at(index32)
+            .write(&mut host.context(), 1);
+        ram::g_player_inventory_open(revision)
+            .at(index32)
+            .write(&mut host.context(), 0);
+        fixture(host, ids::PRESENT_UPDATE_RAIN_CLOUD, &[index as u32]);
+
+        ram::g_player_decoy_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 39);
+        ram::g_player_decoy_hit_counts(revision)
+            .at(index32)
+            .write(&mut host.context(), 0);
+        ram::g_player_transient_effect_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 0);
+        fixture(host, ids::PRESENT_UPDATE_DECOY, &[index as u32]);
+        ram::g_player_transient_effect_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 38);
+        fixture(host, ids::OPEN_DECOY, &[index as u32]);
+        ram::g_player_doorway_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 39);
+        fixture(host, ids::PRESENT_IS_DOORWAY, &[index as u32]);
+        ram::g_player_boom_box_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 39);
+        fixture(host, ids::OPEN_BOOM_BOX, &[index as u32]);
+
+        for slot in 0..34 {
+            ram::g_dynamic_entity_slot_allocated(revision)
+                .at(slot)
+                .write(&mut host.context(), 0);
+        }
+        ram::g_player_rain_cloud_states(revision)
+            .at(index32)
+            .write(&mut host.context(), 0);
+        fixture(host, ids::PRESENT_IS_RAIN_CLOUD, &[index as u32]);
+        ram::g_player_control_remap_entities(revision)
+            .at(index32)
+            .write(&mut host.context(), 0);
+        fixture(
+            host,
+            ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
+            &[index as u32],
+        );
+        for number in [index32, index32 ^ 1] {
+            ram::g_telephone_states(revision)
+                .at(number)
+                .level()
+                .write(&mut host.context(), 0);
+            ram::g_telephone_states(revision)
+                .at(number)
+                .object()
+                .write(&mut host.context(), 0);
+        }
+        fixture(host, ids::OPEN_TELEPHONE, &[index as u32]);
+        let land = if index == 0 {
+            ram::g_player1_nearby_terrain(revision).cast::<u8>()
+        } else {
+            ram::g_player2_nearby_terrain(revision).cast::<u8>()
+        };
+        for offset in 0..25 {
+            land.offset(offset).write(&mut host.context(), 0x10);
+        }
+        for slot in 0..32 {
+            let item = ram::g_dropped_present_table(revision).at(slot);
+            item.kind().write(&mut host.context(), -1);
+            item.object().write(&mut host.context(), 0);
+        }
+        ram::g_dropped_present_table_idx(revision).write(&mut host.context(), 0);
+        fixture(host, ids::DROP_PRESENT, &[index as u32, 27]);
+    }
+    // The minimal ReviewA counterexample, including large negative indexes
+    // whose word displacement aliases player zero or points into actual ROM.
+    for index in [-513_i16, -257, 255, 511, 512] {
+        ram::g_player_rain_cloud_states(revision)
+            .at(i32::from(index))
+            .write(&mut host.context(), 39);
+        ram::g_player_elevator_flags(revision)
+            .at(i32::from(index))
+            .write(&mut host.context(), 1);
+        ram::g_player_inventory_open(revision)
+            .at(i32::from(index))
+            .write(&mut host.context(), 0);
+        ram::g_player_info(revision)
+            .at(39)
+            .sprite_state()
+            .write(&mut host.context(), 0);
+        ram::g_player_info(revision)
+            .at(0)
+            .level()
+            .write(&mut host.context(), 23);
+        fixture(host, ids::PRESENT_UPDATE_RAIN_CLOUD, &[index as u32]);
+    }
+    // Deliberate full-long source path: do not "fix" this int-indexed player
+    // access into the short-index form used by the effects above.
+    // Its -257 variant reads the same unknown RAM gap and is retained as
+    // a separate rejected receipt, not counted in this approval run.
+    for index in [512_i32] {
+        ram::g_player_tomato_rain_ticks(revision)
+            .at(index)
+            .write(&mut host.context(), 1);
+        ram::g_player_tomato_rain_spawn_delay(revision)
+            .at(index)
+            .write(&mut host.context(), 0);
+        for slot in 4..12 {
+            ram::g_shared_projectile_entities(revision)
+                .at(slot)
+                .write(&mut host.context(), 0);
+        }
+        for slot in 0..34 {
+            ram::g_dynamic_entity_slot_allocated(revision)
+                .at(slot)
+                .write(&mut host.context(), 0);
+        }
+        fixture(host, ids::CHECK_TOMATO_RAIN_TIMER, &[index as u32]);
+    }
 }

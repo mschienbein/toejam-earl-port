@@ -614,7 +614,7 @@ pub fn player_apply_control_remap_effect(
         handle.write(context, number);
         if number != 0 {
             let effect = ram::g_player_info(revision).at(i32::from(number));
-            let player = ram::g_player_info(revision).at(index);
+            let player = super::word_indexed_player(revision, index);
             effect
                 .behavior_flags()
                 .write(context, effect.behavior_flags().read(context) | 8);

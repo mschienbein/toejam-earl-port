@@ -35,7 +35,7 @@ pub fn telephone_start_ring(context: &mut dyn Context, arguments: &[u32]) -> Res
 pub fn open_telephone(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let index = i32::from(arguments[0] as i16);
-    let mut player = ram::g_player_info(revision).at(index);
+    let mut player = super::word_indexed_player(revision, index);
     let states = ram::g_telephone_states(revision);
     let activated = ram::g_telephone_activated(revision);
     let number = if states.at(index).level().read(context) == 0 {
@@ -58,6 +58,8 @@ pub fn open_telephone(context: &mut dyn Context, arguments: &[u32]) -> Result<Op
         .y()
         .write(context, player.y().read(context).wrapping_add(10));
     if ram::g_player_lives(revision).at(index ^ 1).read(context) >= 0 {
+        // The XOR expression is promoted first: this separate ASL.L path must
+        // retain full-width scaling (G's c_telephone_open.s:192-198).
         player = ram::g_player_info(revision).at(index ^ 1);
         if player.level().read(context) == telephone.level().read(context)
             && 16

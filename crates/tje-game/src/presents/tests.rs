@@ -92,3 +92,39 @@ fn every_original_is_classified_and_pending_bodies_are_not_dispatched() {
         );
     }
 }
+
+#[test]
+fn every_short_player_index_uses_signed_word_scaled_displacement() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let base = tje_mem::ram::g_player_info(revision).address();
+        for bits in 0..=u16::MAX {
+            let index = bits as i16;
+            let low_word = (i32::from(index) * 128) as u16;
+            let displacement = if low_word & 0x8000 != 0 {
+                i32::from(low_word) - 0x10000
+            } else {
+                i32::from(low_word)
+            };
+            assert_eq!(
+                super::word_indexed_player(revision, i32::from(index)).address(),
+                base.wrapping_add(displacement as u32),
+                "player {index}"
+            );
+        }
+        // Positive wrap and a negative offset that wraps to a positive word.
+        assert_eq!(super::word_indexed_player(revision, 512).address(), base);
+        assert_eq!(
+            super::word_indexed_player(revision, -257).address(),
+            base.wrapping_add(32640)
+        );
+        // MOVE.L/ASL.L in CheckTomatoRainTimer must remain a different path.
+        assert_eq!(
+            tje_mem::ram::g_player_info(revision).at(512).address(),
+            base.wrapping_add(65536)
+        );
+        assert_ne!(
+            super::word_indexed_player(revision, 512).address(),
+            tje_mem::ram::g_player_info(revision).at(512).address()
+        );
+    }
+}

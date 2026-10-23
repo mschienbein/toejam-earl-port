@@ -11,6 +11,15 @@ mod placement;
 mod projectiles;
 mod telephone;
 
+/// MCC68K MOVE.W/ASL.W #7 followed by signed ADDA.W, not full pointer scaling.
+/// G/build/rev02/asm/c_present_effects.s:1381-1384; the same emitted form is
+/// used by the short-player object accesses reviewed in this subsystem.
+#[inline]
+fn word_indexed_player(revision: tje_mem::Revision, index: i32) -> Address<ObjectState> {
+    let offset = i32::from((index as i16).wrapping_shl(7));
+    ram::g_player_info(revision).at(0).byte_offset(offset)
+}
+
 /// SUBQ.B followed directly by a signed branch consumes N xor V, not the
 /// sign of a reloaded byte. The store still wraps at the declared width.
 #[inline]

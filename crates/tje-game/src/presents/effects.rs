@@ -81,7 +81,7 @@ pub fn present_update_rain_cloud(
         return Ok(None);
     }
     let cloud = ram::g_player_info(revision).at(i32::from(number));
-    let player = ram::g_player_info(revision).at(index);
+    let player = super::word_indexed_player(revision, index);
     cloud.level().write(context, player.level().read(context));
     let mut animation = None;
     let animations = rom::player_rain_cloud_animations(revision);
@@ -173,7 +173,9 @@ pub fn present_update_decoy(context: &mut dyn Context, arguments: &[u32]) -> Res
         decoy
             .behavior_flags()
             .write(context, decoy.behavior_flags().read(context) & !0x40);
-        if ram::g_player_info(revision).at(index).level().read(context)
+        if super::word_indexed_player(revision, index)
+            .level()
+            .read(context)
             != decoy.level().read(context)
         {
             call(context, ids::FREE_ENTITY, &[number as u32])?;
@@ -209,7 +211,7 @@ pub fn open_decoy(context: &mut dyn Context, arguments: &[u32]) -> Result<Option
     }
     if handle.read(context) != 0 {
         let decoy = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-        let player = ram::g_player_info(revision).at(index);
+        let player = super::word_indexed_player(revision, index);
         decoy.x().write(context, player.x().read(context));
         decoy
             .y()
@@ -280,7 +282,7 @@ pub fn present_is_doorway(context: &mut dyn Context, arguments: &[u32]) -> Resul
     }
     if handle.read(context) != 0 {
         let doorway = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-        let player = ram::g_player_info(revision).at(index);
+        let player = super::word_indexed_player(revision, index);
         doorway.x().write(context, player.x().read(context) & !7);
         let delta = if call(context, ids::GET_RANDOM_NUMBER, &[])? & 1 != 0 {
             -32
@@ -361,7 +363,7 @@ pub fn present_is_rain_cloud(context: &mut dyn Context, arguments: &[u32]) -> Re
         handle.write(context, number);
         if number != 0 {
             let cloud = ram::g_player_info(revision).at(i32::from(number));
-            let player = ram::g_player_info(revision).at(index);
+            let player = super::word_indexed_player(revision, index);
             cloud.level().write(context, player.level().read(context));
             cloud
                 .behavior_flags()
@@ -409,7 +411,7 @@ pub fn open_boom_box(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
     }
     if handle.read(context) != 0 {
         let object = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-        let player = ram::g_player_info(revision).at(index);
+        let player = super::word_indexed_player(revision, index);
         object.x().write(context, player.x().read(context));
         object
             .y()
@@ -515,7 +517,7 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
     };
     if allocated {
         let display = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-        let player = ram::g_player_info(revision).at(index);
+        let player = super::word_indexed_player(revision, index);
         display
             .behavior_flags()
             .write(context, display.behavior_flags().read(context) | 8);
@@ -587,11 +589,8 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
                 ))
                 .read(context)
                 .address();
-            call(
-                context,
-                ids::GENERATE_SPEECH,
-                &[ram::g_player_info(revision).at(index).address(), text, 1],
-            )?;
+            let speaker = super::word_indexed_player(revision, index).address();
+            call(context, ids::GENERATE_SPEECH, &[speaker, text, 1])?;
             call(
                 context,
                 ids::PLAY_SOUND_EFFECT,
@@ -624,8 +623,7 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
         } else {
             let remaining = super::predecrement_i8(context, timer);
             if remaining < 0 {
-                let mask = ram::g_player_info(revision)
-                    .at(index)
+                let mask = super::word_indexed_player(revision, index)
                     .draw_flags()
                     .read(context)
                     & 6;
