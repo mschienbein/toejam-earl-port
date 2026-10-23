@@ -643,6 +643,14 @@ impl Ym2612 {
         }
     }
 
+    /// TJE hybrid check forks only: quotient out the fixed 32-internal-cycle
+    /// register-write latency. Writes already update registers synchronously;
+    /// BUSY has no pending commit and cannot remain asserted without another write.
+    /// Timers, oscillators, status-latch semantics and samples are not advanced.
+    pub fn hybrid_settle_write_busy(&mut self) {
+        self.busy_cycles_remaining = 0;
+    }
+
     #[allow(clippy::unused_self)]
     #[must_use]
     pub fn read_register(&mut self, address: u16) -> u8 {

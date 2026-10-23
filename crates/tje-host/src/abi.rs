@@ -3,6 +3,7 @@
 //! Differential calls are atomic: peripheral clocks are frozen and interrupts
 //! masked on both forks; the live check-mode machine retains original timing.
 
+use crate::execution::{ClockRun, WaitClock, run_original_timed, run_wait};
 use crate::{
     HostError, Result,
     catalogue::{STACK_BOTTOM, STACK_TOP},
@@ -11,6 +12,7 @@ use genesis_core::{GenesisBus, GenesisEmulator};
 use m68000_emu::{BusInterface, M68000, debug::DummyM68000Debugger};
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeSet};
+use tje_game::execution::{ExecutionClass, WaitRequest};
 use tje_game::{Dispatcher, FunctionId};
 use tje_rom::Revision;
 
@@ -201,6 +203,10 @@ pub struct HookContext<'a> {
     pub(crate) writes: Vec<OrderedWrite>,
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
     stack_audit: Option<TranslatedStackAudit>,
+    pub(crate) execution_class: ExecutionClass,
+    pub(crate) wait_clock: WaitClock,
+    pub(crate) time_audio: Vec<[f64; 2]>,
+    pub time_frames: u64,
 }
 
 impl<'a> HookContext<'a> {
@@ -217,7 +223,84 @@ impl<'a> HookContext<'a> {
             nested_calls: 0,
             uninitialized_reads: RefCell::new(BTreeSet::new()),
             stack_audit: None,
+            execution_class: ExecutionClass::Atomic,
+            wait_clock: WaitClock::default(),
+            time_audio: Vec::new(),
+            time_frames: 0,
         }
+    }
+
+    pub(crate) fn with_execution(mut self, class: ExecutionClass, clock: WaitClock) -> Self {
+        self.execution_class = class;
+        self.wait_clock = clock;
+        self
+    }
+
+    /// Merge real IRQ/recipe accesses into the existing active-frame audit.
+    /// A wait must never reset initialized bytes or replace the frame identity.
+    fn merge_clock_run(&mut self, run: ClockRun) {
+        for (pc, access) in run.accesses {
+            let (address, word, value, writing, semantic) = match access {
+                genesis_core::HybridAccess::Read {
+                    address,
+                    word,
+                    value,
+                    purpose,
+                } => (
+                    address,
+                    word,
+                    value,
+                    false,
+                    purpose == m68000_emu::ReadPurpose::Semantic,
+                ),
+                genesis_core::HybridAccess::Write {
+                    address,
+                    word,
+                    value,
+                } => (address, word, value, true, true),
+            };
+            if address >= 0xe00000 {
+                for offset in 0..if word { 2 } else { 1 } {
+                    let address = address + offset;
+                    if writing {
+                        self.audit_translated_write(address);
+                        self.writes.push(OrderedWrite::Ram {
+                            address: canonical_ram_address(address),
+                            value: if word && offset == 0 {
+                                (value >> 8) as u8
+                            } else {
+                                value as u8
+                            },
+                        });
+                    } else if semantic {
+                        if let Some(index) = self.translated_stack_offset(address) {
+                            if self.stack_audit.as_ref().expect("enabled audit").written[index / 64]
+                                & (1 << (index % 64))
+                                == 0
+                            {
+                                self.uninitialized_reads
+                                    .get_mut()
+                                    .insert(UninitializedStackRead {
+                                        pc,
+                                        address: canonical_ram_address(address),
+                                    });
+                            }
+                        }
+                    }
+                }
+            } else if writing {
+                self.writes.push(if word {
+                    OrderedWrite::DeviceWord { address, value }
+                } else {
+                    OrderedWrite::DeviceByte {
+                        address,
+                        value: value as u8,
+                    }
+                });
+            }
+        }
+        self.time_audio.extend(run.audio);
+        self.time_frames += run.frames;
     }
 
     pub(crate) fn enable_stack_audit(&mut self) {
@@ -350,6 +433,25 @@ impl<'a> HookContext<'a> {
                 function: contract.name.to_owned(),
             });
         }
+        self.call_original_with_execution_contract(contract, ExecutionClass::Atomic, arguments)
+    }
+
+    pub fn call_original_with_execution_contract(
+        &mut self,
+        contract: &tje_game::FunctionMetadata,
+        execution_class: ExecutionClass,
+        arguments: &[u32],
+    ) -> Result<u32> {
+        if (self.execution_class == ExecutionClass::Atomic
+            && execution_class != ExecutionClass::Atomic)
+            || (self.execution_class == ExecutionClass::Functional
+                && execution_class == ExecutionClass::TimeAware)
+        {
+            return Err(HostError::Metadata(format!(
+                "{} requires {execution_class:?}, unavailable inside {:?}",
+                contract.name, self.execution_class
+            )));
+        }
         let address = contract.address(self.revision);
         self.emulator.hybrid_bus_mut().apply_pending_writes();
         let saved_sp = self.emulator.hybrid_cpu().stack_pointer();
@@ -365,7 +467,21 @@ impl<'a> HookContext<'a> {
         let (cpu, bus) = self.emulator.hybrid_parts();
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
-        let audit = run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp)?;
+        let audit = if self.execution_class == ExecutionClass::TimeAware
+            || (execution_class == ExecutionClass::Functional
+                && !self.emulator.hybrid_bus().hybrid_functional_mode())
+        {
+            let (_, clock_run) = run_original_timed(
+                self.emulator,
+                &mut self.wait_clock,
+                CALL_SENTINEL,
+                cleanup_sp,
+            )?;
+            self.merge_clock_run(clock_run);
+            AtomicRun::default()
+        } else {
+            run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp)?
+        };
         for write in &audit.writes {
             if let OrderedWrite::Ram { address, .. } = *write {
                 self.audit_translated_write(address);
@@ -467,6 +583,18 @@ impl tje_mem::Platform for HookContext<'_> {
     }
 }
 impl tje_game::Platform for HookContext<'_> {
+    fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
+        if self.execution_class != ExecutionClass::TimeAware {
+            return Err(tje_game::Error::Platform(
+                "a wait requires an explicit time-aware execution contract".into(),
+            ));
+        }
+        let run = run_wait(self.emulator, &mut self.wait_clock, request)
+            .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
+        self.merge_clock_run(run);
+        Ok(())
+    }
+
     fn read_device_u8(&mut self, address: u32) -> u8 {
         self.audit_translated_read(address);
         let bus = self.emulator.hybrid_bus_mut();
@@ -538,6 +666,15 @@ impl tje_game::Context for HookContext<'_> {
     }
     fn call_original(&mut self, id: FunctionId, arguments: &[u32]) -> tje_game::Result<u32> {
         HookContext::call_original(self, id.metadata().address(self.revision), arguments)
+            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+    }
+    fn call_original_with_execution(
+        &mut self,
+        id: FunctionId,
+        arguments: &[u32],
+        class: ExecutionClass,
+    ) -> tje_game::Result<u32> {
+        self.call_original_with_execution_contract(id.metadata(), class, arguments)
             .map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
 }

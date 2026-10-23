@@ -617,6 +617,19 @@ impl Vdp {
         self.control_port.dma_active
     }
 
+    /// TJE hybrid: logical device output after both forks' pending transactions
+    /// have been completed. This intentionally does not prove raster/FIFO/cache/
+    /// interrupt phase; use hybrid_state_eq for atomic checks and session timing.
+    /// Ordered reads must still compare exactly, including status/HV operands.
+    pub fn hybrid_logic_state_eq(&self, other: &Self) -> bool {
+        self.control_port == other.control_port
+            && self.registers == other.registers
+            && self.debug_register == other.debug_register
+            && self.vram.as_ref() == other.vram.as_ref()
+            && self.cram.as_ref() == other.cram.as_ref()
+            && self.vsram.as_ref() == other.vsram.as_ref()
+    }
+
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(timing_mode: TimingMode, config: VdpConfig) -> Self {
@@ -1189,6 +1202,32 @@ impl Vdp {
 
         if render_partial_line {
             self.maybe_render_partial_line(self.state.pixel);
+        }
+    }
+
+    /// TJE hybrid: complete transaction latency on a check fork, without advancing
+    /// the raster or producing interrupts. Uses the same FIFO/DMA commit paths as
+    /// normal emulation. The host must never call this on its live timed machine.
+    pub fn hybrid_complete_transfers(&mut self, memory: &mut impl VdpBusView) {
+        loop {
+            if !self.fifo.is_empty() {
+                self.pop_fifo();
+            } else if self.control_port.dma_active {
+                match self.registers.dma_mode {
+                    DmaMode::MemoryToVram => {
+                        // Slot zero is never the extra skipped post-refresh slot.
+                        self.progress_memory_to_vram_dma(0, &H40_BLANK_REFRESH_SLOTS, memory);
+                    }
+                    DmaMode::VramFill if self.state.vram_fill_data.is_some() => {
+                        self.progress_vram_fill_dma();
+                    }
+                    DmaMode::VramCopy => self.progress_vram_copy_dma(),
+                    // A fill armed without its data word is not a pending transfer.
+                    DmaMode::VramFill => break,
+                }
+            } else {
+                break;
+            }
         }
     }
 

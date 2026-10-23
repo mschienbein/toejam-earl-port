@@ -225,4 +225,97 @@ Never commit ROM bytes, extracted assets, recorded RAM, screenshots or audio.
 Only metadata, original Rust translations, synthetic tests and textual coverage
 counts belong in the public repository.
 
+## 5. Non-atomic logic checks and time-progressing waits
+
+The atomic-only restriction in section 2 is the default, not a reason to label a
+hardware wait atomic. A reviewed execution contract uses
+`tje_game::execution::ExecutionClass`:
+
+| Class | Execution on check forks | What must be reviewed |
+| --- | --- | --- |
+| `Atomic` | Original CPU instructions and Rust, peripheral clocks frozen; existing full state/trace comparison | Every return path and original callee returns without time or interrupt progress; the live FIFO can accept all accesses |
+| `Functional` | Both forks use immediate device transaction completion, clocks otherwise frozen; existing full state/trace comparison | No raster/status/HV/FIFO/DMA-busy observation, timing-dependent concurrent observer, unstable DMA source, or Z80-mailbox retry requiring the Z80 to run |
+| `TimeAware` | Independent original and Rust forks run real clocks; a Rust wait suspends the current emulated frame while original IRQ handlers execute | Explicit conditions and input timeline; identical ordered transactions, RAM and ABI outputs at return; every observed read still compares exactly |
+
+Existing subsystem `ATOMIC_CAPABLE` lists retain their meaning. Do not put a
+functional or time-aware ID there to bypass registration. Authored proofs use
+`HookRegistry::register_execution_contract` with an explicit class. New production
+registrations likewise need an explicit reviewed class; missing declarations fail
+closed. An atomic or functional context cannot invoke a time-progressing wait.
+
+### Functional device semantics and their limits
+
+`GenesisBus::hybrid_set_functional_mode(true)` is enabled on check forks only.
+Normal reference/check-live/replace emulation keeps the upstream timing. VDP
+transactions use the upstream FIFO commit and DMA progression routines without
+waiting for raster access slots. Existing pending transfers are completed on
+entry; each later write completes before the next transaction. DMA source wrapping,
+zero-length meaning 65,536 words, length/source/address updates, sprite-cache
+updates and command latches use those same routines, not a second DMA algorithm.
+
+BUSACK is **not** forced ready. The vendored model derives it combinationally as
+`busreq && !reset`, with active-low bit 8 and the original open-bus unused bits.
+Requesting the bus while reset remains asserted still does not grant access.
+YM register writes already commit synchronously in this model; only the fixed
+32-internal-cycle BUSY countdown delays readiness. Functional mode settles that
+countdown, without changing timer flags, status-latch/port-read semantics,
+oscillators or audio samples. This is an eventual-ready quotient, not an invented
+status value. Code which observes elapsed YM timer/sample time is not eligible.
+
+For a closed, stable-source transaction stream with no time-dependent observation,
+FIFO stalls and DMA/BUSY latency insert only stuttering steps: deleting those steps
+preserves transaction order and the committed logical state. This proves **logic**
+equivalence for that stream. It does not prove scanline-relative writes, rendered
+pixels, sound timing, interrupt interleaving, DMA-source races, mailbox retries or
+even the number of idle random draws. Those are separate session/scheduler
+obligations. Direct VDP status/HV reads in functional mode are recorded as contract
+violations, not masked or given fabricated ready bits.
+
+### Wait API and hybrid suspension
+
+`WaitRequest::vblank_frame(address, previous)` expresses a RAM-word change;
+`WaitRequest::{dma_done,z80_busack,ym2612_ready}` express explicit device masks.
+`Platform::wait_until(request)` and `wait_vblank_frame(address, previous)` return
+`Result<()>`. Their default implementation rejects unsupported scheduling.
+`max_ticks` is an error bound, never a synthetic cycle charge or permission to
+resume with an unsatisfied condition. A native implementation uses its frame and
+device scheduler; no emulator type or ROM instruction address enters this trait.
+
+The hybrid implementation parks the CPU in a synthetic idle loop in disjoint,
+temporarily reserved stack space, retaining the suspended frame's SP and original
+SR interrupt mask. It advances the real emulator, including DMA, Z80, sound, video
+and original interrupt handlers. Rust resumes only after the condition holds and
+the CPU has returned from all handlers to the parked SP/PC. Parking bytes are
+restored on success and failure. IRQ reads/writes are merged into the same
+chronological RAM/device trace and initialized-stack audit as ordinary execution;
+an interrupt does not reset or replace the current frame's audit bitmap.
+
+A wait spanning a video-frame boundary requires a `WaitInputPoller`; the host
+polls the timeline for each crossed frame. `InputScript` implements that trait.
+Missing samples/pollers are errors in check/replay, not silent reuse of the entry
+frame's controller state. Generated audio and crossed-frame counts are retained;
+they are not discarded just because Rust is suspended.
+
+### Exactly what a time-aware check proves
+
+The original runs to return with clocks active. Rust starts from an identical
+fork and advances real clocks through its platform waits. Return PC/SP, banked
+stacks, declared register/SR outputs, live RAM, ordered device reads/writes and RAM
+at each device write remain obligations. Logical VDP memories/registers/port
+latches are compared after pending transactions complete on comparison forks.
+Raster/HV phase, FIFO occupancy/latency, render caches/pixels, independently
+progressing Z80 state and audio phase are **not** time-aware function outputs.
+These exclusions never hide an observed read: status/HV/BUSACK/YM operands and
+polling counts remain in the transaction trace. A generic device wait whose
+polling sequence differs therefore fails closed; only a separately reviewed
+whole-poll-loop primitive may define a narrower observation contract.
+
+`WaitForNextVBlank` does not draw idle random numbers: it waits on the
+IRQ-incremented counter, and each original ISR must actually finish. Do not add
+`GetRandomNumber` draws to that primitive. The main loop's separate idle draws
+still require exact recorded counts; lag and interrupt phase still require
+logic-tick/session evidence. A passing function-level logic check is not a
+timing-equivalence claim for a native scheduler or for replacement play.
+
+
 [decomp]: https://github.com/mschienbein/toejam-earl-decomp

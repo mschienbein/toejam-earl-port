@@ -4,6 +4,7 @@ use crate::{
     catalogue::{FunctionCatalogue, FunctionSymbol},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use tje_game::execution::ExecutionClass;
 use tje_game::{Dispatcher, FunctionId, Translation};
 use tje_rom::Revision;
 
@@ -32,6 +33,7 @@ impl Deref for HookSymbol {
 #[derive(Clone)]
 pub struct Hook {
     pub symbol: HookSymbol,
+    pub execution_class: ExecutionClass,
     body: Body,
 }
 impl Hook {
@@ -129,6 +131,15 @@ impl HookRegistry {
                 function: symbol.name.to_owned(),
             });
         }
+        self.insert_execution(symbol, ExecutionClass::Atomic, body)
+    }
+
+    fn insert_execution(
+        &mut self,
+        symbol: HookSymbol,
+        execution_class: ExecutionClass,
+        body: Body,
+    ) -> Result<()> {
         if symbol.kind != "function" {
             return Err(HostError::Metadata(format!(
                 "not a function entry: {}",
@@ -147,7 +158,14 @@ impl HookRegistry {
                 "duplicate hook at {address:06X}"
             )));
         }
-        self.hooks.insert(address, Hook { symbol, body });
+        self.hooks.insert(
+            address,
+            Hook {
+                symbol,
+                execution_class,
+                body,
+            },
+        );
         Ok(())
     }
     /// Explicit host-side instrumentation hook; production game bodies live only
@@ -184,6 +202,34 @@ impl HookRegistry {
             HookSymbol::Authored(Arc::new(symbol)),
             atomic_capable,
             Body::Host(function),
+        )
+    }
+
+    /// Explicit reviewed non-atomic instrumentation contract. The execution class
+    /// is never inferred from wave membership or an absent atomic declaration.
+    pub fn register_execution_contract(
+        &mut self,
+        symbol: FunctionSymbol,
+        execution_class: ExecutionClass,
+        function: HookFn,
+    ) -> Result<()> {
+        self.insert_execution(
+            HookSymbol::Authored(Arc::new(symbol)),
+            execution_class,
+            Body::Host(function),
+        )
+    }
+
+    /// Production counterpart: a lane supplies the reviewed class explicitly.
+    pub fn register_translation_with_execution(
+        &mut self,
+        translation: Translation,
+        execution_class: ExecutionClass,
+    ) -> Result<()> {
+        self.insert_execution(
+            HookSymbol::Generated(translation.id.metadata()),
+            execution_class,
+            Body::Game(translation),
         )
     }
     pub fn revision(&self) -> Revision {

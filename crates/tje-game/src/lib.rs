@@ -13,6 +13,7 @@ pub mod core;
 pub mod cutscenes;
 pub mod earthlings;
 pub mod elevator;
+pub mod execution;
 pub mod jamout;
 pub mod map;
 mod metadata;
@@ -129,6 +130,18 @@ pub trait Platform: tje_mem::Platform {
     fn write_device_u8(&mut self, address: u32, value: u8);
     fn write_device_u16(&mut self, address: u32, value: u16);
 
+    /// Suspend while the platform makes real clock/interrupt progress. Native
+    /// platforms implement the same condition with their frame scheduler.
+    fn wait_until(&mut self, _request: execution::WaitRequest) -> Result<()> {
+        Err(Error::Platform(
+            "this platform has no time-progressing wait contract".into(),
+        ))
+    }
+
+    fn wait_vblank_frame(&mut self, address: u32, previous: u16) -> Result<()> {
+        self.wait_until(execution::WaitRequest::vblank_frame(address, previous))
+    }
+
     fn read_vdp_status(&mut self) -> u16 {
         self.read_device_u16(0xc00004)
     }
@@ -183,6 +196,17 @@ pub trait Context: Bus + Platform {
     fn set_status_register(&mut self, value: u16);
     fn dispatcher(&self) -> Dispatcher;
     fn call_original(&mut self, function: FunctionId, arguments: &[u32]) -> Result<u32>;
+
+    /// Explicit reviewed residual call. Native platforms never fall back to ROM;
+    /// hybrid platforms reject execution classes unavailable in the caller.
+    fn call_original_with_execution(
+        &mut self,
+        function: FunctionId,
+        _arguments: &[u32],
+        _class: execution::ExecutionClass,
+    ) -> Result<u32> {
+        Err(Error::Untranslated(function))
+    }
 }
 
 pub type TranslationFn = fn(&mut dyn Context, &[u32]) -> Result<Option<u32>>;

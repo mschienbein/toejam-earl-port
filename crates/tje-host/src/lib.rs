@@ -9,6 +9,7 @@
 
 pub mod abi;
 pub mod catalogue;
+pub mod execution;
 pub mod hooks;
 pub mod input;
 mod play;
@@ -16,6 +17,7 @@ pub mod session_trace;
 mod sinks;
 
 use abi::{HookContext, OrderedWrite, UninitializedStackRead, run_original_atomic, set_sp};
+use execution::{WaitClock, WaitInputPoller, run_original_timed};
 use genesis_config::{GenesisEmulatorConfig, GenesisInputs};
 use genesis_core::{GenesisEmulator, HybridWrite};
 use hooks::{Hook, HookRegistry};
@@ -23,6 +25,8 @@ use jgenesis_common::frontend::{Color, EmulatorTrait, FrameSize, PartialClone, T
 use serde::Serialize;
 use sinks::{HeadlessAudio, HeadlessOutput, Inputs, NoCartridgeSaves};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use tje_game::execution::ExecutionClass;
 use tje_rom::{Revision, Rom};
 
 pub type Result<T, E = HostError> = std::result::Result<T, E>;
@@ -125,6 +129,9 @@ pub struct Measurements {
     pub vdp_writes: u64,
     pub ym2612_writes: u64,
     pub psg_writes: u64,
+    pub wait_video_frames: u64,
+    pub check_original_wait_frames: u64,
+    pub check_rust_wait_frames: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -199,6 +206,7 @@ pub struct Host {
     saves: NoCartridgeSaves,
     audio_sample_rate: u32,
     pub(crate) session_trace: Option<session_trace::SessionTrace>,
+    wait_clock: WaitClock,
     pub checks: CheckReport,
     pub measurements: Measurements,
 }
@@ -264,6 +272,7 @@ impl Host {
             saves,
             audio_sample_rate: 48_000,
             session_trace: None,
+            wait_clock: WaitClock::default(),
             checks,
             measurements: Measurements::default(),
         })
@@ -277,6 +286,10 @@ impl Host {
     }
     pub fn frame_count(&self) -> u64 {
         self.frame
+    }
+
+    pub fn set_wait_input_poller(&mut self, poller: Arc<dyn WaitInputPoller>) {
+        self.wait_clock.poller = Some(poller);
     }
     pub fn frame_buffer(&self) -> (&[Color], FrameSize) {
         let vdp = &self.emulator.hybrid_bus().vdp;
@@ -306,6 +319,8 @@ impl Host {
     }
 
     pub fn run_frame(&mut self, inputs: GenesisInputs) -> Result<FrameSnapshot> {
+        self.wait_clock.frame = self.frame;
+        self.wait_clock.inputs = inputs;
         let mut inputs = Inputs(inputs);
         let mut idle_draws = 0;
         let mut lag_events = Vec::new();
@@ -342,6 +357,7 @@ impl Host {
                         self.check_hook(&hook)?;
                     } else {
                         self.replace_hook(&hook)?;
+                        inputs.0 = self.wait_clock.inputs;
                         continue;
                     }
                 }
@@ -373,6 +389,7 @@ impl Host {
         }
         let snapshot = self.snapshot(idle_draws, lag_events)?;
         self.frame += 1;
+        self.wait_clock.frame = self.frame;
         self.measurements.idle_draws_per_frame.push(idle_draws);
         for write in &snapshot.writes {
             match write {
@@ -474,14 +491,35 @@ impl Host {
         let return_pc = self.context().read_u32(sp);
         let mut original = self.fork();
         let mut translated = self.fork();
+        let mut original_clock = self.wait_clock.clone();
         let audit = self.execute_fork(&mut original, |emulator| {
-            run_original_atomic(emulator, return_pc, sp.wrapping_add(4))
+            if hook.execution_class == ExecutionClass::Functional {
+                emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+            }
+            if hook.execution_class == ExecutionClass::TimeAware {
+                let (audit, _) = run_original_timed(
+                    emulator,
+                    &mut original_clock,
+                    return_pc,
+                    sp.wrapping_add(4),
+                )?;
+                Ok(audit)
+            } else {
+                run_original_atomic(emulator, return_pc, sp.wrapping_add(4))
+            }
         })?;
+        self.measurements.check_original_wait_frames +=
+            original_clock.frame - self.wait_clock.frame;
         let revision = self.revision;
         let dispatcher = self.registry.dispatcher();
-        let (nested_calls, translated_writes, nested_reads) =
-            self.execute_fork(&mut translated, |emulator| {
-                let mut context = HookContext::new(emulator, revision, dispatcher);
+        let translated_clock = self.wait_clock.clone();
+        let (nested_calls, translated_writes, nested_reads, translated_frames) = self
+            .execute_fork(&mut translated, |emulator| {
+                if hook.execution_class == ExecutionClass::Functional {
+                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+                }
+                let mut context = HookContext::new(emulator, revision, dispatcher)
+                    .with_execution(hook.execution_class, translated_clock);
                 context.enable_stack_audit();
                 let value = hook.execute(&mut context)?;
                 context.return_to_caller(value);
@@ -489,8 +527,10 @@ impl Host {
                     context.nested_calls,
                     context.writes,
                     context.uninitialized_reads.into_inner(),
+                    context.time_frames,
                 ))
             })?;
+        self.measurements.check_rust_wait_frames += translated_frames;
         self.checks.calls += 1;
         self.checks
             .record_function(hook.symbol.name, hook.symbol.subsystem, true);
@@ -507,7 +547,7 @@ impl Host {
         }
         let comparison = if stack_dependency {
             Err("uninitialized stack read: a stateful stack dependency cannot be approved as an atomic Rust function".into())
-        } else { compare_calls(&mut original, &mut translated, sp, &hook.symbol.abi) }
+        } else { compare_calls_with_execution(&mut original, &mut translated, sp, &hook.symbol.abi, hook.execution_class) }
             .and_then(|dead_bytes| {
                 let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
                 compare_io_ram_order(&audit.writes, &translated_writes, entry_ram, sp)?;
@@ -547,10 +587,15 @@ impl Host {
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
-        );
+        )
+        .with_execution(hook.execution_class, self.wait_clock.clone());
         let value = hook.execute(&mut context)?;
         context.return_to_caller(value);
         self.checks.nested_original_calls += context.nested_calls;
+        self.wait_clock = context.wait_clock;
+        self.frame = self.wait_clock.frame;
+        self.measurements.wait_video_frames += context.time_frames;
+        self.audio.samples.extend(context.time_audio);
         self.checks
             .record_function(hook.symbol.name, hook.symbol.subsystem, false);
         Ok(())
@@ -559,11 +604,25 @@ impl Host {
     /// ROM-backed function fixture. Does not advance hardware clocks. Useful for
     /// edge cases that the live game never generates (e.g. minimum signed seed).
     pub fn check_call(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
+        self.check_call_inner(address, arguments, false)
+    }
+
+    fn check_call_inner(
+        &mut self,
+        address: u32,
+        arguments: &[u32],
+        isolated_fixture: bool,
+    ) -> Result<u32> {
         let hook = self
             .registry
             .at(address)
             .cloned()
             .ok_or_else(|| HostError::Metadata(format!("no hook at {address:06X}")))?;
+        if hook.execution_class != ExecutionClass::Atomic && !isolated_fixture {
+            return Err(HostError::Metadata(
+                "non-atomic diagnostics require check_fixture isolation".into(),
+            ));
+        }
         let saved_pc = self.emulator.hybrid_cpu().pc();
         let saved_sp = self.emulator.hybrid_cpu().stack_pointer();
         let mut sp = saved_sp;
@@ -578,7 +637,25 @@ impl Host {
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
         self.check_hook(&hook)?;
-        run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp)?;
+        match hook.execution_class {
+            ExecutionClass::Atomic => {
+                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp)?;
+            }
+            ExecutionClass::Functional => {
+                self.emulator
+                    .hybrid_bus_mut()
+                    .hybrid_set_functional_mode(true);
+                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp)?;
+            }
+            ExecutionClass::TimeAware => {
+                run_original_timed(
+                    &mut self.emulator,
+                    &mut self.wait_clock.clone(),
+                    abi::CALL_SENTINEL,
+                    cleanup_sp,
+                )?;
+            }
+        }
         let (cpu, bus) = self.emulator.hybrid_parts();
         let result = cpu.data_registers()[0];
         set_sp(cpu, saved_sp);
@@ -591,7 +668,7 @@ impl Host {
     /// This prevents diagnostic writes from filling a frozen VDP FIFO across calls.
     pub fn check_fixture(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
         let mut saved = self.emulator.partial_clone();
-        let result = self.check_call(address, arguments);
+        let result = self.check_call_inner(address, arguments, true);
         saved
             .hybrid_bus_mut()
             .cartridge
@@ -609,11 +686,22 @@ impl Host {
     }
 }
 
+#[cfg(test)]
 fn compare_calls(
     original: &mut GenesisEmulator,
     translated: &mut GenesisEmulator,
     entry_sp: u32,
     abi: &tje_game::Abi,
+) -> std::result::Result<u64, String> {
+    compare_calls_with_execution(original, translated, entry_sp, abi, ExecutionClass::Atomic)
+}
+
+fn compare_calls_with_execution(
+    original: &mut GenesisEmulator,
+    translated: &mut GenesisEmulator,
+    entry_sp: u32,
+    abi: &tje_game::Abi,
+    execution_class: ExecutionClass,
 ) -> std::result::Result<u64, String> {
     let (a, b) = (original.hybrid_cpu(), translated.hybrid_cpu());
     if a.pc() != b.pc() || a.stack_pointer() != b.stack_pointer() {
@@ -688,27 +776,52 @@ fn compare_calls(
             }
         }
     }
-    if aa != ab {
+    if execution_class != ExecutionClass::TimeAware && aa != ab {
         return Err("Z80 audio RAM differs".into());
     }
     if a.z80_signals != b.z80_signals
-        || a.z80_bank != b.z80_bank
+        || (execution_class != ExecutionClass::TimeAware && a.z80_bank != b.z80_bank)
         || a.pending_writes != b.pending_writes
     {
         return Err("Z80 bus/reset/bank or pending CPU write state differs".into());
     }
-    if !a.vdp.hybrid_state_eq(&b.vdp) {
+    if execution_class == ExecutionClass::Functional
+        && (a.hybrid_functional_violation.is_some() || b.hybrid_functional_violation.is_some())
+    {
+        return Err(format!(
+            "functional contract observed VDP status/HV: original={:?}, Rust={:?}",
+            a.hybrid_functional_violation, b.hybrid_functional_violation
+        ));
+    }
+    if execution_class == ExecutionClass::TimeAware {
+        // Comparison-only completion: execution above used exact timed devices.
+        a.hybrid_set_functional_mode(true);
+        b.hybrid_set_functional_mode(true);
+    }
+    let vdp_matches = if execution_class == ExecutionClass::TimeAware {
+        a.vdp.hybrid_logic_state_eq(&b.vdp)
+    } else {
+        a.vdp.hybrid_state_eq(&b.vdp)
+    };
+    if !vdp_matches {
         return Err(
             "VDP state differs (ports/latches/FIFO/DMA/render state/memories/registers)".into(),
         );
     }
-    if a.hybrid_accesses != b.hybrid_accesses {
+    let accesses_a = a.hybrid_accesses.as_deref().unwrap_or(&[]);
+    let accesses_b = b.hybrid_accesses.as_deref().unwrap_or(&[]);
+    if accesses_a.len() != accesses_b.len()
+        || !accesses_a
+            .iter()
+            .zip(accesses_b)
+            .all(|(a, b)| accesses_match(a, b))
+    {
         let a = a.hybrid_accesses.as_deref().unwrap_or(&[]);
         let b = b.hybrid_accesses.as_deref().unwrap_or(&[]);
         let index = a
             .iter()
             .zip(b)
-            .position(|(a, b)| a != b)
+            .position(|(a, b)| !accesses_match(a, b))
             .unwrap_or(a.len().min(b.len()));
         return Err(format!(
             "ordered device read/write trace differs at {index}: original={:?}, Rust={:?}",
@@ -720,6 +833,71 @@ fn compare_calls(
         return Err("VDP/YM2612/PSG write trace differs".into());
     }
     Ok(dead_bytes)
+}
+
+/// Compare only physically driven read bits; raw observations remain intact for
+/// diagnostics. Unused open-bus bits are not a fabricated device output.
+pub(crate) fn accesses_match(
+    a: &genesis_core::HybridAccess,
+    b: &genesis_core::HybridAccess,
+) -> bool {
+    use genesis_core::HybridAccess;
+    match (*a, *b) {
+        (
+            HybridAccess::Read {
+                address: aa,
+                word: aw,
+                value: av,
+                ..
+            },
+            HybridAccess::Read {
+                address: ba,
+                word: bw,
+                value: bv,
+                ..
+            },
+        ) if aa == ba && aw == bw => {
+            let mask = match aa & 0xffffff {
+                0xc00004..=0xc00007 => {
+                    if aw {
+                        0x03ff
+                    } else if aa & 1 == 0 {
+                        0x03
+                    } else {
+                        0xff
+                    }
+                }
+                0xa11100 => {
+                    if aw {
+                        0x0100
+                    } else {
+                        0x01
+                    }
+                }
+                _ => {
+                    if aw {
+                        0xffff
+                    } else {
+                        0x00ff
+                    }
+                }
+            };
+            av & mask == bv & mask
+        }
+        (
+            HybridAccess::Write {
+                address: aa,
+                word: aw,
+                value: av,
+            },
+            HybridAccess::Write {
+                address: ba,
+                word: bw,
+                value: bv,
+            },
+        ) => aa == ba && aw == bw && av == bv,
+        _ => false,
+    }
 }
 
 /// Compare RAM as observed at every device write, not merely after return. Sparse

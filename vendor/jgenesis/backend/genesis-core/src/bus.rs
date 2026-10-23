@@ -115,7 +115,7 @@ pub enum HybridWrite {
 /// whose values/latch effects matter even when there is no resulting write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum HybridAccess {
-    Read { address: u32, word: bool, value: u16 },
+    Read { address: u32, word: bool, value: u16, purpose: m68000_emu::ReadPurpose },
     Write { address: u32, word: bool, value: u16 },
 }
 
@@ -141,6 +141,12 @@ pub struct GenesisBus {
     pub hybrid_accesses: Option<Vec<HybridAccess>>,
     // TJE timing survey is separate from the function-check write contract.
     pub timing_survey: Option<crate::timing_survey::TimingSurvey>,
+    /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
+    /// ROM fetches are omitted; normal emulation leaves this disabled.
+    pub hybrid_cpu_accesses: Option<Vec<HybridAccess>>,
+    // TJE hybrid: opt-in untimed transaction semantics, enabled only on check forks.
+    hybrid_functional: bool,
+    pub hybrid_functional_violation: Option<u32>,
 }
 
 impl GenesisBus {
@@ -178,6 +184,9 @@ impl GenesisBus {
             hybrid_writes: None,
             hybrid_accesses: None,
             timing_survey: None,
+            hybrid_cpu_accesses: None,
+            hybrid_functional: false,
+            hybrid_functional_violation: None,
             m68k_reset: true,
         }
     }
@@ -274,6 +283,28 @@ impl GenesisBus {
         self.ym2612.reset();
     }
 
+    /// TJE hybrid: canonicalize outstanding transaction latency on a check fork.
+    /// No ordinary tick/create path enables this mode.
+    pub fn hybrid_set_functional_mode(&mut self, enabled: bool) {
+        self.hybrid_functional = enabled;
+        if enabled {
+            self.hybrid_complete_transfers();
+            self.ym2612.hybrid_settle_write_busy();
+        }
+    }
+
+    pub fn hybrid_functional_mode(&self) -> bool {
+        self.hybrid_functional
+    }
+
+    fn hybrid_complete_transfers(&mut self) {
+        self.vdp.hybrid_complete_transfers(&mut VdpView {
+            cartridge: self.cartridge.as_mut(),
+            memory: &mut self.memory,
+            open_bus: &mut self.open_bus,
+        });
+    }
+
     // TJE hybrid access: flush a CPU-only instruction without advancing clocks.
     pub fn apply_pending_writes(&mut self) {
         let mut pending_writes = mem::take(&mut self.pending_writes);
@@ -291,6 +322,14 @@ impl GenesisBus {
     }
 
     fn m68k_read<const WORD: bool>(&mut self, address: u32) -> u16 {
+        self.m68k_read_with_purpose::<WORD>(address, m68000_emu::ReadPurpose::Semantic)
+    }
+
+    fn m68k_read_with_purpose<const WORD: bool>(
+        &mut self,
+        address: u32,
+        purpose: m68000_emu::ReadPurpose,
+    ) -> u16 {
         let address = address & 0xFFFFFF;
         log::trace!("Main bus {} read, address={address:06X}", if WORD { "word" } else { "byte" });
 
@@ -360,7 +399,12 @@ impl GenesisBus {
         if (0x800000..0xE00000).contains(&address)
             && let Some(trace) = &mut self.hybrid_accesses
         {
-            trace.push(HybridAccess::Read { address, word: WORD, value });
+            trace.push(HybridAccess::Read { address, word: WORD, value, purpose });
+        }
+        if address >= 0x800000
+            && let Some(trace) = &mut self.hybrid_cpu_accesses
+        {
+            trace.push(HybridAccess::Read { address, word: WORD, value, purpose });
         }
 
         value
@@ -373,6 +417,11 @@ impl GenesisBus {
 
     fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16) {
         let address = address & 0xFFFFFF;
+        if address >= 0x800000
+            && let Some(trace) = &mut self.hybrid_cpu_accesses
+        {
+            trace.push(HybridAccess::Write { address, word: WORD, value });
+        }
         if (0x800000..0xE00000).contains(&address)
             && let Some(trace) = &mut self.hybrid_accesses
         {
@@ -486,6 +535,10 @@ impl GenesisBus {
     }
 
     fn read_vdp<const WORD: bool>(&mut self, address: u32) -> u16 {
+        if self.hybrid_functional && (0x04..=0x0B).contains(&(address & 0x1F)) {
+            // Status/HV reads observe discarded time/FIFO state: fail closed.
+            self.hybrid_functional_violation.get_or_insert(address);
+        }
         let word = match address & 0x1F {
             0x00..=0x03 => self.vdp.read_data(),
             0x04..=0x07 => {
@@ -570,6 +623,9 @@ impl GenesisBus {
             }
             _ => {}
         }
+        if self.hybrid_functional {
+            self.hybrid_complete_transfers();
+        }
     }
 
     fn set_z80_reset(&mut self, z80_reset: bool) {
@@ -597,6 +653,10 @@ impl GenesisBus {
             0x02 => self.ym2612.write_address_2(value),
             0x01 | 0x03 => self.ym2612.write_data(value),
             _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
+        // TJE hybrid: check forks settle the write's busy period (functional mode only).
+        if self.hybrid_functional {
+            self.ym2612.hybrid_settle_write_busy();
         }
     }
 
@@ -656,6 +716,16 @@ impl m68000_emu::BusInterface for GenesisBus {
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         self.m68k_read::<true>(address)
+    }
+
+    // TJE hybrid: preserve read purpose in the optional observation only. The
+    // exact same physical access/latch/open-bus side effects always take place.
+    fn read_byte_tagged(&mut self, address: u32, purpose: m68000_emu::ReadPurpose) -> u8 {
+        self.m68k_read_with_purpose::<false>(address, purpose) as u8
+    }
+
+    fn read_word_tagged(&mut self, address: u32, purpose: m68000_emu::ReadPurpose) -> u16 {
+        self.m68k_read_with_purpose::<true>(address, purpose)
     }
 
     #[inline]
@@ -719,6 +789,9 @@ impl z80_emu::BusInterface for GenesisBus {
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
                 self.sync_ym2612();
+                if self.hybrid_functional {
+                    self.ym2612.hybrid_settle_write_busy();
+                }
                 self.ym2612.read_register(address)
             }
             0x6000..=0x60FF => {
