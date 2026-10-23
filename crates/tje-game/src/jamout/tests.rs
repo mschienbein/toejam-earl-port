@@ -217,3 +217,23 @@ fn shared_copies_keep_signed_indices_and_forward_dependency_order() {
         synchronize_entity_copies(&mut context, &[]).unwrap();
     }
 }
+
+#[test]
+fn packed_background_reads_rom_and_expands_both_flip_bits() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut bytes = vec![0; 0x100000];
+        bytes[rom::crash_packed_tilemap_b(revision).address() as usize] = 0xc0;
+        let mut context = TestContext::with_rom(revision, bytes);
+        super::layouts::draw_packed_background_block(&mut context, &[0, 0]).unwrap();
+        assert_eq!(context.writes.len(), 14 * 22);
+        assert_eq!(
+            &context.writes[..4],
+            &[
+                Write::Control(0x6000),
+                Write::Control(3),
+                Write::Data(0xba33),
+                Write::Data(0xa233),
+            ]
+        );
+    }
+}

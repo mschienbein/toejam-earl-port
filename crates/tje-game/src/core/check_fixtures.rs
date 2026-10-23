@@ -11,6 +11,27 @@ use tje_game::{FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
+// This executable proves the original W0 delivery, not later subsystem batches.
+const W0_ROOTS: &[FunctionId] = &[
+    ids::DISABLE_BLANKING_GRAPHICS,
+    ids::ENABLE_BLANKING_GRAPHICS,
+    ids::GET_V_BLANK_GRAPHICS_ENABLED,
+    ids::READ_MAPPED_PLAYER_INPUT,
+    ids::GET_LEVEL_MUSIC_INDEX,
+    ids::RESET_VDP,
+    ids::DRAW_LEVEL_GRAPHICS,
+    ids::PLAYERS_REQUIRE_SEPARATE_VIEWS,
+    ids::DELAY_ITERATIONS,
+    ids::JAM_OUT_UPDATE_LEAD_ANIMATIONS,
+    ids::JAM_OUT_SYNCHRONIZE_ENTITY_COPIES,
+    ids::JAM_OUT_POSITION_TOEJAM_COPY,
+    ids::JAM_OUT_POSITION_EARL_COPY,
+    ids::JAM_OUT_HIDE_TOEJAM_COPY,
+    ids::JAM_OUT_HIDE_EARL_COPY,
+    ids::JAM_OUT_SET_TOEJAM_SEQUENCE,
+    ids::JAM_OUT_SET_EARL_SEQUENCE,
+];
+
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) -> u32 {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| {
@@ -142,7 +163,7 @@ fn session(
         Revision::Rev00 => "rev00",
     };
     let bytes = fs::read(rom_root.join(format!("{revision_file}.bin"))).unwrap();
-    let registry = HookRegistry::filtered(revision, &["core", "jamout"], &[]).unwrap();
+    let registry = HookRegistry::filtered(revision, &[], W0_ROOTS).unwrap();
     let mut host = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
     let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
     for frame in 0..10_000 {
@@ -170,7 +191,7 @@ fn session(
     let report = serde_json::json!({
         "revision": revision.name(), "coverage_source": label,
         "frames": host.frame_count(), "whole_session_equal": true,
-        "filter": ["core", "jamout"], "natural": natural,
+        "filter": "W0_ROOTS (17 explicit function IDs)", "natural": natural,
         "with_live_fixtures": host.checks, "measurements": host.measurements,
     });
     let path = output_root.join(format!("{label}-{revision_file}.json"));
@@ -190,12 +211,7 @@ fn main() {
     let gameplay =
         InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
     let jam = InputScript::parse(&fs::read_to_string(&arguments[2]).unwrap()).unwrap();
-    let roots = tje_game::core::TRANSLATIONS
-        .iter()
-        .chain(tje_game::jamout::TRANSLATIONS)
-        .map(|translation| translation.id)
-        .collect::<Vec<_>>();
-    assert!(tje_game::Dispatcher::native(&roots).is_ok());
+    assert!(tje_game::Dispatcher::native(W0_ROOTS).is_ok());
     for revision in [Revision::Rev02, Revision::Rev00] {
         session(revision, rom_root, output_root, "gameplay", &gameplay);
         session(revision, rom_root, output_root, "jamout", &jam);

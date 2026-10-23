@@ -4,6 +4,8 @@ use crate::execution::ExecutionClass;
 use crate::{Context, Result};
 use tje_mem::ram;
 
+mod remaining;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -41,6 +43,18 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::DELAY_ITERATIONS,
         function: delay_iterations,
+    },
+    crate::Translation {
+        id: crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+        function: remaining::select_viewport_sprite_chain,
+    },
+    crate::Translation {
+        id: crate::ids::GET_PLAYER_INPUT,
+        function: remaining::get_player_input,
+    },
+    crate::Translation {
+        id: crate::ids::INITIALISE_THE_Z80,
+        function: remaining::initialise_the_z80,
     },
 ];
 
@@ -114,7 +128,48 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // and recorded idle-RNG/IRQ continuation requirements. VDPInitialisation
 // (ibid.:58) enters it after ResetVDP. Neither can be checked to a return sentinel
 // without a real main-loop/terminal continuation contract; no fake RTS is added.
+/// Complete bodies not approved for production replacement.
+pub static PENDING: &[crate::FunctionId] = &[
+    // Both-revision Functional proofs pass; production class lookup is pending.
+    crate::ids::DRAW_STARFIELD_PLANE,
+    crate::ids::HANDLE_H_BLANK,
+    // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
+    // blocked on the timing-fidelity decision, not waived by counter fixtures.
+    crate::ids::WAIT_FOR_NEXT_V_BLANK,
+];
 
+/// Unregistered bodies retained for explicit proof harnesses.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: wait_for_next_vblank,
+    },
+    crate::Translation {
+        id: crate::ids::DRAW_STARFIELD_PLANE,
+        function: remaining::draw_starfield_plane,
+    },
+    crate::Translation {
+        id: crate::ids::HANDLE_H_BLANK,
+        function: remaining::handle_hblank,
+    },
+];
+
+/// G/src/core/startup_and_main_loop.c:142 (`WaitForNextVBlank`, REV 02 0x000578).
+/// TimeAware: suspend until the actual IRQ-updated counter changes. This wait
+/// does not perform the separate idle RNG draws in FurtherInitialisation.
+pub fn wait_for_next_vblank(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    if ram::g_mode2_reg_softcopy(revision).read(context) & 0x40 != 0 {
+        let mut count = arguments[0] as i16;
+        while count > 0 {
+            let counter = ram::g_frame_counter(revision);
+            let previous = counter.read(context);
+            context.wait_vblank_frame(counter.address(), previous)?;
+            count -= 1;
+        }
+    }
+    Ok(None)
+}
 /// G/src/core/startup_and_main_loop.c:33 (`ResetVDP`, REV 02 0x00035C).
 /// Twenty ordered register writes; there is no DMA start, status read, or wait.
 pub fn reset_vdp(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
@@ -265,6 +320,9 @@ pub fn music_hook(_: &mut dyn crate::Context, arguments: &[u32]) -> crate::Resul
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod remaining_tests;
 
 #[cfg(test)]
 pub(crate) mod test_support;

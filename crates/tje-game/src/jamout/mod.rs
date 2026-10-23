@@ -4,6 +4,9 @@ use crate::execution::ExecutionClass;
 use crate::{Context, FunctionId, Result, Translation, ids};
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
+mod entities;
+mod layouts;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[Translation] = &[
     Translation {
@@ -37,6 +40,10 @@ pub static TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::JAM_OUT_SET_EARL_SEQUENCE,
         function: set_earl_sequence,
+    },
+    Translation {
+        id: ids::JAM_OUT_RELEASE_CHARACTER_COPIES,
+        function: entities::release_character_copies,
     },
 ];
 
@@ -101,6 +108,15 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
         ExecutionClass::TimeAware,
     ),
 ];
+
+/// Both-revision Functional proof passes; production class lookup is pending.
+pub static PENDING: &[FunctionId] = &[ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK];
+
+/// Unregistered bodies retained for explicit proof harnesses.
+pub static PENDING_TRANSLATIONS: &[Translation] = &[Translation {
+    id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+    function: layouts::draw_packed_background_block,
+}];
 
 // MCC68K lowers every Jam Out handle-to-object index with ASL.W #7 / ADDA.W.
 // Keep the word-sized byte displacement even for out-of-range signed handles.

@@ -1,0 +1,89 @@
+use super::remaining::*;
+use super::test_support::{TestContext, Write};
+use super::wait_for_next_vblank;
+use tje_mem::{Revision, ram, rom};
+
+#[test]
+fn starfield_sign_extends_bytes_and_repeats_every_tile_write() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut bytes = vec![0; 0x100000];
+        bytes[rom::starfield_byte_map(revision).address() as usize] = 0x80;
+        let mut context = TestContext::with_rom(revision, bytes);
+        draw_starfield_plane(&mut context, &[]).unwrap();
+        assert_eq!(context.writes.len(), 4098);
+        assert_eq!(
+            &context.writes[..5],
+            &[
+                Write::Control(0x8f40),
+                Write::Control(0x6000),
+                Write::Control(3),
+                Write::Data(0xa00),
+                Write::Data(0xa00),
+            ]
+        );
+        assert_eq!(context.writes.last(), Some(&Write::Control(0x8f02)));
+    }
+}
+
+#[test]
+fn input_masks_keep_previous_values_and_group_precedence() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (group, state, alive, expected) in [
+            (0, 0, true, 0xff),
+            (0x20000, 0, true, 0x80),
+            (0, 79, true, 0x80),
+            (0, 78, true, 0x80),
+            (0, 5, true, 0x80),
+            (0, 6, true, 0x80),
+            (0x20000000, 0, true, 0x8f),
+            (0x20, 0, true, 0xcf),
+            (0x40, 0, true, 0xcf),
+            (0x07800000, 0, true, 0xef),
+            (0, 2, true, 0xef),
+            (0x20000060, 2, true, 0x8f),
+            (0, 0, false, 0),
+        ] {
+            let mut context = TestContext::new(revision);
+            ram::g_controller1_raw_input(revision).write(&mut context, 0xff);
+            ram::g_controller2_raw_input(revision).write(&mut context, 0xff);
+            for player in 0..2 {
+                let entity = ram::g_player_info(revision).at(player);
+                entity.animation_group_mask().write(&mut context, group);
+                entity.sprite_state().write(&mut context, state);
+                ram::g_player_lives(revision)
+                    .at(player)
+                    .write(&mut context, if alive { 0 } else { -1 });
+                ram::g_player_processed_input(revision)
+                    .at(player)
+                    .write(&mut context, 0x55);
+            }
+            get_player_input(&mut context, &[]).unwrap();
+            for player in 0..2 {
+                assert_eq!(
+                    ram::g_player_processed_input(revision)
+                        .at(player)
+                        .read(&context),
+                    expected
+                );
+                assert_eq!(
+                    ram::g_player_previous_processed_input(revision)
+                        .at(player)
+                        .read(&context),
+                    0x55
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn vblank_wait_preserves_disabled_and_nonpositive_returns() {
+    let revision = Revision::Rev02;
+    let mut context = TestContext::new(revision);
+    assert_eq!(wait_for_next_vblank(&mut context, &[1]).unwrap(), None);
+    ram::g_mode2_reg_softcopy(revision).write(&mut context, 0x40);
+    for count in [0, 0xffff, 0x8000] {
+        assert_eq!(wait_for_next_vblank(&mut context, &[count]).unwrap(), None);
+    }
+    assert!(wait_for_next_vblank(&mut context, &[1]).is_err());
+}
