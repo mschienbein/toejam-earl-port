@@ -271,9 +271,12 @@ class Sources:
                 if inline is not None:
                     self.load(path, nested, inline)
                     continue
+                # An explicit #[path] on an out-of-line module is relative to the
+                # directory of the declaring file (mod-rs or not); the implicit
+                # name.rs / name/mod.rs lookup uses the module's own directory.
                 base = path.parent if path.stem in {"lib", "mod"} else path.with_suffix("")
                 explicit = re.search(r'#\[\s*path\s*=\s*("[^"\n]+")\s*\]', attributes(node))
-                candidates = ([base / json.loads(explicit[1])] if explicit else
+                candidates = ([path.parent / json.loads(explicit[1])] if explicit else
                               [base / f"{name}.rs", base / name / "mod.rs"])
                 existing = [candidate for candidate in candidates if candidate.is_file()]
                 if len(existing) != 1:

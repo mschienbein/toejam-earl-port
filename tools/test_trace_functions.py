@@ -162,6 +162,18 @@ class TraceFunctionsTests(unittest.TestCase):
         self.put("crates/tje-game/src/core/body.rs", self.body.replace(" (`SourceOnly`)", ""))
         self.assertEqual(self.rows()[2].rust.qualified, "core::body::different_rust_name")
 
+    def test_path_attribute_in_non_mod_rs_file_is_relative_to_its_directory(self) -> None:
+        candidate = "pub fn candidate(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> { Ok(None) }\n"
+        self.put("crates/tje-game/src/core/body.rs", self.body.replace(candidate, "") + textwrap.dedent('''
+            #[path = "body_parts/candidate.rs"]
+            mod candidate_part;
+            pub use candidate_part::candidate;
+        '''))
+        self.put("crates/tje-game/src/core/body_parts/candidate.rs", "use crate::{Context, Result};\n" + candidate)
+        rust = self.rows()[1].rust
+        self.assertEqual(rust.qualified, "core::body::candidate_part::candidate")
+        self.assertEqual(rust.path, Path("crates/tje-game/src/core/body_parts/candidate.rs"))
+
     def test_unlinked_and_test_only_functions_do_not_count(self) -> None:
         self.put("crates/tje-game/src/core/unused.rs", '''
             /// G/src/core/example_3.c:13 (`MissingHelper`).

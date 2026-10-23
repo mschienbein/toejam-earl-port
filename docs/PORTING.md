@@ -110,6 +110,14 @@ registry for testing original fallback, not the pending-composition harness.
 All these constructors resolve the owner classes; no metadata regeneration,
 shared-table edit or incorrect Atomic approval is required.
 
+Registries (`TRANSLATIONS`, `PENDING_TRANSLATIONS`, `PENDING`, `ATOMIC_CAPABLE`,
+`EXECUTION_CONTRACTS`) are literal arrays written in the subsystem module, one
+entry per function. No aliases to another module's static (`= templates::PENDING`),
+const joins or macros: `docs/FUNCTIONS.md` is generated from these arrays, and CI
+fails if `python tools/trace_functions.py --check` cannot read them. Bodies may
+live in any submodule; only the registry entry is in the subsystem root. Run the
+generator (without `--check`) before committing so `docs/FUNCTIONS.md` is current.
+
 `Host::new` rejects registry/ROM revision mismatch. Authored machine-code checker
 fixtures still supply explicit classes using `register_execution_contract`.
 Native dispatchers reject missing translations/classes at startup and never
