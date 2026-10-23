@@ -8,6 +8,7 @@ mod control;
 mod input;
 mod main_loop;
 mod remaining;
+pub mod timed_wait;
 mod vblank;
 mod views;
 

@@ -148,6 +148,16 @@ port stores remain two transfers. Read compensation does not advance devices or
 fabricate ready/busy values. Z80 bus ownership, YM busy state, VDP FIFO/DMA and
 refresh remain live device state, not fixed instruction surcharges.
 
+**Reference phases, not invented physical microcycles.** In this pinned model,
+all CPU reads, discarded accesses, prefetches and deferred-write *issues* occur
+at the instruction's starting master clock, in explicit instruction-specific
+order. Only after these issues does the complete base-cycle device advance run;
+the existing byte/word queues are then committed with their original width
+grouping and stall consequences. Two words are distinct effects but are not
+assigned separate physical bus subcycle times absent from the oracle. A timing
+bridge must reproduce these exact phases, not improve the hardware model
+silently and thereby diverge from the compiled engine/reference.
+
 Wait/IRQ/reset/STOP/HALT/frozen and exceptional-entry paths initialize the same
 read compensation from the prefetched opcode classifier and the actual CPU
 divider before bus accesses or device progress. This matters even with no main
@@ -198,6 +208,94 @@ measurements, browser measurements and the explicit macOS ARM64 CI capacity gate
 cover the canonical path; unexecuted CI/platform results must not be called local
 evidence. Audio receipts from the earlier feature-selected path are historical
 and must be regenerated before supporting this policy's exactness claims.
+
+## Timing-only regions for readable Rust
+
+`tje-engine-core::timing_region` compiles an instruction's **timing dependency
+slice**, not another semantic executor. Roots are effective addresses, access
+conditions/order/width/ReadKind, exact charge, prefetch/PC and exception metadata.
+Instruction-local arithmetic needed for those roots is permitted; dead game
+results are removed. No game `StoreState` survives, and no memory write payload
+is calculated or published. The slice has no bus object and cannot read RAM/MMIO,
+execute a game effect or return a game value.
+
+Rust supplies the real full entry register/flag/stack state, performs every
+requested bus effect once and acknowledges the **actual** observed read or
+Rust-owned write value. Prefetch/discarded accesses remain explicit real effects.
+Opaque move-only tokens prohibit dropped, reordered, cross-cursor or replayed
+acknowledgements. The next event cannot issue until its predecessor is complete.
+A source-derived `RustPathChoice` is required at every original boundary; the
+dependency slice validates it rather than privately deciding the game's branch.
+Only then is an unforgeable advance/commit grant emitted.
+
+`TimingScratch` reserves reusable dependency/read buffers before execution. A
+process-unique owner is assigned once per scratch, and each admitted cursor has
+an independently advancing checked `u64` generation. There is no globally
+contended per-instruction atomic or 32-bit instruction lifetime. Completion
+grants bind the admitted plan, owner, generation and acknowledged effect counts;
+a grant compiled from another IR cannot authorize a runtime boundary.
+
+`tje-engine-runtime::timing_region` admits a reviewed finite region with explicit
+entry, instruction identities, allowed edges, return boundary and diagnostic
+step ceiling. The ceiling is not a semantic timeout or termination proof.
+Admission rejects a pending address fault or incorrect PC/prefetch and drains
+waits before original legal IRQ boundaries. A main region is suspended without
+consuming its next bus effect; resumption requires the actual RTE-returned
+PC/prefetch, SR, **both** banked stacks and interrupt bookkeeping, never a
+repaired old snapshot. Original ISR execution is allowed only in the explicitly
+labelled hybrid oracle path, not as a shipped fallback.
+
+Native startup requires a concrete `ScheduledIsrClosure`, an immutable
+`NativeIsrProgram` freshly compiled from the user's ROM, the required interrupt
+vectors and the complete reviewed ISR/callee closure. An implementation-present
+boolean is not a capability. The controller admits the real pending IRQ,
+performs its real exception-frame entry, and gives the source callback an
+`IsrSourceContext`. This exposes read-only live CPU state and controlled
+`IsrEffects` on the **same** device object. Actual reads are performed and
+acknowledged together through the current cursor; the provider cannot submit
+invented read values, bypass effects or substitute a foreign/zero-cycle grant.
+The callback still owns its independently proved Rust game effects and paths.
+
+`ExceptionReturn` is only a request. At an actual prefetched supervisor RTE and
+an owned exception frame, the controller's exception-return primitive performs
+the ordered stack reads, SR/stack-bank selection and target prefetch, then the
+real device advance. Only exact bank/SR/PC/prefetch restoration and actual
+scheduled progress mint the move-only `RteReceipt`. No provider-supplied
+`rte_observed` flag or copied CPU snapshot can complete service. Each
+`step_native_interrupt` call borrows devices only for one real hardware/source
+step and yields any actual `FrameRendered` before a subsequent step. The caller
+therefore samples its existing frame timeline once without retained device
+borrows, a second clock, or hidden input publication.
+
+`tje-host::timing_region` is the check integration point. Its `RustInstruction`
+callbacks own effects and source register/flag/stack updates; `TimingLedger`
+hooks each actual source-instruction, wait and original-ISR step so an outer
+call budget cannot be renewed by a region. It reuses the ordinary `WaitClock`
+input/recipe policy and the reference's shared device/commit/output tail, with
+no original main-opcode execution, synthetic parking loop, eager pipeline read
+or aggregate block charge. Unsupported exception/nonlocal exits fail closed
+instead of pretending to return normally.
+
+The first reviewed source exemplar is `WaitForNextVBlank`: eleven source roles
+validated against the user's revision at runtime, including the original prefix,
+counter reads/poll branches, decrement/test and RTS. It preserves D0/D1 low-word
+semantics and flags, and services actual counter-changing ISRs at the real
+instruction boundaries. Both revision proofs compare every actual scheduler
+step's CPU words, cycles, ordered bus accesses and all-origin RAM commits, then
+the complete serialized CPU/device/audio state. The reported controller-edge
+witnesses cross input frame 837 to 838 with 7,855 Rust source instructions, 313
+explicitly original ISR instructions and 23,556 effects per revision; the
+separate frame-482 fixture has 3,305/267/9,906 respectively. A seeded two-cycle
+prefix mutation rejects in both fixtures and revisions.
+
+Authored ROM-free native tests independently cover actual VDP IRQ4/IRQ6
+nesting, both stack banks, real RTE, and the renderer's actual frame event
+(which is not VBlank admission). Negative cases reject a missing ISR body or
+callee closure, no progress, false RTE, foreign plan, fabricated zero-cycle
+grant, fake bus acknowledgements and corruption of either stack bank. These protocol
+proofs do not prove arbitrary callback game effects, all ISA/ISR source bodies,
+or promote the exemplar into the production registry. Busy controller loops
+and ISR wrappers retain their own complete source-region/closure obligations.
 
 ## Frontend playback
 

@@ -127,6 +127,14 @@ Additional `TJE native` device-only interfaces:
 - `backend/genesis-core/src/{lib,bus}.rs`: a separate optional actual RAM-commit
   journal includes CPU and Z80 stores, canonicalizes mirrors/word alignment and
   records only after writes commit. It is disabled by default like the CPU journal.
+- `backend/genesis-core/src/api.rs`: timing-only check regions publish input and
+  opcode attribution before Rust issues effects, then use the same extracted
+  device/queued-write/audio/render/save tail as ordinary CPU ticks. The additive
+  completion API never executes a main 68000 opcode or invents physical bus
+  microcycles; existing issue/advance/commit ordering is retained.
+- `cpu/m68000-emu/src/core.rs`: a pipeline-only completion setter updates real
+  PC/prefetch and instruction bookkeeping after acknowledged Rust effects,
+  without fetching again or writing game registers, stacks, flags or memory.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

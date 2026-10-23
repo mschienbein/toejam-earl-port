@@ -26,6 +26,7 @@ mod play;
 pub mod session_trace;
 mod sinks;
 mod stack_dependency;
+pub mod timing_region;
 
 use abi::{HookContext, OrderedWrite, run_original_atomic, set_sp};
 use execution::{WaitClock, WaitInputPoller, run_original_timed};

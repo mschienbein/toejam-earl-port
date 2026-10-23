@@ -1297,6 +1297,19 @@ impl M68000 {
         self.registers.prefetch
     }
 
+    /// TJE hybrid timing-only region: publish the real pipeline after Rust performed
+    /// every source effect. Unlike set_pc, this does not fetch from the bus and
+    /// never writes game registers, flags, stacks or memory.
+    pub fn hybrid_finish_timing_instruction(&mut self, pc: u32, prefetch: u16, last_muldiv: bool) {
+        if self.registers.prefetch == 0x4e73 {
+            self.hybrid_exception_returned();
+        }
+        self.registers.pc = pc;
+        self.registers.prefetch = prefetch;
+        self.registers.last_instruction_was_muldiv = last_muldiv;
+        self.registers.address_error = false;
+    }
+
     // TJE hybrid access: a hook must not run ahead of a pending IRQ or bus stall.
     pub fn hybrid_instruction_ready(&self, bus: &impl BusInterface) -> bool {
         !bus.reset()

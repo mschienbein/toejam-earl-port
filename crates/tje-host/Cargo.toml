@@ -17,11 +17,16 @@ thiserror = "2"
 tje-rom = { path = "../tje-rom" }
 tje-mem = { path = "../tje-mem" }
 tje-game = { path = "../tje-game" }
+tje-engine-core = { path = "../tje-engine-core" }
+tje-engine-runtime = { path = "../tje-engine-runtime", default-features = false }
 genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core" }
 genesis-components = { path = "../../vendor/jgenesis/backend/genesis-components" }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
 jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
 m68000-emu = { path = "../../vendor/jgenesis/cpu/m68000-emu" }
+
+[dev-dependencies]
+tje-session = { path = "../tje-session" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # jgenesis-common uses rand; browsers supply entropy through Web Crypto.

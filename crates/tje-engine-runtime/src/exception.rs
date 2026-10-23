@@ -39,6 +39,34 @@ pub(super) fn interrupt(cpu: &mut CpuState, bus: &mut dyn Bus, level: u8) -> u32
     }
 }
 
+/// Platform-owned return from a successfully entered exception frame. This is
+/// the counterpart of `interrupt`, not a general opcode executor/fallback.
+/// The controller validates the live RTE and supervisor frame before calling.
+pub(super) fn return_from_exception(cpu: &mut CpuState, bus: &mut dyn Bus) -> u32 {
+    debug_assert!(cpu.sr & SUPERVISOR != 0);
+    const RTE: u16 = 0x4e73;
+    // Retain the reference's opcode-consumption prefetch before frame reads.
+    cpu.pc = cpu.pc.wrapping_add(2);
+    cpu.prefetch = u32::from(bus.read16(cpu.pc, ReadKind::Prefetch));
+    let result = (|| {
+        let sr = checked_read(bus, cpu.ssp)?;
+        cpu.ssp = cpu.ssp.wrapping_add(2);
+        let address = cpu.ssp;
+        let high = checked_read(bus, address)?;
+        let low = bus.read16(address.wrapping_add(2), ReadKind::Semantic);
+        cpu.ssp = cpu.ssp.wrapping_add(4);
+        cpu.set_sr(u32::from(sr));
+        jump(cpu, bus, (u32::from(high) << 16) | u32::from(low))
+    })();
+    match result {
+        Ok(()) => 20,
+        Err(fault) => {
+            secondary_address_error(cpu, bus, RTE, fault);
+            50
+        }
+    }
+}
+
 pub(super) fn finish(
     cpu: &mut CpuState,
     bus: &mut dyn Bus,
@@ -145,6 +173,17 @@ fn checked_write(bus: &mut dyn Bus, address: u32, value: u16) -> Result<(), Faul
     }
     bus.write16(address, value);
     Ok(())
+}
+
+fn checked_read(bus: &mut dyn Bus, address: u32) -> Result<u16, Fault> {
+    if address & 1 != 0 {
+        return Err(Fault {
+            address,
+            write: false,
+            jump: false,
+        });
+    }
+    Ok(bus.read16(address, ReadKind::Semantic))
 }
 
 fn read_long(bus: &mut dyn Bus, address: u32) -> u32 {

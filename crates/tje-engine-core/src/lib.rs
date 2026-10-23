@@ -6,6 +6,7 @@ pub mod ir;
 pub mod lower;
 pub mod metadata;
 pub mod timing;
+pub mod timing_region;
 
 #[cfg(test)]
 mod tests;

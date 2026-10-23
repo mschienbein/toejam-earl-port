@@ -3445,9 +3445,12 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tje-engine-core",
+ "tje-engine-runtime",
  "tje-game",
  "tje-mem",
  "tje-rom",
+ "tje-session",
 ]
 
 [[package]]

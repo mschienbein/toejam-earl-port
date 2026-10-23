@@ -33,6 +33,14 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
+// TJE hybrid: one reference phase record shared by CPU and timing-only issue.
+struct ReferenceAdvance {
+    pc: u32,
+    cycles: u32,
+    waiting: bool,
+    exception_return: bool,
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
     m68k: M68000,
@@ -161,6 +169,41 @@ impl GenesisEmulator {
         render_frame(self.timing_mode, &self.bus.vdp, &self.config, renderer)
     }
 
+    /// TJE timing-only entry: publish input/opcode attribution before Rust
+    /// performs this instruction's real reads and queues its writes.
+    pub fn hybrid_begin_timing_instruction(&mut self, inputs: GenesisInputs) {
+        self.bus.input.set_inputs(inputs);
+        self.bus.m68k_opcode = self.m68k.next_opcode();
+        self.bus.timing_m68k(self.m68k.pc());
+    }
+
+    /// TJE timing-only completion. No original 68000 instruction is executed.
+    /// Call only with a dependency-checked instruction grant, after Rust issued
+    /// all effects. Uses the identical retained device/commit/output tail.
+    pub fn hybrid_advance_timing_cycles<R, A, S>(
+        &mut self,
+        pc: u32,
+        cpu_cycles: u32,
+        waiting: bool,
+        renderer: &mut R,
+        audio_output: &mut A,
+        save_writer: &mut S,
+    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        S: SaveWriter,
+    {
+        let exception_return =
+            !waiting && self.bus.timing_survey.is_some() && self.bus.m68k_opcode == 0x4e73;
+        self.advance_devices(
+            ReferenceAdvance { pc, cycles: cpu_cycles, waiting, exception_return },
+            renderer,
+            audio_output,
+            save_writer,
+        )
+    }
+
     #[inline]
     fn tick_inner<R, A, I, S>(
         &mut self,
@@ -189,6 +232,38 @@ impl GenesisEmulator {
         } else {
             self.m68k.execute_instruction(&mut self.bus)
         };
+
+        self.advance_devices(
+            ReferenceAdvance {
+                pc: m68k_pc,
+                cycles: m68k_cycles,
+                waiting: m68k_wait,
+                exception_return: timing_rte,
+            },
+            renderer,
+            audio_output,
+            save_writer,
+        )
+    }
+
+    fn advance_devices<R, A, S>(
+        &mut self,
+        advance: ReferenceAdvance,
+        renderer: &mut R,
+        audio_output: &mut A,
+        save_writer: &mut S,
+    ) -> TickResult<GenesisError<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        S: SaveWriter,
+    {
+        let ReferenceAdvance {
+            pc: m68k_pc,
+            cycles: m68k_cycles,
+            waiting: m68k_wait,
+            exception_return: timing_rte,
+        } = advance;
 
         let elapsed_mclk_cycles = self.bus.cycles.record_68k_instruction(
             m68k_pc,
