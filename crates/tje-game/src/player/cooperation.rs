@@ -51,9 +51,19 @@ pub(super) fn player_check_terrain_edge_hop(
     Ok(Some(0))
 }
 
+/// G/build/{rev02,rev00}/asm/c_edge_hop_and_clap.s:194-198.
+/// SUB.W's immediate BLT uses N xor V; the later CMPI.W observes the
+/// truncated difference. Keep these distinct: positive overflow passes both.
+#[inline]
+fn clap_vertical_range(earl_y: i16, toejam_y: i16) -> bool {
+    earl_y >= toejam_y && earl_y.wrapping_sub(toejam_y) <= 6
+}
+
 /// G/src/player/edge_hop_and_clap.c:60 (`PlayerUpdateHealthSharingClap`).
 /// ORIGINAL BUG: the above-maximum branch assigns the average to the compared
 /// player, rather than capping it; the partner subtraction still uses the limit.
+/// The initial vertical-range SUB.W/BLT preserves overflow before a separate
+/// signed-word comparison; see `clap_vertical_range` and review finding RH01.
 pub(super) fn player_update_health_sharing_clap(
     context: &mut dyn Context,
     _: &[u32],
@@ -114,11 +124,9 @@ pub(super) fn player_update_health_sharing_clap(
         }
         return Ok(None);
     }
-    let separation_y = earl
-        .y()
-        .read(context)
-        .wrapping_sub(toejam.y().read(context));
-    if !(0..=6).contains(&separation_y) {
+    let earl_y = earl.y().read(context);
+    let toejam_y = toejam.y().read(context);
+    if !clap_vertical_range(earl_y, toejam_y) {
         return Ok(None);
     }
     let separation_x = earl
@@ -155,4 +163,88 @@ pub(super) fn player_update_health_sharing_clap(
         earl.height().write(context, 0);
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod vertical_range_tests {
+    use super::clap_vertical_range;
+    use tje_mem::Revision;
+
+    fn original_subw_blt(left: i16, right: i16) -> bool {
+        let result = left.wrapping_sub(right);
+        let overflow = ((left ^ right) & (left ^ result)) < 0;
+        (result < 0) != overflow
+    }
+
+    fn original_vertical_range(earl: i16, toejam: i16) -> bool {
+        let difference = earl.wrapping_sub(toejam);
+        !original_subw_blt(earl, toejam) && (difference == 6 || original_subw_blt(difference, 6))
+    }
+
+    #[test]
+    fn rh01_counterexamples_keep_the_two_distinct_signed_tests() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            assert!(
+                !clap_vertical_range(i16::MIN, i16::MAX),
+                "{revision:?}: negative overflow rejects despite stored +1"
+            );
+            assert!(
+                clap_vertical_range(i16::MAX, i16::MIN),
+                "{revision:?}: positive overflow accepts stored -1"
+            );
+        }
+    }
+
+    #[test]
+    fn every_y_operand_and_every_wrapped_result_matches_original_n_z_v() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            // Exhaust every value of each operand, sweeping the opposite
+            // operand at signed endpoints/zero and every threshold neighbour.
+            for value in i16::MIN..=i16::MAX {
+                for anchor in [
+                    i16::MIN,
+                    i16::MIN + 1,
+                    -7,
+                    -1,
+                    0,
+                    1,
+                    6,
+                    7,
+                    i16::MAX - 1,
+                    i16::MAX,
+                ] {
+                    for (earl, toejam) in [(value, anchor), (anchor, value)] {
+                        assert_eq!(
+                            clap_vertical_range(earl, toejam),
+                            original_vertical_range(earl, toejam),
+                            "{revision:?}: earl={earl} toejam={toejam}"
+                        );
+                    }
+                }
+                // Exhaust every representable word difference with V clear.
+                assert_eq!(
+                    clap_vertical_range(value, 0),
+                    original_vertical_range(value, 0),
+                    "{revision:?}: ordinary difference={value}"
+                );
+                // Also exhaust every possible overflowed word difference.
+                // Difference zero cannot overflow for two signed-word inputs.
+                if value < 0 {
+                    let toejam = (i32::from(i16::MAX) - (i32::from(value) + 65536)) as i16;
+                    assert_eq!(
+                        clap_vertical_range(i16::MAX, toejam),
+                        original_vertical_range(i16::MAX, toejam),
+                        "{revision:?}: positive-overflow difference={value}"
+                    );
+                } else if value > 0 {
+                    let toejam = (i32::from(i16::MIN) - (i32::from(value) - 65536)) as i16;
+                    assert_eq!(
+                        clap_vertical_range(i16::MIN, toejam),
+                        original_vertical_range(i16::MIN, toejam),
+                        "{revision:?}: negative-overflow difference={value}"
+                    );
+                }
+            }
+        }
+    }
 }
