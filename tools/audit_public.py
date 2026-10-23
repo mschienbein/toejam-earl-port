@@ -336,12 +336,17 @@ class DecodeLimitError(AuditError):
     pass
 
 
+class LiteralDecodeError(DecodeLimitError):
+    """A speculative literal spelling is invalid, unlike an exhausted decode budget."""
+
+
 class DecodeBudget:
     def __init__(self):
         self.used = 0
         self.structural_failure = False
         self.numeric_scanned = set()
         self.opaque_scanned = set()
+        self.identifier_facts = False
 
     def charge(self, size: int) -> None:
         self.used += size
@@ -350,8 +355,9 @@ class DecodeBudget:
 
 
 def decode_c_literal(token: bytes, *, rust: bool = False,
-                     python: bool = False, unicode_text: bool = False) -> tuple[bytes, int]:
-    """Decode C, Rust or Python byte escapes without invoking a language compiler."""
+                     python: bool = False, unicode_text: bool = False,
+                     csharp: bool = False) -> tuple[bytes, int]:
+    """Decode literal escapes without invoking a source-language compiler."""
     body = token[token.index(b'"') + 1:-1]
     out, escaped_nontext = bytearray(), 0
     simple = {ord("a"): 7, ord("b"): 8, ord("f"): 12, ord("n"): 10, ord("r"): 13,
@@ -364,7 +370,7 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
             out.append(value)
             continue
         if position == len(body):
-            raise DecodeLimitError("unterminated C escape")
+            raise LiteralDecodeError("unterminated C escape")
         value = body[position]
         position += 1
         if value in (10, 13):
@@ -374,11 +380,11 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
                 while position < len(body) and body[position] in b" \t\r\n":
                     position += 1
             continue
-        if rust and value == ord("0"):
+        if (rust or csharp) and value == ord("0"):
             decoded = bytes(1)
         elif value in simple and not (python and value == ord("?")):
             decoded = bytes([simple[value]])
-        elif not rust and 48 <= value <= 55:
+        elif not rust and not csharp and 48 <= value <= 55:
             digits = bytearray([value])
             while len(digits) < 3 and position < len(body) and 48 <= body[position] <= 55:
                 digits.append(body[position])
@@ -390,22 +396,23 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
             if rust or python:
                 position += 2
                 if not re.fullmatch(rb"[0-9a-fA-F]{2}", body[start:position]):
-                    raise DecodeLimitError("invalid two-digit hexadecimal byte escape")
+                    raise LiteralDecodeError("invalid two-digit hexadecimal byte escape")
             else:
-                while position < len(body) and body[position] in b"0123456789abcdefABCDEF":
+                while (position < len(body) and body[position] in b"0123456789abcdefABCDEF"
+                       and (not csharp or position - start < 4)):
                     position += 1
                 if position == start:
-                    raise DecodeLimitError("invalid C hexadecimal escape")
+                    raise LiteralDecodeError("invalid C hexadecimal escape")
             number = int(body[start:position], 16)
             decoded = chr(number).encode() if unicode_text else bytes([number & 0xFF])
         elif python and unicode_text and value == ord("N"):
             end = body.find(b"}", position + 1)
             if body[position:position + 1] != b"{" or end < 0:
-                raise DecodeLimitError("invalid named Unicode escape")
+                raise LiteralDecodeError("invalid named Unicode escape")
             try:
                 decoded = unicodedata.lookup(body[position + 1:end].decode("ascii")).encode()
             except (KeyError, UnicodeError) as error:
-                raise DecodeLimitError("invalid named Unicode escape") from error
+                raise LiteralDecodeError("invalid named Unicode escape") from error
             position = end + 1
         elif python and not unicode_text and value in b"uUN":
             decoded = b"\\" + bytes([value])
@@ -413,22 +420,22 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
             end = body.find(b"}", position + 1)
             digits = body[position + 1:end].replace(b"_", b"")
             if end < 0 or not re.fullmatch(rb"[0-9a-fA-F]{1,6}", digits):
-                raise DecodeLimitError("invalid Rust Unicode escape")
+                raise LiteralDecodeError("invalid Rust Unicode escape")
             try:
                 decoded = chr(int(digits, 16)).encode("utf-8")
             except (ValueError, UnicodeError) as error:
-                raise DecodeLimitError("invalid Rust Unicode scalar") from error
+                raise LiteralDecodeError("invalid Rust Unicode scalar") from error
             position = end + 1
         elif value in (ord("u"), ord("U")):
             length = 4 if value == ord("u") else 8
             try:
                 decoded = chr(int(body[position:position + length], 16)).encode("utf-8")
             except (ValueError, UnicodeError) as error:
-                raise DecodeLimitError("invalid C universal character escape") from error
+                raise LiteralDecodeError("invalid C universal character escape") from error
             position += length
         else:
-            if rust:
-                raise DecodeLimitError("invalid Rust string escape")
+            if rust or csharp:
+                raise LiteralDecodeError("invalid source string escape")
             decoded = (b"\\" if python else b"") + bytes([value])
         out.extend(decoded)
         escaped_nontext += sum(byte < 32 and byte not in b"\n\r\t\f" or byte >= 127 for byte in decoded)
@@ -905,7 +912,7 @@ def payload_reason(raw: bytes, index: RomIndex | None, allowed: tuple[bytes, ...
         return f"{origin}: embedded {kind} payload"
     if index is not None and index.contains(raw, 12, allowed, evidence=True) is not None:
         return f"{origin}: ROM window in decoded bytes (binary >=12 bytes or text >={MIN_TEXT_MATCH})"
-    if binary_limit and len(raw) >= MIN_BINARY_PAYLOAD and not printable_text(raw):
+    if binary_limit and not budget.identifier_facts and len(raw) >= MIN_BINARY_PAYLOAD and not printable_text(raw):
         return (f"{origin}: decoded non-text payload contains {len(raw)} bytes "
                 f"(limit {MIN_BINARY_PAYLOAD - 1}; no entropy exemption)")
     return None
@@ -1086,7 +1093,7 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
                    budget: DecodeBudget, origin: str, decoded: bool = False, path: str = "", depth: int = 0,
                    check_opaque: bool = True) -> str | None:
     key = hashlib.sha256(data).digest()
-    if check_opaque and key not in budget.opaque_scanned:
+    if check_opaque and not budget.identifier_facts and key not in budget.opaque_scanned:
         budget.opaque_scanned.add(key)
         reason = opaque_reason(path, data)
         if reason is not None:
@@ -1145,10 +1152,16 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
         if reason is not None:
             return reason
     if C_ESCAPE.search(data):
-        for group in c_literals(data, budget):
-            reason = inspect_decoded(group.raw, index, allowed, budget, origin + ": C string literal", path, depth)
-            if reason is not None:
-                return reason
+        try:
+            for group in c_literals(data, budget):
+                reason = inspect_decoded(group.raw, index, allowed, budget, origin + ": C string literal", path, depth)
+                if reason is not None:
+                    return reason
+        except LiteralDecodeError:
+            # Decoded text need not be C source (e.g. a parser's malformed-input
+            # fixture). Raw/hex/numeric/real-language views remain checked; a
+            # budget/depth failure is never caught here.
+            pass
     binary_shapes: set[bytes] = set()
     for token in base64_candidates(data, binary_shapes=binary_shapes):
         if len(token) % 4 == 1:
@@ -1199,6 +1212,18 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
         if code_source:
             payloads = source_payload_regions(source, budget, payloads)
         for payload in payloads:
+            if payload in source.fact_payloads:
+                reason = payload_reason(payload, index, allowed, "literal identifier facts", budget)
+                if reason is None:
+                    budget.identifier_facts = True
+                    try:
+                        reason = encoded_reason(payload, index, allowed, budget,
+                                                "literal identifier facts", path=path, check_opaque=False)
+                    finally:
+                        budget.identifier_facts = False
+                if reason is not None:
+                    reasons.append(reason)
+                continue
             reason = inspect_decoded(payload, index, allowed, budget,
                                      "source literal/comment payload", path, 0)
             if reason is not None:
@@ -1248,6 +1273,8 @@ def source_language(path: str) -> str:
         return "python"
     if suffix in (".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".java", ".go", ".css"):
         return "c"
+    if suffix == ".cs":
+        return "csharp"
     if suffix in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".json"):
         return "javascript"
     if suffix in (".toml", ".lock", ".yaml", ".yml", ".sh", ".bash"):
@@ -1259,6 +1286,7 @@ SOURCE_GRAMMARS = {
     ".rs": "rust", ".py": "python", ".c": "c", ".h": "c", ".cc": "cpp", ".cpp": "cpp",
     ".cxx": "cpp", ".hpp": "cpp", ".js": "javascript", ".mjs": "javascript",
     ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "tsx",
+    ".cs": "csharp",
     ".json": "json", ".toml": "toml", ".lock": "toml", ".yaml": "yaml", ".yml": "yaml",
     ".css": "css", ".html": "html", ".sh": "bash", ".bash": "bash", ".wgsl": "wgsl",
 }
@@ -1285,16 +1313,92 @@ def source_parser(language: str):
         raise AuditError(f"cannot load pinned source grammar {language!r}: {error}") from error
 
 
-def source_tokens(data: bytes, path: str) -> list[tuple[str, bytes, int]]:
+def source_tokens(data: bytes, path: str, *,
+                  literal_groups: list[list[tuple[str, bytes, int]]] | None = None) -> list[tuple[str, bytes, int]]:
     """Tokenize real grammars: comments never consume literal or interpolation text."""
     literal_types = {
         "string", "string_literal", "raw_string_literal", "char_literal", "byte_literal",
         "template_string", "interpreted_string_literal", "string_value", "quoted_attribute_value",
-        "double_quote_scalar", "single_quote_scalar", "ansi_c_string",
+        "double_quote_scalar", "single_quote_scalar", "ansi_c_string", "verbatim_string_literal",
+        "utf8_string_literal",
     }
     interpolation_types = {"interpolation", "template_substitution", "format_expression"}
     literal_parts = {"string_content", "string_fragment", "string_start", "string_end", "regex_pattern"}
     number_types = {"integer", "float", "integer_literal", "float_literal", "number", "number_literal"}
+    containers = {
+        "array_expression", "tuple_expression", "list", "tuple", "expression_list",
+        "array", "initializer_list", "initializer_expression", "block_sequence", "flow_sequence",
+    }
+    wrappers = {"flow_node", "block_node", "block_sequence_item", "argument", "parenthesized_expression"}
+    member_cache = {}
+
+    def is_comment(node) -> bool:
+        return node.type == "comment" or node.type.endswith("_comment") or node.type == "shebang"
+
+    def items(node):
+        if node.type in containers:
+            return [child for child in node.named_children if not is_comment(child)]
+        if node.type == "token_tree" and node.children and node.children[0].type == "[":
+            # A bracketed macro sequence (e.g. vec!), never a brace-delimited
+            # record/object token tree containing unrelated string keys/values.
+            if any(child.type in (":", "=", "=>", ";") for child in node.children):
+                return None
+            return [child for child in node.named_children if not is_comment(child)]
+        return None
+
+    def members(node, base: int, region: bytes, depth: int):
+        if depth > MAX_JSON_DEPTH:
+            raise DecodeLimitError("literal container exceeds the bounded nesting depth")
+        key = (base, node.start_byte, node.end_byte, node.type)
+        if key in member_cache:
+            return member_cache[key]
+        result = None
+        children = [child for child in node.named_children if not is_comment(child)]
+        if node.type in wrappers and len(children) == 1:
+            result = members(children[0], base, region, depth + 1)
+        elif node.type in literal_types and node.type not in ("char_literal", "byte_literal"):
+            if not any(child.type in interpolation_types for child in node.children):
+                value = region[node.start_byte:node.end_byte]
+                result = [("string", value, base + node.start_byte)]
+        else:
+            sequence = items(node)
+            if sequence is not None:
+                combined, category = [], None
+                for child in sequence:
+                    child_members = members(child, base, region, depth + 1)
+                    if child_members is None:
+                        break
+                    kinds = {literal_category(value, path) for _, value, _ in child_members}
+                    if len(kinds) > 1 or (category is not None and kinds and category not in kinds):
+                        break
+                    category = next(iter(kinds), category)
+                    combined.extend(child_members)
+                else:
+                    result = combined
+        member_cache[key] = result
+        return result
+
+    groups = []
+
+    def capture(node, base: int, region: bytes) -> None:
+        sequence = items(node)
+        if sequence is None:
+            return
+        run, category = [], None
+        for child in sequence:
+            child_members = members(child, base, region, 0)
+            kinds = {literal_category(value, path) for _, value, _ in child_members or []}
+            if child_members is None or len(kinds) > 1 or (category is not None and kinds and category not in kinds):
+                if len(run) > 1:
+                    groups.append(run)
+                run, category = [], None
+                if child_members is None or len(kinds) > 1:
+                    continue
+            category = next(iter(kinds), category)
+            run.extend(child_members)
+        if len(run) > 1:
+            groups.append(run)
+
     def parse(region: bytes, language: str):
         # Python and the other grammars accept CRLF but do not all treat a bare
         # CR as a physical newline. Canonicalize it only for parsing, one byte
@@ -1313,7 +1417,9 @@ def source_tokens(data: bytes, path: str) -> list[tuple[str, bytes, int]]:
         start = base + node.start_byte
         if not value:
             continue
-        if node.type == "comment" or node.type.endswith("_comment") or node.type == "shebang":
+        if literal_groups is not None:
+            capture(node, base, region)
+        if is_comment(node):
             tokens.append(("comment", value, start))
             continue
         if node.type == "regex":
@@ -1349,6 +1455,16 @@ def source_tokens(data: bytes, path: str) -> list[tuple[str, bytes, int]]:
         else:
             kind = "punctuation"
         tokens.append((kind, value, start))
+    if literal_groups is not None:
+        # A fully literal outer container already covers its nested containers;
+        # do not repeatedly decode the same bytes or grow the budget quadratically.
+        last_end = -1
+        for group in sorted(groups, key=lambda group: (group[0][2], -(group[-1][2] + len(group[-1][1])))):
+            end = group[-1][2] + len(group[-1][1])
+            if end <= last_end:
+                continue
+            literal_groups.append(group)
+            last_end = end
     return tokens
 
 
@@ -1366,14 +1482,18 @@ class SourceContext:
     changed_lines: set[int] | None
     code: bytes
     changed_ranges: tuple[tuple[int, int], ...]
+    literal_groups: list[list[tuple[str, bytes, int]]]
+    fact_payloads: set[bytes]
 
     @classmethod
     def build(cls, path: str, data: bytes, changed_lines: set[int] | None = None) -> SourceContext:
         try:
             data.decode("utf-8")
-            tokens = source_tokens(data, path) if CONTROL_BYTES.search(data) is None else []
+            groups = []
+            tokens = source_tokens(data, path, literal_groups=groups) if CONTROL_BYTES.search(data) is None else []
         except UnicodeError:
             tokens = []
+            groups = []
         code = bytearray(data)
         for kind, value, start in tokens:
             if kind == "comment":
@@ -1390,7 +1510,7 @@ class SourceContext:
                 if line not in changed_lines:
                     code[start:start + len(value)] = bytes(byte if byte in (10, 13) else 32 for byte in value)
                 start += len(value)
-        return cls(path, data, tokens, changed_lines, bytes(code), tuple(ranges))
+        return cls(path, data, tokens, changed_lines, bytes(code), tuple(ranges), groups, set())
 
     def touched(self, start: int, end: int) -> bool:
         if self.changed_lines is None:
@@ -1401,9 +1521,18 @@ class SourceContext:
         return self.changed_lines is None or bool(self.code[start:end].strip())
 
 
+def literal_category(value: bytes, path: str) -> str:
+    """Only ordered homogeneous text/byte literal runs are aggregated."""
+    quote = min((position for marker in (b'"', b"'") if (position := value.find(marker)) >= 0), default=0)
+    prefix = value[:quote].lower()
+    return "bytes" if prefix.startswith((b"b", b"rb")) or (path.endswith(".cs") and value.endswith(b"u8")) else "text"
+
+
 def source_literal(value: bytes, path: str) -> bytes | None:
     """Decode one lexical string/character literal without evaluating source code."""
     language = source_language(path)
+    if language == "csharp" and value.endswith(b"u8"):
+        value = value[:-2]
     raw = RUST_RAW_START.match(value) if language == "rust" else None
     if raw:
         closing = b'"' + raw[1]
@@ -1423,6 +1552,13 @@ def source_literal(value: bytes, path: str) -> bytes | None:
     if not value.endswith(delimiter):
         return None
     body = value[position + len(delimiter):-len(delimiter)]
+    if language == "csharp":
+        if b"$" in prefix:
+            return None
+        if b"@" in prefix:
+            return body.replace(b'""', b'"')
+        if triple:
+            return body
     if language == "python":
         if b"f" in prefix.lower():
             return None  # Interpolated expressions are not literal assembly.
@@ -1441,13 +1577,36 @@ def source_literal(value: bytes, path: str) -> bytes | None:
         return decode_c_literal(
             b'"' + body + b'"', rust=language == "rust",
             python=language in ("python", "javascript"),
-            unicode_text=language in ("python", "javascript"))[0]
+            unicode_text=language in ("python", "javascript", "csharp"),
+            csharp=language == "csharp")[0]
     except DecodeLimitError:
         return None
 
 
 def literal_payloads(source: SourceContext, budget: DecodeBudget, *, individual: bool = False):
     """Fold adjacent literals and bounded literal-only concat! trees."""
+    for group in source.literal_groups:
+        parts = []
+        for _, value, start in group:
+            if not source.touched(start, start + len(value)):
+                continue
+            payload = source_literal(value, source.path)
+            if payload is None:
+                break
+            budget.charge(len(payload))
+            parts.append(payload)
+        else:
+            if parts:
+                budget.charge(sum(map(len, parts)))
+                combined = b"".join(parts)
+                # A list of short identifier/path facts is not a giant Base64
+                # token merely because delimiters were removed. Hex streams never
+                # receive this treatment; exact/private decoded checks still run.
+                if all(re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_.-]*", part)
+                       and not re.fullmatch(rb"[0-9a-fA-F]+", part)
+                       and not opaque_component(part) for part in parts):
+                    source.fact_payloads.add(combined)
+                yield combined
     tokens = [token for token in source.tokens if token[0] != "comment"]
     pairs, stack = {}, []
     closers = {b"(": b")", b"[": b"]", b"{": b"}"}

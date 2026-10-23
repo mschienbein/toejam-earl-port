@@ -118,6 +118,18 @@ def grammar_forms(window: bytes) -> dict[str, tuple[str, bytes]]:
     }
 
 
+def encoded_table_forms(window: bytes) -> dict[str, tuple[str, bytes]]:
+    strings = [b'"' + window[start:start + 8].hex().encode() + b'"'
+               for start in range(0, len(window), 8)]
+    body = b",\n".join(strings)
+    return {
+        "rust-array": ("rs", b"const HEX: [&str; 12] = [\n" + body + b"\n];\n"),
+        "python-list": ("py", b"HEX = [\n" + body + b"\n]\n"),
+        "yaml-sequence": ("yaml", b"HEX:\n" + b"".join(b"  - " + value + b"\n" for value in strings)),
+        "csharp-array": ("cs", b"class Sample { static string[] HEX = new string[] {\n" + body + b"\n}; }\n"),
+    }
+
+
 def compile_rust(directory: Path, name: str, source: bytes) -> bytes:
     path = directory / (name.replace("-", "_") + ".rs")
     executable = path.with_suffix(".exe" if sys.platform == "win32" else "")
@@ -233,6 +245,16 @@ class EncodingGitStateTests(GitAuditCase):
         for private in (False, True):
             self.assert_matrix(cases, private)
 
+    def test_split_literal_tables_both_revisions_all_states_and_modes(self) -> None:
+        forms = {}
+        for revision, image in zip(("rev02", "rev00"), IMAGES):
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            forms.update({f"{revision}-{name}": value for name, value in encoded_table_forms(window).items()})
+        cases = self.matrix(forms)
+        self.assertEqual(len(cases), 24)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
     def test_cli_no_rom_fails_on_decoded_binary(self) -> None:
         put(self.repo, "payload.txt", BENIGN)
         self.git("add", "payload.txt")
@@ -321,7 +343,9 @@ class DecoderTests(unittest.TestCase):
         )
         for token, expected in cases:
             self.assertEqual(audit.python_byte_literal(token), expected, token)
-        for token in (r'b"\x0"', r'b"\xZZ"', 'b"日本"'):
+        slash = chr(92)
+        invalid = (f'b"{slash}x0"', f'b"{slash}xZZ"', 'b"日本"')
+        for token in invalid:
             self.assertIsNone(audit.python_byte_literal(token), token)
 
     def test_ordinary_and_raw_byte_string_atoms_join_before_rom_matching(self) -> None:
@@ -376,7 +400,7 @@ class DecoderTests(unittest.TestCase):
         index = audit.RomIndex(images)
         for revision, image in zip(("REV 02", "REV 00"), images):
             window = image[OFFSET:OFFSET + WINDOW_SIZE]
-            forms = required_forms(window) | rust_atom_forms(window) | grammar_forms(window)
+            forms = required_forms(window) | rust_atom_forms(window) | grammar_forms(window) | encoded_table_forms(window)
             for name, (suffix, source) in forms.items():
                 for private in (None, index):
                     with self.subTest(revision=revision, form=name, private=private is not None):
@@ -419,6 +443,96 @@ class StructuralSourceTests(unittest.TestCase):
         wrapped = base64.b64encode(bytes(WINDOW_SIZE))
         comments = b"\n".join(b"///" + wrapped[start:start + 32] for start in range(0, len(wrapped), 32))
         self.assertTrue(audit.content_reasons("comment.rs", comments, None))
+
+    def test_nested_containers_tuples_and_sibling_literal_runs(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        chunks = [b'"' + window[start:start + 8].hex().encode() + b'"'
+                  for start in range(0, len(window), 8)]
+        first, second = b", ".join(chunks[:6]), b", ".join(chunks[6:])
+        samples = {
+            "tuple.py": b"HEX = (" + b", ".join(chunks) + b")",
+            "tuple.rs": b"const HEX: (&str,&str,&str,&str,&str,&str,&str,&str,&str,&str,&str,&str) = (" + b", ".join(chunks) + b");",
+            "nested.py": b"HEX = [[" + first + b"], [" + second + b"]]",
+            "nested.rs": b"const HEX: [[&str;6];2] = [[" + first + b"], [" + second + b"]];",
+            "vector.rs": b'fn demo() { let hex = vec![' + b", ".join(chunks) + b"]; }",
+            "flow.yaml": b"HEX: [" + b", ".join(chunks) + b"]",
+            "nested.yaml": b"HEX: [[" + first + b"], [" + second + b"]]",
+            "tuple.cs": b"class Sample { static object HEX = (" + b", ".join(chunks) + b"); }",
+            "siblings.py": b"HEX = [external, " + b", ".join(chunks) + b", another]",
+        }
+        for path, source in samples.items():
+            for private in (None, audit.RomIndex(IMAGES)):
+                with self.subTest(path=path, private=private is not None):
+                    self.assertTrue(audit.content_reasons(path, source, private))
+
+    def test_container_byte_literals_keep_binary_size_checks(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        fragments = [b'b"' + b"".join(f"\\x{value:02x}".encode() for value in window[start:start + 8]) + b'"'
+                     for start in range(0, len(window), 8)]
+        for path, source in (
+            ("bytes.py", b"PARTS = [" + b", ".join(fragments) + b"]"),
+            ("bytes.rs", b"const PARTS: [&[u8];12] = [" + b", ".join(fragments) + b"];"),
+        ):
+            self.assertTrue(audit.content_reasons(path, source, None))
+
+    def test_container_aggregation_does_not_merge_fields_or_dense_code(self) -> None:
+        fragment = b'"' + bytes(24).hex().encode() + b'"'
+        samples = {
+            "fields.py": b'DATA = {"first": ' + fragment + b', "second": ' + fragment + b"}",
+            "fields.rs": b'fn demo() { let _ = serde_json::json!({"first":' + fragment + b',"second":' + fragment + b"}); }",
+            "fields.yaml": b"first: " + fragment + b"\nsecond: " + fragment + b"\n",
+            "fields.cs": b"class Record { public string First; public string Second; static Record R = new Record { First = " + fragment + b", Second = " + fragment + b" }; }",
+            "text.rs": b'const WORDS: [&str;4] = ["Hello", " ", "world", "!"];',
+            "text.py": b'WORDS = ["Hello", " ", "world", "!"]',
+            "text.yaml": b'WORDS: ["Hello", " ", "world", "!"]',
+            "text.cs": b'class Sample { static string[] Words = { "Hello", " ", "world", "!" }; }',
+        }
+        for path, source in samples.items():
+            with self.subTest(path=path):
+                self.assertEqual(audit.content_reasons(path, source, None), [])
+
+    def test_identifier_fact_tables_still_receive_private_decoded_checks(self) -> None:
+        binary = bytes([0xb6]) * WINDOW_SIZE
+        encoded = base64.b64encode(binary)
+        literals = [b'"' + encoded[start:start + 8] + b'"' for start in range(0, len(encoded), 8)]
+        source = b"PARTS = [" + b", ".join(literals) + b"]"
+        index = audit.RomIndex([binary])
+        reasons = audit.content_reasons("identifiers.py", source, index)
+        self.assertTrue(any("ROM window" in reason for reason in reasons), reasons)
+        # Alphabetic-only hexadecimal chunks are still encoded data, not names.
+        hex_literals = [b'"' + (b"abcdefab" * 2) + b'"'] * 12
+        hex_source = b"PARTS = [" + b", ".join(hex_literals) + b"]"
+        self.assertTrue(audit.content_reasons("hex.py", hex_source, None))
+
+    def test_malformed_example_text_is_not_reparsed_as_valid_c(self) -> None:
+        slash = chr(92)
+        example = (f'b"{slash}x0"' + f'b"{slash}xZZ"').encode()
+        reason = audit.encoded_reason(example, None, (), audit.DecodeBudget(), "text", path="example.txt")
+        self.assertIsNone(reason)
+        with mock.patch.object(audit, "c_literals", side_effect=audit.DecodeLimitError("budget exhausted")):
+            with self.assertRaises(audit.DecodeLimitError):
+                audit.encoded_reason(example, None, (), audit.DecodeBudget(), "text", path="example.txt")
+
+    def test_csharp_grammar_and_literal_forms_are_real(self) -> None:
+        self.assertEqual(audit.parser_language("table.cs"), "csharp")
+        self.assertEqual(audit.source_literal(b'@"a""b\\c"', "text.cs"), b'a"b\\c')
+        self.assertEqual(audit.source_literal(b'"\\x12face"', "text.cs"), chr(0x12fa).encode() + b"ce")
+        self.assertEqual(audit.source_literal(b'"\\01"', "text.cs"), bytes(1) + b"1")
+
+    @unittest.skipUnless(shutil.which("rustc"), "Rust compiler absent; all container detections still run")
+    def test_rust_and_python_table_proofs_reconstruct_synthetic_windows(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        forms = encoded_table_forms(window)
+        with tempfile.TemporaryDirectory(prefix="tje-audit-table-proof-") as directory:
+            root = Path(directory)
+            main = (b"fn main() { let text = HEX.concat(); let bytes: Vec<u8> = text.as_bytes().chunks(2).map(|p| "
+                    b"u8::from_str_radix(std::str::from_utf8(p).unwrap(),16).unwrap()).collect(); "
+                    b"std::io::Write::write_all(&mut std::io::stdout(), &bytes).unwrap(); }\n")
+            rust = forms["rust-array"][1] + main
+            self.assertEqual(compile_rust(root, "hex_table", rust), window)
+            python = forms["python-list"][1] + b'import sys\nsys.stdout.buffer.write(bytes.fromhex("".join(HEX)))\n'
+            output = subprocess.run([sys.executable, "-c", python.decode()], capture_output=True, check=True)
+            self.assertEqual(output.stdout, window)
 
     def test_comments_do_not_change_literal_bytes(self) -> None:
         samples = {
@@ -634,7 +748,8 @@ class VendorProvenanceTests(GitAuditCase):
             "unresolved.rs": b'const TEXT: &str = concat!(\nenv!("CARGO_PKG_NAME"),\n/* old comment */\n" public"\n);\n',
         }
         for revision, image in zip(("rev02", "rev00"), IMAGES):
-            for name, (suffix, _) in grammar_forms(image[OFFSET:OFFSET + WINDOW_SIZE]).items():
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            for name, (suffix, _) in (grammar_forms(window) | encoded_table_forms(window)).items():
                 benign = b"# Synthetic upstream.\n" if suffix == "py" else b"// Synthetic upstream.\n"
                 if suffix == "html":
                     benign = b"<!-- Synthetic upstream. -->\n"
@@ -716,6 +831,16 @@ class VendorProvenanceTests(GitAuditCase):
             with mock.patch.object(audit, "reference_images", return_value=IMAGES):
                 findings, _ = audit.audit(self.repo, no_rom=not private, publish_refs=["HEAD"])
             self.assertEqual(findings, [])
+
+    def test_vendor_split_literal_tables_all_languages_states_and_modes(self) -> None:
+        forms = {}
+        for revision, image in zip(("rev02", "rev00"), IMAGES):
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            forms.update({f"{revision}-{name}": value for name, value in encoded_table_forms(window).items()})
+        cases = self.matrix(forms, prefix=audit.VENDOR_PREFIX + "cases")
+        self.assertEqual(len(cases), 24)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
 
     def test_vendor_grammar_boundaries_both_revisions_all_states_and_modes(self) -> None:
         forms = {}

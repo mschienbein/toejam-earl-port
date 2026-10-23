@@ -43,8 +43,12 @@ Tests generate both synthetic revision images and cover worktree, staged-only an
 deleted historical payloads; optional real-ROM probes stay entirely in memory.
 Source grammars distinguish comments from literals before byte-run grouping,
 including nested/multiline block comments and language-specific comment forms.
-Adjacent literals and bounded literal-only `concat!` trees are decoded as a single
-payload, without executing macros. Cargo-provided package metadata is a public fact,
+Adjacent literals, bounded literal-only `concat!` trees and homogeneous ordered
+literal containers are decoded as one payload. Array/list/tuple/sequence elements
+and sibling literal runs retain source order; identifiers and record/map fields
+break aggregation rather than joining unrelated data. Rust, Python, YAML and C#
+containers use their actual grammars, including nested containers. No macros run.
+Cargo-provided package metadata is a public fact,
 not an evaluated environment value; literal bytes around it are still checked.
 Vendored modifications use the same full-source tokens before changed-line
 projection, so comments or unchanged macro delimiters cannot hide new data.
