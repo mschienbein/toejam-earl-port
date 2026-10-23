@@ -119,8 +119,21 @@ pub fn map_expand_regions_beside_paths(c: &mut dyn Context, args: &[u32]) -> Res
         ),
         (2, 0, 1, [(-1, 1), (1, 1), (-1, 2), (1, 2)], -1, 1, 3, 2),
     ] {
-        if map.at(row).at(column).read(c) & bit != 0 {
-            let terrain = map.at(row + dy).at(column + dx).read(c);
+        if map
+            .at_word_index(row as i16)
+            .at_word_index(column as i16)
+            .read(c)
+            & bit
+            != 0
+        {
+            // The unchanged short axis uses a word displacement; the adjusted
+            // axis is promoted and uses the emitted full long displacement.
+            let neighbor = if dy == 0 {
+                map.at_word_index(row as i16).at(column + dx)
+            } else {
+                map.at(row + dy).at_word_index(column as i16)
+            };
+            let terrain = neighbor.read(c);
             if terrain & 0x3000 == 0x1000
                 && checks
                     .into_iter()
@@ -162,7 +175,9 @@ pub fn map_trace_transition_chain(c: &mut dyn Context, args: &[u32]) -> Result<O
     let column = i32::from(args[1] as i16);
     let incoming = args[2] as i16;
     let outgoing = args[3] as i16;
-    let cell = ram::g_player1_level_map(r).at(row).at(column);
+    let cell = ram::g_player1_level_map(r)
+        .at_word_index(row as i16)
+        .at_word_index(column as i16);
     if cell.read(c) & 0x1f00 != 0 {
         return Ok(Some(0));
     }
