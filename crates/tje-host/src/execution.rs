@@ -297,6 +297,14 @@ fn timed_tick(
     Ok(())
 }
 
+/// A suspended native continuation is an instruction boundary: accept every IRQ
+/// the pinned CPU would accept there, including its ten-cycle recognition stage,
+/// before resuming Rust. Masked/same-level requests are intentionally ready.
+fn native_resume_ready(emulator: &GenesisEmulator) -> bool {
+    let bus = emulator.hybrid_bus();
+    bus.cycles.m68k_wait_cpu_cycles == 0 && emulator.hybrid_cpu().hybrid_instruction_ready(bus)
+}
+
 /// Suspend Rust at its *current* emulated frame/SP, with its original SR mask.
 /// The real 68000 executes the idle loop and all original exception handlers;
 /// only a returned-to-idle CPU may resume Rust, never an ISR halfway through.
@@ -360,10 +368,18 @@ pub(crate) fn run_wait_with_audio(
     let mut handler_entered = false;
     let result = (|| {
         loop {
-            let parked = emulator.hybrid_cpu().pc() == PARK_PC
+            let depth = emulator.hybrid_cpu().hybrid_exception_depth();
+            let at_park = emulator.hybrid_cpu().pc() == PARK_PC
                 && emulator.hybrid_cpu().stack_pointer() == saved_sp;
-            handler_entered |= !parked;
-            if parked {
+            if depth < run.exception_base || (depth == run.exception_base && !at_park) {
+                return Err(HostError::Metadata(format!(
+                    "an ISR escaped the wait continuation: PC={:06X}, SP={:08X}, depth={depth}",
+                    emulator.hybrid_cpu().pc(),
+                    emulator.hybrid_cpu().stack_pointer(),
+                )));
+            }
+            handler_entered |= depth > run.exception_base;
+            if at_park && depth == run.exception_base {
                 if emulator.hybrid_bus().memory.read_main_ram::<true>(PARK_PC) != 0x60fe {
                     return Err(HostError::Metadata(
                         "an ISR overwrote the wait sentinel".into(),
@@ -377,7 +393,7 @@ pub(crate) fn run_wait_with_audio(
                     false,
                     &mut run,
                 );
-                if satisfied {
+                if satisfied && native_resume_ready(emulator) {
                     return Ok(());
                 }
             }
@@ -464,7 +480,31 @@ pub(crate) fn run_original_timed_until_with_audio(
     };
     let mut audio = HeadlessAudio { samples };
     let result = (|| {
-        while !boundary.reached(emulator.hybrid_cpu(), run.previous_pc, run.instructions) {
+        let ordinary_return =
+            boundary.sp.is_some() && boundary.source.is_none() && !boundary.entry_exception_return;
+        let mut return_reached = false;
+        loop {
+            let reached =
+                boundary.reached(emulator.hybrid_cpu(), run.previous_pc, run.instructions);
+            let depth = emulator.hybrid_cpu().hybrid_exception_depth();
+            return_reached |= ordinary_return && reached && depth == run.exception_base;
+            if return_reached
+                && (depth < run.exception_base || (depth == run.exception_base && !reached))
+            {
+                return Err(HostError::Metadata(format!(
+                    "an ISR escaped the timed return boundary: PC={:06X}, SP={:08X}, depth={depth}",
+                    emulator.hybrid_cpu().pc(),
+                    emulator.hybrid_cpu().stack_pointer(),
+                )));
+            }
+            if reached
+                && (!ordinary_return
+                    || (depth == run.exception_base && native_resume_ready(emulator)))
+            {
+                break;
+            }
+            // At the actual caller PC/SP, only IRQ recognition or real bus debt
+            // can make ready false. Their ticks do not execute the caller opcode.
             if run.ticks == MAX_TIMED_TICKS {
                 return Err(HostError::CallDidNotReturn {
                     pc: emulator.hybrid_cpu().pc(),
@@ -930,5 +970,222 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    fn pending_vblank_and_hblank() -> (GenesisEmulator, WaitClock) {
+        pending_vblank_and_hblank_with_handler(&[0x5279, 0x00ff, 0x8000, 0x4e73])
+    }
+
+    fn pending_vblank_and_hblank_with_handler(
+        vblank_handler: &[u16],
+    ) -> (GenesisEmulator, WaitClock) {
+        // Authored vectors/handlers: VBlank increments FF8000, HBlank FF8002.
+        // Main's ADDQ D7 must never execute while native continuation is parked.
+        let mut rom = vec![0; 1024];
+        rom[..4].copy_from_slice(&0xff7ffc_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x100_u32.to_be_bytes());
+        rom[28 * 4..29 * 4].copy_from_slice(&0x300_u32.to_be_bytes());
+        rom[30 * 4..31 * 4].copy_from_slice(&0x200_u32.to_be_bytes());
+        for (address, words) in [
+            (0x100, &[0x5287, 0x60fc][..]),
+            (0x200, vblank_handler),
+            (0x300, &[0x5279, 0x00ff, 0x8002, 0x4e73]),
+            (0x380, &[0x60fe, 0x4e71]),
+            (0x3c0, &[0x5287, 0x60fc]),
+        ] {
+            for (index, word) in words.iter().enumerate() {
+                let offset = address + 2 * index;
+                rom[offset..offset + 2].copy_from_slice(&u16::to_be_bytes(*word));
+            }
+        }
+        let mut emulator = GenesisEmulator::create(
+            Some(rom),
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        emulator.hybrid_parts().0.set_status_register(0x2700);
+        let (cpu, bus) = emulator.hybrid_parts();
+        cpu.set_pc(0x380, bus);
+        write(bus, 0xc00004, 0x8010);
+        write(bus, 0xc00004, 0x8120);
+        write(bus, 0xc00004, 0x8a00);
+        let mut clock = WaitClock {
+            poller: Some(Arc::new(InputScript::default())),
+            ..WaitClock::default()
+        };
+        let mut run = ClockRun::default();
+        let mut audio = HeadlessAudio::default();
+        for _ in 0..100_000 {
+            if emulator.hybrid_bus().interrupt_level() == 6
+                && emulator.hybrid_bus().cycles.m68k_wait_cpu_cycles == 0
+            {
+                break;
+            }
+            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio).unwrap();
+        }
+        assert_eq!(emulator.hybrid_bus().interrupt_level(), 6);
+        let (cpu, bus) = emulator.hybrid_parts();
+        cpu.set_pc(0x100, bus);
+        (emulator, clock)
+    }
+
+    fn accepted_vectors(run: &ClockRun) -> Vec<u32> {
+        run.logic_trace
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                LogicEvent::ExceptionEntered { vector, .. } => Some(*vector),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wait_resumes_only_after_pending_vblank_then_hblank_handlers_return() {
+        let (mut emulator, mut clock) = pending_vblank_and_hblank();
+        emulator.hybrid_parts().0.set_status_register(0x2000);
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let run = run_wait(
+            &mut emulator,
+            &mut clock,
+            WaitRequest::vblank_frame(0xff8000, 0),
+        )
+        .unwrap();
+        assert_eq!(accepted_vectors(&run), [30, 28]);
+        assert_eq!(
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff8000),
+            1
+        );
+        assert_eq!(
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff8002),
+            1
+        );
+        assert_eq!(emulator.hybrid_cpu().pc(), 0x100);
+        assert_eq!(emulator.hybrid_cpu().stack_pointer(), 0xff7ffc);
+        assert_eq!(emulator.hybrid_cpu().status_register() & 0xff00, 0x2000);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        assert_eq!(emulator.hybrid_cpu().hybrid_exception_depth(), 0);
+        assert!(native_resume_ready(&emulator));
+    }
+
+    #[test]
+    fn wait_leaves_masked_and_same_level_interrupts_pending() {
+        for mask in [4_u16, 7] {
+            let (mut emulator, mut clock) = pending_vblank_and_hblank();
+            if mask == 4 {
+                // Drop only the VBlank request using the actual IACK semantics.
+                emulator.hybrid_bus_mut().acknowledge_interrupt(6);
+                assert_eq!(emulator.hybrid_bus().interrupt_level(), 4);
+            }
+            emulator
+                .hybrid_parts()
+                .0
+                .set_status_register(0x2000 | (mask << 8));
+            let level = emulator.hybrid_bus().interrupt_level();
+            let run = run_wait(
+                &mut emulator,
+                &mut clock,
+                WaitRequest::vblank_frame(0xff8000, 1),
+            )
+            .unwrap();
+            assert_eq!(run.ticks, 0);
+            assert!(accepted_vectors(&run).is_empty());
+            assert_eq!(emulator.hybrid_bus().interrupt_level(), level);
+            assert_eq!(
+                emulator.hybrid_cpu().status_register() & 0xff00,
+                0x2000 | (mask << 8)
+            );
+        }
+    }
+
+    #[test]
+    fn already_recognized_irq_is_delivered_before_a_satisfied_wait() {
+        let (mut emulator, mut clock) = pending_vblank_and_hblank();
+        emulator.hybrid_parts().0.set_status_register(0x2000);
+        let before_pc = emulator.hybrid_cpu().pc();
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let mut ignored = ClockRun::default();
+        timed_tick(
+            &mut emulator,
+            &mut clock,
+            &mut ignored,
+            &mut HeadlessAudio::default(),
+        )
+        .unwrap();
+        // Pinned core recognizes in ten cycles; no caller opcode or frame yet.
+        assert_eq!(emulator.hybrid_cpu().pc(), before_pc);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        assert_eq!(emulator.hybrid_cpu().hybrid_exception_depth(), 0);
+        let run = run_wait(
+            &mut emulator,
+            &mut clock,
+            WaitRequest::vblank_frame(0xff8000, 2),
+        )
+        .unwrap();
+        assert_eq!(accepted_vectors(&run), [30, 28]);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+    }
+
+    #[test]
+    fn timed_return_drains_eligible_irqs_without_executing_the_caller() {
+        let (mut emulator, mut clock) = pending_vblank_and_hblank();
+        emulator.hybrid_parts().0.set_status_register(0x2000);
+        let pc = emulator.hybrid_cpu().pc();
+        let sp = emulator.hybrid_cpu().stack_pointer();
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let (_, run) = run_original_timed(&mut emulator, &mut clock, pc, sp).unwrap();
+        assert_eq!(accepted_vectors(&run), [30, 28]);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        assert_eq!(
+            (
+                emulator.hybrid_cpu().pc(),
+                emulator.hybrid_cpu().stack_pointer()
+            ),
+            (pc, sp)
+        );
+        assert_eq!(emulator.hybrid_cpu().status_register() & 0xff00, 0x2000);
+    }
+
+    #[test]
+    fn escaped_isr_return_fails_before_any_unrelated_caller_instruction() {
+        // Actual authored ISR instructions, not a host mutation after RTE.
+        // First changes saved PC; second clears saved S to restore the wrong SP bank.
+        for (handler, wrong_pc) in [
+            (&[0x2f7c, 0x0000, 0x03c0, 0x0002, 0x4e73][..], true),
+            (&[0x0257, 0xdfff, 0x4e73][..], false),
+        ] {
+            for timed_return in [false, true] {
+                let (mut emulator, mut clock) = pending_vblank_and_hblank_with_handler(handler);
+                let cpu = emulator.hybrid_parts().0;
+                cpu.set_address_registers(
+                    cpu.address_registers(),
+                    0xff7200,
+                    cpu.supervisor_stack_pointer(),
+                );
+                cpu.set_status_register(0x2000);
+                let before_pc = cpu.pc();
+                let before_sp = cpu.stack_pointer();
+                let before_d7 = cpu.data_registers()[7];
+                let error = if timed_return {
+                    run_original_timed(&mut emulator, &mut clock, before_pc, before_sp).map(|_| ())
+                } else {
+                    run_wait(&mut emulator, &mut clock, WaitRequest::interrupt()).map(|_| ())
+                }
+                .unwrap_err();
+                assert!(error.to_string().contains("escaped"), "{error}");
+                let cpu = emulator.hybrid_cpu();
+                assert_eq!(cpu.hybrid_exception_depth(), 0);
+                assert_eq!(cpu.data_registers()[7], before_d7);
+                if wrong_pc {
+                    assert_eq!(cpu.pc(), 0x3c0);
+                    assert_eq!(cpu.stack_pointer(), before_sp);
+                    assert_eq!(cpu.next_opcode(), 0x5287);
+                } else {
+                    assert_eq!(cpu.pc(), if timed_return { before_pc } else { PARK_PC });
+                    assert_eq!(cpu.stack_pointer(), 0xff7200);
+                    assert_eq!(cpu.status_register() & 0x2000, 0);
+                }
+            }
+        }
     }
 }

@@ -906,3 +906,39 @@ address. There is no copied selector or proof-only adapter. These entries remain
 pending until the sprites lane completes the all-caller promotion; successful
 isolated proofs do not change the production table.
 
+## Wait-resume interrupt quiescence
+
+A true wait condition and matching parked PC/SP are necessary, not sufficient,
+for resuming Rust. The pinned 68000 first recognizes an eligible IRQ in a
+ten-cycle step, then enters the original handler on its next step. After an RTE,
+a lower-priority IRQ can already be eligible under the restored SR. Rust must
+not run ahead of that handler.
+
+The hybrid wait resumes only when the condition holds, the CPU has returned to
+its parked PC/SP, no real bus/refresh wait remains, and the CPU's existing
+`hybrid_instruction_ready` predicate is true. Otherwise real ticks deliver the
+pending recognition/handler sequence. This does not alter SR or acknowledge an
+IRQ by hand. An interrupt at or below the restored mask remains pending; a
+same-level request cannot re-enter its own masked handler.
+
+Ordinary timed original returns apply the same ready boundary before the Rust
+caller continues. Their actual return PC/prefetch and exception-frame contents
+are retained: only the CPU's interrupt/stall paths execute, never a caller opcode
+or synthetic replacement return stub. Typed RTE, terminal and main-loop
+boundaries still end at their separately declared transfer; they are not
+redefined as ordinary RTS calls.
+
+The first ordinary return boundary is latched while eligible handlers drain.
+At the original entry exception depth, a handler returning to a different PC/SP
+is an error before any unrelated caller instruction can run. The parked wait
+enforces the same depth/PC/SP contract. An unfinished handler cannot impersonate
+a returned continuation merely by using its PC/SP. Failure retains the actual
+CPU state; it does not restore a plausible return address or stack bank.
+
+The regression is source-visible game behavior, not a rendering waiver:
+InventoryRefreshContentsAndWait can finish VBlank with a level-4 HBlank request
+already pending. Its original HBlank handler must execute before continuation,
+including the final H-int-counter disable write. This fix neither drains masked
+interrupts nor aligns arbitrary original/Rust instruction cadence. Raw IRQ and
+device observations remain recorded.
+
