@@ -331,15 +331,25 @@ impl Adventure {
                         if matches!(goal, Goal::Earthling { .. }) && kind == 23 {
                             let x = earthling.x().read(memory);
                             let y = earthling.y().read(memory);
-                            target = if position.1 < y + 16 {
-                                if (position.0 - x).abs() < 48 {
-                                    (x + 56, position.1)
+                            target = if position.1 < y + 20 {
+                                if position.0 > x - 60 {
+                                    (x - 64, position.1)
                                 } else {
                                     (position.0, y + 24)
                                 }
                             } else {
                                 (x, y + 16)
                             };
+                            if (position.0 - x).abs() < 160 && (position.1 - y).abs() < 128 {
+                                *pad |= if position.1 < y + 16 {
+                                    if position.0 > x - 60 { LEFT } else { DOWN }
+                                } else if (position.0 - x).abs() > 4 {
+                                    if position.0 < x { RIGHT } else { LEFT }
+                                } else {
+                                    UP
+                                };
+                                continue;
+                            }
                         }
                         if matches!(goal, Goal::Ship { .. }) {
                             let approaches = [
@@ -390,7 +400,7 @@ impl Adventure {
                         {
                             *pad |= input;
                         } else {
-                            self.mobility_needed[player] = true;
+                            self.mobility_needed[player] |= matches!(goal, Goal::Ship { .. });
                             self.blocked.push((level, goal));
                             self.goals[player] = None;
                         }
@@ -407,7 +417,6 @@ impl Adventure {
                         {
                             *pad |= input;
                         } else {
-                            self.mobility_needed[player] = true;
                             self.blocked.push((level, goal));
                             self.goals[player] = None;
                         }
@@ -448,10 +457,11 @@ impl Adventure {
                         }
                         let door = ram::g_player_info(revision).at(i32::from(handle));
                         let target = (door.x().read(memory), door.y().read(memory) + 12);
-                        if (position.0 - target.0).abs() < 5 && (position.1 - target.1).abs() < 8 {
-                            if door.sprite_state().read(memory) != 0 {
-                                *pad |= UP;
-                            }
+                        let approach = position.1 - door.y().read(memory);
+                        if (position.0 - target.0).abs() < 5 && (0..32).contains(&approach) {
+                            // Keep walking into the centered contact footprint:
+                            // its owner handler opens even the initially closed door.
+                            *pad |= UP;
                         } else if let Some(input) = self.navigation[player]
                             .steer(memory, rom, revision, player, target, frame)
                         {
@@ -841,6 +851,10 @@ impl Adventure {
             return Some(Goal::Present { slot, kind: 0 });
         }
         if self.mobility_needed[player]
+            && ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                != 0
             && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 8)
         {
             return Some(Goal::Present { slot, kind: 8 });
@@ -857,6 +871,11 @@ impl Adventure {
             let kind = inventory.at(slot as i32).read(memory);
             matches!(kind, 0 | 2).then_some(Goal::Present { slot, kind })
         });
+        let reserve_gear = (0..16).any(|slot| matches!(inventory.at(slot).read(memory), 0 | 8))
+            || ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0;
         if self.objective == Objective::LevelZero && level > 0 {
             let active_gear = matches!(
                 ram::g_player_powerups(revision)
@@ -922,6 +941,7 @@ impl Adventure {
                     let kind = earthling.kind().read(memory);
                     let goal = Goal::Earthling { bank, index };
                     if kind >= 0
+                        && (self.objective == Objective::Explore || level == 0 || kind == 10)
                         && match kind {
                             9 => count < 16 && bucks >= 3,
                             10 => bucks > 0,
@@ -957,12 +977,15 @@ impl Adventure {
                 {
                     continue;
                 }
-                let needed = (self.objective == Objective::Explore
-                    && kind < 28
-                    && content
-                        .presents_opened
-                        .get(&(kind as u8))
-                        .is_some_and(Option::is_none))
+                let needed = (self.objective == Objective::Campaign
+                    && !reserve_gear
+                    && matches!(kind, 0 | 8))
+                    || (self.objective == Objective::Explore
+                        && kind < 28
+                        && content
+                            .presents_opened
+                            .get(&(kind as u8))
+                            .is_some_and(Option::is_none))
                     || (health < 14
                         && (64..80).contains(&kind)
                         && rom[food_health.address as usize + (kind - 64) as usize] as i8 > 0)
@@ -1095,5 +1118,47 @@ mod tests {
             assert_eq!(pads[0], CONNECTED | A, "frame {frame}");
         }
         assert_eq!(planner.held_until[0], 76);
+    }
+
+    #[test]
+    fn campaign_collects_mobility_without_chasing_unrelated_hostile_encounters() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 5);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            let hostile = ram::g_earthling_banks(revision).at(0).at(0);
+            hostile.kind().write(&mut memory, 1);
+            hostile.level().write(&mut memory, 5);
+            let wings = ram::g_object_table(revision).at(0).at(0);
+            wings.kind().write(&mut memory, 0);
+            wings.level().write(&mut memory, 5);
+            let elevator = ram::g_elevator_records(revision).at(0).at(0);
+            elevator.level().write(&mut memory, 5);
+            assert!(matches!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
+                Some(Goal::Item { bank: 0, index: 0 })
+            ));
+            inventory.at(0).write(&mut memory, 0);
+            assert!(matches!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
+                Some(Goal::Elevator { bank: 0 })
+            ));
+            planner.mobility_needed[0] = true;
+            assert!(matches!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
+                Some(Goal::Present { slot: 0, kind: 0 })
+            ));
+        }
     }
 }

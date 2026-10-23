@@ -179,6 +179,11 @@ with walkability decoded from runtime user-ROM metatile/overlay/property resourc
 Terrain decoding reuses the game's proven generic camera lookup helpers, including
 the original word-index wrap for nonzero overlay selector 16; it does not replace
 that selector with bare ground or substitute the overlay-ignoring point query.
+Land routes must reach a walkable goal cell: proximity is not permission to walk
+blindly across the final water/space gap. Live doorway entities contribute the
+original conditional 4-by-3 ground footprint, and centered upward input opens a
+closed doorway. Campaign planning carries real mobility presents for disconnected
+terrain instead of spending them on unrelated encounter targets.
 No map, route, present table, or decoded resource is embedded in the crate or
 recording. It prefers ship-piece targets, then matching-level departure elevators.
 P2 initially stays behind to exercise split-screen, then joins the elevator target.

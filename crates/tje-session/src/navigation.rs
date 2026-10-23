@@ -136,14 +136,16 @@ impl Navigator {
         let changed = self.level != level
             || (0..26).any(|row| {
                 (0..19).any(|col| {
-                    self.map[(row * 19 + col) as usize] != bank.at(row).at(col).read(memory)
+                    self.map[(row * 19 + col) as usize]
+                        != bank.at(row).at(col).read(memory) & 0x1FFF
                 })
             });
         if changed {
             self.level = level;
             for row in 0..26 {
                 for col in 0..19 {
-                    self.map[(row * 19 + col) as usize] = bank.at(row).at(col).read(memory);
+                    self.map[(row * 19 + col) as usize] =
+                        bank.at(row).at(col).read(memory) & 0x1FFF;
                 }
             }
             self.decode(rom, revision);
@@ -340,8 +342,37 @@ impl Navigator {
             }
         }
         let query = ram::g_player_info(revision).at(player as i32);
+        let doorway_handles: [i32; 2] = std::array::from_fn(|owner| {
+            i32::from(
+                ram::g_player_doorway_entities(revision)
+                    .at(owner as i32)
+                    .read(memory),
+            )
+        });
+        // PresentFindDoorwayOwnerAtTile makes this exact 4-by-3 footprint
+        // ground, even when the underlying level metatile is water or space.
+        let doorway_ground: [Option<(i32, i32)>; 2] = doorway_handles.map(|handle| {
+            if handle == 0 {
+                return None;
+            }
+            let door = ram::g_player_info(revision).at(handle);
+            (door.level().read(memory) == self.level
+                && (door.sprite_state().read(memory) != 0
+                    || query.y().read(memory) >= door.y().read(memory)))
+            .then(|| {
+                (
+                    (i32::from(door.x().read(memory)) - 16) >> 3,
+                    (i32::from(door.y().read(memory)) - 10) >> 3,
+                )
+            })
+        });
         for index in 6..26 {
             let object = ram::g_player_info(revision).at(index);
+            // A doorway is an interactive entrance, not an impassable wall:
+            // centered approach input opens it before the player can cross.
+            if doorway_handles.contains(&index) {
+                continue;
+            }
             if object.draw_flags().read(memory) & 1 != 0
                 && object.behavior_flags().read(memory) & 1 != 0
                 && object.level().read(memory) == self.level
@@ -385,14 +416,20 @@ impl Navigator {
             if cost != self.distance[cell] {
                 continue;
             }
-            if cell == goal_cell
-                || (goal.1 == Travel::Land && manhattan(cell_position(cell), goal.0) <= 12)
-            {
+            if cell == goal_cell {
                 end = Some(cell);
                 break;
             }
             for next in neighbors(cell).into_iter().flatten() {
-                let terrain = self.terrain[next];
+                let column = (next % WIDTH) as i32;
+                let row = (next / WIDTH) as i32;
+                let terrain = if doorway_ground.iter().flatten().any(|&(left, top)| {
+                    column >= left && column < left + 4 && row >= top && row < top + 3
+                }) {
+                    0x10
+                } else {
+                    self.terrain[next]
+                };
                 let permitted = goal.1 == Travel::Fly
                     || terrain <= 0x50
                     || (goal.1 == Travel::Swim && terrain == 0x80)
@@ -605,6 +642,76 @@ mod tests {
                 terrain_from_cell(&Cartridge(&bytes), revision, 0x1000, 0, 0),
                 0x30
             );
+        }
+    }
+
+    #[test]
+    fn a_nearby_water_goal_is_not_reached_by_walking_blindly_from_land() {
+        let revision = Revision::Rev02;
+        let memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        let start = 10 * WIDTH + 20;
+        navigator.terrain[start] = 0x10;
+        navigator.terrain[start + 1] = 0x80;
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(start + 1), Travel::Land),
+        );
+        assert!(!navigator.reachable);
+    }
+
+    #[test]
+    fn a_real_doorway_adds_its_conditional_ground_footprint() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 1);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 92);
+            player.width().write(&mut memory, 24);
+            let door = ram::g_player_info(revision).at(6);
+            door.level().write(&mut memory, 1);
+            door.x().write(&mut memory, 188);
+            door.y().write(&mut memory, 82);
+            door.width().write(&mut memory, 24);
+            door.draw_flags().write(&mut memory, 1);
+            door.behavior_flags().write(&mut memory, 1);
+            ram::g_player_doorway_entities(revision)
+                .at(0)
+                .write(&mut memory, 6);
+            let mut navigator = Navigator::new();
+            navigator.level = 1;
+            navigator.terrain[11 * WIDTH + 20] = 0x10;
+            navigator.plan(
+                &Ram(memory.ram()),
+                revision,
+                0,
+                (164, 92),
+                ((188, 92), Travel::Land),
+            );
+            assert!(navigator.reachable);
+            player.y().write(&mut memory, 60);
+            navigator.plan(
+                &Ram(memory.ram()),
+                revision,
+                0,
+                (164, 92),
+                ((188, 92), Travel::Land),
+            );
+            assert!(!navigator.reachable);
+            door.sprite_state().write(&mut memory, 1);
+            navigator.plan(
+                &Ram(memory.ram()),
+                revision,
+                0,
+                (164, 92),
+                ((188, 92), Travel::Land),
+            );
+            assert!(navigator.reachable);
         }
     }
 }
