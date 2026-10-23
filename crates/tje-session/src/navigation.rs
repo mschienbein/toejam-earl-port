@@ -52,6 +52,12 @@ struct EdgeAlternatives {
     count: u8,
 }
 
+#[derive(Clone, Copy)]
+enum EdgePrediction {
+    Unknown,
+    Choices(EdgeAlternatives),
+}
+
 /// First-cell edge replacement from MapConsumePathCellDirections with its
 /// original initial traversal=-1. This observes every possible random choice,
 /// without drawing randomness or modifying the game's map.
@@ -62,7 +68,7 @@ fn edge_alternatives(
     bank: usize,
     cell: u16,
     position: (i32, i32),
-) -> Option<EdgeAlternatives> {
+) -> Option<EdgePrediction> {
     let (row, column) = position;
     let directions = |row, column| {
         (ram::g_map_path_direction_banks(revision)
@@ -84,7 +90,7 @@ fn edge_alternatives(
     } else if directions(row, column - 1) & 2 != 0 {
         19
     } else {
-        return None;
+        return Some(EdgePrediction::Unknown);
     };
     let tables = tje_mem::rom::map_generation_lookup_tables(revision);
     let kind = if cell & 0x8000 != 0 {
@@ -98,9 +104,12 @@ fn edge_alternatives(
         .at(i32::from(kind))
         .read(rom)
         .target();
-    Some(EdgeAlternatives {
-        values,
-        count: values.read(rom),
+    let count = values.read(rom);
+    Some(if count == 0 {
+        // The original traps on its modulo, not a vacuously safe choice set.
+        EdgePrediction::Unknown
+    } else {
+        EdgePrediction::Choices(EdgeAlternatives { values, count })
     })
 }
 
@@ -367,7 +376,7 @@ impl Navigator {
 
     fn decode(&mut self, rom: &[u8], revision: Revision, memory: &Ram<'_>, bank: usize) {
         let image = Cartridge(rom);
-        let future_edges: [Option<EdgeAlternatives>; 26 * 19] = std::array::from_fn(|index| {
+        let future_edges: [Option<EdgePrediction>; 26 * 19] = std::array::from_fn(|index| {
             edge_alternatives(
                 &image,
                 memory,
@@ -392,13 +401,26 @@ impl Navigator {
                 let map = self.map[(y / 8 - 1) * 19 + x / 16 - 1];
                 self.terrain[index] =
                     terrain_from_cell(&image, revision, map, (y % 8) as u16, (x % 16) as u16);
-                if let Some(alternatives) = future_edges[(y / 8 - 1) * 19 + x / 16 - 1] {
-                    self.safe_footing[index] = (1..=alternatives.count).all(|choice| {
-                        let future = (map & 0x9F00)
-                            | u16::from(alternatives.values.offset(i32::from(choice)).read(&image));
-                        terrain_from_cell(&image, revision, future, (y % 8) as u16, (x % 16) as u16)
-                            <= 0x50
-                    });
+                if let Some(prediction) = future_edges[(y / 8 - 1) * 19 + x / 16 - 1] {
+                    self.safe_footing[index] = match prediction {
+                        EdgePrediction::Unknown => false,
+                        EdgePrediction::Choices(alternatives) => {
+                            (1..=alternatives.count).all(|choice| {
+                                let future = (map & 0x9F00)
+                                    | 0x2000
+                                    | u16::from(
+                                        alternatives.values.offset(i32::from(choice)).read(&image),
+                                    );
+                                terrain_from_cell(
+                                    &image,
+                                    revision,
+                                    future,
+                                    (y % 8) as u16,
+                                    (x % 16) as u16,
+                                ) <= 0x50
+                            })
+                        }
+                    };
                 }
             }
         }
@@ -1013,15 +1035,15 @@ mod tests {
     }
 
     #[test]
-    fn pending_edge_prediction_uses_the_active_direction_nibble() {
+    fn pending_edge_prediction_uses_the_active_nibble_and_fails_closed_on_unknowns() {
         for revision in Revision::ALL {
             let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
             ram::g_map_path_direction_banks(revision)
                 .at(1)
                 .at(0)
                 .write(&mut memory, 0x10);
-            let image = vec![0; revision.rom_size()];
-            assert!(
+            let mut image = vec![0; revision.rom_size()];
+            assert!(matches!(
                 edge_alternatives(
                     &Cartridge(&image),
                     &Ram(memory.ram()),
@@ -1029,10 +1051,12 @@ mod tests {
                     0,
                     0x4000,
                     (0, 0)
-                )
-                .is_none()
-            );
-            assert!(
+                ),
+                Some(EdgePrediction::Unknown)
+            ));
+            // The high nibble supplies an edge, but a zero alternative count
+            // traps in the original and cannot be a vacuously safe set.
+            assert!(matches!(
                 edge_alternatives(
                     &Cartridge(&image),
                     &Ram(memory.ram()),
@@ -1040,9 +1064,27 @@ mod tests {
                     1,
                     0x4000,
                     (0, 0)
-                )
-                .is_some()
-            );
+                ),
+                Some(EdgePrediction::Unknown)
+            ));
+            let mut navigator = Navigator::new();
+            navigator.level = 5;
+            navigator.map[0] = 0x4000;
+            navigator.decode(&image, revision, &Ram(memory.ram()), 0);
+            assert_eq!(navigator.terrain_at((132, 68)), 0);
+            assert!(!navigator.safe_footing[position_cell((132, 68)).unwrap()]);
+            image[0] = 1; // Authored counted choice at the synthetic null pointer.
+            assert!(matches!(
+                edge_alternatives(
+                    &Cartridge(&image),
+                    &Ram(memory.ram()),
+                    revision,
+                    1,
+                    0x4000,
+                    (0, 0)
+                ),
+                Some(EdgePrediction::Choices(_))
+            ));
             ram::g_map_path_direction_banks(revision)
                 .at(0)
                 .at(0)

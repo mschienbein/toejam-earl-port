@@ -198,6 +198,10 @@ first-cell replacement rule and all cartridge-backed random alternatives. It
 avoids standing where any such replacement would remove support. This separate
 footing constraint never changes the reported current terrain, consumes no RNG
 and writes no RAM; it is not a fabricated map update.
+Missing neighbor directions (the original residual-register bug) and zero-length
+choice sets are unknown/unsafe, never vacuously safe. Requiring future terrain
+class at most `0x50` is a conservative bot policy; the original post-redraw fall
+test specifically checks void `0x90` together with animation and height gates.
 On later campaign levels, existing super-hitops presents can be opened for real
 speed and the original A-modified terrain-edge hop. The bot releases A near
 interaction/elevator targets rather than treating the speed power as a grant.
