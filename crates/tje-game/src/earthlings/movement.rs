@@ -1,3 +1,13 @@
+/// G/build/{rev02,rev00}/asm/c_terrain_movement.s:424–454 uses signed
+/// BGE/BLT even though the dimension byte was zero-extended before arithmetic.
+fn x_within_bounds(position: i16, width: u8) -> bool {
+    i32::from(position) - i32::from(width) > 8 && i32::from(width) + i32::from(position) < 2672
+}
+
+fn y_within_bounds(position: i16, height: u8) -> bool {
+    i32::from(position) - i32::from(height) > 8 && position < 1776
+}
+
 use crate::{Context, Result, call, ids};
 use tje_mem::{Address, ObjectState, RenderFrame, ram};
 
@@ -189,7 +199,8 @@ pub fn entity_update_terrain_draw_flag(
 }
 
 /// G/src/earthlings/terrain_movement.c:140 (`EarthlingMoveWithinMapBounds`).
-/// Atomic: collision/terrain memory only. Unsigned width promotion is intentional.
+/// Atomic: collision/terrain memory only. Bounds use the emitted signed branches,
+/// not the unsigned comparisons suggested by the source's dimension-byte types.
 pub fn earthling_move_within_map_bounds(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -213,15 +224,10 @@ pub fn earthling_move_within_map_bounds(
         return Ok(None);
     };
     let (mut x, fx, mut y, fy) = predict(context, step, object);
-    let width = u32::from(object.width().read(context));
-    if (i32::from(x) as u32).wrapping_sub(width) <= 8
-        || width.wrapping_add(i32::from(x) as u32) >= 2672
-    {
+    if !x_within_bounds(x, object.width().read(context)) {
         x = object.x().read(context);
     }
-    if (i32::from(y) as u32).wrapping_sub(u32::from(object.height_pixels().read(context))) <= 8
-        || y >= 1776
-    {
+    if !y_within_bounds(y, object.height_pixels().read(context)) {
         y = object.y().read(context);
     }
     let old_x = object.x().read(context) as u32;
@@ -278,4 +284,45 @@ pub fn earthling_move_within_map_bounds(
     object.y().write(context, y);
     object.fraction_y().write(context, fy);
     Ok(None)
+}
+
+#[cfg(test)]
+mod signed_bounds_tests {
+    use super::{x_within_bounds, y_within_bounds};
+
+    fn cmp_long_bge(left: i32, right: i32) -> bool {
+        let result = left.wrapping_sub(right);
+        let overflow = ((left ^ right) & (left ^ result)) < 0;
+        (result < 0) == overflow
+    }
+
+    fn cmp_word_blt(left: i16, right: i16) -> bool {
+        let result = left.wrapping_sub(right);
+        let overflow = ((left ^ right) & (left ^ result)) < 0;
+        (result < 0) != overflow
+    }
+
+    #[test]
+    fn every_coordinate_dimension_pair_matches_emitted_signed_flags() {
+        for revision in [tje_mem::Revision::Rev02, tje_mem::Revision::Rev00] {
+            for position in i16::MIN..=i16::MAX {
+                for dimension in u8::MIN..=u8::MAX {
+                    let difference = i32::from(position) - i32::from(dimension);
+                    let sum = i32::from(position) + i32::from(dimension);
+                    let lower_reject = cmp_long_bge(8, difference);
+                    let upper_accept = !cmp_long_bge(sum, 2672);
+                    assert_eq!(
+                        x_within_bounds(position, dimension),
+                        !lower_reject && upper_accept,
+                        "{revision:?} x={position} width={dimension}"
+                    );
+                    assert_eq!(
+                        y_within_bounds(position, dimension),
+                        !lower_reject && cmp_word_blt(position, 1776),
+                        "{revision:?} y={position} height={dimension}"
+                    );
+                }
+            }
+        }
+    }
 }
