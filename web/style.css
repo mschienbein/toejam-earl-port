@@ -1,0 +1,26 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #11151b; color: #e6e9ef; }
+body { margin: 0; }
+main { max-width: 1000px; margin: auto; padding: 1rem; }
+h1 { margin: 0; font-size: 1.8rem; }
+header p { margin-top: .4rem; color: #adbac9; }
+section, details { margin-block: 1rem; }
+#drop-zone { border: 1px dashed #60738c; border-radius: .5rem; padding: .8rem; }
+#drop-zone.dragging { background: #22364b; border-color: #97d8ff; }
+#drop-zone label { display: block; font-weight: 650; margin-bottom: .5rem; }
+#screen { background: #000; width: 100%; aspect-ratio: 10 / 7; display: grid; place-items: center; }
+canvas { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; outline-offset: -2px; }
+#screen:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; margin-top: .8rem; }
+button, select, input::file-selector-button { font: inherit; border: 1px solid #60738c; border-radius: .25rem; padding: .35rem .6rem; background: #233245; color: #eef3fa; cursor: pointer; }
+button:disabled, input:disabled { opacity: .55; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, canvas:focus-visible { outline: 2px solid #97d8ff; }
+label { display: inline-flex; align-items: center; gap: .3rem; }
+input[type=range] { width: 7rem; }
+.small, footer { font-size: .85rem; color: #adbac9; }
+#status { min-height: 1.4em; }
+body[data-state=error] #status { color: #ffb5ad; }
+#metrics { min-height: 1.3em; font-variant-numeric: tabular-nums; }
+summary { cursor: pointer; padding-block: .3rem; }
+table { margin-block: .6rem; border-collapse: collapse; }
+th, td { padding: .4rem .8rem .4rem 0; text-align: left; }
+a { color: #97d8ff; }
