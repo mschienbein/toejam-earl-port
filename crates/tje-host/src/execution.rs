@@ -192,6 +192,18 @@ pub(crate) fn run_wait(
     clock: &mut WaitClock,
     request: WaitRequest,
 ) -> Result<ClockRun> {
+    run_wait_with_audio(emulator, clock, request, Vec::new(), true)
+}
+
+/// Replacement callers move their existing audio buffer through this operation;
+/// unchecked play does not allocate/collect a RAM/device audit.
+pub(crate) fn run_wait_with_audio(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    request: WaitRequest,
+    samples: Vec<[f64; 2]>,
+    audit: bool,
+) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
             "a wait requires a time-aware contract".into(),
@@ -212,10 +224,10 @@ pub(crate) fn run_wait(
             .memory
             .read_main_ram::<true>(PARK_PC + 2),
     ];
-    let saved_trace = emulator
-        .hybrid_bus_mut()
-        .hybrid_cpu_accesses
-        .replace(Vec::new());
+    let saved_trace = std::mem::replace(
+        &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
+        audit.then(Vec::new),
+    );
     {
         let (cpu, bus) = emulator.hybrid_parts();
         bus.memory.write_main_ram::<true>(PARK_PC, 0x60fe);
@@ -223,7 +235,7 @@ pub(crate) fn run_wait(
         cpu.set_pc(PARK_PC, bus);
     }
     let mut run = ClockRun::default();
-    let mut audio = HeadlessAudio::default();
+    let mut audio = HeadlessAudio { samples };
     let result = (|| {
         loop {
             let parked = emulator.hybrid_cpu().pc() == PARK_PC
@@ -271,18 +283,29 @@ pub(crate) fn run_original_timed(
     return_pc: u32,
     return_sp: u32,
 ) -> Result<(AtomicRun, ClockRun)> {
+    run_original_timed_with_audio(emulator, clock, return_pc, return_sp, Vec::new(), true)
+}
+
+pub(crate) fn run_original_timed_with_audio(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    return_pc: u32,
+    return_sp: u32,
+    samples: Vec<[f64; 2]>,
+    audit: bool,
+) -> Result<(AtomicRun, ClockRun)> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
             "timed execution cannot use functional devices".into(),
         ));
     }
     let entry_sp = emulator.hybrid_cpu().stack_pointer();
-    let saved_trace = emulator
-        .hybrid_bus_mut()
-        .hybrid_cpu_accesses
-        .replace(Vec::new());
+    let saved_trace = std::mem::replace(
+        &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
+        audit.then(Vec::new),
+    );
     let mut run = ClockRun::default();
-    let mut audio = HeadlessAudio::default();
+    let mut audio = HeadlessAudio { samples };
     let result = (|| {
         while emulator.hybrid_cpu().pc() != return_pc
             || emulator.hybrid_cpu().stack_pointer() != return_sp
@@ -300,7 +323,11 @@ pub(crate) fn run_original_timed(
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
     run.audio = audio.samples;
     result?;
-    let audit = audit_accesses(&run.accesses, entry_sp);
+    let audit = if audit {
+        audit_accesses(&run.accesses, entry_sp)
+    } else {
+        AtomicRun::default()
+    };
     Ok((audit, run))
 }
 
@@ -538,6 +565,87 @@ mod tests {
                 .memory
                 .read_main_ram::<true>(PARK_PC + 2),
             0x5678
+        );
+    }
+
+    #[test]
+    fn unchecked_wait_moves_and_retains_the_audio_allocation() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        set_sp(emulator.hybrid_parts().0, 0xff7ffc);
+        emulator.hybrid_parts().0.set_status_register(0x2700);
+        emulator
+            .hybrid_bus_mut()
+            .memory
+            .write_main_ram::<true>(0xff8000, 1);
+        let mut samples = Vec::with_capacity(4096);
+        samples.push([0.25, -0.5]);
+        let allocation = samples.as_ptr();
+        let run = run_wait_with_audio(
+            &mut emulator,
+            &mut WaitClock::default(),
+            WaitRequest::vblank_frame(0xff8000, 0),
+            samples,
+            false,
+        )
+        .unwrap();
+        assert_eq!(run.audio.as_ptr(), allocation);
+        assert_eq!(run.audio, [[0.25, -0.5]]);
+        assert!(run.accesses.is_empty());
+        assert_eq!(run.ticks, 0);
+    }
+
+    #[test]
+    fn frame_timeline_applies_recipe_and_polls_each_new_frame() {
+        struct Timeline(InputScript);
+        impl WaitInputPoller for Timeline {
+            fn at(&self, frame: u64) -> Result<GenesisInputs> {
+                Ok(self.0.at(frame))
+            }
+            fn before_frame(&self, frame: u64, memory: &mut dyn tje_mem::Bus) -> Result<()> {
+                memory.write_u16(0xff8000, frame as u16);
+                Ok(())
+            }
+        }
+        let script = InputScript::parse(r#"{"holds":[{"start":1,"end":2,"p1":["a"]}]}"#).unwrap();
+        let initial = script.at(0);
+        let held = script.at(1);
+        let mut clock = WaitClock {
+            frame: 0,
+            inputs: initial,
+            poller: Some(Arc::new(Timeline(script))),
+        };
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        emulator.hybrid_bus_mut().hybrid_cpu_accesses = Some(Vec::new());
+        clock.advance_frame(&mut emulator).unwrap();
+        assert_eq!(clock.frame, 1);
+        assert_eq!(clock.inputs, held);
+        assert_eq!(
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff8000),
+            1
+        );
+        clock.advance_frame(&mut emulator).unwrap();
+        assert_eq!(clock.frame, 2);
+        assert_eq!(clock.inputs, initial);
+        assert_eq!(
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff8000),
+            2
+        );
+        assert_eq!(
+            emulator
+                .hybrid_bus()
+                .hybrid_cpu_accesses
+                .as_ref()
+                .unwrap()
+                .len(),
+            4
         );
     }
 }

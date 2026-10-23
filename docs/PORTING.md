@@ -295,6 +295,10 @@ polls the timeline for each crossed frame. `InputScript` implements that trait.
 Missing samples/pollers are errors in check/replay, not silent reuse of the entry
 frame's controller state. Generated audio and crossed-frame counts are retained;
 they are not discarded just because Rust is suspended.
+Replacement hosts move the existing audio allocation through a wait rather than
+copying the generated sample stream; unchecked play disables chronological RAM
+auditing. Recorded session timelines also apply their per-frame RAM recipes
+before the first instruction of each crossed frame.
 
 ### Exactly what a time-aware check proves
 
