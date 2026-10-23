@@ -31,14 +31,160 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed leaf entries: bounded storage accesses only, with no callees or waits.
+/// Original execution contracts, including untranslated entries.
+///
+/// These paths only read ROM/RAM and call storage-only entity, RNG, collision,
+/// animation, or sound-request helpers. Random/retry loops do not require clocks;
+/// the original nontermination on wholly rejected placement maps is preserved.
+/// ABI defects (missing arguments/local frames) are separate translation blockers,
+/// not reasons to misclassify a storage-only original as time-dependent.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    // G/src/presents/level_item_setup.c:32-477: RAM banks, RNG and terrain search.
+    ids::SETUP_PRESENT_IDENTITIES,
+    ids::SETUP_INITIAL_INVENTORY,
+    ids::MAP_RELEASE_LEVEL_ITEM_BANK,
+    ids::ELEVATOR_ALLOWS_WORLD_PLACEMENT,
     ids::MAP_IS_LARGE_PLACEMENT_TERRAIN_EXCLUDED,
+    ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
+    ids::MAP_PLACE_LARGE_LEVEL_ITEMS,
+    ids::SELECT_RANDOM_PRESENT,
+    ids::LOAD_LEVEL_ITEM_BANK,
+    ids::DROP_PRESENT,
+    // G/src/presents/item_updates.c:40-128,343-362: entity allocation/free and RAM.
+    ids::ENTITY_CREATE_LEVEL_ITEM,
+    ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+    ids::PRESENT_RELEASE_DROPPED_ENTITIES,
     ids::PRESENT_CLEAR_WORLD_ENTITY_READINESS,
+    // G/src/presents/present_effects.c:40-227,467-609: bounded object updates;
+    // PlaySound/PlaySoundEffect enqueue requests, not device-status polling.
+    ids::PRESENT_START_TRANSIENT_EFFECT,
+    ids::OPEN_DECOY,
+    ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
     ids::PRESENT_REGISTER_DECOY_HIT,
+    ids::PRESENT_UPDATE_DECOY,
+    ids::PRESENT_IS_DOORWAY,
     ids::PRESENT_FIND_DOORWAY_OWNER_AT_TILE,
+    ids::PRESENT_IS_RAIN_CLOUD,
+    ids::PRESENT_UPDATE_RAIN_CLOUD,
+    ids::OPEN_BOOM_BOX,
+    ids::PRESENT_UPDATE_BOOM_BOX,
+    // G/src/presents/projectile_effects.c:48-565,615-671: shared object pools,
+    // RAM animation descriptors, collision/terrain tests and sound requests.
+    ids::EARTHLING_LAUNCH_AIMED_PROJECTILE,
+    ids::PROCESS_TOMATO_RAIN,
+    ids::SET_TOMATO_RAIN_TOMATOES,
+    ids::CHECK_TOMATO_RAIN_TIMER,
+    ids::PRESENT_RELEASE_FIRST_SHARED_TOMATO,
+    ids::EARTHLING_LAUNCH_CONTROL_REMAP_PROJECTILE,
+    ids::ENTITY_FIND_PROJECTILE_TARGET_HIT,
+    ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
     ids::PLAYER_REMAP_DIRECTIONAL_INPUT,
+    ids::PLAYER_UPDATE_CONTROL_REMAP_EFFECT,
+    ids::EARTHLING_UPDATE_CONTROL_REMAP_PROJECTILES,
+    ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
+    ids::PRESENT_RETIRE_TERRAIN_EFFECT,
+    ids::PRESENT_CREATE_TEMPORARY_TERRAIN_EFFECT,
+    ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
+    ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
+    // G/src/presents/telephone_open.c:9-72,telephone.c:25-68,
+    // telephone_clear.c:7-25: placement, entity state and queued sound only.
+    ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
+    ids::OPEN_TELEPHONE,
+    ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
+    ids::TELEPHONE_START_RING,
+    ids::TELEPHONE_CLEAR_ALL,
+    // G/src/presents/noop.c:4: RTS.
     ids::NO_OP,
+];
+
+/// Whole-original execution classes for paths requiring interrupt progress.
+/// No presents path is Functional: device latency alone cannot settle the
+/// IRQ-owned sprite-upload flags, input loops or VBlank synchronization below.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+    // G/src/presents/item_updates.c:131-255: speech/dialogue (including Player_Youch)
+    // can wait on gSpriteGraphicsUploadPending in speech_and_dialogue.c:135.
+    (
+        ids::EAT_YUMMY_FOOD,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::EAT_YUCKY_FOOD,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::EAT_FUDGE_SUNDAE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::PLAYER_COLLECT_NEARBY_ITEMS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/item_updates.c:259-339: HudLoadActionIconSprite waits for
+    // the IRQ-owned upload flag (src/ui/hud.c:122-125).
+    (
+        ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::REDUCE_PRESENT_TIMER,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/present_effects.c:230-257: explicit VBlank then screen redraw.
+    (
+        ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/present_effects.c:260-322: calls the teleport/redraw path.
+    (
+        ids::PRESENT_UPDATE_DOORWAY,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/present_effects.c:325-464: GenerateSpeech/StartDialogue.
+    (
+        ids::PERFORM_PROMOTION,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::BUMMER_LIFE_PROMO,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::PRESENT_UPDATE_BURPS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/projectile_effects.c:568-612: Player_Youch can speak.
+    (
+        ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/present_dispatch.c:41-188: HUD IRQ waits and speech/dialogue.
+    (
+        ids::OPEN_SELECTED_PRESENT,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::SETUP_SELECTED_PRESENT,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/telephone.c:72-157: DrawGameMap blocks on VBlank and inputs.
+    (
+        ids::CHECK_FOR_TELEPHONE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/presents/present_dispatch.c:23-38 and item_updates.c:366-393:
+    // transitive doorway, telephone, speech and action-icon waits.
+    (
+        ids::PROCESS_PRESENTS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
 ];
 
 /// G/src/presents/level_item_setup.c:139 (`MapIsLargePlacementTerrainExcluded`).
