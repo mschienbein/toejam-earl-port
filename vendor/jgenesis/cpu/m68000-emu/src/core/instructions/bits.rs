@@ -111,11 +111,11 @@ macro_rules! impl_not {
 }
 
 macro_rules! impl_clr {
-    ($name:ident, $read_method:ident, $write_method:ident, $size:expr) => {
+    ($name:ident, $write_method:ident, $size:expr) => {
         pub(super) fn $name(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
             let dest_resolved = self.resolve_address_with_post(dest, $size)?;
             // No-op read
-            self.$read_method(dest_resolved)?;
+            self.read_discarded_resolved(dest_resolved, $size)?;
 
             self.cpu.registers.ccr = ConditionCodes {
                 carry: false,
@@ -381,9 +381,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     impl_not!(not_word, read_word_resolved, write_word_resolved, OpSize::Word);
     impl_not!(not_long_word, read_long_word_resolved, write_long_word_resolved, OpSize::LongWord);
 
-    impl_clr!(clr_byte, read_byte_resolved_as_result, write_byte_resolved_as_result, OpSize::Byte);
-    impl_clr!(clr_word, read_word_resolved, write_word_resolved, OpSize::Word);
-    impl_clr!(clr_long_word, read_long_word_resolved, write_long_word_resolved, OpSize::LongWord);
+    impl_clr!(clr_byte, write_byte_resolved_as_result, OpSize::Byte);
+    impl_clr!(clr_word, write_word_resolved, OpSize::Word);
+    impl_clr!(clr_long_word, write_long_word_resolved, OpSize::LongWord);
 
     pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) -> u32 {
         let (zero, sign) = match size {

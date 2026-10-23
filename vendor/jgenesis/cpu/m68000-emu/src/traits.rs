@@ -1,5 +1,16 @@
 use crate::debug::M68000Debugger;
 
+/// TJE hybrid observation: distinguish consumed data from real bus cycles whose
+/// values are discarded. Every purpose still performs the underlying bus access.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+pub enum ReadPurpose {
+    #[default]
+    Semantic,
+    Discarded,
+    Prefetch,
+}
+
 pub trait BusInterface {
     // Addresses are 32-bit internally but the 68000 only has a 24-bit address bus
     const ADDRESS_MASK: u32 = 0x00FF_FFFF;
@@ -12,13 +23,23 @@ pub trait BusInterface {
 
     fn read_word(&mut self, address: u32) -> u16;
 
+    #[inline]
+    fn read_byte_tagged(&mut self, address: u32, _purpose: ReadPurpose) -> u8 {
+        self.read_byte(address)
+    }
+
+    #[inline]
+    fn read_word_tagged(&mut self, address: u32, _purpose: ReadPurpose) -> u16 {
+        self.read_word(address)
+    }
+
     fn write_byte(&mut self, address: u32, value: u8);
 
     fn write_word(&mut self, address: u32, value: u16);
 
     fn read_long_word(&mut self, address: u32) -> u32 {
-        let high_word = self.read_word(address);
-        let low_word = self.read_word(address.wrapping_add(2));
+        let high_word = self.read_word_tagged(address, ReadPurpose::Semantic);
+        let low_word = self.read_word_tagged(address.wrapping_add(2), ReadPurpose::Semantic);
 
         (u32::from(high_word) << 16) | u32::from(low_word)
     }

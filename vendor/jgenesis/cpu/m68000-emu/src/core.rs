@@ -1,7 +1,7 @@
 pub(crate) mod instructions;
 
 use crate::core::instructions::Instruction;
-use crate::traits::BusInterface;
+use crate::traits::{BusInterface, ReadPurpose};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
@@ -433,11 +433,18 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
 
     // Read a word from the bus; returns an address error if address is odd
     fn read_bus_word(&mut self, address: u32) -> ExecuteResult<u16> {
+        self.read_bus_word_tagged(address, ReadPurpose::Semantic)
+    }
+
+    fn read_bus_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> ExecuteResult<u16> {
         if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_word_debug(address, self.cpu))
+        Ok(match purpose {
+            ReadPurpose::Semantic => self.bus.read_word_debug(address, self.cpu),
+            _ => self.bus.read_word_debug_tagged(address, self.cpu, purpose),
+        })
     }
 
     // Write a word to the bus; returns an address error if address is odd
@@ -453,11 +460,22 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
 
     // Read a long word from the bus; returns an address error if address is odd
     fn read_bus_long_word(&mut self, address: u32) -> ExecuteResult<u32> {
+        self.read_bus_long_word_tagged(address, ReadPurpose::Semantic)
+    }
+
+    fn read_bus_long_word_tagged(
+        &mut self,
+        address: u32,
+        purpose: ReadPurpose,
+    ) -> ExecuteResult<u32> {
         if address & 1 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
         }
 
-        Ok(self.bus.read_longword_debug(address, self.cpu))
+        Ok(match purpose {
+            ReadPurpose::Semantic => self.bus.read_longword_debug(address, self.cpu),
+            _ => self.bus.read_longword_debug_tagged(address, self.cpu, purpose),
+        })
     }
 
     // Write a long word to the bus; returns an address error if address is odd
@@ -479,7 +497,8 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         }
 
         let operand = self.cpu.registers.prefetch;
-        self.cpu.registers.prefetch = self.bus.read_word(prefetch_addr);
+        self.cpu.registers.prefetch =
+            self.bus.read_word_tagged(prefetch_addr, ReadPurpose::Prefetch);
         self.cpu.registers.pc = prefetch_addr;
 
         Ok(operand)
@@ -585,6 +604,33 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         let resolved = self.resolve_address(addressing_mode, size)?;
         resolved.apply_post(&mut self.cpu.registers);
         Ok(resolved)
+    }
+
+    // TJE hybrid observation: CLR's read cycle still reaches MMIO/debuggers, but
+    // its value is not a semantic dependency. Resolving the EA has already applied
+    // any postincrement exactly once before this method.
+    fn read_discarded_resolved(
+        &mut self,
+        resolved: ResolvedAddress,
+        size: OpSize,
+    ) -> ExecuteResult<()> {
+        let address = match resolved {
+            ResolvedAddress::Memory(address)
+            | ResolvedAddress::MemoryPostincrement { address, .. } => address,
+            _ => return Ok(()),
+        };
+        match size {
+            OpSize::Byte => {
+                self.bus.read_byte_debug_tagged(address, self.cpu, ReadPurpose::Discarded);
+            }
+            OpSize::Word => {
+                self.read_bus_word_tagged(address, ReadPurpose::Discarded)?;
+            }
+            OpSize::LongWord => {
+                self.read_bus_long_word_tagged(address, ReadPurpose::Discarded)?;
+            }
+        }
+        Ok(())
     }
 
     fn read_byte_resolved(&mut self, resolved_address: ResolvedAddress) -> u8 {

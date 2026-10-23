@@ -1,4 +1,4 @@
-use crate::{BusInterface, M68000};
+use crate::{BusInterface, M68000, ReadPurpose};
 
 pub trait M68000Debugger {
     fn check_read<const WORD: bool>(&mut self, address: u32, cpu: &mut M68000);
@@ -23,13 +23,40 @@ impl M68000Debugger for DummyM68000Debugger {
 }
 
 pub(crate) trait BusDebugExt {
-    fn read_byte_debug(&mut self, address: u32, cpu: &mut M68000) -> u8;
+    fn read_byte_debug(&mut self, address: u32, cpu: &mut M68000) -> u8 {
+        self.read_byte_debug_tagged(address, cpu, ReadPurpose::Semantic)
+    }
 
-    fn read_word_debug(&mut self, address: u32, cpu: &mut M68000) -> u16;
+    fn read_word_debug(&mut self, address: u32, cpu: &mut M68000) -> u16 {
+        self.read_word_debug_tagged(address, cpu, ReadPurpose::Semantic)
+    }
+
+    fn read_byte_debug_tagged(
+        &mut self,
+        address: u32,
+        cpu: &mut M68000,
+        purpose: ReadPurpose,
+    ) -> u8;
+
+    fn read_word_debug_tagged(
+        &mut self,
+        address: u32,
+        cpu: &mut M68000,
+        purpose: ReadPurpose,
+    ) -> u16;
 
     fn read_longword_debug(&mut self, address: u32, cpu: &mut M68000) -> u32 {
-        let high: u32 = self.read_word_debug(address, cpu).into();
-        let low: u32 = self.read_word_debug(address + 2, cpu).into();
+        self.read_longword_debug_tagged(address, cpu, ReadPurpose::Semantic)
+    }
+
+    fn read_longword_debug_tagged(
+        &mut self,
+        address: u32,
+        cpu: &mut M68000,
+        purpose: ReadPurpose,
+    ) -> u32 {
+        let high: u32 = self.read_word_debug_tagged(address, cpu, purpose).into();
+        let low: u32 = self.read_word_debug_tagged(address + 2, cpu, purpose).into();
         low | (high << 16)
     }
 
@@ -46,18 +73,28 @@ pub(crate) trait BusDebugExt {
 }
 
 impl<B: BusInterface> BusDebugExt for B {
-    fn read_byte_debug(&mut self, address: u32, cpu: &mut M68000) -> u8 {
+    fn read_byte_debug_tagged(
+        &mut self,
+        address: u32,
+        cpu: &mut M68000,
+        purpose: ReadPurpose,
+    ) -> u8 {
         if let Some(mut debugger) = self.debug_view() {
             debugger.check_read::<false>(address, cpu);
         }
-        self.read_byte(address)
+        self.read_byte_tagged(address, purpose)
     }
 
-    fn read_word_debug(&mut self, address: u32, cpu: &mut M68000) -> u16 {
+    fn read_word_debug_tagged(
+        &mut self,
+        address: u32,
+        cpu: &mut M68000,
+        purpose: ReadPurpose,
+    ) -> u16 {
         if let Some(mut debugger) = self.debug_view() {
             debugger.check_read::<true>(address, cpu);
         }
-        self.read_word(address)
+        self.read_word_tagged(address, purpose)
     }
 
     fn write_byte_debug(&mut self, address: u32, value: u8, cpu: &mut M68000) {

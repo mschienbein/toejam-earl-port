@@ -4,7 +4,7 @@ use crate::core::{
     InstructionExecutor, OpSize, Registers, ResolvedAddress,
 };
 use crate::debug::BusDebugExt;
-use crate::traits::BusInterface;
+use crate::traits::{BusInterface, ReadPurpose};
 use jgenesis_common::num::{GetBit, SignBit};
 
 macro_rules! impl_move {
@@ -240,7 +240,7 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
                 }
 
                 // Spurious read at the end of memory-to-register MOVEM (based on test ROM)
-                self.read_bus_word(address)?;
+                self.read_bus_word_tagged(address, ReadPurpose::Discarded)?;
 
                 if let Some(postinc_register) = postinc_register {
                     postinc_register.write_long_word_to(&mut self.cpu.registers, address);
