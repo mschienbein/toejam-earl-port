@@ -17,7 +17,9 @@ assert(artifacts.includes('/scratch/'), 'Screenshots and measurements must stay 
 await mkdir(artifacts, { recursive: true });
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE
   ? pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href : 'playwright');
-const server = await startServer(0);
+const server = await startServer(0, process.env.TJE_WEB_SITE_ROOT);
+const basePath = process.env.TJE_WEB_SITE_PATH ?? '/';
+assert(basePath.startsWith('/') && basePath.endsWith('/'), 'static site path must start/end with /');
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: process.env.TJE_WEB_HEADED !== '1', args: [
   '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
@@ -48,28 +50,32 @@ async function hold(key, start, duration = 8) {
 
 let result;
 try {
-  const response = await page.goto(`${origin}/?backend=${backend}`);
+  const response = await page.goto(`${origin}${basePath}?backend=${backend}`);
   assert.equal(response.headers()['cross-origin-opener-policy'], undefined);
   assert.equal(response.headers()['cross-origin-embedder-policy'], undefined);
   await page.waitForSelector('body[data-state="empty"]', { timeout: 45000 });
   assert.equal((await metrics()).crossOriginIsolated, false);
   await verifyEmptyUx(page, metrics);
+  assert.equal(await page.evaluate(async () => typeof (await import('./pkg/tje_web.js')).WebGame.prototype.observation), 'undefined', 'release must not enable replay-observer');
   // Exercise the real DOM file picker, not a direct Rust import/testing bypass.
   await page.locator('#rom').setInputFiles(resolve(rom));
-  await page.waitForSelector('body[data-state="ready"]', { timeout: 15000 });
+  await page.locator('#compile-state').waitFor({ state: 'visible' });
+  await page.waitForSelector('body[data-state="ready"]', { timeout: 90000 });
   assert.equal((await metrics()).source, 'file');
+  const cold = (await metrics()).compilation;
+  assert.equal(cold.cacheHit, false);
+  assert(cold.generationMs > 0 && cold.moduleBytes > 1000000, 'first import must generate a real cartridge module');
   await page.click('#play');
   await page.waitForSelector('body[data-state="running"]');
   await hold('Enter', 300);
   await frameAt(550);
-  assert.notEqual((await metrics()).titleFrame, null, 'title routine must actually execute');
   await page.screenshot({ path: `${artifacts}/${backend}-title.png`, fullPage: true });
   await hold('Enter', 600);
   await hold('Enter', 900);
   await hold('ArrowDown', 1000);
   await hold('Enter', 1100);
   await hold('Enter', 1200);
-  await page.waitForFunction(() => window.tje.metrics.gameFrame !== null, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.tje.metrics.playerLevel > 0, null, { timeout: 30000 });
   await hold('ArrowRight', 1450, 24);
   // Both keyboard wires are exercised, including the persisted P2 connection.
   await page.check('#p2');
@@ -85,7 +91,7 @@ try {
   await page.selectOption('#scale', 'fit');
   await frameAt(1800);
   result = await metrics();
-  assert.equal(result.mode, 'replace');
+  assert.match(result.engine, /cycle-exact WebAssembly/);
   if (backend !== 'auto') assert.equal(result.backend, backend);
   if (disableWebgpu) assert.equal(result.backend, 'webgl', 'automatic WebGL2 fallback');
   assert.equal(result.audio.state, 'running');
@@ -107,6 +113,8 @@ try {
   assert.equal(restored.source, 'stored');
   assert.equal(restored.revision, result.revision);
   assert.equal(restored.frames, 0);
+  assert.equal(restored.compilation.cacheHit, true, 'remembered ROM must load its verified module without another picker');
+  assert.equal(restored.compilation.generationMs, 0, 'warm visits must skip the lazy IR builder');
   assert.equal(restored.settings.volume, 0.45);
   assert.equal(restored.settings.scale, 'fit');
   assert.equal(restored.settings.p2, true);
@@ -122,6 +130,29 @@ try {
   await page.click('#reset');
   await page.waitForSelector('body[data-state="ready"]');
   assert.equal((await metrics()).frames, 0, 'hard reset must reset the console frame count');
+  await page.evaluate(async () => {
+    const { cartridgeStore } = await import('./storage.js');
+    const record = await cartridgeStore('get');
+    const damaged = new Uint8Array(record.bytes.slice(0));
+    damaged[0] ^= 1;
+    await cartridgeStore('put', { ...record, bytes: damaged.buffer });
+  });
+  await page.reload();
+  await page.waitForSelector('body[data-state="empty"]', { timeout: 30000 });
+  await page.locator('#rom-error').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#rom').isEnabled(), true, 'corrupt stored ROM must offer re-import');
+  await page.locator('#rom').setInputFiles(resolve(rom));
+  await page.waitForSelector('body[data-state="ready"]', { timeout: 90000 });
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase('tje-private-engine');
+    request.onsuccess = resolve;
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('engine cache stayed open'));
+  }));
+  await page.reload();
+  await page.waitForSelector('body[data-state="ready"]', { timeout: 90000 });
+  assert.equal((await metrics()).source, 'stored', 'evicted code cache must rebuild from the remembered ROM, without a picker');
+  assert.equal((await metrics()).compilation.cacheHit, false);
   await page.click('#forget');
   await page.waitForSelector('body[data-state="empty"]', { timeout: 30000 });
   assert.equal((await metrics()).source, '', 'forget must remove the stored and in-memory ROM');
@@ -132,11 +163,12 @@ try {
   }, Array.from(await readFile(resolve(rom))));
   await page.dispatchEvent('#drop-zone', 'drop', { dataTransfer: transfer });
   await transfer.dispose();
-  await page.waitForSelector('body[data-state="ready"]', { timeout: 15000 });
+  await page.waitForSelector('body[data-state="ready"]', { timeout: 90000 });
   assert.equal((await metrics()).source, 'file', 'drag-and-drop must use the real import listener');
+  assert.equal((await metrics()).compilation.cacheHit, false, 'Forget must remove the generated engine too, so re-import builds it again');
   assert.deepEqual(errors, []);
   assert(requests.every(request => request.method === 'GET' && request.url.startsWith(origin)), 'ROM/network privacy: only local static GETs are allowed');
-  result = { run: result, reload: reloaded, ux, reset: true, forget: true, dragDrop: true, browser: browser.version(), headed: process.env.TJE_WEB_HEADED === '1', disableWebgpu, errors, requests };
+  result = { run: result, cold, reload: reloaded, ux, rememberedRomAndCode: true, corruptStoredRomRecovery: true, evictedCodeCacheRebuilt: true, reset: true, forget: true, dragDrop: true, browser: browser.version(), headed: process.env.TJE_WEB_HEADED === '1', disableWebgpu, errors, requests };
   await writeFile(`${artifacts}/${backend}-result.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {

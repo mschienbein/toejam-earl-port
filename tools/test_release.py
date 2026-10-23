@@ -171,7 +171,13 @@ class ReleaseTests(unittest.TestCase):
         web.joinpath("pkg").mkdir(parents=True)
         for name in release.WEB_FILES:
             web.joinpath(name).write_text("</head>" if name == "index.html" else "public runtime")
-        web.joinpath("pkg", "tje_web.js").write_text("synthetic generated JavaScript")
+        web.joinpath("pkg", "tje_web.js").write_text(
+            "import { load } from './snippets/engine/src/browser.js';\n")
+        snippets = web / "pkg/snippets/engine/src"
+        snippets.mkdir(parents=True)
+        snippets.joinpath("browser.js").write_text("import * as shared from './cache.js'\n")
+        snippets.joinpath("cache.js").write_text("export const read = 1;\n")
+        snippets.joinpath("unreferenced.js").write_text("must never be copied")
         web.joinpath("pkg", "tje_web_bg.wasm").write_bytes(b"\0asm\x01\0\0\0")
         for name in ("tests.mjs", "cartridge.bin", "private-save.json"):
             web.joinpath(name).write_text("must never be copied")
@@ -182,6 +188,7 @@ class ReleaseTests(unittest.TestCase):
             artifact = release.package_web("v1.2.3", self.output, site)
         expected = set(release.WEB_FILES) | {
             "pkg/tje_web.js", "pkg/tje_web_bg.wasm", ".nojekyll", "icon.png",
+            "pkg/snippets/engine/src/browser.js", "pkg/snippets/engine/src/cache.js",
         }
         self.assertEqual({str(path.relative_to(site)) for path in site.rglob("*") if path.is_file()},
                          expected)
@@ -190,6 +197,29 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(set(archive.namelist()), {f"site/{name}" for name in expected})
         with self.assertRaisesRegex(ValueError, "web output must be empty"):
             release.package_web("v1.2.3", self.output, site)
+
+    def test_web_snippet_imports_keep_path_symlink_and_rom_guards(self) -> None:
+        source = self.root / "source"
+        snippets = source / "web/pkg/snippets/engine"
+        snippets.mkdir(parents=True)
+        snippet = snippets / "loader.js"
+        loader = b"import { load } from './snippets/engine/loader.js';"
+        with mock.patch.object(release, "ROOT", source):
+            for specifier in ("https://example.org/code.js", "../../private.js",
+                              "./snippets/../../private.js", "./snippets/cache.bin"):
+                with self.subTest(specifier=specifier):
+                    with self.assertRaises(ValueError):
+                        release.referenced_web_snippets(
+                            f"import {{ load }} from '{specifier}';".encode(), set())
+            private = self.root / "private.js"
+            private.write_text("private")
+            snippet.symlink_to(private)
+            with self.assertRaisesRegex(ValueError, "non-symlink"):
+                release.referenced_web_snippets(loader, set())
+            snippet.unlink()
+            snippet.write_bytes(rom_signature_payload())
+            with self.assertRaisesRegex(ValueError, "Genesis ROM signature"):
+                release.referenced_web_snippets(loader, set())
 
     def test_checksums_cover_only_final_artifacts(self) -> None:
         self.output.mkdir()

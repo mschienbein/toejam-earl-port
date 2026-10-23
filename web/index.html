@@ -14,16 +14,21 @@
   <main>
     <header>
       <h1>ToeJam &amp; Earl</h1>
-      <p id="runtime-summary">Development hybrid host · registered Rust translations replace selected cartridge functions; remaining code runs on the emulated 68000.</p>
+      <p id="runtime-summary">Cycle-exact engine · your cartridge is compiled to WebAssembly on first import; no 68000 interpreter is shipped.</p>
     </header>
     <section id="drop-zone" aria-label="Local cartridge import">
       <label for="rom">Choose your own ROM, or drop one file here</label>
       <input id="rom" type="file" accept=".bin,.md,.gen,.smd,.zip" aria-describedby="rom-help rom-error" disabled>
       <p id="cartridge">No cartridge loaded.</p>
       <p id="rom-help" class="small">Only verified ToeJam &amp; Earl REV 02 / REV 00 images are accepted, including ZIP and SMD imports.
-        No ROM is supplied. Choose a file smaller than 16 MiB. Accepted files are kept only in this browser’s IndexedDB on your machine;
-        they are never uploaded. A wrong game, modified image or bad dump is not accepted.</p>
+        No ROM is supplied. Choose a file smaller than 16 MiB. Import once: your cartridge and generated engine are remembered only
+        in this browser’s IndexedDB on your machine and are never uploaded. Later visits load them automatically, ready for Play.
+        A missing code cache is rebuilt from the remembered ROM; an evicted or damaged ROM needs a friendly re-import.</p>
       <p id="rom-error" role="alert" hidden></p>
+      <div id="compile-state" hidden>
+        <label id="compile-label" for="compile-progress">Preparing your cartridge…</label>
+        <progress id="compile-progress" aria-labelledby="compile-label">Preparing…</progress>
+      </div>
       <button id="forget" type="button" disabled>Forget stored ROM</button>
     </section>
     <section id="game-controls" aria-label="Game" tabindex="-1">
@@ -62,9 +67,10 @@
         If the browser requires another gesture, Play remains available with a clear message. Manually paused games stay paused.</p>
       <p>Audio blocks are transferred to an AudioWorklet without SharedArrayBuffer or cross-origin-isolation headers.
         Volume, display options and both players’ mappings are versioned in localStorage. ROM data is never stored in localStorage.
-        Forget removes the IndexedDB cartridge and reloads an empty session without deleting settings.</p>
-      <p>This build runs the development hybrid replacement host with its production translation registry, not the future cycle-exact browser engine.
-        It does not claim to be an all-native game-logic implementation.</p>
+        Forget removes the IndexedDB cartridge and all its generated code configurations, then reloads an empty session without deleting settings.</p>
+      <p>The engine generates each original instruction as a timed WebAssembly continuation, sharing the VDP, audio chips and original
+        Z80 sound program. Generated code is bound to the verified ROM, engine version and clock configuration; its cache is checked before use.
+        Nothing generated from your cartridge is downloaded from a server or included in this static page.</p>
     </details>
     <footer><a href="https://github.com/mschienbein/toejam-earl-port">Source · GPL-3.0</a></footer>
   </main>

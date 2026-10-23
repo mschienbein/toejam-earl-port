@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "bash build.sh",
+    "build:replay": "bash build-replay.sh",
+    "check:dependencies": "node check-dependencies.mjs",
     "serve": "node serve.mjs",
     "verify": "node verify.mjs",
+    "verify:replay": "node verify-replay.mjs",
     "test": "node --test tests.mjs"
   },
   "devDependencies": {

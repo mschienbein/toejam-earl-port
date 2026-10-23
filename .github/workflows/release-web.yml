@@ -45,6 +45,11 @@ jobs:
         run: python3 -m unittest discover -s tools -p 'test_release.py' -v
       - name: Install the repository-pinned Rust toolchain
         run: rustup show
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Reject browser interpreters, oracles and release observers
+        run: node web/check-dependencies.mjs
       - name: Install version-matched wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli --version 0.2.129 --locked --root "$RUNNER_TEMP/wasm-bindgen" --target-dir "$RUNNER_TEMP/bindgen-target"
       - name: Build browser app and stage only public runtime files

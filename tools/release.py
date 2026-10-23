@@ -34,7 +34,7 @@ PLATFORMS = {
 }
 WEB_FILES = (
     "index.html", "app.js", "audio.js", "audio-worklet.js", "input.js",
-    "storage.js", "style.css",
+    "storage.js", "controls.js", "style.css",
 )
 KNOWN_ROM_SHA1 = frozenset((
     "85e8d0a4fac591b25b77c35680ac4175976f251b",
@@ -436,6 +436,29 @@ def package_native(platform: str, binary: Path, version: str, output: Path) -> P
     return artifact
 
 
+def referenced_web_snippets(loader: bytes, rom_hashes: set[str]) -> dict[PurePosixPath, bytes]:
+    """Follow wasm-bindgen's static JS imports, never copy an entire pkg tree."""
+    imports = re.compile(
+        r"""(?:\bimport\s+(?:[^;]*?\s+from\s+)?|\bexport\s+[^;]*?\s+from\s+)["']([^"']+)["']""")
+    pending = [(PurePosixPath("tje_web.js"), loader)]
+    snippets: dict[PurePosixPath, bytes] = {}
+    while pending:
+        parent, data = pending.pop()
+        for specifier in imports.findall(data.decode("utf-8")):
+            if (not specifier.startswith(("./", "../"))
+                    or not re.fullmatch(r"[A-Za-z0-9_./-]+", specifier)):
+                raise ValueError(f"unsupported generated web import: {specifier}")
+            relative = PurePosixPath(posixpath.normpath(str(parent.parent / specifier)))
+            if (not relative.is_relative_to("snippets") or relative.suffix != ".js"
+                    or ".." in relative.parts):
+                raise ValueError(f"generated web import leaves snippets: {specifier}")
+            if relative not in snippets:
+                content = read_input(ROOT / "web/pkg" / relative, rom_hashes, ROOT)
+                snippets[relative] = content
+                pending.append((relative, content))
+    return snippets
+
+
 def package_web(version: str, output: Path, site: Path) -> Path:
     # Exact allowlist: never copy the whole web tree (tests, caches or user data).
     rom_hashes = known_rom_hashes()
@@ -453,6 +476,11 @@ def package_web(version: str, output: Path, site: Path) -> Path:
         if name.endswith(".wasm") and not data.startswith(b"\0asm\x01\0\0\0"):
             raise ValueError(f"expected a WebAssembly v1 module: {name}")
         package.joinpath(name).write_bytes(data)
+        if name == "tje_web.js":
+            for relative, content in referenced_web_snippets(data, rom_hashes).items():
+                destination = package / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(content)
     copy_public_notes(site, rom_hashes)
     site.joinpath(".nojekyll").touch()
     site.joinpath("icon.png").write_bytes(logo_png(256))

@@ -23,6 +23,8 @@ extern "C" {
     ) -> js_sys::Promise;
     #[wasm_bindgen(js_name = evictBytes)]
     fn evict_bytes(sha1: &str, version: &str, m68k_divider: u32) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = forgetRom)]
+    fn forget_rom_bytes(sha1: &str) -> js_sys::Promise;
     #[wasm_bindgen(js_name = instantiateBytes)]
     fn instantiate_bytes(bytes: &Uint8Array, imports: &Object) -> js_sys::Promise;
     #[wasm_bindgen(js_name = now)]
@@ -115,6 +117,15 @@ pub struct BrowserBackend {
     metrics: CompilationMetrics,
 }
 impl BrowserBackend {
+    /// Delete all stored compiled modules for this verified cartridge, across
+    /// engine versions and clock dividers. Drop any live engine separately.
+    pub async fn forget_rom(rom_sha1: &str) -> Result<(), BrowserError> {
+        JsFuture::from(forget_rom_bytes(rom_sha1))
+            .await
+            .map_err(link)?;
+        Ok(())
+    }
+
     /// Read and verify IndexedDB before invoking the IR builder. The caller
     /// supplies the verified ROM SHA-1 and the actual divider used by the IR
     /// builder (normally seven). Both, plus ENGINE_VERSION, bind cached bytes.

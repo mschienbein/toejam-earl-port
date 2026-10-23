@@ -10,15 +10,18 @@ const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'],
   ['.css', 'text/css; charset=utf-8'], ['.wasm', 'application/wasm'],
   ['.json', 'application/json'], ['.map', 'application/json'],
+  ['.png', 'image/png'],
 ]);
 
-export async function startServer(port = 8766) {
+export async function startServer(port = 8766, root = ROOT) {
+  const base = resolve(root);
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
-      const path = resolve(ROOT, `.${decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)}`);
+      const pathname = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
+      const path = resolve(base, `.${decodeURIComponent(pathname)}`);
       const type = MIME.get(extname(path));
-      if (!path.startsWith(`${ROOT}${sep}`) || !type || !['GET', 'HEAD'].includes(request.method)) {
+      if (!path.startsWith(`${base}${sep}`) || !type || !['GET', 'HEAD'].includes(request.method)) {
         response.writeHead(404).end();
         return;
       }

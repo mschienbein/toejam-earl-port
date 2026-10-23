@@ -5,20 +5,45 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+autoexamples = false
+
+[features]
+default = []
+# Observation only: no reference CPU, oracle, or alternative execution path.
+replay-observer = ["dep:bincode"]
+reference-export = ["dep:bincode"]
+
+[[example]]
+name = "replay-reference"
+path = "examples/replay_reference.rs"
+required-features = ["reference-export"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+bincode = { version = "2", optional = true }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
 jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bytemuck = "1"
 console_error_panic_hook = "0.1"
-tje-host = { path = "../tje-host" }
+js-sys = "0.3"
+tje-engine-core = { path = "../tje-engine-core" }
+tje-engine-runtime = { path = "../tje-engine-runtime", features = ["devices"] }
+tje-engine-wasmgen = { path = "../tje-engine-wasmgen" }
+tje-mem = { path = "../tje-mem" }
+tje-native-platform = { path = "../tje-native-platform", default-features = false }
 tje-rom = { path = "../tje-rom" }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "webgpu", "webgl", "wgsl"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+anyhow = "1"
+serde_json = "1"
+tje-engine-verify = { path = "../tje-engine-verify" }
+tje-rom = { path = "../tje-rom" }
+tje-session = { path = "../tje-session" }

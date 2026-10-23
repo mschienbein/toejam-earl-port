@@ -1,11 +1,15 @@
-//! Browser frontend for the hybrid replacement-mode game.
+//! Browser frontend for the cycle-exact, ROM-compiled WebAssembly engine.
 //!
 //! `web/build.sh` builds this cdylib with the version-matched wasm-bindgen CLI.
 //! DOM/storage/input and the transferable AudioWorklet queue live in `web/`;
-//! emulation and wgpu presentation stay here. No shared memory is required.
+//! generated continuations, original devices and wgpu presentation stay here.
+//! No 68000 interpreter, browser oracle or shared memory is required.
 
 #[cfg(any(target_arch = "wasm32", test))]
 mod input;
+
+#[cfg(any(feature = "replay-observer", feature = "reference-export"))]
+pub mod observation;
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
@@ -13,4 +17,4 @@ mod browser;
 mod video;
 
 #[cfg(target_arch = "wasm32")]
-pub use browser::WebGame;
+pub use browser::{CompiledCartridge, WebGame};

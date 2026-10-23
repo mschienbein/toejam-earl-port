@@ -29,6 +29,9 @@ a { color: #97d8ff; }
 .skip-link:focus { top: .4rem; }
 [hidden] { display: none !important; }
 #rom-error { color: #ffb5ad; overflow-wrap: anywhere; }
+#compile-state { margin-block: .7rem; }
+#compile-state label { display: block; }
+#compile-progress { display: block; width: min(100%, 32rem); margin-block: .5rem; }
 #mapping-status { min-height: 1.5em; }
 #player-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 1rem; margin-block: 1rem; }
 #player-controls fieldset { min-width: 0; border: 1px solid #60738c; border-radius: .4rem; padding: .7rem; }

@@ -42,3 +42,45 @@ export async function tamperRecord(romSha1, engineVersion, m68kDivider, mode) {
     });
   } finally { db.close(); }
 }
+
+// Seed an obsolete record without the production writer's version cleanup.
+// Forgetting must remove its ROM-derived bytes even if the record is unusable.
+export async function seedObsoleteRecord(romSha1, engineVersion, divider) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('tje-private-engine', 2);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('modules', 'readwrite');
+      const store = tx.objectStore('modules');
+      const request = store.get(JSON.stringify([romSha1, engineVersion, divider]));
+      request.onsuccess = () => {
+        const oldVersion = `${engineVersion}-authored-obsolete`;
+        store.put({ ...request.result, engineVersion: oldVersion },
+          JSON.stringify([romSha1, oldVersion, divider]));
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally { db.close(); }
+}
+
+export async function keysForRom(romSha1) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('tje-private-engine', 2);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction('modules').objectStore('modules').getAllKeys();
+      request.onsuccess = () => resolve(request.result.filter(key => {
+        try { return JSON.parse(key)[0] === romSha1; } catch { return false; }
+      }));
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}

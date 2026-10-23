@@ -1,4 +1,4 @@
-import init, { WebGame } from './pkg/tje_web.js';
+import init, { CompiledCartridge, WebGame } from './pkg/tje_web.js';
 import { AudioStream } from './audio.js';
 import { Inputs } from './input.js';
 import { ControlSettings } from './controls.js';
@@ -24,6 +24,8 @@ let state = 'loading';
 let revision = '';
 let source = '';
 let storageWarning = '';
+let engineWarning = '';
+let compilationStage = '';
 let lastStatus = 0;
 let activeSince = 0;
 let activeSeconds = 0;
@@ -64,7 +66,9 @@ function errorMessage(error) {
 
 function importFailure(error, name = 'This file') {
   const detail = String(error?.message ?? error);
-  $('rom-error').textContent = `${name} was not loaded. ${detail} Use an unmodified, verified REV 02 or REV 00 dump; a wrong game or damaged image will not pass identification. ${loaded ? 'The previous cartridge and its saved copy were kept.' : 'No cartridge was replaced.'}`;
+  const advice = detail.startsWith('ROM identification failed:') ? 'Use an unmodified, verified REV 02 or REV 00 dump; a wrong game or damaged image will not pass identification.'
+    : 'Choose the file again to retry. If browser storage was evicted or corrupted, re-import your verified cartridge.';
+  $('rom-error').textContent = `${name} was not loaded. ${detail} ${advice} ${loaded ? 'The previous cartridge and its saved copy were kept.' : 'No cartridge was replaced.'}`;
   $('rom-error').hidden = false;
   status(loaded ? `Import rejected. The previous cartridge ${running ? 'continues playing' : 'is paused and can still play'}.` : 'Import rejected. Choose a verified cartridge.', loaded ? (running ? 'running' : 'paused') : 'empty');
 }
@@ -83,9 +87,9 @@ function snapshot() {
     if (cumulative >= measuredFrames * 0.95) break;
   }
   return {
-    state, mode: 'replace', registry: 'translated', revision, source, backend: game?.backend(), adapter: game?.adapter(),
-    frames: game?.frames() ?? 0, titleFrame: game?.title_frame() ?? null,
-    gameFrame: game?.game_frame() ?? null, logicTicks: game?.logic_ticks() ?? 0,
+    state, engine: game?.execution_engine(), revision, source, backend: game?.backend(), adapter: game?.adapter(),
+    frames: game?.frames() ?? 0, playerLevel: game?.player_level() ?? null,
+    compilation: game?.compilation() ?? null, compilationStage,
     targetFps: game?.target_fps() ?? 0, measuredFrames, wallSeconds,
     actualFps: wallSeconds > 0 ? measuredFrames / wallSeconds : 0,
     emulationMs, capacityFps: emulationMs > 0 ? measuredFrames * 1000 / emulationMs : 0,
@@ -150,10 +154,8 @@ function frame(now) {
     if (now - lastStatus > 500) {
       lastStatus = now;
       const value = snapshot();
-      document.body.dataset.title = String(value.titleFrame !== null);
-      document.body.dataset.game = String(value.gameFrame !== null);
       $('metrics').textContent = `${value.backend} · ${value.actualFps.toFixed(1)} / ${value.targetFps.toFixed(2)} fps · `
-        + `${value.capacityFps.toFixed(0)} emulation fps capacity · ${value.audio.sampleRate} Hz · `
+        + `${value.capacityFps.toFixed(0)} engine fps capacity · ${value.audio.sampleRate} Hz · `
         + `${value.audio.played ?? 0} audio frames played · ${value.gamepads} gamepad(s)`;
     }
   } catch (error) {
@@ -162,21 +164,54 @@ function frame(now) {
   }
 }
 
+function compiling(stage) {
+  compilationStage = stage;
+  const labels = {
+    identify: 'Identifying your cartridge and preparing its private engine. First-time compilation may take a few seconds…',
+    cache: 'Verifying the browser’s compiled-code cache. On a first visit the engine is generated from your ROM…',
+    generate: 'Generating cycle-exact WebAssembly from your cartridge. All code stays on this machine…',
+    ready: 'Compiled engine is ready. Finishing local cartridge setup…',
+  };
+  $('compile-label').textContent = labels[stage] ?? stage;
+  $('compile-state').hidden = false;
+  $('drop-zone').setAttribute('aria-busy', 'true');
+  status(labels[stage] ?? stage, 'loading');
+}
+
+function finishCompilation() {
+  $('compile-state').hidden = true;
+  $('drop-zone').setAttribute('aria-busy', 'false');
+  compilationStage = '';
+}
+
 async function loadCartridge(bytes, name, origin) {
-  const acceptedRevision = game.load_rom(new Uint8Array(bytes));
-  revision = acceptedRevision;
-  source = origin;
-  loaded = true;
-  resetMeasurements();
-  inputs.clear();
-  $('cartridge').textContent = `${revision} · ${name} · ${origin === 'stored' ? 'restored from this browser' : 'imported locally'}`;
-  $('play').disabled = $('reset').disabled = $('forget').disabled = origin !== 'stored';
-  document.body.dataset.title = document.body.dataset.game = 'false';
-  resize();
-  if (origin === 'stored') {
-    status(`${revision} ready. Click Play to enable sound and start.${storageWarning}`, 'ready');
-  } else {
-    status(`${revision} accepted. Saving privately in this browser…`, 'loading');
+  $('play').disabled = $('reset').disabled = $('forget').disabled = true;
+  compiling('identify');
+  try {
+    // Paint a truthful indeterminate status before potentially synchronous IR
+    // emission. Cache hits never enter that lazy generation path.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const cartridge = await CompiledCartridge.load(new Uint8Array(bytes), audio.context?.sampleRate ?? 48000, compiling);
+    revision = game.install(cartridge);
+    source = origin;
+    loaded = true;
+    resetMeasurements();
+    inputs.clear();
+    const compilation = game.compilation();
+    engineWarning = compilation.storageError ? ` Compiled-code cache unavailable: ${compilation.storageError}. This visit can still play.` : '';
+    const code = compilation.cacheHit ? 'verified engine cache loaded'
+      : compilation.storageError ? 'engine generated for this visit; code cache unavailable' : 'engine generated and cached locally';
+    $('cartridge').textContent = `${revision} · ${name} · ${origin === 'stored' ? 'remembered cartridge' : 'imported locally'} · ${code}`;
+    resize();
+    if (origin === 'stored') {
+      status(`${revision} ready from this browser’s storage. Click Play; no file selection is needed.${storageWarning}${engineWarning}`, 'ready');
+    } else {
+      status(`${revision} compiled. Saving your cartridge privately in this browser…`, 'loading');
+    }
+  } finally {
+    finishCompilation();
+    $('play').disabled = $('reset').disabled = !loaded;
+    $('forget').disabled = !loaded && origin !== 'stored';
   }
 }
 
@@ -194,10 +229,10 @@ async function importFile(file) {
     try {
       await cartridgeStore('put', { bytes, name: file.name });
       storageWarning = '';
-      status(`${revision} ready. Saved privately in this browser. Click Play to start.`, 'ready');
+      status(`${revision} ready. Cartridge and engine remembered on this machine. Click Play to start.${engineWarning}`, 'ready');
     } catch (error) {
       storageWarning = ` Storage unavailable: ${error.message ?? error}. The current cartridge can still play.`;
-      status(`${revision} ready.${storageWarning}`, 'ready');
+      status(`${revision} ready.${storageWarning}${engineWarning}`, 'ready');
     }
   } catch (error) {
     importFailure(error, file.name);
@@ -234,7 +269,7 @@ async function startPlayback(automatic = false) {
     $('play').textContent = 'Pause';
     $('play').setAttribute('aria-pressed', 'true');
     if (!automatic) canvas.focus();
-    status(`${revision} running: registered Rust translations and original cartridge code on the hybrid host.${storageWarning}`, 'running');
+    status(`${revision} running cycle-exact generated WebAssembly — no 68000 interpreter.${storageWarning}${engineWarning}`, 'running');
   } catch (error) {
     if (request !== playbackVersion && resumeOnVisible) {
       status('Audio was paused while starting; returning to this tab will try to resume.', 'paused');
@@ -295,9 +330,14 @@ $('forget').addEventListener('click', async () => {
   busy = true;
   try {
     await pause();
+    const identity = game.unload();
+    loaded = false;
+    revision = source = '';
+    $('play').disabled = $('reset').disabled = true;
+    await CompiledCartridge.forget_cached(identity);
     await cartridgeStore('delete');
-    // Releasing the wasm object also releases its in-memory cartridge. Reload
-    // starts an empty session and leaves the user's settings untouched.
+    // The live compiled instance was dropped before cache deletion. Reload is
+    // now an empty session; neither cartridge bytes nor generated code remain.
     game.free();
     location.reload();
   } catch (error) {
@@ -392,6 +432,7 @@ async function boot() {
   controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
   new ResizeObserver(resize).observe($('screen'));
   status(`Checking private cartridge storage. Graphics: ${game.backend()}.`, 'loading');
+  busy = true; // Block a second drop while the remembered cartridge compiles.
   let stored;
   try { stored = await cartridgeStore('get'); }
   catch (error) { storageWarning = ` Browser cartridge storage could not be read: ${error.message ?? error}.`; }
@@ -402,6 +443,7 @@ async function boot() {
   } else {
     status(`Choose your own cartridge. Graphics: ${game.backend()}.${storageWarning}`, 'empty');
   }
+  busy = false;
   $('rom').disabled = false;
   requestAnimationFrame(frame);
 }

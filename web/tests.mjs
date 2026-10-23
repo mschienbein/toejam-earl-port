@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { defaultPlayer, gamepadMask, Inputs, normalizePlayer, selectGamepads, validKeyboardCode } from './input.js';
 import { defaultSettings, readSettings, saveSettings, SETTINGS_KEY, SETTINGS_VERSION } from './storage.js';
 import { AudioStream } from './audio.js';
+import { checkDependencies } from './check-dependencies.mjs';
 
 function standardPad() {
   return { id: 'Test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
@@ -287,4 +288,11 @@ test('pausing during worklet initialization waits for readiness, and a stalled r
   assert.equal(stream.context.state, 'suspended');
   stream.context.resume = () => new Promise(() => {});
   await assert.rejects(stream.start(0.5), /another audio gesture/);
+});
+
+test('shipping and observer wasm graphs exclude the 68000, host and browser oracles; release disables observers', () => {
+  assert.deepEqual(checkDependencies(), [
+    { graph: 'shipping', interpreterFree: true },
+    { graph: 'observation-only', interpreterFree: true },
+  ]);
 });

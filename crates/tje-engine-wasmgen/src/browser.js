@@ -7,8 +7,15 @@ const MAX_MODULE_BYTES = 64 * 1024 * 1024;
 
 export function now() { return performance.now(); }
 
+function requireRomSha1(romSha1) {
+  if (!/^[0-9a-f]{40}$/.test(romSha1)) {
+    throw new TypeError('Engine cache requires a normalized ROM SHA-1.');
+  }
+}
+
 function keyFor(romSha1, engineVersion, m68kDivider) {
-  if (!/^[0-9a-f]{40}$/.test(romSha1) || typeof engineVersion !== 'string' || !engineVersion.length) {
+  requireRomSha1(romSha1);
+  if (typeof engineVersion !== 'string' || !engineVersion.length) {
     throw new TypeError('Engine cache requires a normalized ROM SHA-1 and engine version.');
   }
   if (!Number.isInteger(m68kDivider) || m68kDivider < 1 || m68kDivider > 0xffffffff) {
@@ -68,6 +75,24 @@ async function boundDigest(romSha1, engineVersion, m68kDivider, bytes) {
 export async function evictBytes(romSha1, engineVersion, m68kDivider) {
   const key = keyFor(romSha1, engineVersion, m68kDivider);
   await transaction('readwrite', store => store.delete(key));
+}
+
+/** Forget every stored engine/configuration for this cartridge, not other ROMs. */
+export async function forgetRom(romSha1) {
+  requireRomSha1(romSha1);
+  await transaction('readwrite', store => {
+    const keys = store.getAllKeys();
+    // Keep this listener alongside transaction's result-value callback.
+    keys.addEventListener('success', () => {
+      for (const key of keys.result) {
+        if (typeof key !== 'string') continue;
+        let identity;
+        try { identity = JSON.parse(key); } catch { continue; }
+        if (Array.isArray(identity) && identity[0] === romSha1) store.delete(key);
+      }
+    });
+    return keys;
+  });
 }
 
 /** Verify identity and every module byte before allowing instantiation. */

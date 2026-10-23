@@ -16,6 +16,10 @@ use crate::{BrowserBackend, ENGINE_VERSION, browser::store_bytes};
 extern "C" {
     #[wasm_bindgen(js_name = tamperRecord)]
     fn tamper_record(sha1: &str, version: &str, divider: u32, mode: &str) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = seedObsoleteRecord)]
+    fn seed_obsolete_record(sha1: &str, version: &str, divider: u32) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = keysForRom)]
+    fn keys_for_rom(sha1: &str) -> js_sys::Promise;
 }
 
 fn program(divider: u32) -> Program {
@@ -136,8 +140,28 @@ pub async fn browser_verify_cache() -> Result<String, JsValue> {
     if failed.is_ok() || builds.get() != 1 {
         return Err(failure("fresh compiler failure was suppressed or retried"));
     }
+    let other_rom = "3".repeat(40);
+    drop(generated_once(&other_rom, 7).await?);
+    JsFuture::from(seed_obsolete_record(&sha1, ENGINE_VERSION, 7)).await?;
+    let keys: js_sys::Array = JsFuture::from(keys_for_rom(&sha1)).await?.unchecked_into();
+    if keys.length() != 3 {
+        return Err(failure(
+            "forget fixture requires two dividers and an obsolete engine",
+        ));
+    }
+    BrowserBackend::forget_rom(&sha1).await.map_err(failure)?;
+    let keys: js_sys::Array = JsFuture::from(keys_for_rom(&sha1)).await?.unchecked_into();
+    if keys.length() != 0 {
+        return Err(failure("forgotten ROM retained a compiled module"));
+    }
+    drop(warm(&other_rom, 7).await?);
+    BrowserBackend::forget_rom(&sha1).await.map_err(failure)?;
+    for divider in [7, 8] {
+        drop(generated_once(&sha1, divider).await?);
+    }
     serde_json::to_string(&serde_json::json!({ "warm_builder_bypassed": true,
         "corruptions_regenerated_once": corruptions, "hashed_invalid_module_regenerated_once": true,
-        "divider_isolation": true, "fresh_error_propagated_once": true }))
+        "divider_isolation": true, "fresh_error_propagated_once": true,
+        "forgot_all_versions_and_dividers": true, "forget_preserved_other_rom": true }))
     .map_err(failure)
 }

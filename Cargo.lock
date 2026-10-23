@@ -3528,12 +3528,22 @@ dependencies = [
 name = "tje-web"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "bincode",
  "bytemuck",
  "console_error_panic_hook",
  "genesis-config",
  "jgenesis-common",
- "tje-host",
+ "js-sys",
+ "serde_json",
+ "tje-engine-core",
+ "tje-engine-runtime",
+ "tje-engine-verify",
+ "tje-engine-wasmgen",
+ "tje-mem",
+ "tje-native-platform",
  "tje-rom",
+ "tje-session",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
