@@ -77,19 +77,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
         function: templates::music_load_song_channel_templates,
     },
-];
-
-/// Scheduling waits for the reviewed lazy-frame/audit prerequisites; the VM
-/// additionally has unresolved real-clock device-trace differences.
-/// These complete music bodies remain excluded from production dispatch.
-pub static PENDING: &[crate::FunctionId] = &[
-    ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
-    ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
-    ids::MUSIC_UPDATE_SEQUENCER,
-];
-
-/// Pending bodies never enter the production dispatcher.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
         function: templates::music_select_song_template_bank,
@@ -98,11 +85,17 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
         function: templates::music_process_template_restart_hook,
     },
-    crate::Translation {
-        id: ids::MUSIC_UPDATE_SEQUENCER,
-        function: templates::music_update_sequencer,
-    },
 ];
+
+/// The complete VM remains excluded from production: its main-thread YM
+/// transactions still differ under the reviewed TimeAware projection.
+pub static PENDING: &[crate::FunctionId] = &[ids::MUSIC_UPDATE_SEQUENCER];
+
+/// Pending bodies never enter the production dispatcher.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: ids::MUSIC_UPDATE_SEQUENCER,
+    function: templates::music_update_sequencer,
+}];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 /// The six W0 leaves have no callees; the copy/clear loops have fixed bounds.

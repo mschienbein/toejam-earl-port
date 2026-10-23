@@ -2,11 +2,12 @@
 //! Use the same external harness dependencies as audio/live_fixtures.rs.
 //! All inputs below are explicitly labeled live-state fixtures after gameplay.
 
+use std::sync::Arc;
 use tje_game::{Context, FunctionId, Platform, audio, execution::ExecutionClass, ids};
-use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
+use tje_host::{Host, Mode, fixture::BoundaryAdvance, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram, rom_data_units};
 
-fn host(revision: Revision, id: FunctionId) -> Host {
+fn host(revision: Revision, id: FunctionId) -> (Host, BoundaryAdvance) {
     let key = match revision {
         Revision::Rev02 => "TJE_REV02_ROM",
         Revision::Rev00 => "TJE_REV00_ROM",
@@ -26,13 +27,19 @@ fn host(revision: Revision, id: FunctionId) -> Host {
         ExecutionClass::Functional
     );
     let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
-    let script =
-        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+    let script = Arc::new(
+        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
+    );
+    host.set_wait_input_poller(script.clone());
     for frame in 0..1300 {
         host.run_frame(script.at(frame)).unwrap();
     }
     assert!(host.measurements.game_frame.is_some());
-    host
+    let boundary = host
+        .settle_fixture_boundary(script.at(host.frame_count()))
+        .unwrap();
+    assert!(host.fixture_boundary_is_settled());
+    (host, boundary)
 }
 
 fn prepare(host: &mut Host, delay: u8) {
@@ -65,7 +72,7 @@ fn check_arguments(host: &mut Host, id: FunctionId, arguments: &[u32]) {
         });
 }
 
-fn report(host: &Host, id: FunctionId) {
+fn report(host: &Host, id: FunctionId, boundary: &BoundaryAdvance) {
     assert_eq!(host.checks.mismatches, 0);
     assert!(host.checks.uninitialized_stack_reads.is_empty());
     assert!(host.checks.by_function[id.metadata().name].calls_checked > 0);
@@ -75,6 +82,17 @@ fn report(host: &Host, id: FunctionId) {
         "class": "Functional",
         "frames": host.frame_count(),
         "game_frame": host.measurements.game_frame,
+        "boundary": {
+            "start_pc": boundary.start_pc,
+            "end_pc": boundary.end_pc,
+            "start_frame": boundary.start_frame,
+            "end_frame": boundary.end_frame,
+            "ticks": boundary.ticks,
+            "master_clocks": boundary.master_clocks,
+            "handlers_completed": boundary.handlers_completed,
+            "completed_frames": boundary.completed_frames.iter()
+                .map(|frame| format!("{frame:#?}")).collect::<Vec<_>>(),
+        },
         "fixtures": host.checks,
     });
     if let Some(directory) = std::env::var_os("TJE_AUDIO_METRICS_DIR") {
@@ -96,7 +114,7 @@ fn report(host: &Host, id: FunctionId) {
 fn release_masks_match_all_channels_masks_pacing_and_invalid_returns() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         for channel in [0, 1, 2, 3, 4, 5, 6, 0x7fff, 0xffff] {
             for mask in [0, 1, 5, 15, 0xff] {
                 for delay in [0, 1, 5, 6, 0xff] {
@@ -112,7 +130,7 @@ fn release_masks_match_all_channels_masks_pacing_and_invalid_returns() {
                 }
             }
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }
 
@@ -121,7 +139,7 @@ fn release_masks_match_all_channels_masks_pacing_and_invalid_returns() {
 fn frequency_writes_match_both_banks_pacing_and_invalid_returns() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::YM2612_UPDATE_FREQUENCY;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         for channel in [0, 1, 2, 3, 4, 5, 6, 0x7fff, 0xffff] {
             for delay in [0, 1, 5, 6, 0xff] {
                 prepare(&mut host, delay);
@@ -132,7 +150,7 @@ fn frequency_writes_match_both_banks_pacing_and_invalid_returns() {
                 check(&mut host, id);
             }
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }
 
@@ -141,7 +159,7 @@ fn frequency_writes_match_both_banks_pacing_and_invalid_returns() {
 fn patch_upload_matches_every_rom_record_both_frequency_modes_and_pacing() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::SETUP_YM2612;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         let patch_count = rom_data_units(revision)
             .iter()
             .find(|unit| unit.name == "FMPatches")
@@ -169,7 +187,7 @@ fn patch_upload_matches_every_rom_record_both_frequency_modes_and_pacing() {
             host.context().set_data_register(3, 0x9876_0000);
             check(&mut host, id);
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }
 
@@ -178,7 +196,7 @@ fn patch_upload_matches_every_rom_record_both_frequency_modes_and_pacing() {
 fn release_all_preserves_saved_registers_and_six_channel_order() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::AUDIO_RELEASE_ALL_FM_CHANNELS;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         for delay in [0, 1, 5, 6, 0xff] {
             for mask in [0, 1, 5, 15, 0xff] {
                 prepare(&mut host, delay);
@@ -192,7 +210,7 @@ fn release_all_preserves_saved_registers_and_six_channel_order() {
                 check(&mut host, id);
             }
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }
 
@@ -201,7 +219,7 @@ fn release_all_preserves_saved_registers_and_six_channel_order() {
 fn auxiliary_templates_match_all_requests_and_active_channel_subsets() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         let effect_count = rom_data_units(revision)
             .iter()
             .find(|unit| unit.name == "SfxChannelTemplateCounts")
@@ -244,7 +262,7 @@ fn auxiliary_templates_match_all_requests_and_active_channel_subsets() {
             ram::g_pending_fm_effect(revision).write(&mut context, effect);
             check(&mut host, id);
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }
 
@@ -253,7 +271,7 @@ fn auxiliary_templates_match_all_requests_and_active_channel_subsets() {
 fn song_template_loader_matches_every_template_and_unsigned_argument_word() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let id = ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES;
-        let mut host = host(revision, id);
+        let (mut host, boundary) = host(revision, id);
         let template_count = rom_data_units(revision)
             .iter()
             .find(|unit| unit.name == "SongChannelTemplates")
@@ -275,6 +293,6 @@ fn song_template_loader_matches_every_template_and_unsigned_argument_word() {
             prepare(&mut host, 0);
             check_arguments(&mut host, id, &[0xdead_0000 | template]);
         }
-        report(&host, id);
+        report(&host, id, &boundary);
     }
 }

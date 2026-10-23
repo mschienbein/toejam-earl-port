@@ -88,16 +88,51 @@ fn revision_key(revision: Revision) -> &'static str {
     }
 }
 
-fn boot(revision: Revision) -> Host {
+fn boot(revision: Revision, suite: &str) -> Host {
     let registry = HookRegistry::proof(revision, translations()).unwrap();
     let mut host = Host::new(&bytes(revision), Mode::Reference, registry).unwrap();
-    let script = InputScript::parse(include_str!(
-        "../../../../tje-host/examples/start-game.json"
-    ))
-    .unwrap();
+    let script = Arc::new(
+        InputScript::parse(include_str!(
+            "../../../../tje-host/examples/start-game.json"
+        ))
+        .unwrap(),
+    );
+    host.set_wait_input_poller(script.clone());
     for frame in 0..1300 {
         host.run_frame(script.at(frame)).unwrap();
     }
+    // A completed video frame can still be inside the original VBlank handler.
+    // Drain original work before the first synthetic RAM/register mutation.
+    let advance = host
+        .settle_fixture_boundary(script.at(host.frame_count()))
+        .unwrap();
+    let completed_frames = advance
+        .completed_frames
+        .iter()
+        .map(|frame| {
+            serde_json::json!({
+                "frame": frame.frame, "frame_counter": frame.frame_counter, "pc": frame.pc,
+                "ram": frame.ram, "vdp": {
+                    "vram": frame.vdp.vram, "cram": frame.vdp.cram,
+                    "vsram": frame.vdp.vsram, "registers": frame.vdp.registers,
+                },
+                "writes": frame.writes,
+                "audio_sample_bits": frame.audio_samples.iter()
+                    .map(|pair| [pair[0].to_bits(), pair[1].to_bits()]).collect::<Vec<_>>(),
+                "idle_random_draws": frame.idle_random_draws, "lag_events": frame.lag_events,
+            })
+        })
+        .collect::<Vec<_>>();
+    record(
+        &host,
+        &format!("{suite}-boundary"),
+        &[serde_json::json!({
+            "start_pc": advance.start_pc, "end_pc": advance.end_pc,
+            "start_frame": advance.start_frame, "end_frame": advance.end_frame,
+            "ticks": advance.ticks, "master_clocks": advance.master_clocks,
+            "handlers_completed": advance.handlers_completed, "completed_frames": completed_frames,
+        })],
+    );
     assert!(host.measurements.game_frame.is_some());
     host
 }
@@ -204,7 +239,7 @@ fn stream(host: &mut Host, bytes: &[u8]) {
 fn song_selection_and_restart_branch_fixtures_both_revisions() {
     let mut failures = Vec::new();
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut host = boot(revision);
+        let mut host = boot(revision, "schedule");
         let mut cases = Vec::new();
         let template_count = rom_data_units(revision)
             .iter()
@@ -289,7 +324,7 @@ fn song_selection_and_restart_branch_fixtures_both_revisions() {
 fn every_sequencer_opcode_and_counter_flag_edges_both_revisions() {
     let mut failures = Vec::new();
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut host = boot(revision);
+        let mut host = boot(revision, "vm");
         let mut cases = Vec::new();
         for flags in [0, 0x1f] {
             for opcode in 0..=12 {

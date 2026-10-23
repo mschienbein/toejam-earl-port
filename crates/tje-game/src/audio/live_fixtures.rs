@@ -5,7 +5,8 @@
 //! The standard 10,000-frame session uses only the audio entry-hook filter, and
 //! every added synthetic input is separately labeled as a live-state fixture.
 
-use tje_game::{Context, FunctionId, Platform, audio, ids};
+use std::sync::Arc;
+use tje_game::{Context, FunctionId, audio, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
 
@@ -122,8 +123,6 @@ fn drive_functional_live_fixtures(host: &mut Host) {
         context.set_data_register(3, 0);
         context.set_data_register(4, 0x12);
         context.set_data_register(5, 0x34);
-        context.write_z80_bus_request(0x100);
-        context.write_z80_ram(0x004a, 0);
         ram::g_pending_fm_effect(revision).write(&mut context, 0);
         if id == ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES {
             check(host, id, &[0]);
@@ -131,13 +130,26 @@ fn drive_functional_live_fixtures(host: &mut Host) {
             check(host, id, &[]);
         }
     }
+    {
+        let mut context = host.context();
+        ram::g_music_alternate_template_bank_enabled(revision).write(&mut context, 0);
+        check(host, ids::MUSIC_SELECT_SONG_TEMPLATE_BANK, &[0]);
+    }
+    {
+        let mut context = host.context();
+        context.set_address_register(0, ram::g_music_channels(revision).at(0).address());
+        ram::g_music_template_restart_state(revision).write(&mut context, 2);
+        ram::g_boom_box_music_template_hold(revision).write(&mut context, 0);
+        check(host, ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK, &[]);
+    }
 }
 
 #[test]
 #[ignore = "requires both private retail ROMs; 10,000 frames per revision plus a timed reference"]
 fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
-    let script =
-        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+    let script = Arc::new(
+        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
+    );
     let roots: Vec<_> = audio::TRANSLATIONS.iter().map(|entry| entry.id).collect();
     assert!(tje_game::Dispatcher::native(&roots).is_ok());
     for revision in [Revision::Rev02, Revision::Rev00] {
@@ -150,6 +162,8 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
         assert_eq!(registry.len(), audio::TRANSLATIONS.len());
         let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        checked.set_wait_input_poller(script.clone());
+        reference.set_wait_input_poller(script.clone());
         for frame in 0..10_000 {
             let a = checked.run_frame(script.at(frame)).unwrap();
             let b = reference.run_frame(script.at(frame)).unwrap();
@@ -186,6 +200,52 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
         assert!(checked.measurements.menu_frame.is_some());
         assert!(checked.measurements.game_frame.is_some());
         let natural = serde_json::to_value(&checked.checks).unwrap();
+        let boundary = checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
+        let reference_boundary = reference
+            .settle_fixture_boundary(script.at(reference.frame_count()))
+            .unwrap();
+        assert_eq!(boundary.start_pc, reference_boundary.start_pc);
+        assert_eq!(boundary.end_pc, reference_boundary.end_pc);
+        assert_eq!(boundary.start_frame, reference_boundary.start_frame);
+        assert_eq!(boundary.end_frame, reference_boundary.end_frame);
+        assert_eq!(boundary.ticks, reference_boundary.ticks);
+        assert_eq!(boundary.master_clocks, reference_boundary.master_clocks);
+        assert_eq!(
+            boundary.handlers_completed,
+            reference_boundary.handlers_completed
+        );
+        assert_eq!(
+            boundary.completed_frames.len(),
+            reference_boundary.completed_frames.len()
+        );
+        for (a, b) in boundary
+            .completed_frames
+            .iter()
+            .zip(&reference_boundary.completed_frames)
+        {
+            assert_eq!(a.frame, b.frame);
+            assert_eq!(a.frame_counter, b.frame_counter);
+            assert_eq!(a.pc, b.pc);
+            assert_eq!(a.ram, b.ram);
+            assert_eq!(a.vdp, b.vdp);
+            assert_eq!(a.writes, b.writes);
+            assert_eq!(a.idle_random_draws, b.idle_random_draws);
+            assert_eq!(a.lag_events, b.lag_events);
+            assert!(
+                a.audio_samples
+                    .iter()
+                    .flatten()
+                    .map(|value| value.to_bits())
+                    .eq(b
+                        .audio_samples
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits()))
+            );
+        }
+        assert_eq!(checked.frame_buffer(), reference.frame_buffer());
         drive_live_fixtures(&mut checked);
         drive_functional_live_fixtures(&mut checked);
         assert_eq!(checked.checks.mismatches, 0);
@@ -200,6 +260,18 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
             "game_frame": checked.measurements.game_frame,
             "logic_ticks": checked.measurements.logic_ticks,
             "whole_session_equal": true,
+            "natural_frames": 10_000,
+            "boundary": {
+                "start_pc": boundary.start_pc,
+                "end_pc": boundary.end_pc,
+                "start_frame": boundary.start_frame,
+                "end_frame": boundary.end_frame,
+                "ticks": boundary.ticks,
+                "master_clocks": boundary.master_clocks,
+                "handlers_completed": boundary.handlers_completed,
+                "completed_frames": boundary.completed_frames.iter()
+                    .map(|frame| format!("{frame:#?}")).collect::<Vec<_>>(),
+            },
             "natural": natural,
             "with_live_fixtures": checked.checks,
         });
