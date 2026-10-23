@@ -262,10 +262,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: framed::find_spawn_location_for_earthling,
     },
     crate::Translation {
-        id: ids::EARTHLING_RETAIN_LEVEL_BANK,
-        function: framed::earthling_retain_level_bank,
-    },
-    crate::Translation {
         id: ids::OPEN_EARTHLING_PRESENT,
         function: open_present::open_earthling_present,
     },
@@ -304,6 +300,12 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::AI_MAILBOX_TOUCH,
         function: friendly::ai_mailbox_touch,
     },
+    // CorpusCheck REV 00 frame 17401: original Atomic call stalls at 00E9C0;
+    // execution classification is under source review before any re-admission.
+    crate::Translation {
+        id: ids::EARTHLING_RETAIN_LEVEL_BANK,
+        function: framed::earthling_retain_level_bank,
+    },
 ];
 
 /// All known unapproved consumers stay outside production, including nested
@@ -316,6 +318,7 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
     ids::AI_GENERIC_ENEMY_THINK,
     ids::AI_MAILBOX_TOUCH,
+    ids::EARTHLING_RETAIN_LEVEL_BANK,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
