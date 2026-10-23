@@ -1,5 +1,43 @@
 # Status (current entry first)
 
+## 2026-10-23 (evening): engine integrated; 507 of 648 functions proven
+
+Branch `integrate/p0`.
+
+Translation (generated in [FUNCTIONS](FUNCTIONS.md)): 507 functions are proven in both
+revisions and registered, 135 are written but held with an exact blocker each, and 6 are
+not yet written (low-level audio mailbox and sound-driver routines). Most held functions
+are correct but run in zero time while the original takes real time: frame counters,
+interrupts landing mid-function, Z80 timing. They wait on two contracts in progress:
+exact engine timing for Rust bodies and an interrupt commutation rule.
+
+Check mode gained, since the last entry:
+
+- TimeAware projection of interrupt-visible effects;
+- typed exits (RTE, terminal, reset, tail call) with banked stacks;
+- a settled fixture boundary;
+- dead-stack replay discharge (finite per-state evidence);
+- a root-frame audit for nested original calls;
+- lazy framed entries for functions that keep arguments on the stack;
+- a dependent-equivalence mode for reads that genuinely depend on stack residue;
+- an opt-in continue-after-failure corpus mode.
+
+Recorded sessions: 50 input-only power-on recordings, about 1.5 million frames, each
+replaying exactly between two independent reference runs. Together they reach 621 of
+the 648 functions. Coverage includes every present type in both revisions, all 25
+Earthling kinds on REV 02 (18 on REV 00), and all services on REV 02. A natural
+all-ten-pieces campaign is still in progress; the ending is so far reached only through
+the original pause secret, and those recordings are labelled as such.
+
+Cycle-exact engine (`tje-engine-*`, `tje-native-platform`): integrated. It compiles the
+user's ROM at first launch (Cranelift on desktop, generated WebAssembly in the browser)
+and matches the reference at every instruction: 1.58 billion instructions over 128,000
+frames through the IR, and all 27 then-committed sessions (663,575 frames) natively on
+Windows. Audio uses one canonical scalar resampler on every target. Open: macOS ARM64
+audio differs in the last bits (platform math library); the whole-corpus native and
+browser campaigns over all 50 sessions; the frontends switching from the hybrid host to
+the engine.
+
 ## 2026-10-23: readable layer in progress; cycle-exact engine under construction
 
 Branch `integrate/p0` (not yet merged to `main`).
