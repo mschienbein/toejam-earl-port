@@ -1,5 +1,8 @@
 //! Ui translation ownership; see docs/PORTING.md.
 
+mod classification;
+pub use classification::EXECUTION_CONTRACTS;
+
 mod hud;
 mod inventory;
 mod main_menu;
@@ -89,17 +92,15 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed original entries that return without clock/interrupt progress.
-/// Missing IDs are deliberately not approved for atomic checking or fallback.
+/// Reviewed ORIGINAL atomic entries, translated or still residual.
+/// Classification describes clock/interrupt requirements, not translation readiness:
+/// the sprite allocator's original uninitialized-local bug still needs a call frame.
 ///
-/// W0's other entries are leaves: only finite memory copies, arithmetic,
-/// sprite-shadow writes, or ordered device accesses, without ready/interrupt
-/// polling. VDP writers require a live entry whose frozen FIFO accepts the writes.
-/// `AreBothControllersConnected` has fixed CPU delay loops, not BUSACK waits.
-/// `InventoryRefreshContentsAndWait` (G/src/ui/inventory.c:278) is deliberately
-/// absent: both redraw-phase loops wait for VBlank interrupt service.
-/// `HudHidePlayerSprites` (G/src/ui/hud.c:619) is also absent: its 6/12 VDP
-/// data writes inevitably stall the four-slot frozen FIFO before returning.
+/// G/src/ui/inventory.c:32,48,62,68,238,531,645,784 and hud.c:56,133,177,284,
+/// 465,583 are finite RAM/ROM operations or at most two VDP data writes.
+/// G/src/ui/main_menu.c:171 has fixed CPU delay loops, not BUSACK polling.
+/// VDP writers still require an entry whose frozen FIFO accepts the accesses.
+/// Remaining atomic callers below cite their reviewed RAM-only closure.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::ENABLE_TEXT_FONT_ANIMATION,
     crate::ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
@@ -117,6 +118,25 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::HUD_POSITION_LIVES_SPRITE,
     crate::ids::ARE_BOTH_CONTROLLERS_CONNECTED,
     crate::ids::POSITION_MENU_CURSOR_ENTITY,
+    // inventory.c:176: seeded RAM RNG and SelectRandomPresent; no clock-based retry.
+    crate::ids::SET_MAIL_ORDER_PRESENTS,
+    // inventory.c:356: finite inventory rerolls through the same RAM-only selector.
+    crate::ids::RANDOMIZE_INVENTORY,
+    // inventory.c:567: RAM compaction, DropPresent's RAM search, atomic PlaySound.
+    crate::ids::INVENTORY_DROP_SELECTED_PRESENT,
+    // inventory.c:611: RAM selection/identification, RAM RNG, atomic PlaySound.
+    crate::ids::INVENTORY_IDENTIFY_SELECTED_PRESENT,
+    // inventory.c:821: allocation/eviction retries change RAM, not hardware time.
+    crate::ids::INVENTORY_INITIALIZE_DISPLAY_ENTITIES,
+    // inventory.c:855: seven RAM-only ReleaseEntityViewportSprites calls.
+    crate::ids::INVENTORY_DEACTIVATE_DISPLAY_ENTITIES,
+    // window_panels.c:16: FreeEntity, dropped-present and telephone RAM cleanup.
+    crate::ids::CLEAR_TRANSIENT_ENTITIES,
+    // main_menu.c:295: AllocateEntity/AllocateEntityViewportSprites are RAM-only.
+    crate::ids::CREATE_MENU_CURSOR_ENTITY,
+    // main_menu.c:315,356: conditional FreeEntity; no wait or hardware access.
+    crate::ids::RELEASE_MENU_CURSOR_ENTITY,
+    crate::ids::REMOVE_MENU_HEADER,
 ];
 /// G/src/ui/inventory.c:62 (`EnableTextFontAnimation`).
 pub fn enable_text_font_animation(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
