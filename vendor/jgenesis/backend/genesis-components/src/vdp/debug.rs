@@ -26,14 +26,14 @@ pub struct VdpDifferenceLocation {
     pub address: Option<u32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VdpStateDifference {
     pub location: VdpDifferenceLocation,
     pub original: String,
     pub translated: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VdpStateDifferences {
     pub differences: Vec<VdpStateDifference>,
     pub truncated: bool,

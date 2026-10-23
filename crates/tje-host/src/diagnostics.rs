@@ -6,7 +6,7 @@ use genesis_core::GenesisEmulator;
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use tje_game::execution::ExecutionClass;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum VdpMismatchOrigin {
     Check,
@@ -17,14 +17,14 @@ pub enum VdpMismatchOrigin {
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VdpComparisonScope {
     Logical,
     Full,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VdpMismatchReport {
     pub frame: u64,
     pub function: String,

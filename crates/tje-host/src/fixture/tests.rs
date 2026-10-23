@@ -53,6 +53,8 @@ pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
         main_idle: false,
         frame_progress: FrameProgress::default(),
         terminal_entry: None,
+        check_failure_policy: crate::CheckFailurePolicy::FailFast,
+        disabled_check_roots: Default::default(),
         output: HeadlessOutput,
         audio: HeadlessAudio::default(),
         saves: NoCartridgeSaves,
@@ -834,4 +836,150 @@ fn vdp_dependency_probe_reports_the_actual_perturbed_fork_before_it_drops() {
             .iter()
             .any(|difference| difference["registers"] == serde_json::json!([7]))
     );
+}
+
+fn failure_policy_host(mode: Mode) -> Host {
+    fn increment(context: &mut HookContext<'_>, address: u32) {
+        context.write_u16(address, context.read_u16(address).wrapping_add(1));
+    }
+    fn wrong_vdp(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+        increment(context, 0xff9000);
+        tje_mem::Platform::write_vdp_control(context, 0x8aff);
+        Ok(None)
+    }
+    fn early_error(_: &mut HookContext<'_>) -> Result<Option<u32>> {
+        Err(HostError::Metadata(
+            "authored early execution failure".into(),
+        ))
+    }
+    fn valid(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+        increment(context, 0xff9004);
+        Ok(None)
+    }
+    let mut host = synthetic_host(
+        &[
+            0x4eb9, 0x00ff, 0xf000, 0x4eb9, 0x00ff, 0xf020, 0x4eb9, 0x00ff, 0xf040, 0x4eb9, 0x00ff,
+            0xf000, 0x4eb9, 0x00ff, 0xf020, 0x4eb9, 0x00ff, 0xf040, 0x60fe,
+        ],
+        &[0x4e73],
+    );
+    let mut registry = HookRegistry::empty(host.revision);
+    for (index, name, body) in [
+        (0_u32, "WrongVdpRoot", wrong_vdp as crate::hooks::HookFn),
+        (1, "EarlyErrorRoot", early_error),
+        (2, "ValidRoot", valid),
+    ] {
+        let address = 0xfff000 + 32 * index;
+        let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+        symbol.name = name;
+        symbol.addresses = [address; 2];
+        symbol.sizes = [8; 2];
+        symbol.abi.argument_count = 0;
+        symbol.abi.returns_value = false;
+        registry.register_contract(symbol, true, body).unwrap();
+        for (offset, word) in [0x5279, 0x00ff, 0x9000 + 2 * index as u16, 0x4e75]
+            .into_iter()
+            .enumerate()
+        {
+            host.context().write_u16(address + 2 * offset as u32, word);
+        }
+    }
+    host.checks = CheckReport::registered(&registry);
+    host.registry = registry;
+    host.mode = mode;
+    host
+}
+
+#[test]
+fn continue_original_counts_every_failure_and_never_retries_a_partial_frame() {
+    let mut host = failure_policy_host(Mode::Check);
+    let mut reference = failure_policy_host(Mode::Reference);
+    host.set_check_failure_policy(crate::CheckFailurePolicy::ContinueOriginal)
+        .unwrap();
+    host.frame_progress.idle_draws = 7;
+    reference.frame_progress.idle_draws = 7;
+    let checked = host.run_frame(GenesisInputs::default()).unwrap();
+    let original = reference.run_frame(GenesisInputs::default()).unwrap();
+    assert_eq!(checked.ram, original.ram);
+    assert_eq!(checked.vdp, original.vdp);
+    assert_eq!(checked.writes, original.writes);
+    assert_eq!(checked.audio_samples, original.audio_samples);
+    assert_eq!(checked.idle_random_draws, 7);
+    assert_eq!(host.measurements.idle_draws_per_frame, [7]);
+    assert_eq!(machine_bytes(&host), machine_bytes(&reference));
+    assert_eq!(host.checks.calls, 4);
+    assert_eq!(host.checks.mismatches, 2);
+    assert_eq!(host.checks.by_function["WrongVdpRoot"].calls_checked, 1);
+    assert_eq!(host.checks.by_function["EarlyErrorRoot"].calls_checked, 1);
+    assert_eq!(host.checks.by_function["ValidRoot"].calls_checked, 2);
+    assert_eq!(host.checks.by_function["EarlyErrorRoot"].mismatches, 1);
+    assert_eq!(host.checks.by_function["ValidRoot"].mismatches, 0);
+    assert!(host.checks.unexercised.is_empty());
+    assert_eq!(
+        host.disabled_check_roots,
+        [0xfff000, 0xfff020].into_iter().collect()
+    );
+    assert_eq!(host.checks.failures.len(), 2);
+    let first = &host.checks.failures[0];
+    assert_eq!(first.entry_pc, 0xfff000);
+    assert_eq!(first.function, "WrongVdpRoot");
+    assert_eq!(first.frame, 0);
+    assert!(first.detail.contains("first difference:"));
+    assert!(first.vdp_mismatch.is_some());
+    let second = &host.checks.failures[1];
+    assert_eq!(second.entry_pc, 0xfff020);
+    assert!(second.detail.contains("authored early execution failure"));
+    assert!(
+        second.vdp_mismatch.is_none(),
+        "do not attach the previous root's VDP failure"
+    );
+    assert!(second.master_clock > first.master_clock);
+    for address in [0xff9000, 0xff9002, 0xff9004] {
+        assert_eq!(
+            host.context().read_u16(address),
+            2,
+            "only live original work is retained"
+        );
+    }
+    let report = serde_json::to_value(&host.checks).unwrap();
+    assert_eq!(report["failure_policy"], "continue_original");
+    assert_eq!(report["mismatches"], 2);
+    assert_eq!(report["failures"].as_array().unwrap().len(), 2);
+    host.reset();
+    assert!(host.disabled_check_roots.is_empty());
+    assert!(host.checks.failures.is_empty());
+    assert_eq!(host.checks.calls, 0);
+    assert_eq!(
+        host.checks.failure_policy,
+        crate::CheckFailurePolicy::ContinueOriginal
+    );
+}
+
+#[test]
+fn fail_fast_remains_the_default_and_only_check_mode_can_opt_in() {
+    let mut host = failure_policy_host(Mode::Check);
+    let error = host.run_frame(GenesisInputs::default()).unwrap_err();
+    assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+    assert_eq!(host.frame_count(), 0);
+    assert_eq!(host.cpu().pc(), 0xfff000);
+    assert_eq!(host.context().read_u16(0xff9000), 0);
+    assert_eq!(host.checks.calls, 1);
+    assert_eq!(host.checks.mismatches, 1);
+    assert_eq!(
+        host.checks.failure_policy,
+        crate::CheckFailurePolicy::FailFast
+    );
+    assert!(host.checks.failures.is_empty());
+    assert!(host.disabled_check_roots.is_empty());
+    for mode in [Mode::Reference, Mode::Replace] {
+        let mut host = failure_policy_host(mode);
+        assert!(
+            host.set_check_failure_policy(crate::CheckFailurePolicy::ContinueOriginal)
+                .is_err()
+        );
+        assert_eq!(
+            host.checks.failure_policy,
+            crate::CheckFailurePolicy::FailFast
+        );
+    }
 }

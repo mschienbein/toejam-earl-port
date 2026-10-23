@@ -108,11 +108,13 @@ impl Host {
         self.main_idle = false;
         self.frame_progress = Default::default();
         self.terminal_entry = None;
+        self.disabled_check_roots.clear();
         self.session_trace = None;
         self.emulator
             .update_audio_output_frequency(u64::from(self.audio_sample_rate));
         self.audio.samples.clear();
         self.checks = crate::CheckReport::registered(&self.registry);
+        self.checks.failure_policy = self.check_failure_policy;
         self.measurements = Default::default();
         self.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
     }

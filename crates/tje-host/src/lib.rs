@@ -9,6 +9,8 @@
 
 pub mod abi;
 pub mod catalogue;
+mod check_failure;
+pub use check_failure::{CheckFailure, CheckFailurePolicy};
 pub mod check_projection;
 mod coverage;
 pub mod diagnostics;
@@ -192,6 +194,9 @@ pub struct CheckReport {
     pub last_time_aware: Option<check_projection::TimeAwareObservation>,
     /// Bounded field-level VDP evidence captured before the failing forks drop.
     pub last_vdp_mismatch: Option<diagnostics::VdpMismatchReport>,
+    pub failure_policy: CheckFailurePolicy,
+    /// One bounded event per failed root; retained even if later live work fails.
+    pub failures: Vec<CheckFailure>,
 }
 
 impl CheckReport {
@@ -243,6 +248,15 @@ impl CheckReport {
             coverage.unexercised.remove(name);
         }
     }
+
+    fn record_mismatch(&mut self, hook: &Hook) {
+        self.mismatches += 1;
+        self.by_function.at_mut(hook.coverage_index).mismatches += 1;
+        self.by_subsystem
+            .get_mut(hook.symbol.subsystem)
+            .expect("registered subsystem")
+            .mismatches += 1;
+    }
 }
 
 pub struct Host {
@@ -255,6 +269,8 @@ pub struct Host {
     main_idle: bool,
     frame_progress: fixture::FrameProgress,
     terminal_entry: Option<tje_game::FunctionId>,
+    check_failure_policy: CheckFailurePolicy,
+    disabled_check_roots: BTreeSet<u32>,
     output: HeadlessOutput,
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
@@ -306,6 +322,8 @@ impl Host {
             main_idle: false,
             frame_progress: fixture::FrameProgress::default(),
             terminal_entry: None,
+            check_failure_policy: CheckFailurePolicy::FailFast,
+            disabled_check_roots: BTreeSet::new(),
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
@@ -371,9 +389,11 @@ impl Host {
                 if self.mode != Mode::Reference
                     && let Some(hook) = self.registry.at(pc).cloned()
                     && self.terminal_entry != Some(hook.symbol.id)
+                    && (self.disabled_check_roots.is_empty()
+                        || !self.disabled_check_roots.contains(&pc))
                 {
                     if self.mode == Mode::Check {
-                        self.check_hook(&hook)?;
+                        self.check_live_hook(&hook)?;
                     } else {
                         self.replace_hook(&hook)?;
                         inputs.0 = self.wait_clock.inputs;
@@ -569,16 +589,7 @@ impl Host {
                     hook,
                     diagnostics::VdpMismatchOrigin::Check,
                 );
-                self.checks.mismatches += 1;
-                self.checks
-                    .by_function
-                    .at_mut(hook.coverage_index)
-                    .mismatches += 1;
-                self.checks
-                    .by_subsystem
-                    .get_mut(hook.symbol.subsystem)
-                    .expect("registered subsystem")
-                    .mismatches += 1;
+                self.checks.record_mismatch(hook);
                 Err(HostError::Mismatch {
                     frame: self.frame,
                     function: hook.symbol.name.to_owned(),

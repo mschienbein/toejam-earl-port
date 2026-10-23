@@ -240,6 +240,28 @@ its untranslated functions. Per-function `calls_checked`, `calls_replaced`,
 `mismatches` and global `unexercised` remain available. A zero-mismatch run is not
 evidence for a zero-call function. The CLI writes metrics even after a mismatch.
 
+Corpus-only callers may explicitly select
+`host.set_check_failure_policy(CheckFailurePolicy::ContinueOriginal)`.
+`FailFast` remains the default; Reference/Replace reject this opt-in policy.
+A failed check is still a failed attempt: every error, including side-execution
+errors before comparison, increments the call/mismatch coverage exactly once.
+Its entry hook is disabled for the remainder of that session, without removing
+any translation from callee dispatch. The current `run_frame` loop falls through
+to its one original tick; no frame retry, CPU rewrite or partial-observation
+replay occurs. Other roots continue to be checked. Explicit diagnostic fixtures
+and errors from the live original tick retain their existing fail-fast behavior.
+
+`CheckReport::failures` retains one bounded item per disabled root, including
+function/entry PC, frame/master clock, live-frame write position, a trace ordinal
+when the comparison names one, error detail and any field-level VDP evidence.
+Details are capped at 4096 UTF-8 bytes plus a truncation marker; raw device/RAM
+traces are not embedded. Retaining the items in the report, rather than draining
+them, preserves earlier failures even if later original execution errors.
+Completed playback with nonzero `mismatches` is **not a passing check**: callers
+must write the failed report and return a failing exit status. Hard reset begins
+a new session, reenables the roots and clears their counts/evidence while
+preserving the explicitly selected policy.
+
 Counters are internally keyed by stable registration indices, not freshly owned
 strings; serialization still presents canonical function names. Constructor and
 reset initialize every registered zero-call entry and unexercised set. Realtime
