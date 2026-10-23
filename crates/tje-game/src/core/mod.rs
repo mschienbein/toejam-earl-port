@@ -78,20 +78,12 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: control::vdp_initialisation,
     },
     crate::Translation {
-        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
-        function: wait_for_next_vblank,
-    },
-    crate::Translation {
         id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
         function: views::reload_active_camera_views,
     },
     crate::Translation {
         id: crate::ids::CHECK_START_BUTTON,
         function: input::check_start_button,
-    },
-    crate::Translation {
-        id: crate::ids::PROCESS_INPUT,
-        function: input::process_input,
     },
 ];
 
@@ -173,6 +165,13 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
+    // Full corpus: content-later REV 00 and content-effects REV 02 expose
+    // live FF8033 differences at frame 837; earlier narrow sessions were
+    // insufficient. Keep the body unregistered until that effect is proven.
+    crate::ids::WAIT_FOR_NEXT_V_BLANK,
+    // Full corpus: cooperation frame 943/971 changes real HBlank/VBlank
+    // publication order versus main-thread stores. No timing waiver applies.
+    crate::ids::PROCESS_INPUT,
     // Real display-on paths observe different IRQ placement/frame counts
     // with zero-time translated work; quiet finite fixtures are not a waiver.
     crate::ids::ENTER_SPLIT_SCREEN,
@@ -189,6 +188,14 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Unregistered bodies retained for explicit proof harnesses.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: wait_for_next_vblank,
+    },
+    crate::Translation {
+        id: crate::ids::PROCESS_INPUT,
+        function: input::process_input,
+    },
     crate::Translation {
         id: crate::ids::ENTER_SPLIT_SCREEN,
         function: views::enter_split_screen,
