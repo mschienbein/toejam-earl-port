@@ -455,3 +455,46 @@ fn transition_membership_narrows_slots_and_observes_the_count_prefix() {
 
 #[path = "tests_review.rs"]
 mod review_indexes;
+#[test]
+fn original_classes_are_complete_and_pending_entries_never_register() {
+    let count = crate::functions()
+        .filter(|entry| entry.subsystem == "map")
+        .count();
+    assert_eq!(ATOMIC_CAPABLE.len() + EXECUTION_CONTRACTS.len(), count);
+    for entry in crate::functions().filter(|entry| entry.subsystem == "map") {
+        let atomic = ATOMIC_CAPABLE.iter().filter(|&&id| id == entry.id).count();
+        let non_atomic = EXECUTION_CONTRACTS
+            .iter()
+            .filter(|(id, _)| *id == entry.id)
+            .count();
+        assert_eq!(atomic + non_atomic, 1, "{}", entry.name);
+    }
+    assert_eq!(
+        PENDING.len(),
+        PENDING_TRANSLATIONS.len() + FRAME_PENDING_TRANSLATIONS.len()
+    );
+    for id in PENDING {
+        assert_eq!(
+            PENDING_TRANSLATIONS
+                .iter()
+                .chain(FRAME_PENDING_TRANSLATIONS)
+                .filter(|entry| entry.id == *id)
+                .count(),
+            1
+        );
+    }
+    for entry in PENDING_TRANSLATIONS
+        .iter()
+        .chain(FRAME_PENDING_TRANSLATIONS)
+    {
+        assert!(
+            !TRANSLATIONS
+                .iter()
+                .any(|registered| registered.id == entry.id)
+        );
+        assert_eq!(entry.id.metadata().subsystem, "map");
+    }
+}
+
+#[path = "tests_indexing.rs"]
+mod index_and_register_lowering;

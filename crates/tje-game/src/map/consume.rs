@@ -97,7 +97,9 @@ pub fn map_consume_path_cell_directions(c: &mut dyn Context, args: &[u32]) -> Re
             .tiles()
             .at(i32::from(shape))
             .read(c);
-        let mask = ram::g_map_path_direction_banks(r).at(row).at(column);
+        let mask = ram::g_map_path_direction_banks(r)
+            .at_word_index(row as i16)
+            .at_word_index(column as i16);
         if bank == 0 {
             mask.write(c, mask.read(c) & 0xf0);
             mask.write(c, mask.read(c) | directions);

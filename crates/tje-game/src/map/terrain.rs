@@ -186,9 +186,9 @@ pub fn terrain_validation(c: &mut dyn Context, args: &[u32]) -> Result<Option<u3
                 let mut column = ox;
                 while i32::from(column) < i32::from(ox) + i32::from(width) {
                     let tile = rom::level_metatile_maps(r)
-                        .at(i32::from(metatile))
-                        .at(i32::from(row))
-                        .at(i32::from(column))
+                        .at_word_index(metatile as i16)
+                        .at_word_index(row)
+                        .at_word_index(column)
                         .read(c);
                     let property = rom::player_tile_property_lookup(r)
                         .at(i32::from(tile & 0x7ff))

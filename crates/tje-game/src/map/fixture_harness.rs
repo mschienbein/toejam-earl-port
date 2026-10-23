@@ -5,6 +5,10 @@
 //! Optional TJE_MAP_FIXTURE_FILTER selects comma-separated canonical map names;
 //! only selected hooks contribute coverage, and unexercised selections still fail.
 mod fixture_cases;
+mod fixture_display;
+mod fixture_generation;
+mod fixture_lowering;
+mod fixture_time;
 use std::{error::Error, fs};
 use tje_game::{Dispatcher, FunctionId, ids, map};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
@@ -16,6 +20,7 @@ fn check(host: &mut Host, id: FunctionId, args: &[u32], label: &str) -> Result {
     if !host.checks.by_function.contains_key(id.metadata().name) {
         return Ok(());
     }
+    eprintln!("fixture {}: {label}; args={args:?}", id.metadata().name);
     host.check_fixture(id.metadata().address(host.revision()), args)
         .map_err(|error| {
             format!(
@@ -431,6 +436,10 @@ fn fixtures(host: &mut Host) -> Result {
         )?;
     }
     fixture_cases::run(host)?;
+    fixture_generation::run(host)?;
+    fixture_display::run(host)?;
+    fixture_time::run(host)?;
+    fixture_lowering::run(host)?;
     Ok(())
 }
 
@@ -447,6 +456,9 @@ fn main() -> Result {
     let selected = filter
         .as_ref()
         .map(|filter| {
+            if filter == "production" {
+                return Ok(map::TRANSLATIONS.iter().map(|entry| entry.id).collect());
+            }
             filter
                 .split(',')
                 .map(|name| {
@@ -458,11 +470,21 @@ fn main() -> Result {
                 .collect::<std::result::Result<Vec<_>, _>>()
         })
         .transpose()?;
-    let registry = if let Some(selected) = &selected {
-        HookRegistry::filtered(revision, &[], selected)?
-    } else {
-        HookRegistry::filtered(revision, &["map"], &[])?
-    };
+    // Hook selection never changes Rust callee composition: retain every ready
+    // pending body ahead of the production dispatcher, even for a single root.
+    static BODIES: std::sync::LazyLock<Vec<tje_game::Translation>> =
+        std::sync::LazyLock::new(|| {
+            map::TRANSLATIONS
+                .iter()
+                .chain(map::PENDING_TRANSLATIONS)
+                .copied()
+                .collect()
+        });
+    let registry = HookRegistry::proof_filtered(
+        revision,
+        BODIES.as_slice(),
+        selected.as_deref().unwrap_or_default(),
+    )?;
     let mut checked = Host::new(&bytes, Mode::Check, registry.clone())?;
     let mut reference = Host::new(&bytes, Mode::Reference, registry)?;
     checked.set_wait_input_poller(script.clone());
@@ -499,7 +521,28 @@ fn main() -> Result {
         Ok(())
     })();
     let natural = serde_json::to_value(&checked.checks)?;
-    let result = result.and_then(|()| fixtures(&mut checked));
+    let mut boundary = None;
+    let result = result.and_then(|()| {
+        let advance = checked.settle_fixture_boundary(script.at(checked.frame_count()))?;
+        boundary = Some(serde_json::json!({
+            "start_pc": advance.start_pc, "end_pc": advance.end_pc,
+            "start_frame": advance.start_frame, "end_frame": advance.end_frame,
+            "ticks": advance.ticks, "master_clocks": advance.master_clocks,
+            "handlers_completed": advance.handlers_completed,
+            "completed_frames": advance.completed_frames.iter().map(|frame| {
+                serde_json::json!({
+                    "frame": frame.frame, "frame_counter": frame.frame_counter, "pc": frame.pc,
+                    "ram": frame.ram, "writes": frame.writes, "lag_events": frame.lag_events,
+                    "idle_random_draws": frame.idle_random_draws,
+                    "audio_sample_bits": frame.audio_samples.iter()
+                        .map(|sample| sample.map(f64::to_bits)).collect::<Vec<_>>(),
+                    "vdp": { "vram": frame.vdp.vram, "cram": frame.vdp.cram,
+                        "vsram": frame.vdp.vsram, "registers": frame.vdp.registers },
+                })
+            }).collect::<Vec<_>>(),
+        }));
+        fixtures(&mut checked)
+    });
     let roots: Vec<_> = map::TRANSLATIONS.iter().map(|entry| entry.id).collect();
     let missing: Vec<_> = Dispatcher::native(&roots)
         .err()
@@ -518,6 +561,7 @@ fn main() -> Result {
             "logic_ticks": checked.measurements.logic_ticks,
             "whole_session_equal": natural["mismatches"] == 0 && checked.frame_count() == frames,
             "native_missing": missing, "natural": natural,
+            "fixture_boundary": boundary,
             "with_live_fixtures": checked.checks, "error": result.as_ref().err().map(ToString::to_string),
         }))?,
     )?;

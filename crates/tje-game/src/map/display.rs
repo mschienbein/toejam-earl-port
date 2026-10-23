@@ -13,8 +13,8 @@ pub fn display_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     }
     let traversal = super::random_generation::random(c)? & 3;
     let mut revealed = 0_u32;
-    let visited = ram::g_map_visited_cover_bits(r).at(level);
-    let marks = ram::g_map_revealed_cover_bits(r).at(level);
+    let visited = ram::g_map_visited_cover_bits(r).at_word_index(level as i16);
+    let marks = ram::g_map_revealed_cover_bits(r).at_word_index(level as i16);
     for outer_row in 0..7 {
         let row = if traversal & 1 != 0 {
             6 - outer_row

@@ -35,7 +35,9 @@ pub fn map_get_random_generation_parameter(
             .at(i32::from(ram::g_requested_map_level(r).read(c)) - 2)
             .read(c),
     );
-    let pair = rom::map_generation_range_pairs(r).at(row).at(index);
+    let pair = rom::map_generation_range_pairs(r)
+        .at_word_index(row as i16)
+        .at_word_index(index as i16);
     let minimum = u32::from(pair.at(0).read(c));
     let maximum = u32::from(pair.at(1).read(c));
     let value = random(c)? as u16;
@@ -60,117 +62,140 @@ pub fn map_choose_background_tile_bucket(c: &mut dyn Context, _: &[u32]) -> Resu
 }
 
 /// G/src/map/random_regions_and_cleanup.c:89 (`MapCarveDirectionalPath`).
+/// Matching prologue: LINK -16, MOVEM D2-D6/A2-A3. The writable incoming
+/// turn_chance and all seven spilled counters retain their real emulated slots.
 pub fn map_carve_directional_path(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    let r = c.revision();
-    let map = ram::g_player1_level_map(r);
-    let masks = ram::g_map_path_direction_banks(r);
-    let mut row = args[0] as i16;
-    let mut column = args[1] as i16;
-    let target_row = args[2] as i16;
-    let target_column = args[3] as i16;
-    let random_steps = args[4] as i16;
-    let mut turn_chance = args[5] as i16;
-    let mut direction_steps = 0_i16;
-    let mut opposite = -1_i16;
-    let mut previous = -1_i16;
-    let mut repeated = 0_i16;
-    let mut steps = 0_i16;
-    let mut copy =
-        random(c)? % 100 < (10 + 3 * i32::from(ram::g_requested_map_level(r).read(c))) as u32;
-    let mut direction = 1_i16 << (random(c)? & 3);
-    // The first iteration necessarily enters direction_steps<=0 before reading next.
-    let mut next = direction;
-    while row != target_row || column != target_column {
-        if direction_steps <= 0 || turn_chance == 0 {
-            direction_steps = (random(c)? % 3 + 2) as i16;
-            if (i32::from(turn_chance) as u32) > random(c)? % 100 {
-                let index = (random(c)? % 3 + 1).wrapping_add(i32::from(direction) as u32);
-                next = i16::from(rom::map_path_turn_directions(r).at(index as i32).read(c));
-            } else if random(c)? % 100 < 50 {
-                next = if i32::from(target_row) - i32::from(row) > 0 {
-                    4
-                } else if target_row != row || random(c)? % 100 < 50 {
-                    1
+    use crate::call_frame::FrameLayout;
+    super::frame_support::in_frame(c, FrameLayout::link(16, 0x7c, 0x0c), |c, frame| {
+        let r = c.revision();
+        let map = ram::g_player1_level_map(r);
+        let masks = ram::g_map_path_direction_banks(r);
+        let row = frame.local::<i16>(-4);
+        let column = frame.local::<i16>(-6);
+        let direction_steps = frame.local::<i16>(-8);
+        let opposite = frame.local::<i16>(-2);
+        let previous = frame.local::<i16>(-14);
+        let repeated = frame.local::<i16>(-10);
+        let steps = frame.local::<i16>(-12);
+        let random_spill = frame.local::<i16>(-16);
+        let target_row = args[2] as i16;
+        let target_column = frame.argument_word(3);
+        let random_steps = frame.argument_word(4);
+        let turn_chance = frame.argument_word(5);
+        direction_steps.write(c, 0);
+        opposite.write(c, -1);
+        previous.write(c, -1);
+        repeated.write(c, 0);
+        steps.write(c, 0);
+        row.write(c, args[0] as i16);
+        column.write(c, args[1] as i16);
+        // The emitted SLT/BLE conditions after these constant remainders are signed.
+        let mut copy =
+            ((random(c)? % 100) as i32) < 10 + 3 * i32::from(ram::g_requested_map_level(r).read(c));
+        let mut direction = 1_i16 << (random(c)? & 3);
+        let mut next = c.data_register(6) as i16;
+        while row.read(c) != target_row || column.read(c) != target_column.read(c) {
+            if direction_steps.read(c) <= 0 || turn_chance.read(c) == 0 {
+                let value = (random(c)? % 3) as i16;
+                direction_steps.write(c, value);
+                direction_steps.write(c, direction_steps.read(c).wrapping_add(2));
+                if i32::from(turn_chance.read(c)) > (random(c)? % 100) as i32 {
+                    let index = (random(c)? % 3 + 1).wrapping_add(i32::from(direction) as u32);
+                    next = i16::from(rom::map_path_turn_directions(r).at(index as i32).read(c));
+                } else if random(c)? % 100 < 50 {
+                    next = if i32::from(target_row) - i32::from(row.read(c)) > 0 {
+                        4
+                    } else if target_row != row.read(c) || random(c)? % 100 < 50 {
+                        1
+                    } else {
+                        4
+                    };
                 } else {
-                    4
-                };
-            } else {
-                next = if i32::from(target_column) - i32::from(column) > 0 {
-                    2
-                } else if column != target_column || random(c)? % 100 < 50 {
-                    8
-                } else {
-                    2
-                };
+                    next = if i32::from(target_column.read(c)) - i32::from(column.read(c)) > 0 {
+                        2
+                    } else if column.read(c) != target_column.read(c) || random(c)? % 100 < 50 {
+                        8
+                    } else {
+                        2
+                    };
+                }
             }
-        }
-        if turn_chance == 0 || random(c)? % 100 < 80 {
-            direction = next;
-        } else {
-            let index = (random(c)? % 3 + 1).wrapping_add(i32::from(next) as u32);
-            direction = i16::from(rom::map_path_turn_directions(r).at(index as i32).read(c));
-        }
-        if previous == direction {
-            if repeated >= direction_steps {
-                let index = (random(c)? % 3 + 1).wrapping_add(i32::from(direction) as u32);
+            if turn_chance.read(c) == 0 || random(c)? % 100 < 80 {
+                direction = next;
+            } else {
+                let index = (random(c)? % 3 + 1).wrapping_add(i32::from(next) as u32);
                 direction = i16::from(rom::map_path_turn_directions(r).at(index as i32).read(c));
+            }
+            if previous.read(c) == direction {
+                if repeated.read(c) >= direction_steps.read(c) {
+                    let index = (random(c)? % 3 + 1).wrapping_add(i32::from(direction) as u32);
+                    direction =
+                        i16::from(rom::map_path_turn_directions(r).at(index as i32).read(c));
+                } else {
+                    repeated.write(c, repeated.read(c).wrapping_add(1));
+                }
             } else {
-                repeated = repeated.wrapping_add(1);
+                repeated.write(c, 0);
             }
-        } else {
-            repeated = 0;
+            if direction != opposite.read(c)
+                && ((direction == 1 && row.read(c) > 2)
+                    || (direction == 4 && row.read(c) < 24)
+                    || (direction == 8 && column.read(c) > 2)
+                    || (direction == 2 && column.read(c) < 17))
+            {
+                let cell = map.at_word_index(row.read(c)).at_word_index(column.read(c));
+                cell.write(c, cell.read(c) | direction as u16 | 0x2000);
+                if copy {
+                    let mask = masks
+                        .at_word_index(row.read(c))
+                        .at_word_index(column.read(c));
+                    mask.write(c, mask.read(c) | direction as u8);
+                }
+                match direction {
+                    1 => {
+                        row.write(c, row.read(c).wrapping_sub(1));
+                        opposite.write(c, 4);
+                    }
+                    4 => {
+                        row.write(c, row.read(c).wrapping_add(1));
+                        opposite.write(c, 1);
+                    }
+                    8 => {
+                        column.write(c, column.read(c).wrapping_sub(1));
+                        opposite.write(c, 2);
+                    }
+                    2 => {
+                        column.write(c, column.read(c).wrapping_add(1));
+                        opposite.write(c, 8);
+                    }
+                    _ => {}
+                }
+                let cell = map.at_word_index(row.read(c)).at_word_index(column.read(c));
+                cell.write(c, cell.read(c) | opposite.read(c) as u16 | 0x2000);
+                if copy {
+                    let mask = masks
+                        .at_word_index(row.read(c))
+                        .at_word_index(column.read(c));
+                    mask.write(c, mask.read(c) | opposite.read(c) as u8);
+                }
+                previous.write(c, direction);
+                direction_steps.write(c, direction_steps.read(c).wrapping_sub(1));
+                steps.write(c, steps.read(c).wrapping_add(1));
+                let level = i32::from(ram::g_requested_map_level(r).read(c));
+                let value = random(c)? as i16;
+                random_spill.write(c, value);
+                if level > i32::from(random_spill.read(c) as u16) % 100 {
+                    copy = true;
+                }
+            } else {
+                direction_steps.write(c, 0);
+            }
+            if steps.read(c) >= random_steps.read(c) {
+                turn_chance.write(c, 0);
+            }
         }
-        if direction != opposite
-            && ((direction == 1 && row > 2)
-                || (direction == 4 && row < 24)
-                || (direction == 8 && column > 2)
-                || (direction == 2 && column < 17))
-        {
-            let cell = map.at(i32::from(row)).at(i32::from(column));
-            cell.write(c, cell.read(c) | (direction as u16) | 0x2000);
-            if copy {
-                let mask = masks.at(i32::from(row)).at(i32::from(column));
-                mask.write(c, mask.read(c) | direction as u8);
-            }
-            match direction {
-                1 => {
-                    row = row.wrapping_sub(1);
-                    opposite = 4;
-                }
-                4 => {
-                    row = row.wrapping_add(1);
-                    opposite = 1;
-                }
-                8 => {
-                    column = column.wrapping_sub(1);
-                    opposite = 2;
-                }
-                2 => {
-                    column = column.wrapping_add(1);
-                    opposite = 8;
-                }
-                _ => {}
-            }
-            let cell = map.at(i32::from(row)).at(i32::from(column));
-            cell.write(c, cell.read(c) | opposite as u16 | 0x2000);
-            if copy {
-                let mask = masks.at(i32::from(row)).at(i32::from(column));
-                mask.write(c, mask.read(c) | opposite as u8);
-            }
-            previous = direction;
-            direction_steps = direction_steps.wrapping_sub(1);
-            steps = steps.wrapping_add(1);
-            if (i32::from(ram::g_requested_map_level(r).read(c)) as u32) > random(c)? % 100 {
-                copy = true;
-            }
-        } else {
-            direction_steps = 0;
-        }
-        if steps >= random_steps {
-            turn_chance = 0;
-        }
-    }
-    Ok(None)
+        Ok(None)
+    })
 }
 
 /// G/src/map/random_regions_and_cleanup.c:182 (`MapFindRegionGrowthOrigin`).
@@ -214,7 +239,8 @@ pub fn map_find_region_growth_origin(c: &mut dyn Context, args: &[u32]) -> Resul
                     .read(c) as i16;
                 if tile & 0x3000 == 0x1000 && tile != region {
                     overlaps += 1;
-                    if overlaps >= 2 && (i32::from(join) as u32) > random(c)? % 100 {
+                    // Matching asm :673-674 uses signed CMP.L/BLE here.
+                    if overlaps >= 2 && i32::from(join) > (random(c)? % 100) as i32 {
                         rp.write(c, row);
                         cp.write(c, column);
                         return Ok(Some(1));

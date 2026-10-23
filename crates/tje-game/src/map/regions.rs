@@ -68,10 +68,8 @@ pub fn map_find_interior_growth_origin(c: &mut dyn Context, args: &[u32]) -> Res
 
 /// MCC68K's word row product and doubled word column for a direct short subscript.
 /// G/build/rev02/asm/c_random_regions_and_cleanup.s:1302-1308.
-fn short_cell(base: Address<[[u16; 19]; 26]>, row: i16, column: i16) -> Address<u16> {
-    base.cast::<u16>()
-        .byte_offset(i32::from(row.wrapping_mul(38)))
-        .byte_offset(i32::from(column.wrapping_mul(2)))
+pub(super) fn short_cell(base: Address<[[u16; 19]; 26]>, row: i16, column: i16) -> Address<u16> {
+    base.at_word_index(row).at_word_index(column)
 }
 
 /// G/src/map/random_regions_and_cleanup.c:413 (`MapFillRectangleAndMergeRegions`).

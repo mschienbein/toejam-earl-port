@@ -155,7 +155,10 @@ pub fn map_upload_cover_animation_frame(c: &mut dyn Context, args: &[u32]) -> Re
     let sprites = Address::<HardwareSprite>::new(args[0]);
     let number = i32::from(args[1] as i16);
     let first = args[2] as i16;
-    let frame = rom::spr_map_tile_uncover(r).at(number).read(c).target();
+    let frame = rom::spr_map_tile_uncover(r)
+        .at_word_index(number as i16)
+        .read(c)
+        .target();
     if number == 7 {
         for i in 7..80 {
             let sprite = sprites.offset(i);
