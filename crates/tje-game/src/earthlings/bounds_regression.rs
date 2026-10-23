@@ -27,6 +27,8 @@ fn signed_boundary_regressions_match_both_original_revisions() {
             ("review-equality", 24, 500, 15, 0, -256, 0, 1),
             ("review-negative-x-difference", 24, 500, 16, 0, -4096, 0, 1),
             ("review-negative-y-difference", 500, 24, 0, 16, 0, -4096, 2),
+            ("RH03-negative-left", 40, 500, 24, 0, -5120, 0, 1),
+            ("RH03-negative-top", 500, 40, 0, 24, 0, -5120, 2),
             ("right-boundary", 2650, 500, 16, 0, 4096, 0, 1),
             ("bottom-boundary", 500, 1760, 0, 16, 0, 4096, 2),
         ] {
@@ -77,6 +79,6 @@ fn signed_boundary_regressions_match_both_original_revisions() {
             .unwrap_or_else(|error| panic!("{revision:?} {label}: {error}"));
         }
         assert_eq!(host.checks.mismatches, 0);
-        println!("SIGNED_BOUNDS {revision:?}: 5 checked, 0 mismatches");
+        println!("SIGNED_BOUNDS {revision:?}: 7 checked, 0 mismatches");
     }
 }

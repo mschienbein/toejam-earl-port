@@ -180,7 +180,10 @@ pub fn earthling_think_timed_movement(
         object.velocity_y().write(context, 0);
         if earthling.state_delay().read(context) == 0 {
             let random = u32::from(super::decisions::next_cached_random(context)) % 100;
-            if (i32::from(definition.target_chance().read(context)) as u32) > random {
+            if super::behaviors::chance_exceeds_remainder(
+                definition.target_chance().read(context),
+                random,
+            ) {
                 if earthling.kind().read(context) == 7 {
                     separation = 85
                 }
@@ -221,7 +224,10 @@ pub fn earthling_think_timed_movement(
             next = -1
         } else if next == -1 && earthling.state().read(context) != 2 {
             let random = u32::from(super::decisions::next_cached_random(context)) % 100;
-            if (i32::from(definition.turn_chance().read(context)) as u32) > random {
+            if super::behaviors::chance_exceeds_remainder(
+                definition.turn_chance().read(context),
+                random,
+            ) {
                 next = call(
                     context,
                     ids::EARTHLING_SELECT_TURN_STATE,

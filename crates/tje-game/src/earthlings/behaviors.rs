@@ -2,6 +2,12 @@ use super::decisions::next_cached_random;
 use crate::{Context, Result, call, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, arithmetic, ram, rom};
 
+/// G c_animation_behaviours.s:90–108 and c_terrain_animation.s:230–248,
+/// 371–389 sign-extend the chance byte and use signed CMP.L/BLE.
+pub(super) fn chance_exceeds_remainder(chance: i8, remainder: u32) -> bool {
+    i32::from(chance) > remainder as i32
+}
+
 pub(super) fn random_timer(context: &mut dyn Context, minimum: u8, maximum: u8) -> Result<i16> {
     let random = u32::from(next_cached_random(context));
     let range = u32::from(maximum)
@@ -59,7 +65,7 @@ pub fn earthling_think_horizontal_wander(
     if timer < 0 {
         if earthling.state_delay().read(context) == 0 {
             let random = u32::from(next_cached_random(context)) % 100;
-            if (i32::from(definition.target_chance().read(context)) as u32) > random {
+            if chance_exceeds_remainder(definition.target_chance().read(context), random) {
                 let previous_x = object.velocity_x().read(context);
                 let previous_y = object.velocity_y().read(context);
                 let distance = u32::from(definition.target_distance().read(context));
@@ -292,4 +298,28 @@ pub fn earthling_think_targeted_reset_cycle(
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod chance_tests {
+    #[test]
+    fn every_signed_chance_and_unsigned_draw_matches_signed_cmp_flags() {
+        for revision in [tje_mem::Revision::Rev02, tje_mem::Revision::Rev00] {
+            for chance in i8::MIN..=i8::MAX {
+                for draw in u16::MIN..=u16::MAX {
+                    let remainder = u32::from(draw) % 100;
+                    let left = i32::from(chance);
+                    let right = remainder as i32;
+                    let difference = left.wrapping_sub(right);
+                    let overflow = ((left ^ right) & (left ^ difference)) < 0;
+                    let ble = difference == 0 || ((difference < 0) != overflow);
+                    assert_eq!(
+                        super::chance_exceeds_remainder(chance, remainder),
+                        !ble,
+                        "{revision:?} chance={chance} draw={draw}"
+                    );
+                }
+            }
+        }
+    }
 }
