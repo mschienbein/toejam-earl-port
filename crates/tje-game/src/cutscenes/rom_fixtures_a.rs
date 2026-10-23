@@ -71,6 +71,22 @@ fn selected() -> Vec<FunctionId> {
                 ids::TITLE_DRAW_SELECTED_LOGO,
             ]);
         }
+        if wave() >= 3 {
+            ids.extend([
+                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+                ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+                ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+            ]);
+        }
+        if wave() >= 4 {
+            ids.push(ids::TITLE_SCREEN_VIDEO);
+        }
+        if wave() >= 5 {
+            ids.push(ids::SEGA_LOGO_V_BLANK);
+        }
+        if wave() >= 7 {
+            ids.push(ids::SEGA_AND_INTRO_VIDEO_ROUTINE);
+        }
     }
     if std::env::var_os("TJE_A_EXCLUDE_CAPTIONS").is_some() {
         ids.retain(|id| {
@@ -82,24 +98,30 @@ fn selected() -> Vec<FunctionId> {
             .contains(id)
         });
     }
+    if std::env::var_os("TJE_A_TIME_ONLY").is_some() {
+        ids.retain(|id| {
+            tje_game::execution_class(*id) == Some(tje_game::execution::ExecutionClass::TimeAware)
+        });
+    }
     ids
 }
 
 fn registry(revision: Revision) -> HookRegistry {
-    static ROOTS: std::sync::LazyLock<Vec<tje_game::Translation>> =
+    static OVERRIDES: std::sync::LazyLock<Vec<tje_game::Translation>> =
         std::sync::LazyLock::new(|| {
             let pending = tje_game::cutscenes::PENDING_TRANSLATIONS;
-            selected()
-                .into_iter()
-                .map(|id| {
-                    *tje_game::translations()
-                        .chain(pending)
-                        .find(|entry| entry.id == id)
-                        .unwrap()
-                })
+            let roots = selected();
+            pending
+                .iter()
+                .copied()
+                .chain(
+                    tje_game::translations()
+                        .filter(|entry| roots.contains(&entry.id))
+                        .copied(),
+                )
                 .collect()
         });
-    HookRegistry::proof(revision, &ROOTS).unwrap()
+    HookRegistry::proof_filtered(revision, &OVERRIDES, &selected()).unwrap()
 }
 
 fn emit(host: &Host, natural: &serde_json::Value, failure: Option<String>) {
@@ -135,6 +157,9 @@ fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) -> Result<(), Strin
 fn fixtures(host: &mut Host) -> Result<(), String> {
     let revision = host.revision();
     let selected = selected();
+    if std::env::var_os("TJE_A_TIME_ONLY").is_some() {
+        return time_fixtures(host, &selected);
+    }
     let mut failures = Vec::new();
     macro_rules! case {
         ($host:expr, $id:expr, $arguments:expr $(,)?) => {
@@ -164,6 +189,23 @@ fn fixtures(host: &mut Host) -> Result<(), String> {
             ram::g_sprite_tile_buffer_offset(revision).write(&mut host.context(), 0);
             ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut host.context(), 0);
             case!(host, id, &[text, length as i32 as u32, 0x1234]);
+        }
+    }
+    // Authored control-code regressions: repeated controls 2/5 each emit two
+    // VDP words per glyph and exceed an Atomic frozen FIFO. Functional must
+    // retain every ordered write; controls are never stripped or clamped.
+    let controls: &[&[u8]] = &[&[2, 2, 2, 2], &[5, 5, 5, 5], &[2, 3, 4, 5, 6, 2]];
+    for pattern in controls {
+        for (index, &byte) in pattern.iter().enumerate() {
+            host.context().write_u8(text + index as u32, byte);
+        }
+        for id in [
+            ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
+            ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
+        ] {
+            ram::g_sprite_tile_buffer_offset(revision).write(&mut host.context(), 0);
+            ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut host.context(), 0);
+            case!(host, id, &[text, pattern.len() as u32, 0x1234]);
         }
     }
     if wave() >= 2 {
@@ -388,6 +430,47 @@ fn fixtures(host: &mut Host) -> Result<(), String> {
     }
 }
 
+fn time_fixtures(host: &mut Host, selected: &[FunctionId]) -> Result<(), String> {
+    let revision = host.revision();
+    let mut failures = Vec::new();
+    for &id in selected {
+        ram::g_sprite_tile_buffer_offset(revision).write(&mut host.context(), 0);
+        ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut host.context(), 0);
+        ram::g_scene_background_pair_index(revision).write(&mut host.context(), 0);
+        ram::g_scene_background_frame_timer(revision).write(&mut host.context(), 8);
+        ram::g_scene_background_frame_phase(revision).write(&mut host.context(), 1);
+        let arguments: &[u32] = if id == ids::ANIMATE_TITLE_TRANSITION_BACKGROUND {
+            &[0]
+        } else if id == ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER {
+            &[1, 1, 6, 4]
+        } else if id == ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER {
+            &[0]
+        } else if id == ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE {
+            &[0, 0]
+        } else {
+            &[]
+        };
+        if let Err(error) = check(host, id, arguments) {
+            failures.push(error);
+        }
+        if id == ids::ANIMATE_TITLE_TRANSITION_BACKGROUND {
+            if let Err(error) = check(host, id, &[1]) {
+                failures.push(error);
+            }
+        }
+        if id == ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER {
+            if let Err(error) = check(host, id, &[1]) {
+                failures.push(error);
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
+}
+
 fn prepare_pool(host: &mut Host, state: u8) {
     let revision = host.revision();
     ram::g_player1_map_level(revision).write(&mut host.context(), 26);
@@ -414,19 +497,37 @@ fn prepare_pool(host: &mut Host, state: u8) {
 #[test]
 #[ignore = "requires both private retail ROMs; 10,000 frames and live-state fixtures"]
 fn lane_a_both_revisions() {
-    let script = std::sync::Arc::new(
-        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
-    );
+    let mut script =
+        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+    if std::env::var_os("TJE_A_INCLUDE_TIME").is_some() {
+        // Labelled future controller inputs let an attract/title invocation
+        // eventually exit; they do not alter the first 10,000 natural frames.
+        for start in (10_020..20_000).step_by(160) {
+            script.holds.push(tje_host::input::InputHold {
+                start,
+                end: start + 8,
+                p1: vec![tje_host::input::Button::Start],
+                p2: Vec::new(),
+            });
+        }
+    }
+    let script = std::sync::Arc::new(script);
     let mut failures = Vec::new();
     'revisions: for (revision, key) in [
         (Revision::Rev02, "TJE_REV02_ROM"),
         (Revision::Rev00, "TJE_REV00_ROM"),
     ] {
         let rom = fs::read(std::env::var_os(key).unwrap_or_else(|| panic!("set {key}"))).unwrap();
-        let mut checked = Host::new(&rom, Mode::Check, registry(revision)).unwrap();
+        let mode = if std::env::var_os("TJE_A_REFERENCE_ONLY").is_some() {
+            Mode::Reference
+        } else {
+            Mode::Check
+        };
+        let mut checked = Host::new(&rom, mode, registry(revision)).unwrap();
         checked.set_wait_input_poller(script.clone());
         let mut reference =
             Host::new(&rom, Mode::Reference, HookRegistry::empty(revision)).unwrap();
+        reference.set_wait_input_poller(script.clone());
         for frame in 0..10_000 {
             let a = match checked.run_frame(script.at(frame)) {
                 Ok(snapshot) => snapshot,
@@ -451,7 +552,51 @@ fn lane_a_both_revisions() {
             );
         }
         assert!(checked.measurements.game_frame.is_some());
-        let natural = serde_json::to_value(&checked.checks).unwrap();
+        let mut natural = serde_json::to_value(&checked.checks).unwrap();
+        let boundary = checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
+        let reference_boundary = reference
+            .settle_fixture_boundary(script.at(reference.frame_count()))
+            .unwrap();
+        assert_eq!(boundary.ticks, reference_boundary.ticks);
+        assert_eq!(boundary.master_clocks, reference_boundary.master_clocks);
+        assert_eq!(boundary.end_pc, reference_boundary.end_pc);
+        assert_eq!(boundary.end_frame, reference_boundary.end_frame);
+        assert_eq!(
+            boundary.handlers_completed,
+            reference_boundary.handlers_completed
+        );
+        assert_eq!(
+            boundary.completed_frames.len(),
+            reference_boundary.completed_frames.len()
+        );
+        for (a, b) in boundary
+            .completed_frames
+            .iter()
+            .zip(&reference_boundary.completed_frames)
+        {
+            assert_eq!(a.ram, b.ram);
+            assert_eq!(a.vdp, b.vdp);
+            assert_eq!(a.writes, b.writes);
+            assert_eq!(a.frame_counter, b.frame_counter);
+            assert_eq!(a.idle_random_draws, b.idle_random_draws);
+            assert_eq!(a.lag_events, b.lag_events);
+            assert!(
+                a.audio_samples.iter().flatten().map(|v| v.to_bits()).eq(b
+                    .audio_samples
+                    .iter()
+                    .flatten()
+                    .map(|v| v.to_bits()))
+            );
+        }
+        natural["settled_boundary"] = serde_json::json!({
+            "ticks": boundary.ticks, "master_clocks": boundary.master_clocks,
+            "start_pc": boundary.start_pc, "end_pc": boundary.end_pc,
+            "start_frame": boundary.start_frame, "end_frame": boundary.end_frame,
+            "handlers_completed": boundary.handlers_completed,
+            "completed_snapshots_compared": boundary.completed_frames.len(),
+        });
         let result = fixtures(&mut checked);
         emit(&checked, &natural, result.as_ref().err().cloned());
         if let Err(error) = result {

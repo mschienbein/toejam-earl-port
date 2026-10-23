@@ -33,32 +33,38 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::INTRO_PART3,
     ids::INTRO_PART4,
     ids::INTRO_VIDEO,
-    // A: time-aware bodies await natural/fixture proof with the shared resolver.
+    // A: settled both-revision fixtures: clears still mismatch logical VDP.
     ids::CLEAR_LOWER_VRAM_TILEMAP,
     ids::CLEAR_UPPER_VRAM_TILEMAP,
+    // Narrow settled fixtures pass; broader/natural timed proof remains pending.
     ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
     ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+    // Both border modes and selected logo mismatch the IRQ-owned frame counter.
     ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
-    // Blocked by PrepareEntitySpriteFrame's audited dead high-byte read at CA36.
-    ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
     ids::TITLE_DRAW_SELECTED_LOGO,
-    // W3 helpers awaiting live-state proof or the shared time-aware integration.
+    // Cadence/refresh fixtures pass; initialization mismatches the frame counter.
     ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
     ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
     ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
-    // W4-W7: complete bodies, awaiting the residual-read audit and time-aware
-    // production contract before both-revision scene/interrupt proof.
-    ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
-    ids::CUTSCENE_TEXT_LOAD,
+    // W4-W7 bodies await dependent-equivalence or readable-layer timed proof.
+    // Ending scene bodies: whole-scene timed original exceeds the 1,000,000-tick
+    // call bound (all six, both revisions; Ending lane's labelled/natural attempts).
     ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+    // Both revisions still mismatch live RAM in a settled title fixture.
     ids::TITLE_SCREEN_VIDEO,
     ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
     ids::ENDING_PLAY_SCROLLING_CREDITS,
     ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+    // Narrow fixtures pass; scene-interaction/IRQ paths still need natural proof.
     ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
     ids::SEGA_LOGO_V_BLANK,
+    // Whole attract invocation exceeds the original-call instruction bound.
     ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
-    // Source-backed frame/local/callsite bodies; await readable-layer timed proof.
+    // Whole-scene timed original exceeds 1,000,000-tick call bound; additionally
+    // bouncing: dependent residual: awaiting dependent-equivalence proof.
+    // PlayEndingSequence inherits both blockers.
+    // Prepared-original caller reads are audited; whole-scene budget and
+    // genuine dependent-residual obligations remain, rather than being waived.
     ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
     ids::PLAY_ENDING_SEQUENCE,
 ];
@@ -146,10 +152,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: title_and_transition::cutscene_draw_randomized_screen_border,
     },
     crate::Translation {
-        id: ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
-        function: cutscene_text::cutscene_load_second_text_line,
-    },
-    crate::Translation {
         id: ids::TITLE_DRAW_SELECTED_LOGO,
         function: title_and_transition::title_draw_selected_logo,
     },
@@ -164,14 +166,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
         function: intro_frame_release::intro_release_frame_entities_and_refresh,
-    },
-    crate::Translation {
-        id: ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
-        function: cutscene_text::cutscene_load_original_palette_text_line,
-    },
-    crate::Translation {
-        id: ids::CUTSCENE_TEXT_LOAD,
-        function: cutscene_text::cutscene_text_load,
     },
     crate::Translation {
         id: ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
@@ -492,6 +486,18 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES,
         function: collision_scene_entities::intro_create_collision_scene_entities,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+        function: cutscene_text::cutscene_load_second_text_line,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+        function: cutscene_text::cutscene_load_original_palette_text_line,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_TEXT_LOAD,
+        function: cutscene_text::cutscene_text_load,
     },
 ];
 
