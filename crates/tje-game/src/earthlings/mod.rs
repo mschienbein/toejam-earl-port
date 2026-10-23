@@ -246,10 +246,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: dispatch::load_in_earthlings,
     },
     crate::Translation {
-        id: ids::AI_GENERIC_ENEMY_THINK,
-        function: generic::ai_generic_enemy_think,
-    },
-    crate::Translation {
         id: ids::AI_OPERA_SINGER_TOUCH,
         function: friendly::ai_opera_singer_touch,
     },
@@ -258,16 +254,8 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: friendly::ai_wizard_touch,
     },
     crate::Translation {
-        id: ids::AI_MAILBOX_TOUCH,
-        function: friendly::ai_mailbox_touch,
-    },
-    crate::Translation {
         id: ids::AI_WISEMAN_TOUCH,
         function: friendly::ai_wiseman_touch,
-    },
-    crate::Translation {
-        id: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
-        function: dispatch::earthling_dispatch_player_contacts,
     },
     crate::Translation {
         id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
@@ -304,6 +292,18 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PROCESS_EARTHLINGS,
         function: dispatch::process_earthlings,
     },
+    crate::Translation {
+        id: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+        function: dispatch::earthling_dispatch_player_contacts,
+    },
+    crate::Translation {
+        id: ids::AI_GENERIC_ENEMY_THINK,
+        function: generic::ai_generic_enemy_think,
+    },
+    crate::Translation {
+        id: ids::AI_MAILBOX_TOUCH,
+        function: friendly::ai_mailbox_touch,
+    },
 ];
 
 /// All known unapproved consumers stay outside production, including nested
@@ -313,6 +313,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::EARTHLING_DISPATCH_ABILITIES,
     ids::PLAYER_PROCESS_LIFE_REQUEST,
     ids::PROCESS_EARTHLINGS,
+    ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+    ids::AI_GENERIC_ENEMY_THINK,
+    ids::AI_MAILBOX_TOUCH,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
