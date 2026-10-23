@@ -100,10 +100,7 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::Executio
     ),
     // G/src/cutscenes/sega_logo.c:36: busy loops observe the IRQ-owned frame
     // counter and SegaLogoVBlank consumes queued palette/sprite publications.
-    (
-        ids::SEGA_VIDEO,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    (ids::SEGA_VIDEO, crate::execution::ExecutionClass::TimeAware),
     // G/src/cutscenes/intro.c:97,912,314,383,455 and intro_part11.c:16:
     // controller-release loops and timed states call shared VBlank service.
     (
