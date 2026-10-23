@@ -354,6 +354,18 @@ Do not precompute an entire record's new values when earlier writes may alias
 later reads. A `Bus` implementation mapping devices must also preserve access
 width and ordered side effects.
 
+**Pre-decrement compared against zero uses the subtraction's flags.** For a narrow
+signed counter, `if (--counter <= 0)` (and `> 0`, `< 0` forms) can compile to
+`SUBQ.B`/`SUBQ.W` followed directly by a signed branch (`BLE`/`BGT`/`BLT`). The
+branch consumes N, Z *and V* from the subtraction, so it compares the mathematical
+result, not the stored byte: at `-128` (or `-32768`) the stored value wraps to `+127`
+(`+32767`), yet the `<= 0` path is still taken. Translate it as: compute the widened
+`old - 1`, branch on that, and store its truncation. Do not reload and test the
+wrapped value. Found independently in presents (`CheckTomatoRainTimer`), elevator
+shake/arrival delays and cloud/remap timers; check G's compiled output for every
+narrow pre-decrement comparison, and keep an all-values (256 or 65,536) regression
+test for each site.
+
 ## Pointers, control flow, storage, and names
 
 - Keep addresses as 32-bit values; `Address::offset` scales by the emulated type's
