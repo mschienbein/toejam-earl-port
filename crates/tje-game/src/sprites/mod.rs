@@ -3,7 +3,7 @@
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
-mod frame_rendering;
+pub mod frame_rendering;
 mod lifecycle;
 mod links;
 mod rendering;
@@ -203,13 +203,20 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: frame_rendering::position_entity_sprites,
     },
     crate::Translation {
-        id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
-        function: frame_rendering::prepare_entity_sprite_frame,
-    },
-    crate::Translation {
         id: crate::ids::QUEUE_SPRITE_PIECE_TILES,
         function: frame_rendering::queue_sprite_piece_tiles,
     },
+];
+
+/// Reviewed bodies/entries not yet eligible for production replacement.
+pub static PENDING: &[crate::FunctionId] = &[
+    // Original emulated local/argument-slot layout needs the shared call-frame API.
+    crate::ids::ALLOCATE_SPRITE_SLOTS,
+    crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
+    crate::ids::ALLOCATE_SPRITE_SLOT,
+    // The original loads a dead high byte immediately discarded by EXT.W.
+    // Await the shared semantic-dependency audit before claiming both-ROM proof.
+    crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
