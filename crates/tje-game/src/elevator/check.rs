@@ -654,7 +654,36 @@ fn main() {
     let evidence = Path::new(&args[2]);
     let frames: u64 = args.get(3).map_or(10000, |value| value.parse().unwrap());
     let selection = args.get(4).map_or("functional", String::as_str);
-    assert!(matches!(selection, "atomic" | "functional" | "time"));
+    assert!(matches!(
+        selection,
+        "atomic" | "functional" | "time" | "closure"
+    ));
+    if selection == "closure" {
+        let roots: Vec<_> = tje_game::translations()
+            .filter(|entry| {
+                ["camera", "elevator"].contains(&entry.id.metadata().subsystem)
+                    && entry.id.metadata().wave > 0
+            })
+            .map(|entry| entry.id)
+            .collect();
+        match tje_game::Dispatcher::native(&roots) {
+            Ok(_) => println!(
+                "Native closure complete for {} delivered roots",
+                roots.len()
+            ),
+            Err(missing) => {
+                println!(
+                    "Native closure incomplete for {} delivered roots; {} untranslated dependencies:",
+                    roots.len(),
+                    missing.len()
+                );
+                for id in missing {
+                    println!("{} ({})", id.metadata().name, id.metadata().inventory_id);
+                }
+            }
+        }
+        return;
+    }
     let timed = selection == "time";
     fs::create_dir_all(evidence).unwrap();
     let script = Arc::new(
