@@ -258,17 +258,13 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: friendly::ai_wiseman_touch,
     },
     crate::Translation {
-        id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
-        function: framed::find_spawn_location_for_earthling,
-    },
-    crate::Translation {
         id: ids::OPEN_EARTHLING_PRESENT,
         function: open_present::open_earthling_present,
     },
 ];
 
-/// Unapproved bodies retained only for explicit proof. Nearest-target needs its
-/// native producer/caller cohort; the timed consumers have corpus VDP failures.
+/// Unapproved bodies retained only for explicit proof: nearest-target's native
+/// producer/caller cohort, timed IRQ commutation, and the finite-search ceiling.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     // Dependent residual: awaiting dependent-equivalence proof.
     crate::Translation {
@@ -300,11 +296,17 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::AI_MAILBOX_TOUCH,
         function: friendly::ai_mailbox_touch,
     },
-    // CorpusCheck REV 00 frame 17401: original Atomic call stalls at 00E9C0;
-    // execution classification is under source review before any re-admission.
+    // CorpusCheck REV 00 frame 17401 exhausts the fixed reference instruction
+    // cap inside TerrainValidation (G/src/map/terrain_placement.c:13), not a
+    // peripheral wait. Atomic stays correct; the reviewed ceiling is pending.
     crate::Translation {
         id: ids::EARTHLING_RETAIN_LEVEL_BANK,
         function: framed::earthling_retain_level_bank,
+    },
+    // Same finite TerrainValidation search: reviewed reference ceiling pending.
+    crate::Translation {
+        id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+        function: framed::find_spawn_location_for_earthling,
     },
 ];
 
@@ -319,6 +321,7 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::AI_GENERIC_ENEMY_THINK,
     ids::AI_MAILBOX_TOUCH,
     ids::EARTHLING_RETAIN_LEVEL_BANK,
+    ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
