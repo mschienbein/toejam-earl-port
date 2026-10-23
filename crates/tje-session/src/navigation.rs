@@ -1,12 +1,50 @@
 //! Feedback navigation over live RAM maps and runtime cartridge terrain.
 use crate::runner::Ram;
 use std::{cmp::Reverse, collections::BinaryHeap};
-use tje_mem::{Revision, ram};
+use tje_mem::{Bus, Revision, ram};
 use tje_session::{DOWN, LEFT, RIGHT, UP};
 
 const WIDTH: usize = 336;
 const HEIGHT: usize = 224;
 const CELLS: usize = WIDTH * HEIGHT;
+
+struct Cartridge<'a>(&'a [u8]);
+impl Bus for Cartridge<'_> {
+    fn read_u8(&self, address: u32) -> u8 {
+        self.0[(address & 0xFFFFFF) as usize]
+    }
+    fn write_u8(&mut self, _address: u32, _value: u8) {
+        panic!("read-only cartridge observation");
+    }
+}
+
+fn terrain_from_cell(
+    rom: &Cartridge<'_>,
+    revision: Revision,
+    cell: u16,
+    row: u16,
+    column: u16,
+) -> u8 {
+    let overlay = (cell & 0x1F00) >> 8;
+    let mut tile = if overlay == 0 {
+        0
+    } else {
+        tje_game::camera::get_overlay_metatile_tile(rom, revision, overlay, row, column) as u16
+    };
+    if tile == 0 {
+        tile = tje_game::camera::get_level_metatile_tile(
+            rom,
+            revision,
+            u16::from(cell as u8),
+            row,
+            column,
+        );
+    }
+    tje_mem::rom::player_tile_property_lookup(revision)
+        .at(i32::from(tile & 0x7FF))
+        .read(rom)
+        & 0xF0
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Travel {
@@ -194,16 +232,7 @@ impl Navigator {
     }
 
     fn decode(&mut self, rom: &[u8], revision: Revision) {
-        let resource = |name: &str| {
-            tje_mem::rom_data_units(revision)
-                .iter()
-                .find(|unit| unit.name == name)
-                .unwrap()
-        };
-        let base = resource("LevelMetatileMaps");
-        let overlays = resource("OverlayMetatileMaps");
-        let properties = resource("PlayerTilePropertyLookup");
-        let word = |address: usize| u16::from_be_bytes([rom[address], rom[address + 1]]);
+        let image = Cartridge(rom);
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let index = y * WIDTH + x;
@@ -216,29 +245,8 @@ impl Navigator {
                     continue;
                 }
                 let map = self.map[(y / 8 - 1) * 19 + x / 16 - 1];
-                let mut tile = 0;
-                let overlay = usize::from((map & 0x1F00) >> 8);
-                if overlay & 15 != 0 {
-                    let col = if overlay & 16 != 0 {
-                        15 - x % 16
-                    } else {
-                        x % 16
-                    };
-                    tile = word(
-                        overlays.address as usize
-                            + (((overlay & 15) - 1) * 128 + y % 8 * 16 + col) * 2,
-                    );
-                }
-                if tile == 0 {
-                    let kind = usize::from(map as u8);
-                    let col = if kind & 128 != 0 { 15 - x % 16 } else { x % 16 };
-                    let offset = ((kind & 127) * 128 + y % 8 * 16 + col) * 2;
-                    tile = word(base.address as usize + offset);
-                }
-                let property = usize::from(tile & 0x7FF);
-                // Match UpdateLandAroundPlayer's unchecked cartridge indexing,
-                // including any access past a named resource's declared extent.
-                self.terrain[index] = rom[properties.address as usize + property] & 0xF0;
+                self.terrain[index] =
+                    terrain_from_cell(&image, revision, map, (y % 8) as u16, (x % 16) as u16);
             }
         }
         for cell in 0..CELLS {
@@ -575,5 +583,28 @@ mod tests {
                 .toward(&memory, &[], revision, 0, ((188, 84), Travel::Swim), 11)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn selector_sixteen_uses_the_original_preceding_overlay_record() {
+        for revision in Revision::ALL {
+            let mut bytes = vec![0; revision.rom_size()];
+            let base = tje_mem::rom::level_metatile_maps(revision).address() as usize;
+            bytes[base..base + 2].copy_from_slice(&3_u16.to_be_bytes());
+            let preceding =
+                (tje_mem::rom::overlay_metatile_maps(revision).address() - 256 + 30) as usize;
+            bytes[preceding..preceding + 2].copy_from_slice(&5_u16.to_be_bytes());
+            let properties = tje_mem::rom::player_tile_property_lookup(revision).address() as usize;
+            bytes[properties + 3] = 0x10;
+            bytes[properties + 5] = 0x30;
+            assert_eq!(
+                terrain_from_cell(&Cartridge(&bytes), revision, 0, 0, 0),
+                0x10
+            );
+            assert_eq!(
+                terrain_from_cell(&Cartridge(&bytes), revision, 0x1000, 0, 0),
+                0x30
+            );
+        }
     }
 }

@@ -176,6 +176,9 @@ selection timing. Gameplay reads `tje-mem` views for active players, inventory,
 map banks, elevators and Earthling records. It attempts real inventory opens,
 opens/closes the map with C, and uses weighted shortest paths on the live RAM map,
 with walkability decoded from runtime user-ROM metatile/overlay/property resources.
+Terrain decoding reuses the game's proven generic camera lookup helpers, including
+the original word-index wrap for nonzero overlay selector 16; it does not replace
+that selector with bare ground or substitute the overlay-ignoring point query.
 No map, route, present table, or decoded resource is embedded in the crate or
 recording. It prefers ship-piece targets, then matching-level departure elevators.
 P2 initially stays behind to exercise split-screen, then joins the elevator target.
