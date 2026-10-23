@@ -254,10 +254,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: friendly::ai_wizard_touch,
     },
     crate::Translation {
-        id: ids::AI_WISEMAN_TOUCH,
-        function: friendly::ai_wiseman_touch,
-    },
-    crate::Translation {
         id: ids::OPEN_EARTHLING_PRESENT,
         function: open_present::open_earthling_present,
     },
@@ -308,6 +304,11 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
         function: framed::find_spawn_location_for_earthling,
     },
+    // REV 00 cooperation frame 45131: missing original HBlank contribution.
+    crate::Translation {
+        id: ids::AI_WISEMAN_TOUCH,
+        function: friendly::ai_wiseman_touch,
+    },
 ];
 
 /// All known unapproved consumers stay outside production, including nested
@@ -322,6 +323,7 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::AI_MAILBOX_TOUCH,
     ids::EARTHLING_RETAIN_LEVEL_BANK,
     ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+    ids::AI_WISEMAN_TOUCH,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
