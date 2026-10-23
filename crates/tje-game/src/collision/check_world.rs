@@ -5,6 +5,26 @@ use tje_game::{Context, Dispatcher, FunctionId, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
 
+// This evidence batch owns exactly the original fourteen W0 roots (thirteen
+// assigned leaves plus the pre-existing camera-priority pilot), not every
+// subsequently translated camera/elevator function and its growing closure.
+const W0_ROOTS: &[FunctionId] = &[
+    ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
+    ids::CLEAR_CAMERA_TILE_ROW,
+    ids::GET_LEVEL_METATILE_TILE,
+    ids::GET_OVERLAY_METATILE_TILE,
+    ids::CLEAR_CAMERA_TILE_COLUMN,
+    ids::ELEVATOR_SET_STATE,
+    ids::PLAYER_SET_POSITION_FROM_SAVED_MAP_CELL,
+    ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS,
+    ids::PROCESS_ELEVATOR,
+    ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
+    ids::ENTITY_FIND_MENU_AWARE_COLLISION_AT_POSITION,
+    ids::ENTITY_FIND_VOLUME_COLLISION_AT_POSITION,
+    ids::PROJECTILE_FIND_COLLISION_EXCLUDING_OWNER,
+    ids::ENTITY_FIND_HORIZONTAL_COLLISION_AT_X,
+];
+
 fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| panic!("{} {arguments:08x?}: {error}", id.metadata().name));
@@ -24,8 +44,23 @@ fn strict_collision(context: &mut HookContext<'_>) -> tje_host::Result<Option<u3
 }
 
 fn registry(revision: Revision) -> HookRegistry {
-    let mut registry = HookRegistry::filtered(revision, &["camera", "elevator"], &[]).unwrap();
-    for translation in tje_game::collision::TRANSLATIONS {
+    let mut registry = HookRegistry::empty(revision);
+    for translation in tje_game::camera::TRANSLATIONS
+        .iter()
+        .chain(tje_game::elevator::TRANSLATIONS)
+        .filter(|entry| W0_ROOTS.contains(&entry.id))
+    {
+        registry
+            .register_translation_with_execution(
+                *translation,
+                tje_game::execution_class(translation.id).expect("reviewed W0 execution class"),
+            )
+            .unwrap();
+    }
+    for translation in tje_game::collision::TRANSLATIONS
+        .iter()
+        .filter(|entry| W0_ROOTS.contains(&entry.id))
+    {
         let mut symbol = translation.id.metadata().clone();
         symbol.abi.strict_registers = true;
         registry
@@ -286,14 +321,9 @@ fn main() {
         &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
     )
     .unwrap();
-    let roots: Vec<_> = tje_game::translations()
-        .filter(|translation| {
-            ["collision", "camera", "elevator"].contains(&translation.id.metadata().subsystem)
-        })
-        .map(|translation| translation.id)
-        .collect();
+    let roots = W0_ROOTS;
     assert!(
-        Dispatcher::native(&roots).is_ok(),
+        Dispatcher::native(roots).is_ok(),
         "world native closure has missing translations"
     );
     for revision in [Revision::Rev02, Revision::Rev00] {
@@ -359,7 +389,7 @@ fn main() {
         elevator_fixtures(&mut host);
         assert_eq!(host.checks.mismatches, 0);
         assert!(host.checks.uninitialized_stack_reads.is_empty());
-        for id in &roots {
+        for id in roots {
             if *id != ids::SET_CAMERA_TILE_PRIORITY_ENABLED {
                 assert!(
                     host.checks.by_function[id.metadata().name].calls_checked > 0,
