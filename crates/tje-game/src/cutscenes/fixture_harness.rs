@@ -66,8 +66,12 @@ fn check(
         id.metadata().name,
         error.as_deref().unwrap_or("pass")
     );
-    outcomes
-        .push(json!({ "name": id.metadata().name, "label": label, "arguments": arguments, "error": error }));
+    outcomes.push(json!({
+        "name": id.metadata().name,
+        "label": label,
+        "arguments": arguments,
+        "error": error,
+    }));
 }
 
 fn original_setup(host: &mut Host, id: FunctionId, arguments: &[u32]) -> Result {
@@ -447,6 +451,80 @@ fn fixtures(host: &mut Host, outcomes: &mut Vec<Value>) -> Result {
         "live-state fixture: empty actor pool, intro background seven, real IRQ service",
         outcomes,
     );
+    for id in [
+        ids::INTRO_PART5,
+        ids::INTRO_PART6,
+        ids::INTRO_PART7,
+        ids::INTRO_PART8,
+        ids::INTRO_PART9,
+        ids::INTRO_PART1,
+        ids::INTRO_PART10,
+        ids::INTRO_PART11,
+        ids::INTRO_PART2,
+        ids::INTRO_PART3,
+        ids::INTRO_PART4,
+        ids::INTRO_VIDEO,
+    ] {
+        clear_scene_pool(host);
+        check(
+            host,
+            id,
+            &[],
+            "live-state fixture: initialized pool; unheld controller timeline; complete scene",
+            outcomes,
+        );
+    }
+    clear_scene_pool(host);
+    ram::g_sega_rocket_pass_shown(revision).write(&mut host.context(), 1);
+    check(
+        host,
+        ids::SEGA_VIDEO,
+        &[],
+        "live-state fixture: palette cycle, rocket pass already shown",
+        outcomes,
+    );
+    ram::g_sega_rocket_pass_shown(revision).write(&mut host.context(), 0);
+    check(
+        host,
+        ids::SEGA_VIDEO,
+        &[],
+        "live-state fixture: palette cycle and first rocket pass",
+        outcomes,
+    );
+    let frame = host.frame_count();
+    let abort_timeline = Arc::new(InputScript::parse(&format!(
+        r#"{{"holds": [
+            {{"start": {frame}, "end": {}, "p1": ["start"]}},
+            {{"start": {}, "end": {}, "p1": ["start"]}}
+        ]}}"#,
+        frame + 30,
+        frame + 60,
+        frame + 200
+    ))?);
+    host.set_wait_input_poller(abort_timeline);
+    for id in [
+        ids::INTRO_PART5,
+        ids::INTRO_PART6,
+        ids::INTRO_PART7,
+        ids::INTRO_PART8,
+        ids::INTRO_PART9,
+        ids::INTRO_PART1,
+        ids::INTRO_PART10,
+        ids::INTRO_PART11,
+        ids::INTRO_PART2,
+        ids::INTRO_PART3,
+        ids::INTRO_PART4,
+        ids::INTRO_VIDEO,
+    ] {
+        clear_scene_pool(host);
+        check(
+            host,
+            id,
+            &[],
+            "live-state fixture: held/released Start timeline; early scene interruption",
+            outcomes,
+        );
+    }
     Ok(())
 }
 
@@ -462,8 +540,8 @@ fn main() -> Result {
     } else {
         revision
     };
-    let script_text = fs::read_to_string(&arguments[2])?;
-    let script = Arc::new(InputScript::parse(&script_text)?);
+    let input_json = fs::read_to_string(&arguments[2])?;
+    let script = Arc::new(InputScript::parse(&input_json)?);
     let frames: u64 = arguments[4].parse()?;
     let names = arguments.get(5).map(String::as_str).unwrap_or("");
     let selected: Vec<_> = entries()
@@ -473,7 +551,9 @@ fn main() -> Result {
                 && metadata.wave > 0
                 && (names.is_empty()
                     || (names == "atomic" && tje_game::is_atomic_capable(translation.id))
-                    || names.split(',').any(|name| name == metadata.name))
+                    || names
+                        .split(',')
+                        .any(|name| name == translation.id.metadata().name))
         })
         .map(|translation| translation.id)
         .collect();
@@ -496,6 +576,12 @@ fn main() -> Result {
     let fixture_error = fixtures(&mut live, &mut outcomes)
         .err()
         .map(|error| error.to_string());
+    let native_missing: Vec<_> = tje_game::Dispatcher::native(&selected)
+        .err()
+        .unwrap_or_default()
+        .iter()
+        .map(|id| id.metadata().name)
+        .collect();
     let report = json!({
         "revision": format!("{revision:?}"),
         "requested_frames": frames,
@@ -507,6 +593,7 @@ fn main() -> Result {
         "fixture_error": fixture_error,
         "fixtures": live.checks,
         "outcomes": outcomes,
+        "native_missing": native_missing,
     });
     fs::write(&arguments[3], serde_json::to_string_pretty(&report)?)?;
     if report["natural_error"].is_null()

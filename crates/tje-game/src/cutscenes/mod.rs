@@ -9,6 +9,7 @@ pub mod flying_entities;
 pub mod impact_and_planet_entities;
 pub mod intro;
 pub mod intro_frame_entities;
+pub mod intro_part11;
 pub mod large_player_parts;
 pub mod rocketship_pose;
 pub mod sega_logo;
@@ -25,6 +26,13 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::INTRO_PART8,
     ids::INTRO_PART9,
     ids::SEGA_VIDEO,
+    ids::INTRO_PART1,
+    ids::INTRO_PART10,
+    ids::INTRO_PART11,
+    ids::INTRO_PART2,
+    ids::INTRO_PART3,
+    ids::INTRO_PART4,
+    ids::INTRO_VIDEO,
 ];
 
 /// Opt-in fixture roots only. The production dispatcher never consumes this list.
@@ -64,6 +72,34 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::SEGA_VIDEO,
         function: sega_logo::sega_video,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART1,
+        function: intro::intro_part1,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART10,
+        function: intro::intro_part10,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART11,
+        function: intro_part11::intro_part11,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART2,
+        function: intro::intro_part2,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART3,
+        function: intro::intro_part3,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART4,
+        function: intro::intro_part4,
+    },
+    crate::Translation {
+        id: ids::INTRO_VIDEO,
+        function: intro::intro_video,
     },
 ];
 
