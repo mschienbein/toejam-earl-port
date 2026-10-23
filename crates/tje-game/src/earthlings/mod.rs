@@ -258,14 +258,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: friendly::ai_wizard_touch,
     },
     crate::Translation {
-        id: ids::EARTHLING_DISPATCH_ABILITIES,
-        function: dispatch::earthling_dispatch_abilities,
-    },
-    crate::Translation {
-        id: ids::PLAYER_PROCESS_LIFE_REQUEST,
-        function: interactions::player_process_life_request,
-    },
-    crate::Translation {
         id: ids::AI_MAILBOX_TOUCH,
         function: friendly::ai_mailbox_touch,
     },
@@ -276,10 +268,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
         function: dispatch::earthling_dispatch_player_contacts,
-    },
-    crate::Translation {
-        id: ids::PROCESS_EARTHLINGS,
-        function: dispatch::process_earthlings,
     },
     crate::Translation {
         id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
@@ -295,19 +283,37 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Complete nearest-target body remains opt-in: its true residual-input path
-/// awaits HostFixture's dependent-equivalence contract, never a zero fallback.
+/// Unapproved bodies retained only for explicit proof. Nearest-target needs its
+/// native producer/caller cohort; the timed consumers have corpus VDP failures.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     // Dependent residual: awaiting dependent-equivalence proof.
     crate::Translation {
         id: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
         function: framed::earthling_steer_toward_nearest_target,
     },
+    // CorpusCheck e28a82e: real both-ROM calls differ in VDP command/latch state.
+    crate::Translation {
+        id: ids::EARTHLING_DISPATCH_ABILITIES,
+        function: dispatch::earthling_dispatch_abilities,
+    },
+    crate::Translation {
+        id: ids::PLAYER_PROCESS_LIFE_REQUEST,
+        function: interactions::player_process_life_request,
+    },
+    crate::Translation {
+        id: ids::PROCESS_EARTHLINGS,
+        function: dispatch::process_earthlings,
+    },
 ];
 
-/// The true no-candidate/high-distance delta locals need dependent-equivalence
-/// evidence, including the exact compiled producer, before production approval.
-pub static PENDING: &[crate::FunctionId] = &[ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET];
+/// All known unapproved consumers stay outside production, including nested
+/// callers of the corpus-failing timed path. Execution classifications remain.
+pub static PENDING: &[crate::FunctionId] = &[
+    ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+    ids::EARTHLING_DISPATCH_ABILITIES,
+    ids::PLAYER_PROCESS_LIFE_REQUEST,
+    ids::PROCESS_EARTHLINGS,
+];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
 /// embedded: spawning and AI read their definitions through emulated ROM views.
