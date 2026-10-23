@@ -188,7 +188,8 @@ pub struct CheckReport {
     pub nondependent_stack_reads: BTreeSet<StackReadSite>,
     /// Additional side executions, not checked calls or gameplay wait frames.
     pub stack_dependency_reruns: u64,
-    /// Explicit, source-reviewed genuine dependencies, never informational reads.
+    /// Genuine frame-read sites, never informational. DMA-only proofs retain
+    /// bounded source/cardinality summaries in dependent_equivalence instead.
     pub dependent_stack_reads: BTreeSet<StackReadSite>,
     pub dependent_equivalence: BTreeMap<String, dependent_equivalence::DependentEvidence>,
     pub time_aware: BTreeMap<String, check_projection::TimeAwareCheckSummary>,
@@ -502,6 +503,7 @@ impl Host {
     fn check_hook_inner(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
         let entry = exits::EntryState::capture(&self.context(), hook.exit_contract)?;
         let sp = entry.sp;
+        let dma_plan = self.resolve_dependent_source(hook)?;
         let mut original = self.fork();
         let mut translated = self.fork();
         // The Rust outcome declares the finite original boundary, including
@@ -542,6 +544,7 @@ impl Host {
                 &original_run,
                 &translated_run,
                 hook,
+                dma_plan,
             )
         } else {
             // Unmarked entries still prove independence on each side separately.

@@ -507,6 +507,7 @@ mod tests {
     fn source_and_discarded_reads_share_the_dependent_bus_observer() {
         use tje_game::Platform;
         let mut emulator = emulator();
+        emulator.hybrid_bus_mut().hybrid_cpu_accesses = Some(Vec::new());
         let exact_index;
         {
             let mut context = crate::abi::HookContext::new(
@@ -514,8 +515,9 @@ mod tests {
                 tje_rom::Revision::Rev02,
                 tje_game::Dispatcher::hybrid(),
             );
-            context.enable_stack_audit();
-            context.enable_dependent_read_journal();
+            let stack = crate::abi::StackAuditState::new(context.cpu().stack_pointer(), true);
+            let audit = stack.empty_run();
+            context.enable_stack_audit(stack, audit);
             context.read_device_u16(0xff7fec);
             assert_eq!(
                 context
@@ -525,7 +527,10 @@ mod tests {
             );
             context.discard_z80_bus_request_read().unwrap();
             assert!(context.check_mmio_contract().is_ok());
-            assert_eq!(context.stack_reads.borrow().as_ref().unwrap().len(), 1);
+            assert_eq!(
+                context.audit.borrow().stack_reads.as_ref().unwrap().len(),
+                1
+            );
             assert_eq!(context.exact_device_reads.len(), 1);
             exact_index = context.exact_device_reads[0];
         }
@@ -545,6 +550,72 @@ mod tests {
             HybridAccess::Read {
                 address: 0xa11100,
                 word: true,
+                purpose: ReadPurpose::Discarded,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn prepared_tagged_reader_composes_with_actual_dma_commit_audit() {
+        use tje_game::Platform;
+        let mut emulator = emulator();
+        emulator.hybrid_bus_mut().hybrid_cpu_accesses = Some(Vec::new());
+        emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+        let exact_index;
+        {
+            let mut context = crate::abi::HookContext::new(
+                &mut emulator,
+                tje_rom::Revision::Rev02,
+                tje_game::Dispatcher::hybrid(),
+            );
+            let stack = crate::abi::StackAuditState::new(context.cpu().stack_pointer(), true);
+            let audit = stack.empty_run();
+            context.enable_stack_audit(stack, audit);
+            context.read_device_u16(0xff7fec);
+            context.write_u16(0xff7fec, 0xabcd);
+            // Authored one-word RAM-to-VRAM transaction through the same bus.
+            for value in [
+                0x8114, 0x8f02, 0x9301, 0x9400, 0x95f6, 0x96bf, 0x977f, 0x4200, 0x0080,
+            ] {
+                context.write_device_u16(0xc00004, value);
+            }
+            assert_eq!(
+                context
+                    .read_device_u16_with_open_bus(0xa11100, OpenBusSource::prefetch(0x100))
+                    .unwrap(),
+                0x1334,
+            );
+            context.discard_z80_bus_request_read().unwrap();
+            assert!(context.check_mmio_contract().is_ok());
+            let audit = context.audit.borrow();
+            let reads = audit.stack_reads.as_ref().unwrap();
+            assert_eq!(reads.len(), 2);
+            assert_eq!(reads[0].read.origin, "cpu");
+            assert_eq!(reads[0].uninitialized_mask, 3);
+            assert_eq!(reads[1].read.origin, "vdp_dma");
+            assert_eq!(reads[1].read.raw_address, 0xff7fec);
+            assert_eq!(reads[1].read.value, 0xabcd);
+            assert_eq!(reads[1].uninitialized_mask, 0);
+            assert_eq!(audit.uninitialized_reads.len(), 2);
+            assert_eq!(context.exact_device_reads.len(), 1);
+            exact_index = context.exact_device_reads[0];
+        }
+        let accesses = emulator.hybrid_bus().hybrid_accesses.as_ref().unwrap();
+        assert_eq!(accesses.len(), exact_index + 2);
+        assert!(matches!(
+            accesses[exact_index],
+            HybridAccess::Read {
+                address: 0xa11100,
+                purpose: ReadPurpose::Semantic,
+                value: 0x1334,
+                ..
+            }
+        ));
+        assert!(matches!(
+            accesses[exact_index + 1],
+            HybridAccess::Read {
+                address: 0xa11100,
                 purpose: ReadPurpose::Discarded,
                 ..
             }

@@ -6,7 +6,7 @@ use crate::{
     compare_io_ram_order,
 };
 use crate::{
-    abi::{AtomicRun, UninitializedStackRead, canonical_ram_address, run_original_atomic_until},
+    abi::{AtomicRun, UninitializedStackRead, canonical_ram_address},
     check_projection::{self, LogicTrace},
     execution::run_original_timed_until,
     exits::{self, ReferenceBoundary},
@@ -58,74 +58,89 @@ impl Host {
         let entry_frame = clock.frame;
         let dependent = hook.dependent_proof.is_some();
         self.execute_fork(fork, |emulator| {
-            if hook.execution_class == ExecutionClass::Functional {
-                emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-            }
-            let mut run = match side {
-                CheckSide::Original { boundary, outcome } => {
-                    let (audit, logic_trace) = if hook.execution_class == ExecutionClass::TimeAware
-                    {
-                        let (mut audit, clock_run) =
-                            run_original_timed_until(emulator, &mut clock, boundary)?;
-                        if dependent {
-                            audit.stack_reads =
-                                Some(crate::dependent_equivalence::journal::from_clock_accesses(
-                                    &clock_run.accesses,
-                                ));
-                        }
-                        (audit, clock_run.logic_trace)
-                    } else {
+            let entry_sp = emulator.hybrid_cpu().stack_pointer();
+            let entry_pc = emulator.hybrid_cpu().pc();
+            let mut stack = crate::abi::StackAuditState::new(entry_sp, dependent);
+            let mut audit = stack.empty_run();
+            // Observe normalization as well as the body while this fork owns
+            // its cartridge. Do not let a deferred DMA escape the root audit.
+            let saved_trace = emulator
+                .hybrid_bus_mut()
+                .hybrid_cpu_accesses
+                .replace(Vec::new());
+            let saved_all_dma = emulator.hybrid_bus().hybrid_dma_all_sources;
+            emulator.hybrid_bus_mut().hybrid_dma_all_sources = hook
+                .dependent_proof
+                .is_some_and(|setting| setting.captures_all_dma());
+            let result = (|| {
+                if hook.execution_class == ExecutionClass::Functional {
+                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+                }
+                stack.drain(emulator.hybrid_bus_mut(), entry_pc, &mut audit);
+                let (mut run, mut stack) = match side {
+                    CheckSide::Original { boundary, outcome } => {
+                        let logic_trace = if hook.execution_class == ExecutionClass::TimeAware {
+                            let clock_run =
+                                run_original_timed_until(emulator, &mut clock, boundary)?;
+                            for (pc, access) in clock_run.accesses {
+                                stack.observe(pc, access, &mut audit);
+                            }
+                            clock_run.logic_trace
+                        } else {
+                            audit.append(crate::abi::run_original_atomic_scoped(
+                                emulator, boundary, &mut stack,
+                            )?);
+                            LogicTrace::default()
+                        };
                         (
-                            run_original_atomic_until(emulator, boundary, true, dependent)?,
-                            LogicTrace::default(),
+                            CheckRun {
+                                audit,
+                                outcome,
+                                logic_trace,
+                                nested_calls: 0,
+                                wait_frames: clock.frame - entry_frame,
+                                dependent_writes: None,
+                                exact_device_reads: Vec::new(),
+                            },
+                            stack,
                         )
-                    };
-                    CheckRun {
-                        audit,
-                        outcome,
-                        logic_trace,
-                        nested_calls: 0,
-                        wait_frames: clock.frame - entry_frame,
-                        dependent_writes: None,
-                        exact_device_reads: Vec::new(),
                     }
+                    CheckSide::Rust => {
+                        let mut context = HookContext::new(emulator, revision, dispatcher)
+                            .with_execution(hook.execution_class, clock);
+                        context.enable_stack_audit(stack, audit);
+                        let outcome = hook.execute(&mut context)?;
+                        exits::finish(&mut context, hook, outcome)?;
+                        let stack = context.stack_audit.take().expect("active root audit");
+                        (
+                            CheckRun {
+                                audit: context.audit.into_inner(),
+                                outcome,
+                                logic_trace: context.logic_trace.into_inner(),
+                                nested_calls: context.nested_calls,
+                                wait_frames: context.time_frames,
+                                dependent_writes: None,
+                                exact_device_reads: context.exact_device_reads,
+                            },
+                            stack,
+                        )
+                    }
+                };
+                if hook.execution_class == ExecutionClass::TimeAware {
+                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
                 }
-                CheckSide::Rust => {
-                    let mut context = HookContext::new(emulator, revision, dispatcher)
-                        .with_execution(hook.execution_class, clock);
-                    context.enable_stack_audit();
-                    if dependent {
-                        context.enable_dependent_read_journal();
-                    }
-                    let outcome = hook.execute(&mut context)?;
-                    exits::finish(&mut context, hook, outcome)?;
-                    CheckRun {
-                        audit: AtomicRun {
-                            uninitialized_reads: context.uninitialized_reads.into_inner(),
-                            writes: context.writes,
-                            stack_reads: context.stack_reads.into_inner(),
-                            ..AtomicRun::default()
-                        },
-                        outcome,
-                        logic_trace: context.logic_trace.into_inner(),
-                        nested_calls: context.nested_calls,
-                        wait_frames: context.time_frames,
-                        dependent_writes: None,
-                        exact_device_reads: context.exact_device_reads,
-                    }
+                let checkpoint = emulator.hybrid_cpu().pc();
+                stack.drain(emulator.hybrid_bus_mut(), checkpoint, &mut run.audit);
+                if dependent {
+                    run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
+                        &run.audit.writes,
+                    ));
                 }
-            };
-            if dependent {
-                run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
-                    &run.audit.writes,
-                ));
-            }
-            if hook.execution_class == ExecutionClass::TimeAware {
-                // Capture real execution first, then canonicalize comparison-only
-                // latency while this fork still owns ROM-backed DMA sources.
-                emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-            }
-            Ok(run)
+                Ok(run)
+            })();
+            emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
+            emulator.hybrid_bus_mut().hybrid_dma_all_sources = saved_all_dma;
+            result
         })
     }
 
@@ -378,3 +393,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod dma_tests;

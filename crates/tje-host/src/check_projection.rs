@@ -156,14 +156,15 @@ impl TimeAwareCheckSummary {
 }
 
 fn is_semantic(access: HybridAccess) -> bool {
-    !matches!(access, HybridAccess::Read { purpose, .. } if purpose != ReadPurpose::Semantic)
+    !matches!(access, HybridAccess::DmaRead { .. })
+        && !matches!(access, HybridAccess::Read { purpose, .. } if purpose != ReadPurpose::Semantic)
 }
 
 fn is_device(access: HybridAccess) -> bool {
     let address = match access {
-        HybridAccess::Read { address, .. } | HybridAccess::Write { address, .. } => {
-            address & 0xffffff
-        }
+        HybridAccess::Read { address, .. }
+        | HybridAccess::Write { address, .. }
+        | HybridAccess::DmaRead { address, .. } => address & 0xffffff,
     };
     (0x800000..0xe00000).contains(&address)
 }
@@ -252,7 +253,9 @@ fn project(trace: &LogicTrace, entry_sp: u32) -> Result<Vec<Effect>, String> {
     let relevant = |event: &&LogicEvent| match **event {
         LogicEvent::Access { access, .. } => {
             let address = match access {
-                HybridAccess::Read { address, .. } | HybridAccess::Write { address, .. } => address,
+                HybridAccess::Read { address, .. }
+                | HybridAccess::Write { address, .. }
+                | HybridAccess::DmaRead { address, .. } => address,
             };
             is_device(access)
                 || (is_semantic(access) && canonical_ram_address(address) >= live_start)
@@ -345,6 +348,7 @@ fn project(trace: &LogicTrace, entry_sp: u32) -> Result<Vec<Effect>, String> {
                         word,
                         value,
                     } => (address, word, value, true),
+                    HybridAccess::DmaRead { .. } => continue,
                 };
                 let address = address & 0xffffff;
                 if address >= 0xe00000 {

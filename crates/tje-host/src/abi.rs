@@ -56,53 +56,23 @@ pub(crate) struct AtomicRun {
     pub stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
 }
 
-/// CPU bus observer. Reading an old local before writing it is significant even
-/// when that byte lies in the normally ignored dead-stack comparison window.
-struct StackAuditBus<'a> {
-    inner: &'a mut GenesisBus,
-    entry_sp: u32,
-    pc: u32,
-    written: &'a mut [u64; 512],
-    reads: BTreeSet<UninitializedStackRead>,
-    writes: Vec<OrderedWrite>,
-    stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
+impl AtomicRun {
+    pub(crate) fn append(&mut self, other: Self) {
+        self.instructions += other.instructions;
+        self.cycles += other.cycles;
+        self.uninitialized_reads.extend(other.uninitialized_reads);
+        self.writes.extend(other.writes);
+        if let Some(reads) = other.stack_reads {
+            self.stack_reads.get_or_insert_with(Vec::new).extend(reads);
+        }
+    }
 }
 
-impl StackAuditBus<'_> {
-    fn stack_offset(&self, address: u32) -> Option<usize> {
-        let address = address & 0xFF_FFFF;
-        if address < 0xE00000 {
-            return None;
-        }
-        let address = 0xFF0000 | (address & 0xFFFF);
-        (STACK_BOTTOM..canonical_ram_address(self.entry_sp).min(STACK_TOP))
-            .contains(&address)
-            .then_some(address.wrapping_sub(STACK_BOTTOM) as usize)
-    }
-
-    fn read(&mut self, address: u32) {
-        if let Some(offset) = self.stack_offset(address)
-            && self.written[offset / 64] & (1 << (offset % 64)) == 0
-        {
-            self.reads.insert(UninitializedStackRead {
-                pc: self.pc,
-                address: 0xFF0000 | (address & 0xFFFF),
-            });
-        }
-    }
-
-    fn write(&mut self, address: u32, value: u8) {
-        if let Some(offset) = self.stack_offset(address) {
-            self.written[offset / 64] |= 1 << (offset % 64);
-        }
-        let address = address & 0xFF_FFFF;
-        if address >= 0xE00000 {
-            self.writes.push(OrderedWrite::Ram {
-                address: 0xFF0000 | (address & 0xFFFF),
-                value,
-            });
-        }
-    }
+/// Atomic originals suppress IRQ delivery, but otherwise use the real bus.
+/// Auditing happens from its actual read/commit stream after each instruction,
+/// never from the CPU's instruction-local write issue calls.
+struct StackAuditBus<'a> {
+    inner: &'a mut GenesisBus,
 }
 
 impl BusInterface for StackAuditBus<'_> {
@@ -111,69 +81,21 @@ impl BusInterface for StackAuditBus<'_> {
     where
         Self: 'a;
     fn read_byte(&mut self, address: u32) -> u8 {
-        self.read_byte_tagged(address, ReadPurpose::Semantic)
+        self.inner.read_byte(address)
     }
     fn read_word(&mut self, address: u32) -> u16 {
-        self.read_word_tagged(address, ReadPurpose::Semantic)
+        self.inner.read_word(address)
     }
     fn read_byte_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u8 {
-        if purpose == ReadPurpose::Semantic {
-            self.read(address);
-        }
-        let value = self.inner.read_byte_tagged(address, purpose);
-        if let Some(reads) = &mut self.stack_reads
-            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
-                self.pc,
-                address,
-                false,
-                purpose,
-                u16::from(value),
-                self.writes.len(),
-            )
-        {
-            reads.push(read);
-        }
-        value
+        self.inner.read_byte_tagged(address, purpose)
     }
     fn read_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u16 {
-        if purpose == ReadPurpose::Semantic {
-            self.read(address);
-            self.read(address.wrapping_add(1));
-        }
-        let value = self.inner.read_word_tagged(address, purpose);
-        if let Some(reads) = &mut self.stack_reads
-            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
-                self.pc,
-                address,
-                true,
-                purpose,
-                value,
-                self.writes.len(),
-            )
-        {
-            reads.push(read);
-        }
-        value
+        self.inner.read_word_tagged(address, purpose)
     }
     fn write_byte(&mut self, address: u32, value: u8) {
-        self.write(address, value);
-        if !(0..=0x3F_FFFF).contains(&(address & 0xFF_FFFF)) && (address & 0xFF_FFFF) < 0xE00000 {
-            self.writes.push(OrderedWrite::DeviceByte {
-                address: address & 0xFF_FFFF,
-                value,
-            });
-        }
         self.inner.write_byte(address, value);
     }
     fn write_word(&mut self, address: u32, value: u16) {
-        self.write(address, (value >> 8) as u8);
-        self.write(address.wrapping_add(1), value as u8);
-        if !(0..=0x3F_FFFF).contains(&(address & 0xFF_FFFF)) && (address & 0xFF_FFFF) < 0xE00000 {
-            self.writes.push(OrderedWrite::DeviceWord {
-                address: address & 0xFF_FFFF,
-                value,
-            });
-        }
         self.inner.write_word(address, value);
     }
     fn interrupt_level(&self) -> u8 {
@@ -218,40 +140,37 @@ pub(crate) fn run_original_atomic_until(
             cycles
         });
     }
-    let mut stack = StackAuditState {
-        entry_sp: canonical_ram_address(cpu.stack_pointer()),
-        written: [0; 512],
-        capture_reads,
-    };
+    let mut stack = StackAuditState::new(cpu.stack_pointer(), capture_reads);
     run_original_atomic_scoped(emulator, boundary, &mut stack)
 }
 
 /// A nested original uses the suspended root's initialized bytes and boundary.
 /// Incoming callee arguments can still be unwritten locals of that root.
-fn run_original_atomic_scoped(
+pub(crate) fn run_original_atomic_scoped(
     emulator: &mut GenesisEmulator,
     boundary: ReferenceBoundary,
     stack: &mut StackAuditState,
 ) -> Result<AtomicRun> {
     let (cpu, bus) = emulator.hybrid_parts();
-    let mut audit = StackAuditBus {
-        inner: bus,
-        entry_sp: stack.entry_sp,
-        pc: cpu.pc(),
-        written: &mut stack.written,
-        reads: BTreeSet::new(),
-        writes: Vec::new(),
-        stack_reads: stack.capture_reads.then(Vec::new),
-    };
-    let mut result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
-        audit.pc = cpu.pc();
+    let owns_trace = bus.hybrid_cpu_accesses.is_none();
+    if owns_trace {
+        bus.hybrid_cpu_accesses = Some(Vec::new());
+    }
+    let mut observed = stack.empty_run();
+    stack.drain(bus, cpu.pc(), &mut observed);
+    let mut audit = StackAuditBus { inner: bus };
+    let result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
+        let pc = cpu.pc();
         let cycles = cpu.execute_instruction(audit);
         audit.inner.apply_pending_writes();
+        stack.drain(audit.inner, pc, &mut observed);
         cycles
-    })?;
-    result.uninitialized_reads = audit.reads;
-    result.writes = audit.writes;
-    result.stack_reads = audit.stack_reads;
+    });
+    if owns_trace {
+        audit.inner.hybrid_cpu_accesses = None;
+    }
+    let mut result = result?;
+    result.append(observed);
     Ok(result)
 }
 
@@ -287,10 +206,131 @@ pub(crate) fn set_sp(cpu: &mut M68000, value: u32) {
     cpu.set_address_registers(cpu.address_registers(), usp, ssp);
 }
 
-struct StackAuditState {
+pub(crate) struct StackAuditState {
     entry_sp: u32,
     written: [u64; 512],
     capture_reads: bool,
+}
+
+impl StackAuditState {
+    pub(crate) fn new(entry_sp: u32, capture_reads: bool) -> Self {
+        Self {
+            entry_sp: canonical_ram_address(entry_sp),
+            written: [0; 512],
+            capture_reads,
+        }
+    }
+
+    pub(crate) fn empty_run(&self) -> AtomicRun {
+        AtomicRun {
+            stack_reads: self.capture_reads.then(Vec::new),
+            ..AtomicRun::default()
+        }
+    }
+
+    fn stack_offset(&self, address: u32) -> Option<usize> {
+        let address = address & 0xffffff;
+        if address < 0xe00000 {
+            return None;
+        }
+        let physical = canonical_ram_address(address);
+        (STACK_BOTTOM..self.entry_sp.min(STACK_TOP))
+            .contains(&physical)
+            .then_some(physical.wrapping_sub(STACK_BOTTOM) as usize)
+    }
+
+    fn read_mask(&self, address: u32, word: bool) -> u8 {
+        let mut mask = 0;
+        for offset in 0..if word { 2 } else { 1 } {
+            if let Some(index) = self.stack_offset(address.wrapping_add(offset))
+                && self.written[index / 64] & (1 << (index % 64)) == 0
+            {
+                mask |= 1 << offset;
+            }
+        }
+        mask
+    }
+
+    fn read(&self, pc: u32, access: genesis_core::HybridAccess, audit: &mut AtomicRun) {
+        let (address, word, semantic) = match access {
+            genesis_core::HybridAccess::Read {
+                address,
+                word,
+                purpose,
+                ..
+            } => (address, word, purpose == ReadPurpose::Semantic),
+            genesis_core::HybridAccess::DmaRead { address, .. } => (address, true, true),
+            genesis_core::HybridAccess::Write { .. } => unreachable!("read observation"),
+        };
+        let mask = self.read_mask(address, word);
+        if semantic {
+            for offset in 0..if word { 2 } else { 1 } {
+                if mask & (1 << offset) != 0 {
+                    audit.uninitialized_reads.insert(UninitializedStackRead {
+                        pc,
+                        address: canonical_ram_address(address.wrapping_add(offset)),
+                    });
+                }
+            }
+        }
+        if let Some(reads) = &mut audit.stack_reads
+            && let Some(read) =
+                crate::dependent_equivalence::journal::JournalRead::new(pc, access, mask)
+        {
+            reads.push(read);
+        }
+    }
+
+    pub(crate) fn observe(
+        &mut self,
+        pc: u32,
+        access: genesis_core::HybridAccess,
+        audit: &mut AtomicRun,
+    ) {
+        let genesis_core::HybridAccess::Write {
+            address,
+            word,
+            value,
+        } = access
+        else {
+            self.read(pc, access, audit);
+            return;
+        };
+        let address = address & 0xffffff;
+        if address >= 0xe00000 {
+            for offset in 0..if word { 2 } else { 1 } {
+                let address = address.wrapping_add(offset);
+                if let Some(index) = self.stack_offset(address) {
+                    self.written[index / 64] |= 1 << (index % 64);
+                }
+                audit.writes.push(OrderedWrite::Ram {
+                    address: canonical_ram_address(address),
+                    value: if word && offset == 0 {
+                        (value >> 8) as u8
+                    } else {
+                        value as u8
+                    },
+                });
+            }
+        } else if address >= 0x400000 {
+            audit.writes.push(if word {
+                OrderedWrite::DeviceWord { address, value }
+            } else {
+                OrderedWrite::DeviceByte {
+                    address,
+                    value: value as u8,
+                }
+            });
+        }
+    }
+
+    pub(crate) fn drain(&mut self, bus: &mut GenesisBus, pc: u32, audit: &mut AtomicRun) {
+        if let Some(accesses) = &mut bus.hybrid_cpu_accesses {
+            for access in accesses.drain(..) {
+                self.observe(pc, access, audit);
+            }
+        }
+    }
 }
 
 /// A Rust translation sees the actual emulated address space and stack arguments.
@@ -300,14 +340,11 @@ pub struct HookContext<'a> {
     pub nested_calls: u64,
     revision: Revision,
     dispatcher: Dispatcher,
-    pub(crate) writes: Vec<OrderedWrite>,
+    pub(crate) audit: RefCell<AtomicRun>,
     pub(crate) logic_trace: RefCell<LogicTrace>,
-    pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
-    pub(crate) stack_reads:
-        RefCell<Option<Vec<crate::dependent_equivalence::journal::JournalRead>>>,
     pub(crate) exact_device_reads: Vec<usize>,
     mmio_contract_error: Option<tje_game::Error>,
-    stack_audit: Option<StackAuditState>,
+    pub(crate) stack_audit: Option<StackAuditState>,
     frame_state: FrameState,
     pub(crate) execution_class: ExecutionClass,
     execution_ceiling: ExecutionClass,
@@ -328,11 +365,9 @@ impl<'a> HookContext<'a> {
             emulator,
             revision,
             dispatcher,
-            writes: Vec::new(),
+            audit: RefCell::new(AtomicRun::default()),
             logic_trace: RefCell::new(LogicTrace::default()),
             nested_calls: 0,
-            uninitialized_reads: RefCell::new(BTreeSet::new()),
-            stack_reads: RefCell::new(None),
             exact_device_reads: Vec::new(),
             mmio_contract_error: None,
             stack_audit: None,
@@ -379,115 +414,42 @@ impl<'a> HookContext<'a> {
             return;
         }
         self.logic_trace.get_mut().append(run.logic_trace);
-        if let Some(target) = self.stack_reads.get_mut() {
-            crate::dependent_equivalence::journal::append(
-                target,
-                crate::dependent_equivalence::journal::from_clock_accesses(&run.accesses),
-                self.writes.len(),
-            );
-        }
+        let stack = self.stack_audit.as_mut().expect("enabled audit");
         for (pc, access) in run.accesses {
-            let (address, word, value, writing, semantic) = match access {
-                genesis_core::HybridAccess::Read {
-                    address,
-                    word,
-                    value,
-                    purpose,
-                } => (
-                    address,
-                    word,
-                    value,
-                    false,
-                    purpose == m68000_emu::ReadPurpose::Semantic,
-                ),
-                genesis_core::HybridAccess::Write {
-                    address,
-                    word,
-                    value,
-                } => (address, word, value, true, true),
-            };
-            if address >= 0xe00000 {
-                for offset in 0..if word { 2 } else { 1 } {
-                    let address = address + offset;
-                    if writing {
-                        self.audit_translated_write(address);
-                        self.writes.push(OrderedWrite::Ram {
-                            address: canonical_ram_address(address),
-                            value: if word && offset == 0 {
-                                (value >> 8) as u8
-                            } else {
-                                value as u8
-                            },
-                        });
-                    } else if semantic
-                        && let Some(index) = self.translated_stack_offset(address)
-                        && self.stack_audit.as_ref().expect("enabled audit").written[index / 64]
-                            & (1 << (index % 64))
-                            == 0
-                    {
-                        self.uninitialized_reads
-                            .get_mut()
-                            .insert(UninitializedStackRead {
-                                pc,
-                                address: canonical_ram_address(address),
-                            });
-                    }
-                }
-            } else if writing {
-                self.writes.push(if word {
-                    OrderedWrite::DeviceWord { address, value }
-                } else {
-                    OrderedWrite::DeviceByte {
-                        address,
-                        value: value as u8,
-                    }
-                });
-            }
+            stack.observe(pc, access, self.audit.get_mut());
         }
         self.time_audio = run.audio;
         self.time_frames += run.frames;
     }
 
-    pub(crate) fn enable_stack_audit(&mut self) {
-        self.stack_audit = Some(StackAuditState {
-            entry_sp: canonical_ram_address(self.emulator.hybrid_cpu().stack_pointer()),
-            written: [0; 512],
-            capture_reads: false,
-        });
+    pub(crate) fn enable_stack_audit(&mut self, stack: StackAuditState, audit: AtomicRun) {
+        self.stack_audit = Some(stack);
+        *self.audit.get_mut() = audit;
     }
 
-    pub(crate) fn enable_dependent_read_journal(&mut self) {
-        self.stack_audit
-            .as_mut()
-            .expect("enabled stack audit")
-            .capture_reads = true;
-        *self.stack_reads.get_mut() = Some(Vec::new());
-    }
-
-    fn record_stack_read(&self, address: u32, word: bool, purpose: ReadPurpose, value: u16) {
-        if self
-            .stack_audit
-            .as_ref()
-            .is_some_and(|audit| audit.capture_reads)
-            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
-                self.emulator.hybrid_cpu().pc(),
-                address,
-                word,
-                purpose,
-                value,
-                self.writes.len(),
-            )
-        {
-            self.stack_reads
-                .borrow_mut()
-                .as_mut()
-                .expect("enabled read journal")
-                .push(read);
+    /// Every operation that can tick/flush the bus consumes its observations
+    /// before returning. Consequently a following `&self` RAM read sees the
+    /// actual preceding commits without another queue or initialized bitmap.
+    fn flush_audit_accesses(&mut self) {
+        if let Some(stack) = &mut self.stack_audit {
+            let pc = self.emulator.hybrid_cpu().pc();
+            stack.drain(self.emulator.hybrid_bus_mut(), pc, self.audit.get_mut());
         }
     }
 
     fn record_memory_read(&self, address: u32, word: bool, purpose: ReadPurpose, value: u16) {
-        self.record_stack_read(address, word, purpose, value);
+        if let Some(stack) = &self.stack_audit {
+            stack.read(
+                self.emulator.hybrid_cpu().pc(),
+                genesis_core::HybridAccess::Read {
+                    address: address & 0xffffff,
+                    word,
+                    value,
+                    purpose,
+                },
+                &mut self.audit.borrow_mut(),
+            );
+        }
         if address & 0xffffff >= 0xe00000 && self.stack_audit.is_some() && self.timed_execution {
             self.logic_trace.borrow_mut().access(
                 self.emulator.hybrid_cpu().pc(),
@@ -515,12 +477,6 @@ impl<'a> HookContext<'a> {
         purpose: ReadPurpose,
         exact_operand: bool,
     ) -> u16 {
-        if purpose == ReadPurpose::Semantic {
-            self.audit_translated_read(address);
-            if word {
-                self.audit_translated_read(address.wrapping_add(1));
-            }
-        }
         let bus = self.emulator.hybrid_bus_mut();
         let full = if word { 0xffff } else { 0xff };
         let driven = if purpose == ReadPurpose::Semantic && !exact_operand {
@@ -533,7 +489,7 @@ impl<'a> HookContext<'a> {
         } else {
             u16::from(bus.read_byte_tagged(address, purpose))
         };
-        self.record_stack_read(address, word, purpose, value);
+        self.flush_audit_accesses();
         self.record_logic_operand(
             genesis_core::HybridAccess::Read {
                 address: address & 0xffffff,
@@ -576,36 +532,6 @@ impl<'a> HookContext<'a> {
         tje_game::Platform::check_mmio_contract(self)?;
         Ok(value)
     }
-
-    fn translated_stack_offset(&self, address: u32) -> Option<usize> {
-        let audit = self.stack_audit.as_ref()?;
-        let physical = canonical_ram_address(address);
-        (STACK_BOTTOM..audit.entry_sp.min(STACK_TOP))
-            .contains(&physical)
-            .then_some(physical.wrapping_sub(STACK_BOTTOM) as usize)
-    }
-
-    fn audit_translated_read(&self, address: u32) {
-        if let Some(offset) = self.translated_stack_offset(address)
-            && self.stack_audit.as_ref().expect("enabled audit").written[offset / 64]
-                & (1 << (offset % 64))
-                == 0
-        {
-            self.uninitialized_reads
-                .borrow_mut()
-                .insert(UninitializedStackRead {
-                    pc: self.emulator.hybrid_cpu().pc(),
-                    address: canonical_ram_address(address),
-                });
-        }
-    }
-
-    fn audit_translated_write(&mut self, address: u32) {
-        if let Some(offset) = self.translated_stack_offset(address) {
-            self.stack_audit.as_mut().expect("enabled audit").written[offset / 64] |=
-                1 << (offset % 64);
-        }
-    }
     fn record_logic_access(&mut self, access: genesis_core::HybridAccess) {
         self.record_logic_operand(access, false);
     }
@@ -640,15 +566,12 @@ impl<'a> HookContext<'a> {
     }
     pub fn read_u8(&self, address: u32) -> u8 {
         let value = self.peek_u8(address);
-        self.audit_translated_read(address);
         self.record_memory_read(address, false, ReadPurpose::Semantic, u16::from(value));
         value
     }
     pub fn read_u16(&self, address: u32) -> u16 {
         let value =
             u16::from_be_bytes([self.peek_u8(address), self.peek_u8(address.wrapping_add(1))]);
-        self.audit_translated_read(address);
-        self.audit_translated_read(address.wrapping_add(1));
         self.record_memory_read(address, true, ReadPurpose::Semantic, value);
         value
     }
@@ -657,7 +580,7 @@ impl<'a> HookContext<'a> {
             | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     pub fn write_u8(&mut self, address: u32, value: u8) {
-        self.audit_translated_write(address);
+        self.flush_audit_accesses();
         let address = address & 0xFF_FFFF;
         if address >= 0xe00000 {
             self.record_logic_access(genesis_core::HybridAccess::Write {
@@ -670,13 +593,18 @@ impl<'a> HookContext<'a> {
         match address {
             0..=0x3F_FFFF => {} // Cartridge ROM is immutable.
             0xE00000..=0xFFFFFF => {
-                if self.stack_audit.is_some() {
-                    self.writes.push(OrderedWrite::Ram {
-                        address: 0xFF0000 | (address & 0xFFFF),
-                        value,
-                    });
-                }
                 bus.memory.write_main_ram_byte(address, value);
+                if let Some(stack) = &mut self.stack_audit {
+                    stack.observe(
+                        self.emulator.hybrid_cpu().pc(),
+                        genesis_core::HybridAccess::Write {
+                            address,
+                            word: false,
+                            value: u16::from(value),
+                        },
+                        self.audit.get_mut(),
+                    );
+                }
             }
             _ => panic!("write_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
         }
@@ -759,6 +687,7 @@ impl<'a> HookContext<'a> {
         }
         let address = contract.address(self.revision);
         self.emulator.hybrid_bus_mut().apply_pending_writes();
+        self.flush_audit_accesses();
         let saved_sp = self.emulator.hybrid_cpu().stack_pointer();
         let saved_pc = self.emulator.hybrid_cpu().pc();
         let mut sp = saved_sp;
@@ -772,8 +701,9 @@ impl<'a> HookContext<'a> {
         let (cpu, bus) = self.emulator.hybrid_parts();
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
+        self.flush_audit_accesses();
         let audit = if self.timed_execution {
-            let (_, clock_run) = run_original_timed_with_audio(
+            let clock_run = run_original_timed_with_audio(
                 self.emulator,
                 &mut self.wait_clock,
                 CALL_SENTINEL,
@@ -792,18 +722,15 @@ impl<'a> HookContext<'a> {
         } else {
             run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp, false)?
         };
-        if let (Some(target), Some(reads)) = (self.stack_reads.get_mut(), audit.stack_reads) {
-            crate::dependent_equivalence::journal::append(target, reads, self.writes.len());
+        if self.stack_audit.is_some() {
+            self.audit.get_mut().append(audit);
         }
-        self.writes.extend(audit.writes);
-        self.uninitialized_reads
-            .get_mut()
-            .extend(audit.uninitialized_reads);
         self.nested_calls += 1;
         let (cpu, bus) = self.emulator.hybrid_parts();
         let result = cpu.data_registers()[0];
         set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
+        self.flush_audit_accesses();
         tje_game::Platform::check_mmio_contract(self)?;
         Ok(result)
     }
@@ -830,8 +757,9 @@ impl<'a> HookContext<'a> {
         let (cpu, bus) = self.emulator.hybrid_parts();
         bus.apply_pending_writes();
         cpu.set_pc(id.metadata().address(self.revision), bus);
+        self.flush_audit_accesses();
         let audit = if self.timed_execution {
-            let (_, run) = run_original_timed_with_audio(
+            let run = run_original_timed_with_audio(
                 self.emulator,
                 &mut self.wait_clock,
                 return_pc,
@@ -850,13 +778,9 @@ impl<'a> HookContext<'a> {
         } else {
             run_original_atomic(self.emulator, return_pc, return_sp, false)?
         };
-        if let (Some(target), Some(reads)) = (self.stack_reads.get_mut(), audit.stack_reads) {
-            crate::dependent_equivalence::journal::append(target, reads, self.writes.len());
+        if self.stack_audit.is_some() {
+            self.audit.get_mut().append(audit);
         }
-        self.writes.extend(audit.writes);
-        self.uninitialized_reads
-            .get_mut()
-            .extend(audit.uninitialized_reads);
         self.nested_calls += 1;
         tje_game::Platform::check_mmio_contract(self)?;
         Ok(self.emulator.hybrid_cpu().data_registers()[0])
@@ -875,6 +799,7 @@ impl<'a> HookContext<'a> {
         set_sp(cpu, sp.wrapping_add(4));
         cpu.set_pc(return_pc, bus);
         bus.apply_pending_writes();
+        self.flush_audit_accesses();
         Ok(())
     }
 
@@ -883,6 +808,7 @@ impl<'a> HookContext<'a> {
         let (cpu, bus) = self.emulator.hybrid_parts();
         cpu.set_pc(pc, bus);
         bus.apply_pending_writes();
+        self.flush_audit_accesses();
         Ok(())
     }
 
@@ -992,6 +918,7 @@ impl tje_game::Platform for HookContext<'_> {
 
     fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
         self.check_mmio_contract()?;
+        self.flush_audit_accesses();
         let result = (|| {
             if self.execution_class == ExecutionClass::Atomic {
                 return Err(tje_game::Error::Platform(
@@ -1025,6 +952,7 @@ impl tje_game::Platform for HookContext<'_> {
             self.merge_clock_run(run);
             Ok(())
         })();
+        self.flush_audit_accesses();
         result.map_err(|error| self.latch_mmio_error(error))
     }
 
@@ -1052,39 +980,26 @@ impl tje_game::Platform for HookContext<'_> {
     }
 
     fn write_device_u8(&mut self, address: u32, value: u8) {
-        self.audit_translated_write(address);
         self.record_logic_access(genesis_core::HybridAccess::Write {
             address: address & 0xffffff,
             word: false,
             value: u16::from(value),
         });
-        if self.stack_audit.is_some() {
-            self.writes.push(OrderedWrite::DeviceByte {
-                address: address & 0xFF_FFFF,
-                value,
-            });
-        }
         let bus = self.emulator.hybrid_bus_mut();
         bus.write_byte(address, value);
         bus.apply_pending_writes();
+        self.flush_audit_accesses();
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
-        self.audit_translated_write(address);
-        self.audit_translated_write(address.wrapping_add(1));
         self.record_logic_access(genesis_core::HybridAccess::Write {
             address: address & 0xffffff,
             word: true,
             value,
         });
-        if self.stack_audit.is_some() {
-            self.writes.push(OrderedWrite::DeviceWord {
-                address: address & 0xFF_FFFF,
-                value,
-            });
-        }
         let bus = self.emulator.hybrid_bus_mut();
         bus.write_word(address, value);
         bus.apply_pending_writes();
+        self.flush_audit_accesses();
     }
 }
 impl tje_game::Context for HookContext<'_> {
@@ -1192,33 +1107,39 @@ mod tests {
     #[test]
     fn stack_audit_records_reads_before_writes_not_caller_arguments() {
         let mut bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
-        let mut written = [0; 512];
-        let mut audit = StackAuditBus {
-            inner: &mut bus,
-            entry_sp: 0xFF7FF0,
-            pc: 0x1234,
-            written: &mut written,
-            reads: BTreeSet::new(),
-            writes: Vec::new(),
-            stack_reads: None,
-        };
-        audit.read_word(0xFF7FEC);
-        assert_eq!(audit.reads.len(), 2);
-        audit.reads.clear();
-        audit.write_word(0xFF7FEC, 0x4321);
-        audit.entry_sp = 0xEF7FF0; // a mirrored SP has the same local-storage boundary
-        audit.read_word(0xFF7FEC);
-        audit.read_word(0xFF7FF0); // caller return address: not a callee local
-        audit.read_word(0xFF8000); // allocated globals: not stack
-        assert!(audit.reads.is_empty());
-        audit.read_word(0xE07FEC); // mirrored writes/read audit the same physical bytes
-        assert!(audit.reads.is_empty());
-        audit.read_byte(0xE07FEB);
-        assert_eq!(audit.reads.iter().next().unwrap().address, 0xFF7FEB);
-        audit.reads.clear();
-        audit.read_byte(0xFFFF7FEE); // address-space wrapping is still stack
+        bus.hybrid_cpu_accesses = Some(Vec::new());
+        let mut state = StackAuditState::new(0xEF7FF0, false);
+        let mut audit = state.empty_run();
+        bus.read_word(0xFF7FEC);
+        state.drain(&mut bus, 0x1234, &mut audit);
+        assert_eq!(audit.uninitialized_reads.len(), 2);
+        audit.uninitialized_reads.clear();
+        bus.write_word(0xFF7FEC, 0x4321);
+        // A queued write has not initialized RAM for another real read.
+        bus.read_word(0xFF7FEC);
+        state.drain(&mut bus, 0x1234, &mut audit);
+        assert_eq!(audit.uninitialized_reads.len(), 2);
+        audit.uninitialized_reads.clear();
+        bus.apply_pending_writes();
+        bus.read_word(0xFF7FEC);
+        bus.read_word(0xFF7FF0); // caller return address: not a callee local
+        bus.read_word(0xFF8000); // allocated globals: not stack
+        state.drain(&mut bus, 0x1234, &mut audit);
+        assert!(audit.uninitialized_reads.is_empty());
+        bus.read_word(0xE07FEC); // mirrors share the root's physical bitmap
+        state.drain(&mut bus, 0x1234, &mut audit);
+        assert!(audit.uninitialized_reads.is_empty());
+        bus.read_byte(0xE07FEB);
+        state.drain(&mut bus, 0x1234, &mut audit);
         assert_eq!(
-            audit.reads.into_iter().collect::<Vec<_>>(),
+            audit.uninitialized_reads.iter().next().unwrap().address,
+            0xFF7FEB
+        );
+        audit.uninitialized_reads.clear();
+        bus.read_byte(0xFFFF7FEE); // 24-bit wrapping is still stack
+        state.drain(&mut bus, 0x1234, &mut audit);
+        assert_eq!(
+            audit.uninitialized_reads.into_iter().collect::<Vec<_>>(),
             [UninitializedStackRead {
                 pc: 0x1234,
                 address: 0xFF7FEE

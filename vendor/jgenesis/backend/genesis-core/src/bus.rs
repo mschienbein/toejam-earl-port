@@ -95,11 +95,13 @@ struct VdpView<'bus> {
     cartridge: Option<&'bus mut Cartridge>,
     memory: &'bus mut Memory,
     open_bus: &'bus mut u16,
+    ram_audit: &'bus mut Option<Vec<HybridAccess>>,
+    all_dma_sources: bool,
 }
 
 impl VdpBusView for VdpView<'_> {
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
-        match address {
+        let value = match address {
             0x000000..=0x3FFFFF => {
                 if let Some(cartridge) = &mut self.cartridge {
                     cartridge.read_word_for_dma(address, self.open_bus)
@@ -109,7 +111,15 @@ impl VdpBusView for VdpView<'_> {
             }
             0xE00000..=0xFFFFFF => self.memory.read_main_ram_word(address),
             _ => *self.open_bus,
+        };
+        // TJE hybrid: reviewed exact-transfer proofs additionally retain ROM
+        // and open-bus source beats. The real read and its effects occur once.
+        if (self.all_dma_sources || address >= 0xE00000)
+            && let Some(trace) = self.ram_audit
+        {
+            trace.push(HybridAccess::DmaRead { address, value });
         }
+        value
     }
 }
 // TJE hybrid observation: writes at chip dispatch, including Z80-origin writes.
@@ -124,8 +134,22 @@ pub enum HybridWrite {
 /// whose values/latch effects matter even when there is no resulting write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum HybridAccess {
-    Read { address: u32, word: bool, value: u16, purpose: m68000_emu::ReadPurpose },
-    Write { address: u32, word: bool, value: u16 },
+    Read {
+        address: u32,
+        word: bool,
+        value: u16,
+        purpose: m68000_emu::ReadPurpose,
+    },
+    Write {
+        address: u32,
+        word: bool,
+        value: u16,
+    },
+    /// Actual VDP source read, not a 68000 instruction or prefetch.
+    DmaRead {
+        address: u32,
+        value: u16,
+    },
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -160,6 +184,9 @@ pub struct GenesisBus {
     /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
     /// ROM fetches are omitted; normal emulation leaves this disabled.
     pub hybrid_cpu_accesses: Option<Vec<HybridAccess>>,
+    /// TJE hybrid: opt-in complete DMA source stream for reviewed zero-count
+    /// proofs. Normal checks retain only RAM-source audit events.
+    pub hybrid_dma_all_sources: bool,
     // TJE hybrid: opt-in untimed transaction semantics, enabled only on check forks.
     hybrid_functional: bool,
     pub hybrid_functional_violation: Option<u32>,
@@ -204,6 +231,7 @@ impl GenesisBus {
             native_cpu_accesses: None,
             native_ram_writes: None,
             hybrid_cpu_accesses: None,
+            hybrid_dma_all_sources: false,
             hybrid_functional: false,
             hybrid_functional_violation: None,
             m68k_reset: true,
@@ -263,6 +291,8 @@ impl GenesisBus {
                 cartridge: self.cartridge.as_mut(),
                 memory: &mut self.memory,
                 open_bus: &mut self.open_bus,
+                ram_audit: &mut self.hybrid_cpu_accesses,
+                all_dma_sources: self.hybrid_dma_all_sources,
             },
         );
 
@@ -343,6 +373,8 @@ impl GenesisBus {
             cartridge: self.cartridge.as_mut(),
             memory: &mut self.memory,
             open_bus: &mut self.open_bus,
+            ram_audit: &mut self.hybrid_cpu_accesses,
+            all_dma_sources: self.hybrid_dma_all_sources,
         });
     }
 
@@ -480,7 +512,9 @@ impl GenesisBus {
 
     fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16) {
         let address = address & 0xFFFFFF;
-        if address >= 0x800000
+        // Device dispatch precedes any DMA it triggers; RAM is observed below
+        // only after its queued write has actually committed.
+        if (0x400000..0xE00000).contains(&address)
             && let Some(trace) = &mut self.hybrid_cpu_accesses
         {
             trace.push(HybridAccess::Write { address, word: WORD, value });
@@ -553,6 +587,9 @@ impl GenesisBus {
                 self.memory.write_main_ram::<WORD>(address, value);
                 if let Some(trace) = &mut self.native_ram_writes {
                     trace.push(crate::native::RamWrite::new(address, WORD, value));
+                }
+                if let Some(trace) = &mut self.hybrid_cpu_accesses {
+                    trace.push(HybridAccess::Write { address, word: WORD, value });
                 }
             }
             _ => {}

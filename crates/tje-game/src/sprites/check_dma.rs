@@ -5,6 +5,11 @@ use tje_host::Host;
 use tje_mem::{Address, Ptr, RenderFrame, ram};
 
 pub fn fixtures(host: &mut Host) {
+    ordinary_fixtures(host);
+    zero_fixture(host);
+}
+
+pub fn ordinary_fixtures(host: &mut Host) {
     let revision = host.revision();
     let buffer = ram::g_sprite_tile_upload_buffer(revision).address();
     let first = Address::<RenderFrame>::new(buffer + 7000);
@@ -61,6 +66,11 @@ pub fn fixtures(host: &mut Host) {
             }
         }
     }
+}
+
+pub fn zero_fixture(host: &mut Host) {
+    let revision = host.revision();
+    let runs = ram::g_sprite_tile_upload_runs(revision);
     // A zero encoded DMA length really transfers 65,536 words; do not invent a no-op.
     runs.at(0).write(&mut host.context(), 640);
     runs.at(1).write(&mut host.context(), 0);

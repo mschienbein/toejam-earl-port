@@ -5,10 +5,12 @@
 //! perturbations; neither a LocalFrame nor an address list alone is approval.
 
 pub(crate) mod journal;
+mod zero_dma;
 pub use journal::DependentRead;
+pub use zero_dma::{DmaSourceSummary, ZeroDmaRoot};
 
 use crate::{
-    Host, HostError, Result, StackReadSite,
+    Host, HostError, Mode, Result, StackReadSite,
     abi::{OrderedWrite, canonical_ram_address},
     catalogue::{STACK_BOTTOM, STACK_TOP},
     exits,
@@ -24,8 +26,9 @@ use tje_game::{FunctionId, call_frame::FrameLayout, ids};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct DependentProofConfig {
     pub seed: u64,
-    /// Additional coupled seeded assignments, besides every byte's four boundary
-    /// probes. Values below 16 are rejected before any entry executes.
+    /// Coupled seeded assignments in addition to the source kind's boundary
+    /// probes: individual bytes for frames, collective fills for zero DMA.
+    /// Values below 16 are rejected before any entry executes.
     pub seeded_probes: u16,
 }
 impl Default for DependentProofConfig {
@@ -67,17 +70,34 @@ pub struct CompiledProducer {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum DependentSource {
+    FrameResidual {
+        frame: FrameLayout,
+        ranges: &'static [FrameByteRange],
+        producer: CompiledProducer,
+    },
+    /// Exact original zero-encoded RAM-to-VRAM data plane, not a generic RAM
+    /// span. The whole historical RAM producer state remains an obligation.
+    ZeroEncodedWorkRamDma {
+        frame: FrameLayout,
+        root: ZeroDmaRoot,
+        producer_cohort: &'static str,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct DependentContract {
     pub function: FunctionId,
-    pub frame: FrameLayout,
-    pub ranges: &'static [FrameByteRange],
-    pub producer: CompiledProducer,
-    pub source: &'static str,
+    pub source: DependentSource,
+    pub evidence: &'static str,
 }
 impl DependentContract {
-    fn permits(self, entry_sp: u32, address: u32) -> bool {
+    fn permits_frame_byte(self, entry_sp: u32, address: u32) -> bool {
+        let DependentSource::FrameResidual { ranges, .. } = self.source else {
+            return false;
+        };
         let base = canonical_ram_address(entry_sp);
-        self.ranges.iter().any(|range| {
+        ranges.iter().any(|range| {
             let start = i64::from(base) + i64::from(range.entry_sp_offset);
             let end = start + i64::from(range.bytes);
             range.bytes != 0
@@ -88,30 +108,62 @@ impl DependentContract {
     }
 }
 
-/// Source-reviewed eligibility only. Explicit per-registry activation and an
-/// actual successful sensitivity proof are both still required for every entry.
-pub static REVIEWED_CONTRACTS: &[DependentContract] = &[DependentContract {
-    function: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
-    frame: FrameLayout::link(12, 0x7c, 0x1c),
-    ranges: &[FrameByteRange {
-        entry_sp_offset: -12,
-        bytes: 8,
-    }],
-    producer: CompiledProducer {
-        function: ids::SET_EARTHLING_STATE,
-        caller: ids::AI_GENERIC_ENEMY_THINK,
-        caller_frame: FrameLayout::link(4, 0x7c, 0x3c),
-        frame: FrameLayout::movem(0, 0x0c, 0x1c),
-        entry_sp_delta: 8,
-        source: "G c_generic_enemy.s:550-555 and c_spawning_and_banks.s:975-976; same steady SP, two versus four argument slots",
+/// Source-reviewed eligibility only, never automatic activation or proof of
+/// replacement composition. DMA whole-RAM inputs require their entire producer
+/// history, not merely preservation of the immediate call's save area.
+pub static REVIEWED_CONTRACTS: &[DependentContract] = &[
+    DependentContract {
+        function: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+        source: DependentSource::FrameResidual {
+            frame: FrameLayout::link(12, 0x7c, 0x1c),
+            ranges: &[FrameByteRange {
+                entry_sp_offset: -12,
+                bytes: 8,
+            }],
+            producer: CompiledProducer {
+                function: ids::SET_EARTHLING_STATE,
+                caller: ids::AI_GENERIC_ENEMY_THINK,
+                caller_frame: FrameLayout::link(4, 0x7c, 0x3c),
+                frame: FrameLayout::movem(0, 0x0c, 0x1c),
+                entry_sp_delta: 8,
+                source: "G c_generic_enemy.s:550-555 and c_spawning_and_banks.s:975-976; same steady SP, two versus four argument slots",
+            },
+        },
+        evidence: "G src/earthlings/targeting.c:18-122; c_targeting.s LINK #-12 and selected delta words -8/-6/-4/-2(A6)",
     },
-    source: "G src/earthlings/targeting.c:18-122; c_targeting.s LINK #-12 and selected delta words -8/-6/-4/-2(A6)",
-}];
+    DependentContract {
+        function: ids::DMA_COPY_WORDS_TO_VRAM,
+        source: DependentSource::ZeroEncodedWorkRamDma {
+            frame: FrameLayout::movem(0, 0x1c, 0),
+            root: ZeroDmaRoot::Platform,
+            producer_cohort: "All historical work-RAM producers must be preserved, or entry state must come from the exact cycle engine; immediate MOVEM preservation alone is insufficient.",
+        },
+        evidence: "G src/asm/dma.s:15-75; low sixteen count bits zero means 65,536 source words, with original VDP 128-KiB raw-bank wrapping.",
+    },
+    DependentContract {
+        function: ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+        source: DependentSource::ZeroEncodedWorkRamDma {
+            frame: FrameLayout::movem(0, 0x1c, 0x04),
+            root: ZeroDmaRoot::QueuedSpriteGraphics,
+            producer_cohort: "All historical work-RAM producers must be preserved, or entry state must come from the exact cycle engine; the Upload/DMA frame cohort alone is insufficient.",
+        },
+        evidence: "G src/sprites/load_sprites.c:8-31 and c_load_sprites.s:4-68; tiles_only excludes the nonzero table prefix; byte queue bound and every narrowed run count must encode zero.",
+    },
+];
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ProofSetting {
     pub contract: &'static DependentContract,
     pub config: DependentProofConfig,
+}
+
+impl ProofSetting {
+    pub(crate) fn captures_all_dma(self) -> bool {
+        matches!(
+            self.contract.source,
+            DependentSource::ZeroEncodedWorkRamDma { .. }
+        )
+    }
 }
 
 impl HookRegistry {
@@ -165,9 +217,14 @@ pub struct DependentEvidence {
     pub rust_runs_completed: u64,
     pub seeded_probes_completed: u64,
     pub byte_probes_completed: u64,
+    pub collective_dma_probes_completed: u64,
+    pub last_dma_dependent_byte_count: usize,
+    pub last_dma_source: Option<DmaSourceSummary>,
     pub probe_pairs_matched: u64,
     pub sensitive_probe_pairs: u64,
+    /// Exact small frame-source sites; zero DMA reports bounded cardinality instead.
     pub dependent_bytes: BTreeSet<u32>,
+    /// Small frame-source trace only. Full DMA values remain in the internal journal.
     pub last_read_trace: Vec<DependentRead>,
 }
 impl DependentEvidence {
@@ -180,6 +237,9 @@ impl DependentEvidence {
         self.rust_runs_completed += other.rust_runs_completed;
         self.seeded_probes_completed += other.seeded_probes_completed;
         self.byte_probes_completed += other.byte_probes_completed;
+        self.collective_dma_probes_completed += other.collective_dma_probes_completed;
+        self.last_dma_dependent_byte_count = other.last_dma_dependent_byte_count;
+        self.last_dma_source = other.last_dma_source;
         self.probe_pairs_matched += other.probe_pairs_matched;
         self.sensitive_probe_pairs += other.sensitive_probe_pairs;
         self.dependent_bytes.extend(other.dependent_bytes);
@@ -256,11 +316,17 @@ struct Baselines<'a> {
 enum Probe {
     Seeded(u16),
     Byte { address: u32, value: u8 },
+    DmaFill(u8),
 }
 fn perturb(emulator: &mut GenesisEmulator, addresses: &[u32], probe: Probe, seed: u64) {
     let memory = &mut emulator.hybrid_bus_mut().memory;
     match probe {
         Probe::Byte { address, value } => memory.write_main_ram_byte(address, value),
+        Probe::DmaFill(value) => {
+            for &address in addresses {
+                memory.write_main_ram_byte(address, value);
+            }
+        }
         Probe::Seeded(index) => {
             let mut state = seed.wrapping_add(u64::from(index).wrapping_mul(0x9e37_79b9_7f4a_7c15));
             for &address in addresses {
@@ -298,6 +364,39 @@ fn compare_reads(
 }
 
 impl Host {
+    /// Activate a reviewed proof scope after natural check coverage and before
+    /// fixture seeding. Only settings change; prior coverage/failures and every
+    /// CPU/device/clock byte are retained. Restricted DMA markers never auto-skip
+    /// a later nonzero transfer.
+    pub fn enable_dependent_equivalence(
+        &mut self,
+        roots: &[FunctionId],
+        config: DependentProofConfig,
+    ) -> Result<()> {
+        if self.mode != Mode::Check {
+            return Err(HostError::Metadata(
+                "live dependent-proof activation requires check mode".into(),
+            ));
+        }
+        self.registry.enable_dependent_equivalence(roots, config)
+    }
+
+    pub(super) fn resolve_dependent_source(
+        &mut self,
+        hook: &Hook,
+    ) -> Result<Option<zero_dma::ZeroDmaPlan>> {
+        let Some(setting) = hook.dependent_proof else {
+            return Ok(None);
+        };
+        setting.config.validate()?;
+        match setting.contract.source {
+            DependentSource::FrameResidual { .. } => Ok(None),
+            DependentSource::ZeroEncodedWorkRamDma { root, .. } => {
+                root.resolve(self, hook).map(Some)
+            }
+        }
+    }
+
     pub(super) fn check_dependent_equivalence(
         &mut self,
         original: &mut GenesisEmulator,
@@ -305,6 +404,7 @@ impl Host {
         original_run: &CheckRun,
         translated_run: &CheckRun,
         hook: &Hook,
+        dma_plan: Option<zero_dma::ZeroDmaPlan>,
     ) -> std::result::Result<u64, String> {
         let setting = hook.dependent_proof.expect("marked hook");
         let mut evidence = DependentEvidence {
@@ -322,6 +422,7 @@ impl Host {
             hook,
             &mut evidence,
             &mut sites,
+            dma_plan,
         );
         if result.is_err() {
             evidence.calls_rejected += 1;
@@ -352,6 +453,7 @@ impl Host {
         hook: &Hook,
         evidence: &mut DependentEvidence,
         sites: &mut BTreeSet<crate::abi::UninitializedStackRead>,
+        dma_plan: Option<zero_dma::ZeroDmaPlan>,
     ) -> std::result::Result<u64, String> {
         let setting = hook.dependent_proof.expect("marked hook");
         setting
@@ -362,8 +464,10 @@ impl Host {
             .map_err(|error| error.to_string())?;
         let sp = entry.sp;
         let frame_sp = hook.dependent_frame_sp(sp);
-        let original_reads = DerivedReads::derive(&baseline.original_run.audit, sp);
-        let translated_reads = DerivedReads::derive(&baseline.translated_run.audit, sp);
+        let original_reads =
+            DerivedReads::derive_with_sites(&baseline.original_run.audit, sp, dma_plan.is_none());
+        let translated_reads =
+            DerivedReads::derive_with_sites(&baseline.translated_run.audit, sp, dma_plan.is_none());
         sites.extend(
             original_reads
                 .sites
@@ -376,6 +480,17 @@ impl Host {
             .union(&translated_reads.bytes)
             .copied()
             .collect();
+        if let Some(plan) = dma_plan {
+            evidence.last_dma_dependent_byte_count = bytes.len();
+            plan.reject_feedback(baseline.original, &baseline.original_run.audit)?;
+            plan.reject_feedback(baseline.translated, &baseline.translated_run.audit)?;
+            plan.compare(
+                &baseline.original_run.audit,
+                &baseline.translated_run.audit,
+                &bytes,
+            )?;
+            evidence.last_dma_source = Some(plan.summary());
+        }
         let mut baseline_dead = None;
         if bytes.is_empty() {
             evidence.calls_without_residual_reads += 1;
@@ -392,15 +507,22 @@ impl Host {
         }
         let mut sensitive = false;
         loop {
-            evidence.dependent_bytes.extend(&bytes);
+            if dma_plan.is_some() {
+                evidence.last_dma_dependent_byte_count = bytes.len();
+            } else {
+                evidence.dependent_bytes.extend(&bytes);
+            }
             for &address in &bytes {
-                if !setting.contract.permits(frame_sp, address) {
+                if dma_plan.is_none() && !setting.contract.permits_frame_byte(frame_sp, address) {
                     return Err(format!(
                         "dependent residual byte {address:06X} is outside the reviewed source frame ranges"
                     ));
                 }
             }
-            evidence.last_read_trace = compare_reads(&original_reads, &translated_reads, &bytes)?;
+            if dma_plan.is_none() {
+                evidence.last_read_trace =
+                    compare_reads(&original_reads, &translated_reads, &bytes)?;
+            }
             if baseline_dead.is_none() {
                 let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
                 baseline_dead = Some(compare_outputs(
@@ -416,9 +538,16 @@ impl Host {
             let addresses: Vec<_> = bytes.iter().copied().collect();
             let seeded = usize::from(setting.config.seeded_probes);
             let mut grew = false;
-            for index in 0..seeded + 4 * addresses.len() {
+            let boundary_probes = if dma_plan.is_some() {
+                4
+            } else {
+                4 * addresses.len()
+            };
+            for index in 0..seeded + boundary_probes {
                 let probe = if index < seeded {
                     Probe::Seeded(index as u16)
+                } else if dma_plan.is_some() {
+                    Probe::DmaFill([0x00, 0xff, 0x7f, 0x80][index - seeded])
                 } else {
                     let byte_index = index - seeded;
                     Probe::Byte {
@@ -455,9 +584,16 @@ impl Host {
                 match probe {
                     Probe::Seeded(_) => evidence.seeded_probes_completed += 1,
                     Probe::Byte { .. } => evidence.byte_probes_completed += 1,
+                    Probe::DmaFill(_) => evidence.collective_dma_probes_completed += 1,
                 }
-                let a = DerivedReads::derive(&original_run.audit, sp);
-                let b = DerivedReads::derive(&rust_run.audit, sp);
+                if let Some(plan) = dma_plan {
+                    plan.reject_feedback(&original, &original_run.audit)?;
+                    plan.reject_feedback(&rust, &rust_run.audit)?;
+                    plan.compare(&original_run.audit, &rust_run.audit, &bytes)?;
+                }
+                let a =
+                    DerivedReads::derive_with_sites(&original_run.audit, sp, dma_plan.is_none());
+                let b = DerivedReads::derive_with_sites(&rust_run.audit, sp, dma_plan.is_none());
                 sites.extend(a.sites.iter().chain(&b.sites).copied());
                 let previous = bytes.len();
                 bytes.extend(a.bytes.iter().chain(&b.bytes));
@@ -465,7 +601,9 @@ impl Host {
                     grew = true;
                     break;
                 }
-                compare_reads(&a, &b, &bytes)?;
+                if dma_plan.is_none() {
+                    compare_reads(&a, &b, &bytes)?;
+                }
                 let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
                 compare_outputs(
                     &mut original,

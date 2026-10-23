@@ -82,7 +82,20 @@ impl Host {
         }
         let calls_before = self.checks.calls;
         let mismatches_before = self.checks.mismatches;
-        if let Err(error) = self.check_hook(hook) {
+        // The retained global report can be from a prior fixture of this same
+        // function/frame. Only a report produced by this attempt belongs to its
+        // failure; retain the prior report globally if this attempt has none.
+        let previous_vdp_mismatch = self.checks.last_vdp_mismatch.take();
+        let result = self.check_hook(hook);
+        let vdp_mismatch = if result.is_err() {
+            self.checks.last_vdp_mismatch.clone()
+        } else {
+            None
+        };
+        if self.checks.last_vdp_mismatch.is_none() {
+            self.checks.last_vdp_mismatch = previous_vdp_mismatch;
+        }
+        if let Err(error) = result {
             // Side-execution/metadata errors may happen before comparison and
             // before its counters. Count this failed attempt exactly once too.
             if self.checks.calls == calls_before {
@@ -97,12 +110,6 @@ impl Host {
             let detail = error.to_string();
             let trace_index = trace_index(&detail);
             let (detail, detail_truncated) = bounded_detail(detail);
-            let vdp_mismatch = self
-                .checks
-                .last_vdp_mismatch
-                .as_ref()
-                .filter(|report| report.frame == self.frame && report.function == hook.symbol.name)
-                .cloned();
             self.checks.failures.push(CheckFailure {
                 frame: self.frame,
                 function: hook.symbol.name.to_owned(),

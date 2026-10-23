@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     CheckReport, Mode,
-    abi::{AtomicRun, HookContext},
+    abi::{HookContext, StackAuditState},
     fixture::tests::synthetic_host,
     hooks::HookFn,
     input::InputScript,
@@ -27,20 +27,22 @@ const PROGRAM: &[u16] = &[
 ];
 static SYNTHETIC: DependentContract = DependentContract {
     function: ids::GET_RANDOM_NUMBER,
-    frame: FrameLayout::link(4, 0, 0),
-    ranges: &[FrameByteRange {
-        entry_sp_offset: -6,
-        bytes: 2,
-    }],
-    producer: CompiledProducer {
-        function: ids::GET_RANDOM_NUMBER,
-        caller: ids::GET_RANDOM_NUMBER,
-        caller_frame: FrameLayout::link(4, 0, 0),
+    source: DependentSource::FrameResidual {
         frame: FrameLayout::link(4, 0, 0),
-        entry_sp_delta: 0,
-        source: "authored ROM-free frame input",
+        ranges: &[FrameByteRange {
+            entry_sp_offset: -6,
+            bytes: 2,
+        }],
+        producer: CompiledProducer {
+            function: ids::GET_RANDOM_NUMBER,
+            caller: ids::GET_RANDOM_NUMBER,
+            caller_frame: FrameLayout::link(4, 0, 0),
+            frame: FrameLayout::link(4, 0, 0),
+            entry_sp_delta: 0,
+            source: "authored ROM-free frame input",
+        },
     },
-    source: "authored LINK #-4; semantic word at -2(A6)",
+    evidence: "authored LINK #-4; semantic word at -2(A6)",
 };
 
 #[derive(Clone, Copy)]
@@ -255,13 +257,14 @@ fn native_bus_widths_feed_stack_and_outer_timed_ram_journals_once() {
     let mut context = host
         .context()
         .with_execution(ExecutionClass::TimeAware, Default::default());
-    context.enable_stack_audit();
-    context.enable_dependent_read_journal();
+    let stack = StackAuditState::new(context.cpu().stack_pointer(), true);
+    let audit = stack.empty_run();
+    context.enable_stack_audit(stack, audit);
     context.write_u32(0xff7fe0, 0x1234_5678);
     assert_eq!(Bus::read_u32(&context, 0xff7fe0), 0x1234_5678);
     {
-        let journal = context.stack_reads.borrow();
-        let reads = journal.as_ref().unwrap();
+        let audit = context.audit.borrow();
+        let reads = audit.stack_reads.as_ref().unwrap();
         assert_eq!(reads.len(), 2);
         assert_eq!(
             reads
@@ -378,43 +381,68 @@ fn activation_is_reviewed_explicit_atomic_and_preserved_for_continuations() {
 #[test]
 fn journal_derives_each_side_before_write_and_keeps_purposes_and_raw_aliases() {
     let address = 0xff7fe0;
-    let mut audit = AtomicRun {
-        stack_reads: Some(Vec::new()),
-        ..AtomicRun::default()
+    let mut state = StackAuditState::new(0xff7ff0, true);
+    let mut audit = state.empty_run();
+    let read = |address, purpose, value| genesis_core::HybridAccess::Read {
+        address,
+        word: true,
+        purpose,
+        value,
     };
-    let reads = audit.stack_reads.as_mut().unwrap();
-    reads.push(JournalRead::new(1, address, true, ReadPurpose::Prefetch, 0x1234, 0).unwrap());
-    reads.push(JournalRead::new(2, address, true, ReadPurpose::Semantic, 0x1234, 0).unwrap());
-    reads.push(JournalRead::new(3, address, true, ReadPurpose::Discarded, 0x1234, 0).unwrap());
-    audit.writes.push(OrderedWrite::Ram { address, value: 1 });
-    reads.push(JournalRead::new(4, address, true, ReadPurpose::Semantic, 0x0134, 1).unwrap());
-    let derived = DerivedReads::derive(&audit, 0xff7ff0);
+    for (pc, purpose) in [
+        (1, ReadPurpose::Prefetch),
+        (2, ReadPurpose::Semantic),
+        (3, ReadPurpose::Discarded),
+    ] {
+        state.observe(pc, read(address, purpose, 0x1234), &mut audit);
+    }
+    state.observe(
+        4,
+        genesis_core::HybridAccess::Write {
+            address,
+            word: false,
+            value: 1,
+        },
+        &mut audit,
+    );
+    state.observe(4, read(address, ReadPurpose::Semantic, 0x0134), &mut audit);
+    let derived = DerivedReads::derive_with_sites(&audit, 0xff7ff0, true);
     assert_eq!(derived.bytes, BTreeSet::from([address, address + 1]));
     let trace = derived.trace(&derived.bytes);
     assert_eq!(
         trace.iter().map(|read| read.purpose).collect::<Vec<_>>(),
         ["prefetch", "semantic", "discarded", "semantic"]
     );
-    let mirror = JournalRead::new(1, 0xef7fe0, true, ReadPurpose::Semantic, 0x1234, 0).unwrap();
+    let mirror = JournalRead::new(1, read(0xef7fe0, ReadPurpose::Semantic, 0x1234), 3).unwrap();
     assert_eq!(mirror.read.canonical_address, address);
     assert_ne!(mirror.read.raw_address, address);
     let dependent_bytes = derived.bytes.clone();
     drop(derived);
-    // Same-side interleaving is replayed, not compared as a numeric index.
-    audit.writes.push(OrderedWrite::Ram {
-        address: address + 1,
-        value: 2,
-    });
-    audit
-        .stack_reads
-        .as_mut()
-        .unwrap()
-        .push(JournalRead::new(5, address, true, ReadPurpose::Semantic, 0x0102, 2).unwrap());
+    // Later CPU and DMA reads remain in the dependent trace after both bytes
+    // have been initialized; only candidate classification uses the read mask.
+    state.observe(
+        5,
+        genesis_core::HybridAccess::Write {
+            address: address + 1,
+            word: false,
+            value: 2,
+        },
+        &mut audit,
+    );
+    state.observe(5, read(address, ReadPurpose::Semantic, 0x0102), &mut audit);
+    state.observe(
+        6,
+        genesis_core::HybridAccess::DmaRead {
+            address,
+            value: 0x0102,
+        },
+        &mut audit,
+    );
     assert_eq!(
-        DerivedReads::derive(&audit, 0xff7ff0)
+        DerivedReads::derive_with_sites(&audit, 0xff7ff0, true)
             .trace(&dependent_bytes)
             .len(),
-        5
+        6
     );
 }
 
@@ -670,7 +698,9 @@ fn nearest_target_tracks_real_producer_in_both_revisions() {
             host.context().cpu().set_data_registers(registers);
             {
                 let mut context = host.context();
-                context.enable_stack_audit();
+                let stack = StackAuditState::new(context.cpu().stack_pointer(), false);
+                let audit = stack.empty_run();
+                context.enable_stack_audit(stack, audit);
                 context
                     .call_original(
                         ids::SET_EARTHLING_STATE.metadata().address(revision),
@@ -685,7 +715,7 @@ fn nearest_target_tracks_real_producer_in_both_revisions() {
                     (steady_sp - 26, 0xcd),
                     (steady_sp - 25, 0xef),
                 ] {
-                    assert!(context.writes.iter().any(|write| matches!(write, OrderedWrite::Ram { address: a, value: v } if *a == address && *v == value)));
+                    assert!(context.audit.borrow().writes.iter().any(|write| matches!(write, OrderedWrite::Ram { address: a, value: v } if *a == address && *v == value)));
                 }
             }
             host.context().write_u16(STORED, 0xcdef);

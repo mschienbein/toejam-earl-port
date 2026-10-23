@@ -6,8 +6,7 @@
 
 use crate::{
     HostError, Result,
-    abi::{AtomicRun, OrderedWrite, UninitializedStackRead, canonical_ram_address},
-    catalogue::{STACK_BOTTOM, STACK_TOP},
+    abi::canonical_ram_address,
     check_projection::{LogicEvent, LogicTrace, tight_ym_busy_loop},
     input::InputScript,
     sinks::{HeadlessAudio, HeadlessOutput, Inputs, NoCartridgeSaves},
@@ -16,7 +15,7 @@ use genesis_config::GenesisInputs;
 use genesis_core::{GenesisEmulator, HybridAccess};
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use m68000_emu::BusInterface;
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 use tje_game::execution::{WaitCondition, WaitRequest};
 
 /// Random-access input timeline: identical forks request the same video-frame
@@ -233,8 +232,12 @@ fn drain_accesses(
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
         for access in accesses.drain(..) {
             run.accesses.push((pc, access));
-            run.logic_trace
-                .access(pc, master_clock, access, ym_busy_loop);
+            // VDP source reads belong to the root dependency journal. They are
+            // not CPU/ISR operand reads and must not enter the IRQ projection.
+            if !matches!(access, HybridAccess::DmaRead { .. }) {
+                run.logic_trace
+                    .access(pc, master_clock, access, ym_busy_loop);
+            }
         }
     }
 }
@@ -433,7 +436,7 @@ pub(crate) fn run_original_timed(
     clock: &mut WaitClock,
     return_pc: u32,
     return_sp: u32,
-) -> Result<(AtomicRun, ClockRun)> {
+) -> Result<ClockRun> {
     run_original_timed_with_audio(emulator, clock, return_pc, return_sp, Vec::new(), true)
 }
 
@@ -444,7 +447,7 @@ pub(crate) fn run_original_timed_with_audio(
     return_sp: u32,
     samples: Vec<[f64; 2]>,
     audit: bool,
-) -> Result<(AtomicRun, ClockRun)> {
+) -> Result<ClockRun> {
     run_original_timed_until_with_audio(
         emulator,
         clock,
@@ -458,7 +461,7 @@ pub(crate) fn run_original_timed_until(
     emulator: &mut GenesisEmulator,
     clock: &mut WaitClock,
     boundary: crate::exits::ReferenceBoundary,
-) -> Result<(AtomicRun, ClockRun)> {
+) -> Result<ClockRun> {
     run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true)
 }
 
@@ -468,13 +471,12 @@ pub(crate) fn run_original_timed_until_with_audio(
     boundary: crate::exits::ReferenceBoundary,
     samples: Vec<[f64; 2]>,
     audit: bool,
-) -> Result<(AtomicRun, ClockRun)> {
+) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
             "timed execution cannot use functional devices".into(),
         ));
     }
-    let entry_sp = emulator.hybrid_cpu().stack_pointer();
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
         audit.then(Vec::new),
@@ -524,88 +526,13 @@ pub(crate) fn run_original_timed_until_with_audio(
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
     run.audio = audio.samples;
     result?;
-    let audit = if audit {
-        audit_accesses(&run.accesses, entry_sp)
-    } else {
-        AtomicRun::default()
-    };
-    Ok((audit, run))
-}
-
-pub(crate) fn audit_accesses(accesses: &[(u32, HybridAccess)], entry_sp: u32) -> AtomicRun {
-    let mut initialized = [0_u64; 512];
-    let mut reads = BTreeSet::new();
-    let mut writes = Vec::new();
-    for &(pc, access) in accesses {
-        let (address, word, value, writing) = match access {
-            HybridAccess::Read { purpose, .. } if purpose != m68000_emu::ReadPurpose::Semantic => {
-                continue;
-            }
-            HybridAccess::Read {
-                address,
-                word,
-                value,
-                ..
-            } => (address, word, value, false),
-            HybridAccess::Write {
-                address,
-                word,
-                value,
-            } => (address, word, value, true),
-        };
-        if address >= 0xe00000 {
-            for offset in 0..if word { 2 } else { 1 } {
-                let physical = canonical_ram_address(address + offset);
-                if (STACK_BOTTOM..canonical_ram_address(entry_sp).min(STACK_TOP))
-                    .contains(&physical)
-                {
-                    let index = (physical - STACK_BOTTOM) as usize;
-                    let bit = 1_u64 << (index % 64);
-                    if writing {
-                        initialized[index / 64] |= bit;
-                    } else if initialized[index / 64] & bit == 0 {
-                        reads.insert(UninitializedStackRead {
-                            pc,
-                            address: physical,
-                        });
-                    }
-                }
-                if writing {
-                    let byte = if word && offset == 0 {
-                        (value >> 8) as u8
-                    } else {
-                        value as u8
-                    };
-                    writes.push(OrderedWrite::Ram {
-                        address: physical,
-                        value: byte,
-                    });
-                }
-            }
-        } else if writing {
-            writes.push(if word {
-                OrderedWrite::DeviceWord { address, value }
-            } else {
-                OrderedWrite::DeviceByte {
-                    address,
-                    value: value as u8,
-                }
-            });
-        }
-    }
-    AtomicRun {
-        instructions: 0,
-        cycles: 0,
-        uninitialized_reads: reads,
-        writes,
-        stack_reads: None,
-    }
+    Ok(run)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abi::set_sp;
+    use crate::abi::{StackAuditState, UninitializedStackRead, set_sp};
     use genesis_config::GenesisEmulatorConfig;
     use genesis_core::GenesisBus;
     use jgenesis_common::frontend::{PartialClone, TimingMode};
@@ -854,7 +781,11 @@ mod tests {
                 },
             ),
         ];
-        let audit = audit_accesses(&accesses, 0xff7ffc);
+        let mut state = StackAuditState::new(0xff7ffc, false);
+        let mut audit = state.empty_run();
+        for (pc, access) in accesses {
+            state.observe(pc, access, &mut audit);
+        }
         assert_eq!(audit.uninitialized_reads.len(), 2);
         assert!(audit.uninitialized_reads.contains(&UninitializedStackRead {
             pc: 0x100,
@@ -1260,7 +1191,7 @@ mod tests {
         let pc = emulator.hybrid_cpu().pc();
         let sp = emulator.hybrid_cpu().stack_pointer();
         let before_d7 = emulator.hybrid_cpu().data_registers()[7];
-        let (_, run) = run_original_timed(&mut emulator, &mut clock, pc, sp).unwrap();
+        let run = run_original_timed(&mut emulator, &mut clock, pc, sp).unwrap();
         assert_eq!(accepted_vectors(&run), [30, 28]);
         assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
         assert_eq!(
@@ -1439,6 +1370,57 @@ mod tests {
         assert_ne!(
             aborted.hybrid_bus().vdp.hybrid_memories().0,
             joined.hybrid_bus().vdp.hybrid_memories().0,
+        );
+    }
+
+    #[test]
+    fn dma_reads_at_the_wait_checkpoint_are_not_parking_prefetch_or_isr_operands() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        emulator.hybrid_bus_mut().hybrid_cpu_accesses = Some(vec![
+            HybridAccess::DmaRead {
+                address: 0xff0000,
+                value: 0x60fe,
+            },
+            HybridAccess::Read {
+                address: PARK_PC,
+                word: true,
+                value: 0x60fe,
+                purpose: m68000_emu::ReadPurpose::Prefetch,
+            },
+            HybridAccess::DmaRead {
+                address: 0xff1000,
+                value: 0x1234,
+            },
+        ]);
+        let mut run = ClockRun::default();
+        drain_accesses(&mut emulator, PARK_PC, 0, false, &mut run);
+        assert_eq!(run.accesses.len(), 3);
+        assert!(matches!(
+            run.logic_trace.events.as_slice(),
+            [LogicEvent::Access {
+                access: HybridAccess::Read {
+                    purpose: m68000_emu::ReadPurpose::Prefetch,
+                    ..
+                },
+                ..
+            }]
+        ));
+        let mut state = StackAuditState::new(0xff7ffc, true);
+        let mut audit = state.empty_run();
+        for (pc, access) in run.accesses {
+            state.observe(pc, access, &mut audit);
+        }
+        assert_eq!(audit.uninitialized_reads.len(), 4);
+        assert!(
+            audit
+                .stack_reads
+                .unwrap()
+                .iter()
+                .all(|read| { read.pc == PARK_PC && read.read.origin == "vdp_dma" })
         );
     }
 }

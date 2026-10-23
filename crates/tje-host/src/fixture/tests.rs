@@ -956,6 +956,56 @@ fn continue_original_counts_every_failure_and_never_retries_a_partial_frame() {
 }
 
 #[test]
+fn same_root_early_error_does_not_reuse_a_previous_fixture_vdp_diagnostic() {
+    fn early_error(_: &mut HookContext<'_>) -> Result<Option<u32>> {
+        Err(HostError::Metadata(
+            "authored same-root attempt failure".into(),
+        ))
+    }
+    let address = 0xfff000;
+    let mut host = failure_policy_host(Mode::Check);
+    let error = host.check_fixture(address, &[]).unwrap_err();
+    assert!(error.to_string().contains("VDP state differs"), "{error}");
+    let previous = serde_json::to_value(&host.checks.last_vdp_mismatch).unwrap();
+    assert_eq!(previous["function"], "WrongVdpRoot");
+    assert_eq!(previous["frame"], host.frame);
+
+    let symbol = (*host.registry.at(address).unwrap().symbol).clone();
+    let mut registry = HookRegistry::empty(host.revision);
+    registry
+        .register_contract(symbol, true, early_error)
+        .unwrap();
+    host.registry = registry;
+    host.set_check_failure_policy(crate::CheckFailurePolicy::ContinueOriginal)
+        .unwrap();
+    let sp = catalogue::STACK_TOP - 4;
+    host.context().write_u32(sp, crate::abi::CALL_SENTINEL);
+    let (cpu, bus) = host.emulator.hybrid_parts();
+    crate::abi::set_sp(cpu, sp);
+    cpu.set_pc(address, bus);
+    let hook = host.registry.at(address).unwrap().clone();
+    host.check_live_hook(&hook).unwrap();
+
+    assert_eq!(host.checks.calls, 2);
+    assert_eq!(host.checks.mismatches, 2);
+    assert_eq!(host.checks.failures.len(), 1);
+    let failure = &host.checks.failures[0];
+    assert_eq!(failure.function, "WrongVdpRoot");
+    assert_eq!(failure.frame, host.frame);
+    assert!(
+        failure
+            .detail
+            .contains("authored same-root attempt failure")
+    );
+    assert!(failure.vdp_mismatch.is_none());
+    assert_eq!(
+        serde_json::to_value(&host.checks.last_vdp_mismatch).unwrap(),
+        previous,
+        "the most recent genuine VDP diagnostic remains globally retained"
+    );
+}
+
+#[test]
 fn fail_fast_remains_the_default_and_only_check_mode_can_opt_in() {
     let mut host = failure_policy_host(Mode::Check);
     let error = host.run_frame(GenesisInputs::default()).unwrap_err();

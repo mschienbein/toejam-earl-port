@@ -216,8 +216,9 @@ source-backed masks; do not insert fabricated ROM reads to mimic prefetch bits.
 
 Differences in dead stack bytes below entry SP are counted, not silently reported
 as exact RAM equivalence. Every **semantic** read-before-write in either body is
-audited, including mirrored RAM, typed Bus views, the immediate hardware facade
-and nested original callees. The checker independently replays the audited side
+audited, including mirrored RAM, typed Bus views, the immediate hardware facade,
+nested original callees, and VDP work-RAM DMA source reads. The checker
+independently replays the audited side
 with those bytes perturbed; only unchanged contract outputs discharge the read
 as informational (see section 6). A real dependency or failed replay still fails
 closed. Checked Rust writes mark bytes initialized. Reading a spill left by an
@@ -254,6 +255,9 @@ and errors from the live original tick retain their existing fail-fast behavior.
 `CheckReport::failures` retains one bounded item per disabled root, including
 function/entry PC, frame/master clock, live-frame write position, a trace ordinal
 when the comparison names one, error detail and any field-level VDP evidence.
+Only VDP evidence emitted by that failed attempt is attached. An older fixture's
+diagnostic remains globally available as `last_vdp_mismatch`, but is never reused
+for a later early error merely because the function and frame match.
 Details are capped at 4096 UTF-8 bytes plus a truncation marker; raw device/RAM
 traces are not embedded. Retaining the items in the report, rather than draining
 them, preserves earlier failures even if later original execution errors.
@@ -563,11 +567,23 @@ correlated changes from hiding dependencies such as `old_a - old_b`. If a replay
 exposes more unwritten bytes, their union is probed before approval.
 
 Nested atomic originals borrow the suspended root's entry-SP boundary and
-initialized-byte bitmap, processing reads and writes in instruction order.
+initialized-byte bitmap. CPU reads, VDP work-RAM DMA source reads and RAM stores
+are processed in actual read/**commit** order, not CPU write-issue order.
 Incoming callee arguments can still be unwritten caller locals; moving below a
-new callee SP does not make them safe. Real callee source PCs are retained, and
-a later write never retroactively initializes an earlier read. Clocked originals
-merge their complete ordered accesses through the same root scope.
+new callee SP does not make them safe. Real callee read PCs are retained. DMA
+sites use the surrounding execution checkpoint, explicitly identified as
+`vdp_dma` origin in the dependent-read journal, not an invented CPU instruction.
+A queued or later store never retroactively initializes an earlier CPU/DMA read.
+Clocked originals and waits merge through the same root scope. The observer
+starts before Functional entry normalization and remains active through
+TimeAware endpoint normalization while the fork still owns its ROM.
+
+DMA-only consumers therefore close the same omitted-producer hole as CPU
+loads: an earlier replacement's missing store cannot escape because only DMA
+observes it. A zero encoded length copies 65,536 words; a RAM source then
+observes the whole physical work RAM, including dead stack. That is a genuine
+input dependency, not informational independence or an address waiver. The
+frame-local dependent descriptor does not authorize an arbitrary DMA source.
 
 Each replay uses the same hook, dispatcher, execution class, input timeline,
 clock entry and stack-audit initialization as that side's baseline. It compares
@@ -599,6 +615,13 @@ correct stores pass with original/Rust callees, omitted stores and
 read-before-later-write fail in Atomic/TimeAware roots, and genuinely unused
 eager argument loads remain informational rather than false dependencies.
 
+The default ROM-free `stack_dependency::dma_tests` execute CR-01's authored
+producer/consumer in both revision configurations and Functional/TimeAware
+classes. They retain the Reference/Replace VRAM divergence, reject the omitted
+producer and read-before-later-store cases, accept direct/original-callee
+initialization controls, cover CPU write issue → DMA old-value read → RAM commit,
+and assert both sides' endpoint-normalization reads remain in the root audit.
+
 ### Opt-in equivalence for genuinely dependent residuals
 
 A source-backed frame does not by itself discharge a real dependence. Such a
@@ -613,8 +636,10 @@ registry.enable_dependent_equivalence(
 ```
 
 Every named root must already be registered and have a descriptor in
-`dependent_equivalence::REVIEWED_CONTRACTS`: its FunctionId, cited FrameLayout,
-bounded entry-SP-relative residual ranges, and compiled producer/caller frames.
+`dependent_equivalence::REVIEWED_CONTRACTS`. `DependentSource::FrameResidual`
+names its cited FrameLayout, bounded entry-SP-relative residual ranges and
+compiled producer/caller frames. The separate DMA-only source kind below does
+not invent a frame producer or an arbitrary RAM range.
 Empty roots enable nothing. Fewer than 16 seeded probes are rejected before
 execution. Continuation hooks preserve the same descriptor/configuration.
 This marker neither registers an unproven translation nor authorizes another ID,
@@ -622,18 +647,20 @@ address, branch, producer or missing frame.
 
 The mode requires the original and Rust to perform the same residual reads,
 through actual emulated stack RAM: exact ordered raw 24-bit **and** canonical
-addresses, bus width, ReadPurpose and value. A long read is two ordered words,
-not four artificial byte accesses. An opt-in journal records physical-stack
-reads and their preceding-write counts; each side replays its own writes to
-identify bytes read before initialization. Nested originals and real waits
-append to the same root journal. The write-count indices are not compared across
-languages. Discarded/prefetch-only reads do not establish dependence, but their
-accesses to a genuinely dependent byte retain their actual purpose in the
-compared trace. Extra semantic residual bytes expand the probe union, and any
-byte outside the reviewed ranges fails closed.
+addresses, CPU/VDP-DMA origin, bus width, ReadPurpose and value. A long read is
+two ordered words, not four artificial byte accesses. The opt-in journal records
+physical-stack CPU reads and work-RAM DMA reads with each byte's uninitialized
+mask classified by the root bitmap at the actual read. It never reconstructs
+initialization from instruction-issue write counts. Nested originals, real waits
+and endpoint normalization append to the same root journal. Every subsequent
+read of a dependent byte remains in the compared trace, including reads after
+initialization and discarded/prefetch accesses; their masks only classify
+candidates. Extra semantic residual bytes expand the probe union, and any byte
+outside the reviewed ranges fails closed.
 
-Fresh coupled original/Rust forks receive at least 16 deterministic seeded
-assignments and, separately, `00`, `ff`, `7f` and `80` for **each** dependent byte.
+Frame-residual coupled original/Rust forks receive at least 16 deterministic
+seeded assignments and, separately, `00`, `ff`, `7f` and `80` for **each**
+dependent byte (16 + 4N with the default configuration).
 The entire expanded union is reprobed if another path exposes more bytes. Each
 pair must match standard check-mode outputs and ordered device/RAM-at-device
 obligations, the full RAM write/value **multiset including dead stack**, and
@@ -649,7 +676,7 @@ SR, RAM and writes provide that evidence. Merely changing the perturbed input
 bytes themselves is not output sensitivity. No zeroing, cached value, constant
 or original/Rust agreement on just the baseline can substitute for this proof.
 
-Successful genuine reads are recorded separately in `dependent_stack_reads`
+Successful genuine frame reads are recorded separately in `dependent_stack_reads`
 and `dependent_equivalence`; they never become informational
 `nondependent_stack_reads`. Evidence counts actual completed seeded/byte probe
 pairs and side executions, matched pairs and original-sensitive pairs, including
@@ -669,6 +696,91 @@ writes, with source-backed frames/callsites and a joint original/Rust sequence
 proof. A legacy producer that elides its MOVEM save area is not discharged by
 the consumer tracking arbitrary old bytes correctly. Keep the consumer pending
 until that producer/caller cohort is migrated and proven.
+
+### Zero-encoded whole-work-RAM DMA source proofs
+
+`DependentSource::ZeroEncodedWorkRamDma` is a closed, DMA-only source contract for
+`DmaCopyWordsToVram` and `UploadQueuedSpriteGraphics`, under frozen **Functional**
+execution only. It is not an address waiver and admits no arbitrary nonzero
+source/count spans. The platform root requires zero low sixteen count bits and
+an even-masked work-RAM source. The upload root requires `tiles_only != 0`, at
+least one actual queued run, and every narrowed `(run << 4)` word count zero;
+the byte-sized queue bound and original unchecked odd-bound behavior are retained.
+The nonzero sprite-table prefix, empty/no-DMA paths and mixed/nonzero queues are
+outside this contract. An explicit marker rejects such a later call; it never
+silently falls back to an unmarked check.
+
+Every admitted run performs exactly **65,536 word reads**. Raw source addresses
+wrap in the original 128-KiB bank, so the canonical 64-KiB work RAM is traversed
+twice. A source iterator validates **every** actual DMA word, including raw and
+canonical address, origin, width, purpose, value and order; extra, missing,
+wrong-alias or ROM-source beats fail even when both sides agree with each other.
+All CPU/DMA accesses to the genuine dependent union remain in the same exact
+ordered comparison, including initialized reads after stores.
+
+Genuine CPU residual reads/control, CPU/device feedback, IRQ/time progress and
+other execution classes leave this contract and fail closed. Its static data
+plane is immutable original ROM control plus the same observable DMA port
+program, destination and auto-increment state on both sides; source data flows
+only through the shared VDP copy/masking/overwrite model, not through CPU
+branches or ALU decisions. The reference and Rust contribute the DMA register
+setup; the transfer itself is executed by the same device model.
+
+For this specific data plane Main approved a **different finite probe policy**:
+at least 16 independently seeded assignments plus four **collective**
+`00`/`ff`/`7f`/`80` fills, each applied to every dead source byte simultaneously.
+Exact full source-sequence equality establishes byte sensitivity through the
+shared transfer model. Actual original output sensitivity, full RAM write/value
+footprints, full SR/CCR and existing ordered device obligations are still required.
+This is not a formal universal proof or the frame mode's independent per-byte
+policy. Frame mode remains unchanged at 16 + 4N; evidence reports
+`collective_dma_probes_completed` separately from `byte_probes_completed`, plus
+the exact source words/transfers per execution.
+
+Zero-DMA evidence is deliberately bounded: `last_dma_source` contains matched
+word/transfer counts, first/last raw addresses and bank sizes, and
+`last_dma_dependent_byte_count` records the dependency cardinality. It does not
+copy source values or 65,536 events into serialized `last_read_trace`, nor emit
+whole-RAM site/address lists. Exact full journals remain internal to every
+comparison; the small frame-source trace and default CR-01 findings are unchanged.
+
+Natural coverage can be recorded without a marker, then the restricted proof
+scope enabled explicitly on the same host **after settling and before seeds**:
+
+```rust,ignore
+use tje_game::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS;
+host.settle_fixture_boundary(script.at(host.frame_count()))?;
+host.enable_dependent_equivalence(
+    &[UPLOAD_QUEUED_SPRITE_GRAPHICS],
+    DependentProofConfig::default(),
+)?;
+// Only now seed the labelled zero-count fixture and call check_fixture.
+```
+
+The live delegate requires Check mode, validates the whole request before changing
+settings, preserves all prior counts/failures, and changes no CPU, device or clock
+state. Prior unmarked natural calls are not backfilled as dependent proofs.
+The all-source DMA observer is opt-in on these check forks only; it retains ROM
+beats for full-sequence rejection, starts before Functional normalization and
+remains active through endpoint normalization. Its flag and chronological trace
+are restored on success and error. Ordinary checks/play retain their existing
+work-RAM-only observer and device behavior.
+
+**Whole historical producer invariant:** these transfers intentionally observe
+all old work-RAM bytes, not merely the Upload/DMA frame or a single named
+producer's saves. A coupled consumer proof cannot establish readable-native
+composition unless the entire observed historical producer state is preserved
+or entry state is supplied by the exact cycle engine. No narrower immediate-frame
+claim, automatic production activation or global memory exception follows.
+
+The ROM-free tests retain CR-01's omitted-store rejection in both revision
+configurations and Functional/TimeAware classes, and prove that the zero-only
+marker refuses its nonzero consumer. They also reject source/value/order/origin,
+alias, missing/extra and ROM-beat mutants, and lock observer restoration and
+no-CPU-residual/feedback controls. The ignored `zero_dma_sources` integration suite
+replays both production roots against an independent reference for 10,000 frames
+in each revision, keeps the authors' ordinary fixtures, then proves the marked
+zero case and rejects a nonzero attempt with no backfilled coverage.
 
 ## 7. Exceptions, terminal entries and persistent control flow
 
