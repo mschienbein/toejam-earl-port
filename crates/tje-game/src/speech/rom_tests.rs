@@ -177,6 +177,13 @@ fn ship_speech_live_session_and_fixtures_both_revisions() {
         assert!(checked.measurements.game_frame.is_some());
         let mut natural = serde_json::to_value(&checked.checks).unwrap();
         natural["whole_session_reference_equal_frames"] = serde_json::json!(10_000);
+        let boundary = checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
+        natural["fixture_boundary"] = serde_json::json!({
+            "ticks": boundary.ticks, "start_frame": boundary.start_frame,
+            "end_frame": boundary.end_frame, "handlers_completed": boundary.handlers_completed,
+        });
         fixtures(&mut checked, &natural);
         for id in [
             ids::GENERATE_SPEECH,
@@ -216,7 +223,10 @@ fn prepare_fixture_irqs(host: &mut Host) {
     // sequencer/controller service. Neither mode is described as natural play.
     let revision = host.revision();
     let mut c = host.context();
-    ram::g_mode2_reg_softcopy(revision).write(&mut c, 0x40);
+    // Keep DMA/register writes coherent with the real shadow, including VBI
+    // enable; a later DMA must not accidentally disable the next VBlank.
+    let mode = ram::g_mode2_reg_softcopy(revision).read(&c) | 0x60;
+    ram::g_mode2_reg_softcopy(revision).write(&mut c, mode);
     ram::g_v_blank_func(revision).write(&mut c, Ptr::new(0));
     ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
     ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
@@ -228,7 +238,7 @@ fn prepare_fixture_irqs(host: &mut Host) {
     ram::g_sprite_graphics_upload_pending(revision).write(&mut c, 0);
     let sr = c.status_register() & !0x0700;
     c.set_status_register(sr);
-    c.write_vdp_control(0x8164);
+    c.write_vdp_control(0x8104 | u16::from(mode));
 }
 
 fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
@@ -320,6 +330,24 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                 ram::g_ship_screen_state(revision)
                     .background_frame()
                     .write(&mut c, 1);
+                ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+                ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
+                drop(c);
+                check(
+                    host,
+                    &[if id == ids::ANIMATE_TRANSITION_BACKGROUND {
+                        20
+                    } else {
+                        0
+                    }],
+                )?;
+            }
+            for previous_frame in [0, 2, -128] {
+                let mut c = host.context();
+                ram::g_ship_background_animation_timer(revision).write(&mut c, 1);
+                ram::g_ship_screen_state(revision)
+                    .background_frame()
+                    .write(&mut c, previous_frame);
                 ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
                 ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
                 drop(c);
@@ -449,6 +477,7 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
         }
         ids::START_DIALOGUE => {
             prepare_fixture_irqs(host);
+            let mut queued_cases = 0;
             for dialogue in 0..58 {
                 for speaker in [0, 1, 6] {
                     let mut c = host.context();
@@ -457,6 +486,14 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                             .at(slot)
                             .write(&mut c, 0);
                     }
+                    for player in 0..2 {
+                        let actor = ram::g_player_info(revision).at(player);
+                        actor.sprite_state().write(&mut c, 0);
+                        actor.draw_flags().write(&mut c, 3);
+                        ram::g_player_lives(revision).at(player).write(&mut c, 1);
+                    }
+                    ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+                    ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
                     ram::g_player_inventory_open(revision)
                         .at(0)
                         .write(&mut c, 0);
@@ -465,8 +502,37 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                         .write(&mut c, 0);
                     drop(c);
                     check(host, &[dialogue, speaker])?;
+                    queued_cases += usize::from(queued_speech(host));
                 }
             }
+            assert!(queued_cases > 0, "awake first-line allocation must execute");
+            println!("DIALOGUE_QUEUED {:?} cases={queued_cases}", revision);
+            // The first-line path must also execute with a real upload wait;
+            // original GenerateSpeech remains the production fallback here.
+            let mut c = host.context();
+            ram::g_v_blank_graphics_enabled(revision).write(&mut c, 1);
+            ram::g_v_blank_graphics_paused(revision).write(&mut c, 0);
+            ram::g_inventory_redraw_phase(revision).write(&mut c, 0);
+            ram::g_terrain_priority_update_pending(revision).write(&mut c, 0);
+            ram::g_sprite_graphics_upload_pending(revision).write(&mut c, 1);
+            ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+            ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
+            for slot in 0..2 {
+                ram::g_delayed_speech_reply_timers(revision)
+                    .at(slot)
+                    .write(&mut c, 0);
+            }
+            assert_ne!(
+                rom::dialogue_descriptors(revision)
+                    .at(0)
+                    .first_line()
+                    .read(&c)
+                    .address(),
+                0
+            );
+            drop(c);
+            check(host, &[0, 0])?;
+            assert!(queued_speech(host), "real-wait dialogue must enqueue text");
         }
         ids::UPDATE_SPEECH_AND_DIALOGUE => {
             prepare_fixture_irqs(host);
@@ -612,6 +678,9 @@ fn ship_speech_live_state_candidates_both_revisions() {
             host.run_frame(script.at(frame)).unwrap();
         }
         assert!(host.measurements.game_frame.is_some());
+        let boundary = host
+            .settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         for name in selected.split(',') {
             let id = tje_game::functions()
                 .find(|function| function.name == name)
@@ -624,7 +693,13 @@ fn ship_speech_live_state_candidates_both_revisions() {
         }
         save(
             &host,
-            &serde_json::json!({"kind":"reference-to-gameplay-then-labeled-live-state-fixtures"}),
+            &serde_json::json!({
+                "kind":"reference-to-gameplay-then-labeled-live-state-fixtures",
+                "fixture_boundary": {
+                    "ticks": boundary.ticks, "start_frame": boundary.start_frame,
+                    "end_frame": boundary.end_frame, "handlers_completed": boundary.handlers_completed,
+                },
+            }),
         );
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -665,4 +740,24 @@ fn prepare_speech_tick(host: &mut Host, residual: u32) {
         object.x().write(&mut c, 0);
         object.y().write(&mut c, 0);
     }
+}
+
+fn queued_speech(host: &Host) -> bool {
+    use genesis_core::HybridAccess;
+    use tje_host::check_projection::LogicEvent;
+    let Some(observation) = &host.checks.last_time_aware else {
+        return false;
+    };
+    let count = ram::g_sprite_tile_upload_queue_word_count(host.revision()).address();
+    let queued = |events: &[LogicEvent]| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                LogicEvent::Access {
+                    access: HybridAccess::Write { address, word: false, value }, ..
+                } if *address == count && *value == 2
+            )
+        })
+    };
+    queued(&observation.original) && queued(&observation.translated)
 }

@@ -49,14 +49,14 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 ];
 
 pub static PENDING: &[crate::FunctionId] = &[
-    // Actual pending-upload IRQ fixture passes at frame 2000 in both revisions
-    // but fails REV 02 frame 10000's device-write trace. No phase waiver.
+    // Strict owned Z80 mailbox read A0004A differs (FF/04) during the real
+    // upload-wait IRQ at frame 10000; no mailbox value/count waiver applies.
     ids::GENERATE_SPEECH,
-    // All 174 descriptor cases pass at frame 2000; IRQ writes differ at frame 10000.
+    // Awake/allocating dialogue rejects the same strict Z80 mailbox operand.
     ids::START_DIALOGUE,
-    // Both revisions pass source-driven logic fixtures. A REV 02 natural
-    // session fails at frame 2437 with a device-write trace difference; no
-    // timing equivalence is claimed or status/IRQ comparison relaxed.
+    // Strict VDP mismatch at REV 02 frame 7353: the original accepts IRQ4
+    // immediately before RTS; the zero-time no-speech Rust path does not.
+    // Needs a TimeAware return split/clock contract, not an IRQ or VDP mask.
     ids::UPDATE_SPEECH_AND_DIALOGUE,
 ];
 

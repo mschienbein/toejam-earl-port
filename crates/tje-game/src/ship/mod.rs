@@ -39,6 +39,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::RESTORE_GAMEPLAY_GRAPHICS,
         function: restore_gameplay_graphics,
     },
+    crate::Translation {
+        id: ids::ANIMATE_TRANSITION_BACKGROUND,
+        function: animate_transition_background,
+    },
 ];
 
 /// Complete bodies awaiting their explicitly reviewed check-mode proofs.
@@ -47,10 +51,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
         function: animate_ship_screen_background,
-    },
-    crate::Translation {
-        id: ids::ANIMATE_TRANSITION_BACKGROUND,
-        function: animate_transition_background,
     },
     crate::Translation {
         id: ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
@@ -89,8 +89,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 pub static PENDING: &[crate::FunctionId] = &[
     // Real-clock counter-only proof differs by one IRQ frame in both revisions.
     ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
-    // All 256 bytes pass at frame 2000; real audio IRQ writes differ at frame 10000.
-    ids::ANIMATE_TRANSITION_BACKGROUND,
     // The original plane fill consumes eight additional IRQ frames at frame 2000.
     ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
     // The original's fixed 1,000,000-tick check bound expires before 90 frames.
