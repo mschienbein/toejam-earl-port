@@ -96,38 +96,61 @@ pub fn get_player_input(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
     for player in 0..2 {
         let entity = ram::g_player_info(revision).at(player);
         let input = ram::g_player_processed_input(revision).at(player);
+        context.set_data_register(0, player as u32);
+        context.set_data_register(1, player as u32);
+        context.set_address_register(
+            0,
+            ram::g_player_previous_processed_input(revision).address(),
+        );
         let previous = input.read(context);
         ram::g_player_previous_processed_input(revision)
             .at(player)
             .write(context, previous);
+        context.set_address_register(0, ram::g_player_lives(revision).address());
         if ram::g_player_lives(revision).at(player).read(context) >= 0 {
             let mapped = call(context, ids::READ_MAPPED_PLAYER_INPUT, &[player as u32])?;
             input.write(context, mapped as u8);
-            if entity.animation_group_mask().read(context) & 0x00020000 != 0
-                || matches!(entity.sprite_state().read(context), 79 | 78 | 5 | 6)
-            {
+            let reaction = entity.animation_group_mask().read(context) & 0x00020000;
+            context.set_data_register(0, reaction);
+            if reaction != 0 || matches!(entity.sprite_state().read(context), 79 | 78 | 5 | 6) {
+                context.set_data_register(0, player as u32);
                 let masked = input.read(context) & 0x80;
                 input.write(context, masked);
             }
         } else {
+            context.set_data_register(0, player as u32);
             input.write(context, 0);
         }
-        let mask = if entity.animation_group_mask().read(context) & 0x20000000 != 0 {
-            Some(0x8f)
-        } else if entity.animation_group_mask().read(context) & 0x60 != 0 {
-            Some(0xcf)
-        } else if entity.animation_group_mask().read(context) & 0x07800000 != 0
-            || entity.sprite_state().read(context) == 2
-        {
-            Some(0xef)
-        } else {
-            None
-        };
-        if let Some(mask) = mask {
-            let masked = input.read(context) & mask;
+        let stationary = entity.animation_group_mask().read(context) & 0x20000000;
+        context.set_data_register(0, stationary);
+        if stationary != 0 {
+            context.set_data_register(0, player as u32);
+            let masked = input.read(context) & 0x8f;
             input.write(context, masked);
+        } else {
+            let falling = entity.animation_group_mask().read(context) & 0x60;
+            context.set_data_register(1, 0x60);
+            context.set_data_register(0, falling);
+            if falling != 0 {
+                context.set_data_register(0, player as u32);
+                let masked = input.read(context) & 0xcf;
+                input.write(context, masked);
+            } else {
+                let skates = entity.animation_group_mask().read(context) & 0x07800000;
+                context.set_data_register(0, skates);
+                if skates != 0 || entity.sprite_state().read(context) == 2 {
+                    context.set_data_register(0, player as u32);
+                    let masked = input.read(context) & 0xef;
+                    input.write(context, masked);
+                }
+            }
         }
     }
+    // Final ADDQ.W makes the local two, then CMPI.W #1 leaves NZVC clear.
+    // The addition also clears X; MOVEM and RTS preserve those flags. These
+    // emitted scratch outputs survive into FurtherInitialisation's typed exit.
+    let status = context.status_register() & !0x001f;
+    context.set_status_register(status);
     Ok(None)
 }
 

@@ -81,6 +81,18 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
         function: wait_for_next_vblank,
     },
+    crate::Translation {
+        id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+        function: views::reload_active_camera_views,
+    },
+    crate::Translation {
+        id: crate::ids::CHECK_START_BUTTON,
+        function: input::check_start_button,
+    },
+    crate::Translation {
+        id: crate::ids::PROCESS_INPUT,
+        function: input::process_input,
+    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
@@ -161,15 +173,14 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Complete caller bodies await both-revision natural/live-state proof,
-    // including any original-call frame or IRQ-observed timing blocker.
-    crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+    // Real display-on paths observe different IRQ placement/frame counts
+    // with zero-time translated work; quiet finite fixtures are not a waiver.
     crate::ids::ENTER_SPLIT_SCREEN,
     crate::ids::ENTER_SHARED_SCREEN,
     crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
     crate::ids::UPDATE_SCREEN_SPLIT_MODE,
-    crate::ids::CHECK_START_BUTTON,
-    crate::ids::PROCESS_INPUT,
+    // The ISR root has no nested Enter marker for the YM-busy projection;
+    // its natural frame-17 raw A04002 read differs (0 versus 128).
     crate::ids::HANDLE_V_BLANK,
     // Source-backed non-RTS initialization and all continuation bodies await
     // prepared-entry/stage proof, never an invented RTS or fixed RNG policy.
@@ -178,10 +189,6 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Unregistered bodies retained for explicit proof harnesses.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
-        function: views::reload_active_camera_views,
-    },
     crate::Translation {
         id: crate::ids::ENTER_SPLIT_SCREEN,
         function: views::enter_split_screen,
@@ -197,14 +204,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::UPDATE_SCREEN_SPLIT_MODE,
         function: views::update_screen_split_mode,
-    },
-    crate::Translation {
-        id: crate::ids::CHECK_START_BUTTON,
-        function: input::check_start_button,
-    },
-    crate::Translation {
-        id: crate::ids::PROCESS_INPUT,
-        function: input::process_input,
     },
     crate::Translation {
         id: crate::ids::HANDLE_V_BLANK,

@@ -13,6 +13,7 @@ use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Platform, Ptr, Revision, ram};
 
 const ROOTS: &[FunctionId] = &[
+    ids::GET_PLAYER_INPUT,
     ids::RELOAD_ACTIVE_CAMERA_VIEWS,
     ids::WAIT_FOR_NEXT_V_BLANK,
     ids::ENTER_SPLIT_SCREEN,
@@ -108,7 +109,7 @@ fn quiet_music(host: &mut Host) {
     tje_game::Platform::write_z80_bus_request(&mut c, 0x100);
 }
 
-fn attempt(
+fn check_one(
     host: &mut Host,
     rows: &mut Vec<serde_json::Value>,
     id: FunctionId,
@@ -121,9 +122,18 @@ fn attempt(
     rows.push(serde_json::json!({"function":id.metadata().name,"coverage_source":"live-state fixture","label":label,"entry_pc":entry,"arguments":arguments,"ok":result.is_ok(),"error":result.err().map(|error|error.to_string())}));
 }
 
-fn fixtures(host: &mut Host) -> Vec<serde_json::Value> {
+fn fixtures(host: &mut Host, selected: &[FunctionId]) -> Vec<serde_json::Value> {
     let revision = host.revision();
     let mut rows = Vec::new();
+    let attempt = |host: &mut Host,
+                   rows: &mut Vec<serde_json::Value>,
+                   id: FunctionId,
+                   label: &str,
+                   arguments: &[u32]| {
+        if selected.contains(&id) {
+            check_one(host, rows, id, label, arguments);
+        }
+    };
     quiet(host);
     attempt(
         host,
@@ -488,7 +498,6 @@ fn main() {
             }
         } else {
             assert_eq!(arguments[3], "fixtures");
-            assert_eq!(arguments[4], "all");
             let mut host = Host::new(&bytes, Mode::Reference, registry(revision, None)).unwrap();
             let script = Arc::new(InputScript::parse(game).unwrap());
             host.set_wait_input_poller(script.clone());
@@ -499,10 +508,26 @@ fn main() {
             let advance = host
                 .settle_fixture_boundary(script.at(host.frame_count()))
                 .unwrap();
-            let rows = fixtures(&mut host);
-            let ok = rows.iter().all(|row| row["ok"] == true);
+            let rows = fixtures(&mut host, &selected);
+            let ok = !rows.is_empty() && rows.iter().all(|row| row["ok"] == true);
             passed &= ok;
-            fs::write(output.join(format!("batch2-fixtures-{file}.json")), serde_json::to_string_pretty(&serde_json::json!({"revision":revision.name(),"frames":frames,"settling_ticks":advance.ticks,"settling_master_clocks":advance.master_clocks,"coverage_source":"labeled live-state fixtures after standard gameplay and original settling","attempts":rows,"checks":host.checks,"measurements":host.measurements})).unwrap()).unwrap();
+            let settling_frames = advance.completed_frames.iter().map(|frame| {
+                serde_json::json!({
+                    "frame":frame.frame,"frame_counter":frame.frame_counter,"pc":frame.pc,
+                    "ram":frame.ram.as_ref(),
+                    "vdp":{"vram":frame.vdp.vram.as_ref(),"cram":frame.vdp.cram.as_ref(),
+                        "vsram":frame.vdp.vsram.as_ref(),"registers":frame.vdp.registers},
+                    "writes":frame.writes,"idle_random_draws":frame.idle_random_draws,
+                    "lag_events":frame.lag_events,
+                    "audio_sample_bits":frame.audio_samples.iter()
+                        .map(|sample| [sample[0].to_bits(),sample[1].to_bits()]).collect::<Vec<_>>(),
+                })
+            }).collect::<Vec<_>>();
+            let settling = serde_json::json!({"start_pc":advance.start_pc,
+                "end_pc":advance.end_pc,"start_frame":advance.start_frame,"end_frame":advance.end_frame,
+                "ticks":advance.ticks,"master_clocks":advance.master_clocks,
+                "handlers_completed":advance.handlers_completed,"completed_frames":settling_frames});
+            fs::write(output.join(format!("batch2-fixtures-{}-{file}.json", arguments[4])), serde_json::to_string_pretty(&serde_json::json!({"revision":revision.name(),"frames":frames,"settling":settling,"coverage_source":"labeled live-state fixtures after standard gameplay and original settling","attempts":rows,"checks":host.checks,"measurements":host.measurements})).unwrap()).unwrap();
             println!(
                 "{} caller fixtures {file}",
                 if ok { "COMPLETED" } else { "BLOCKED" }

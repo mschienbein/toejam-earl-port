@@ -1,6 +1,7 @@
 use super::remaining::*;
 use super::test_support::{TestContext, Write};
 use super::wait_for_next_vblank;
+use crate::Context;
 use tje_mem::{Revision, ram, rom};
 
 #[test]
@@ -42,6 +43,7 @@ fn input_masks_keep_previous_values_and_group_precedence() {
             (0, 2, true, 0xef),
             (0x20000060, 2, true, 0x8f),
             (0, 0, false, 0),
+            (0x20000000, 0, false, 0),
         ] {
             let mut context = TestContext::new(revision);
             ram::g_controller1_raw_input(revision).write(&mut context, 0xff);
@@ -57,7 +59,28 @@ fn input_masks_keep_previous_values_and_group_precedence() {
                     .at(player)
                     .write(&mut context, 0x55);
             }
+            context.set_data_register(0, 0xdeadbeef);
+            context.set_data_register(1, 0xdeadbeef);
+            context.set_data_register(2, 0x12345678);
+            context.set_address_register(0, 0xff9000);
+            context.set_address_register(1, 0xff9010);
+            context.set_status_register(0x271f);
             get_player_input(&mut context, &[]).unwrap();
+            let masks_input = group & (0x20000000 | 0x60 | 0x07800000) != 0 || state == 2;
+            assert_eq!(context.data_register(0), u32::from(masks_input));
+            let d1 = if group & 0x20000000 != 0 {
+                if alive { 0xff } else { 1 }
+            } else {
+                0x60
+            };
+            assert_eq!(context.data_register(1), d1);
+            assert_eq!(context.data_register(2), 0x12345678);
+            assert_eq!(
+                context.address_register(0),
+                ram::g_player_lives(revision).address()
+            );
+            assert_eq!(context.address_register(1), 0xff9010);
+            assert_eq!(context.status_register(), 0x2700);
             for player in 0..2 {
                 assert_eq!(
                     ram::g_player_processed_input(revision)

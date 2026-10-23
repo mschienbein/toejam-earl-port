@@ -122,14 +122,18 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
 
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[FunctionId] = &[
-    // Complete TimeAware callers await both-revision proof and any required
-    // source-backed caller-frame migration or IRQ timing decision.
+    // Natural callbacks observe different real Z80 mailbox A0004A reads;
+    // these main-thread operands are not erased by the ISR-busy projection.
     ids::JAM_OUT_V_BLANK,
     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
+    // Display-on layout paths change real ISR placement / frame counts.
+    // Passing display-off fixtures do not waive those natural failures.
     ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
     ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
     ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
     ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
+    // The whole 51-update modal scene exceeds the host's finite timed-call
+    // ceiling in the recorded fixture, before a completed root comparison.
     ids::START_JAM_OUT,
 ];
 
