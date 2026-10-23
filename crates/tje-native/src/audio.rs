@@ -17,7 +17,7 @@ struct Counters {
     failed: AtomicBool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct AudioStats {
     pub callbacks: u64,
     pub frames: u64,
@@ -28,7 +28,7 @@ pub struct AudioStats {
     pub queued: usize,
 }
 
-pub struct Audio {
+struct StreamAudio {
     _stream: cpal::Stream,
     queue: Arc<ArrayQueue<[f32; 2]>>,
     counters: Arc<Counters>,
@@ -37,15 +37,23 @@ pub struct Audio {
     pub sample_rate: u32,
 }
 
-impl Audio {
-    pub fn new(volume: f32) -> Result<Self> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .context("no audio output device")?;
-        let supported = device
+impl StreamAudio {
+    fn new(device: &cpal::Device, volume: f32) -> Result<Self> {
+        let mut supported = device
             .default_output_config()
             .context("default audio output format")?;
+        if !(8_000..=192_000).contains(&supported.sample_rate().0) {
+            supported = device
+                .supported_output_configs()?
+                .find_map(|range| {
+                    let low = range.min_sample_rate().0.max(8_000);
+                    let high = range.max_sample_rate().0.min(192_000);
+                    (low <= high).then(|| {
+                        range.with_sample_rate(cpal::SampleRate(48_000_u32.clamp(low, high)))
+                    })
+                })
+                .context("audio device has no supported 8..192 kHz PCM format")?;
+        }
         let mut config: cpal::StreamConfig = supported.clone().into();
         // Request a short callback where supported. WASAPI uses its default
         // shared-mode buffer; ALSA's supported range is clamped to 256 frames.
@@ -68,22 +76,21 @@ impl Audio {
             last: [0.0; 2],
         };
         let stream = match supported.sample_format() {
-            cpal::SampleFormat::F32 => build::<f32>(&device, &config, output),
-            cpal::SampleFormat::F64 => build::<f64>(&device, &config, output),
-            cpal::SampleFormat::I8 => build::<i8>(&device, &config, output),
-            cpal::SampleFormat::I16 => build::<i16>(&device, &config, output),
-            cpal::SampleFormat::I32 => build::<i32>(&device, &config, output),
-            cpal::SampleFormat::I64 => build::<i64>(&device, &config, output),
-            cpal::SampleFormat::U8 => build::<u8>(&device, &config, output),
-            cpal::SampleFormat::U16 => build::<u16>(&device, &config, output),
-            cpal::SampleFormat::U32 => build::<u32>(&device, &config, output),
-            cpal::SampleFormat::U64 => build::<u64>(&device, &config, output),
+            cpal::SampleFormat::F32 => build::<f32>(device, &config, output),
+            cpal::SampleFormat::F64 => build::<f64>(device, &config, output),
+            cpal::SampleFormat::I8 => build::<i8>(device, &config, output),
+            cpal::SampleFormat::I16 => build::<i16>(device, &config, output),
+            cpal::SampleFormat::I32 => build::<i32>(device, &config, output),
+            cpal::SampleFormat::I64 => build::<i64>(device, &config, output),
+            cpal::SampleFormat::U8 => build::<u8>(device, &config, output),
+            cpal::SampleFormat::U16 => build::<u16>(device, &config, output),
+            cpal::SampleFormat::U32 => build::<u32>(device, &config, output),
+            cpal::SampleFormat::U64 => build::<u64>(device, &config, output),
             other => bail!("unsupported audio sample format: {other:?}"),
         }?;
         stream.play().context("start audio output")?;
         println!(
-            "AUDIO host={:?} device={} rate={sample_rate} channels={} buffer={:?} prebuffer_ms=40 capacity_ms=125 format={:?}",
-            host.id(),
+            "AUDIO device={} rate={sample_rate} channels={} buffer={:?} prebuffer_ms=40 capacity_ms=125 format={:?}",
             device.name().unwrap_or_default(),
             config.channels,
             config.buffer_size,
@@ -127,11 +134,8 @@ impl Audio {
         while self.queue.pop().is_some() {}
     }
 
-    pub fn check(&self) -> Result<()> {
-        if self.counters.failed.load(Ordering::Relaxed) {
-            bail!("audio device stream failed");
-        }
-        Ok(())
+    fn failed(&self) -> bool {
+        self.counters.failed.load(Ordering::Relaxed)
     }
 
     pub fn stats(&self) -> AudioStats {
@@ -144,6 +148,221 @@ impl Audio {
             peak: f32::from_bits(self.counters.peak_bits.load(Ordering::Relaxed)),
             queued: self.queue.len(),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Fingerprint {
+    name: String,
+    rate: u32,
+    channels: u16,
+    format: cpal::SampleFormat,
+}
+
+impl Fingerprint {
+    fn read(device: &cpal::Device) -> Result<Self> {
+        let config = device.default_output_config()?;
+        Ok(Self {
+            name: device.name()?,
+            rate: config.sample_rate().0,
+            channels: config.channels(),
+            format: config.sample_format(),
+        })
+    }
+}
+
+fn needs_reopen(
+    previous: Option<&Fingerprint>,
+    current: Option<&Fingerprint>,
+    failed: bool,
+    changed: bool,
+) -> bool {
+    changed || failed || previous != current
+}
+
+/// Device discovery/recovery is confined to the UI thread. The realtime callback
+/// remains allocation-free and never enumerates devices or takes a mutex.
+pub struct Audio {
+    stream: Option<StreamAudio>,
+    device: Option<String>,
+    fingerprint: Option<Fingerprint>,
+    volume: f32,
+    paused: bool,
+    changed: bool,
+    next_probe: std::time::Instant,
+    last_progress: std::time::Instant,
+    seen_callbacks: u64,
+    status: String,
+    accumulated: AudioStats,
+    pub sample_rate: u32,
+}
+
+impl Audio {
+    pub fn new(volume: f32, device: Option<String>) -> Self {
+        let now = std::time::Instant::now();
+        let mut audio = Self {
+            stream: None,
+            device,
+            fingerprint: None,
+            volume,
+            paused: false,
+            changed: true,
+            next_probe: now,
+            last_progress: now,
+            seen_callbacks: 0,
+            status: String::new(),
+            accumulated: AudioStats::default(),
+            sample_rate: 48_000,
+        };
+        audio.maintain(now);
+        audio
+    }
+
+    pub fn devices() -> Result<Vec<String>> {
+        let mut names: Vec<_> = cpal::default_host()
+            .output_devices()?
+            .filter_map(|device| device.name().ok())
+            .collect();
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    pub fn set_device(&mut self, device: Option<String>) {
+        if self.device != device {
+            self.device = device;
+            self.changed = true;
+        }
+    }
+
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+
+    /// Follow the system default or an explicitly selected device. A removed
+    /// output does not terminate the game or discard a controller recording.
+    /// A newly negotiated rate is returned for the backend's audio resampler.
+    pub fn maintain(&mut self, now: std::time::Instant) -> Option<u32> {
+        let callbacks = self.stream.as_ref().map_or(0, |stream| {
+            stream.counters.callbacks.load(Ordering::Relaxed)
+        });
+        if callbacks != self.seen_callbacks {
+            self.seen_callbacks = callbacks;
+            self.last_progress = now;
+        }
+        let stalled = self.stream.is_some()
+            && now.saturating_duration_since(self.last_progress)
+                > std::time::Duration::from_secs(2);
+        let failed = stalled || self.stream.as_ref().is_some_and(StreamAudio::failed);
+        if !self.changed && !failed && now < self.next_probe {
+            return None;
+        }
+        self.next_probe = now + std::time::Duration::from_secs(1);
+        let host = cpal::default_host();
+        let device = (|| -> Result<cpal::Device> {
+            match &self.device {
+                None => host
+                    .default_output_device()
+                    .context("no default audio output is connected"),
+                Some(name) => host
+                    .output_devices()?
+                    .find(|device| device.name().ok().as_ref() == Some(name))
+                    .with_context(|| format!("selected audio output {name:?} is disconnected")),
+            }
+        })();
+        let current = device
+            .as_ref()
+            .ok()
+            .and_then(|device| Fingerprint::read(device).ok());
+        if self.stream.is_some()
+            && !needs_reopen(
+                self.fingerprint.as_ref(),
+                current.as_ref(),
+                failed,
+                self.changed,
+            )
+        {
+            return None;
+        }
+        self.changed = false;
+        if let Some(stream) = self.stream.take() {
+            let stats = stream.stats();
+            self.accumulated.callbacks += stats.callbacks;
+            self.accumulated.frames += stats.frames;
+            self.accumulated.nonzero_frames += stats.nonzero_frames;
+            self.accumulated.underrun_frames += stats.underrun_frames;
+            self.accumulated.overflows += stats.overflows;
+            self.accumulated.peak = self.accumulated.peak.max(stats.peak);
+        }
+        self.fingerprint = current;
+        match device.and_then(|device| StreamAudio::new(&device, self.volume)) {
+            Ok(stream) => {
+                stream.set_paused(self.paused);
+                let rate = stream.sample_rate;
+                let name = self
+                    .fingerprint
+                    .as_ref()
+                    .map_or("output", |device| device.name.as_str());
+                let message = format!("Audio connected: {name} · {rate} Hz");
+                if self.status != message {
+                    println!("{message}");
+                    self.status = message;
+                }
+                self.stream = Some(stream);
+                self.seen_callbacks = 0;
+                self.last_progress = now;
+                let changed_rate = rate != self.sample_rate;
+                self.sample_rate = rate;
+                changed_rate.then_some(rate)
+            }
+            Err(error) => {
+                let message = format!(
+                    "Audio unavailable: {error:#}. Reconnecting automatically; choose another output in Settings."
+                );
+                if self.status != message {
+                    eprintln!("{message}");
+                    self.status = message;
+                }
+                None
+            }
+        }
+    }
+
+    pub fn push(&self, samples: &[[f64; 2]]) {
+        if let Some(stream) = &self.stream {
+            stream.push(samples);
+        }
+    }
+    pub fn flush(&self) {
+        if let Some(stream) = &self.stream {
+            stream.flush();
+        }
+    }
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+        if let Some(stream) = &self.stream {
+            stream.set_paused(paused);
+        }
+    }
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+        if let Some(stream) = &self.stream {
+            stream.set_volume(volume);
+        }
+    }
+    pub fn stats(&self) -> AudioStats {
+        let mut stats = self.accumulated;
+        if let Some(stream) = &self.stream {
+            let current = stream.stats();
+            stats.callbacks += current.callbacks;
+            stats.frames += current.frames;
+            stats.nonzero_frames += current.nonzero_frames;
+            stats.underrun_frames += current.underrun_frames;
+            stats.overflows += current.overflows;
+            stats.peak = stats.peak.max(current.peak);
+            stats.queued = current.queued;
+        }
+        stats
     }
 }
 
@@ -272,5 +491,35 @@ mod tests {
         assert_eq!(output.frame(1.0), [0.0; 2]);
         queue.push([0.5; 2]).unwrap();
         assert!(output.frame(1.0)[0] > 0.0);
+    }
+
+    #[test]
+    fn audio_reopens_for_loss_default_change_rate_change_and_user_selection() {
+        let original = Fingerprint {
+            name: "Output".into(),
+            rate: 48_000,
+            channels: 2,
+            format: cpal::SampleFormat::F32,
+        };
+        assert!(!needs_reopen(
+            Some(&original),
+            Some(&original),
+            false,
+            false
+        ));
+        assert!(needs_reopen(Some(&original), None, false, false));
+        assert!(needs_reopen(None, Some(&original), false, false));
+        assert!(needs_reopen(Some(&original), Some(&original), true, false));
+        assert!(needs_reopen(Some(&original), Some(&original), false, true));
+        let changed = Fingerprint {
+            rate: 44_100,
+            ..original.clone()
+        };
+        assert!(needs_reopen(Some(&original), Some(&changed), false, false));
+        let changed = Fingerprint {
+            name: "New default".into(),
+            ..original.clone()
+        };
+        assert!(needs_reopen(Some(&original), Some(&changed), false, false));
     }
 }

@@ -2,6 +2,7 @@ mod audio;
 mod backend;
 mod config;
 mod input;
+mod overlay;
 mod recording;
 mod video;
 
@@ -11,6 +12,7 @@ use backend::{GameBackend, HybridBackend, VideoFrame};
 use clap::Parser;
 use config::{Filter, Scale, Settings, Storage};
 use input::{Input, InputScript};
+use overlay::{Info, Overlay};
 use recording::Recorder;
 use std::{
     fs,
@@ -23,7 +25,7 @@ use tje_rom::Rom;
 use video::Video;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::LogicalSize,
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
@@ -34,14 +36,15 @@ use winit::{
 #[command(
     name = "toejam-earl",
     about = "Faithful ToeJam & Earl native port. Supply your own cartridge on first launch.",
-    after_help = "First launch: drop your cartridge on the window, or pass --rom PATH.\n\
-Settings and the normalized cartridge live in the OS user-data directory shown at startup.\n\
-Edit config.toml there to change keyboard/gamepad bindings; restart to reload it.\n\n\
+    after_help = "First launch: enter a cartridge path in the window, drop the file, or pass --rom PATH.\n\
+Cartridges and settings use OS data/config directories; both are shown at startup and in Settings.\n\
+Open Settings in the window (F1) to change keyboard/gamepad bindings, output and video settings live.\n\n\
 Keyboard P1: arrows, Z/X/C = A/B/C, Enter = Start.\n\
 Keyboard P2: W/S/A/D, G/H/J = A/B/C, Space = Start.\n\
 Gamepads: D-pad or left stick, west/south/east = A/B/C, Start; connection slots 0/1.\n\
 Hotkeys: Esc pause, F5 hard reset, F11 fullscreen, F6 integer/NTSC fit,\n\
 F7 nearest/linear, F8 vsync, F9 record (hard-resets on start), PageUp/PageDown volume.\n\
+F1 opens in-app settings; settings pause the game without adding recorded frames.\n\
 Recording stops on F9/reset/import/exit and saves controller-only sessions under user data.\n\
 Keyboard script example: {\"holds\":[{\"start\":300,\"end\":308,\"keys\":[\"Enter\"]}]}.\n\
 Intervals are half-open console scheduler ticks; pause still advances the script clock.\n\
@@ -76,6 +79,12 @@ struct Args {
     /// Exit after this many emulated frames, only after presenting the last frame.
     #[arg(long)]
     run_frames: Option<u64>,
+    /// Exit after this many scheduler ticks (including paused/first-launch UI ticks).
+    #[arg(long)]
+    run_ticks: Option<u64>,
+    /// Open in-app settings immediately.
+    #[arg(long)]
+    settings: bool,
     /// Save explicitly requested VDP frames as PNGs here. Never publish game captures.
     #[arg(long)]
     capture_dir: Option<PathBuf>,
@@ -104,6 +113,41 @@ struct App {
     last_stage: &'static str,
     recorder: Recorder,
     revision: Option<tje_rom::Revision>,
+    overlay: Overlay,
+    devices: Vec<String>,
+    focused: bool,
+    effective_paused: bool,
+    applied: LiveSettings,
+    ui_repaint: Instant,
+    preserve_config: bool,
+}
+
+#[derive(Clone, Copy)]
+struct LiveSettings {
+    filter: Filter,
+    vsync: bool,
+    fullscreen: bool,
+    window_scale: u32,
+}
+impl From<&Settings> for LiveSettings {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            filter: settings.filter,
+            vsync: settings.vsync,
+            fullscreen: settings.fullscreen,
+            window_scale: settings.window_scale,
+        }
+    }
+}
+
+fn effective_pause(
+    manual: bool,
+    overlay: bool,
+    focused: bool,
+    pause_on_focus_loss: bool,
+    scripted: bool,
+) -> bool {
+    manual || overlay || (!focused && pause_on_focus_loss && !scripted)
 }
 
 impl App {
@@ -112,8 +156,20 @@ impl App {
             args.run_frames != Some(0),
             "--run-frames must be greater than zero"
         );
+        ensure!(
+            args.run_ticks != Some(0),
+            "--run-ticks must be greater than zero"
+        );
         let storage = Storage::new(args.data_dir.clone())?;
-        let mut settings = storage.load()?;
+        let (mut settings, config_error) = match storage.load() {
+            Ok(settings) => (settings, None),
+            Err(error) => (
+                Settings::default(),
+                Some(format!(
+                    "Could not load settings: {error:#}. The original file is unchanged. Restore defaults or change a setting to save a valid configuration."
+                )),
+            ),
+        };
         if let Some(scale) = args.scale {
             settings.scale = scale;
         }
@@ -136,7 +192,11 @@ impl App {
             settings.volume = volume;
         }
         settings.validate()?;
-        storage.save(&settings)?;
+        let input = Input::new(&settings.gamepad_devices)?;
+        settings.gamepad_devices = input.saved_devices();
+        if config_error.is_none() {
+            storage.save(&settings)?;
+        }
         let script = args
             .input_script
             .as_deref()
@@ -146,16 +206,22 @@ impl App {
             fs::create_dir_all(path)?;
         }
         println!("STORAGE {}", storage.directory.display());
+        println!("CONFIG {}", storage.config_directory.display());
         println!(
             "SETTINGS scale={:?} filter={:?} fullscreen={} vsync={} volume={}",
             settings.scale, settings.filter, settings.fullscreen, settings.vsync, settings.volume
         );
         let now = Instant::now();
+        let applied = LiveSettings::from(&settings);
+        let preserve_config = config_error.is_some();
+        let mut overlay = Overlay::new();
+        overlay.open = args.settings || config_error.is_some();
+        overlay.message = config_error;
         Ok(Self {
             args,
             storage,
             settings,
-            input: Input::new()?,
+            input,
             script,
             changes: Vec::with_capacity(32),
             window: None,
@@ -172,6 +238,13 @@ impl App {
             last_stage: "",
             recorder: Recorder::default(),
             revision: None,
+            overlay,
+            devices: Vec::new(),
+            focused: true,
+            effective_paused: false,
+            applied,
+            ui_repaint: now,
+            preserve_config,
         })
     }
 
@@ -180,11 +253,11 @@ impl App {
             event_loop.create_window(
                 Window::default_attributes()
                     .with_title("ToeJam & Earl — drop your cartridge here, or use --rom PATH")
-                    .with_inner_size(PhysicalSize::new(
+                    .with_inner_size(LogicalSize::new(
                         320 * self.settings.window_scale,
                         224 * self.settings.window_scale,
                     ))
-                    .with_min_inner_size(PhysicalSize::new(160, 112)),
+                    .with_min_inner_size(LogicalSize::new(320, 224)),
             )?,
         );
         if self.settings.fullscreen {
@@ -197,15 +270,26 @@ impl App {
             self.settings.filter,
             self.settings.vsync,
         ))?;
+        self.overlay.initialize(&window);
         self.window = Some(window);
         self.video = Some(video);
+        self.refresh_devices();
         let explicit = self.args.rom.clone();
-        if let Some(path) = explicit {
-            self.import(&path, true)?;
-        } else if self.storage.rom_path().is_file() {
-            self.import(&self.storage.rom_path(), false)?;
+        let candidate = explicit.or_else(|| {
+            self.storage
+                .rom_path()
+                .is_file()
+                .then(|| self.storage.rom_path())
+        });
+        if let Some(path) = candidate {
+            let store = self.args.rom.is_some();
+            if let Err(error) = self.import(&path, store) {
+                self.import_error(error);
+            }
         } else {
-            println!("IMPORT waiting: drop a cartridge on the window, or restart with --rom PATH");
+            println!(
+                "IMPORT waiting: use the in-app path field, drop a cartridge, or pass --rom PATH"
+            );
         }
         self.started = Instant::now();
         self.deadline = self.started;
@@ -218,12 +302,15 @@ impl App {
         let rom = Rom::import(&bytes).context("identify cartridge")?;
         self.stop_recording()?;
         if self.audio.is_none() {
-            self.audio = Some(Audio::new(self.settings.volume)?);
+            self.audio = Some(Audio::new(
+                self.settings.volume,
+                self.settings.audio_device.clone(),
+            ));
         }
-        let audio = self.audio.as_ref().unwrap();
+        let audio = self.audio.as_mut().unwrap();
         let backend = HybridBackend::new(&rom, audio.sample_rate)?;
         if store {
-            fs::write(self.storage.rom_path(), rom.bytes()).context("store imported cartridge")?;
+            self.storage.store_rom(rom.bytes())?;
         }
         println!(
             "IMPORT {} revision={} normalized_bytes={} stored={}",
@@ -234,7 +321,7 @@ impl App {
         );
         println!("CLOCK fps={:.10} source=console", backend.fps());
         audio.flush();
-        audio.set_paused(false);
+        audio.set_paused(self.effective_paused);
         self.backend = Some(Box::new(backend));
         self.revision = Some(rom.revision());
         self.paused = false;
@@ -242,6 +329,7 @@ impl App {
         self.tick = 0;
         self.last_stage = "";
         self.deadline = Instant::now();
+        self.sync_pause();
         self.update_title();
         Ok(())
     }
@@ -251,12 +339,116 @@ impl App {
             && self.backend.is_some()
         {
             window.set_title(&format!(
-                "ToeJam & Earl — {:?} {} · {:?} reset · {:?} fullscreen",
+                "ToeJam & Earl — {:?} settings · {:?} {} · {:?} reset · {:?} fullscreen",
+                self.settings.hotkeys.settings,
                 self.settings.hotkeys.pause,
-                if self.paused { "resume" } else { "pause" },
+                if self.is_paused() { "resume" } else { "pause" },
                 self.settings.hotkeys.reset,
                 self.settings.hotkeys.fullscreen,
             ));
+        }
+    }
+
+    fn is_paused(&self) -> bool {
+        effective_pause(
+            self.paused,
+            self.overlay.open,
+            self.focused,
+            self.settings.pause_on_focus_loss,
+            self.script.is_some(),
+        )
+    }
+
+    fn sync_pause(&mut self) {
+        let paused = self.is_paused();
+        if paused != self.effective_paused {
+            self.effective_paused = paused;
+            if let Some(audio) = &mut self.audio {
+                audio.set_paused(paused);
+            }
+            println!(
+                "PAUSE effective={paused} manual={} focus={} settings={}",
+                self.paused, self.focused, self.overlay.open
+            );
+            self.update_title();
+        }
+    }
+
+    fn refresh_devices(&mut self) {
+        match Audio::devices() {
+            Ok(devices) => self.devices = devices,
+            Err(error) => self
+                .overlay
+                .show_error(format!("Could not enumerate audio devices: {error:#}")),
+        }
+    }
+
+    fn import_error(&mut self, error: anyhow::Error) {
+        let message = format!(
+            "Cartridge import failed: {error:#}. Your saved cartridge was not replaced. Select an original ToeJam & Earl REV 02/REV 00 dump and retry."
+        );
+        eprintln!("{message}");
+        self.overlay.show_error(message);
+        if self.backend.is_some() {
+            self.overlay.open = true;
+        }
+        self.sync_pause();
+    }
+
+    fn apply_settings(&mut self) -> Result<()> {
+        self.settings.validate()?;
+        let next = LiveSettings::from(&self.settings);
+        if let Some(window) = &self.window {
+            if next.fullscreen != self.applied.fullscreen {
+                window.set_fullscreen(next.fullscreen.then_some(Fullscreen::Borderless(None)));
+            }
+            if !next.fullscreen
+                && (next.window_scale != self.applied.window_scale || self.applied.fullscreen)
+            {
+                let _ = window.request_inner_size(LogicalSize::new(
+                    320 * next.window_scale,
+                    224 * next.window_scale,
+                ));
+            }
+        }
+        if let Some(video) = &mut self.video {
+            if next.filter != self.applied.filter {
+                video.set_filter(next.filter);
+            }
+            if next.vsync != self.applied.vsync {
+                video.set_vsync(next.vsync);
+            }
+        }
+        if let Some(audio) = &mut self.audio {
+            audio.set_volume(self.settings.volume);
+            audio.set_device(self.settings.audio_device.clone());
+        }
+        self.applied = next;
+        println!(
+            "SETTINGS applied scale={:?} filter={:?} vsync={} fullscreen={} window_scale={} volume={} focus_pause={}",
+            self.settings.scale,
+            next.filter,
+            next.vsync,
+            next.fullscreen,
+            next.window_scale,
+            self.settings.volume,
+            self.settings.pause_on_focus_loss
+        );
+        self.sync_pause();
+        self.storage.save(&self.settings)
+    }
+
+    fn save_settings(&mut self) {
+        self.preserve_config = false;
+        if let Err(error) = self.apply_settings() {
+            eprintln!("Settings error: {error:#}");
+            self.overlay
+                .show_error(format!("Could not apply/save settings: {error:#}"));
+            self.overlay.open = true;
+            self.sync_pause();
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
         }
     }
     fn stop_recording(&mut self) -> Result<()> {
@@ -270,14 +462,56 @@ impl App {
         if !self.input.key(key, pressed) {
             return Ok(());
         }
+        if self.overlay.open && self.overlay.capturing() {
+            if key == KeyCode::Escape {
+                self.overlay.cancel();
+            } else if self.overlay.capture_key(&mut self.settings, key) {
+                self.save_settings();
+            }
+            self.input.clear_keys();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            return Ok(());
+        }
+        if key == self.settings.hotkeys.settings {
+            self.overlay.toggle();
+            self.input.clear_keys();
+            if self.overlay.open {
+                self.refresh_devices();
+            }
+            self.sync_pause();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            println!("HOTKEY settings={}", self.overlay.open);
+            return Ok(());
+        }
+        if self.overlay.open {
+            if key == KeyCode::Escape {
+                self.overlay.cancel();
+                self.input.clear_keys();
+                self.sync_pause();
+            }
+            return Ok(());
+        }
+        if self.backend.is_none() {
+            return Ok(());
+        }
         let hotkeys = &self.settings.hotkeys;
+        let settings_changed = [
+            hotkeys.fullscreen,
+            hotkeys.scale,
+            hotkeys.filter,
+            hotkeys.vsync,
+            hotkeys.volume_up,
+            hotkeys.volume_down,
+        ]
+        .contains(&key);
         if key == hotkeys.pause {
             self.paused = !self.paused;
-            if let Some(audio) = &self.audio {
-                audio.set_paused(self.paused);
-            }
+            self.sync_pause();
             println!("HOTKEY pause={}", self.paused);
-            self.update_title();
         } else if key == hotkeys.reset {
             self.stop_recording()?;
             if let Some(backend) = &mut self.backend {
@@ -299,18 +533,9 @@ impl App {
                     audio.flush();
                 }
                 println!("RECORD started from power-on (hard reset)");
-            } else {
-                println!("RECORD needs an imported cartridge");
             }
         } else if key == hotkeys.fullscreen {
             self.settings.fullscreen = !self.settings.fullscreen;
-            if let Some(window) = &self.window {
-                window.set_fullscreen(
-                    self.settings
-                        .fullscreen
-                        .then_some(Fullscreen::Borderless(None)),
-                );
-            }
             println!("HOTKEY fullscreen={}", self.settings.fullscreen);
         } else if key == hotkeys.scale {
             self.settings.scale = match self.settings.scale {
@@ -323,15 +548,9 @@ impl App {
                 Filter::Nearest => Filter::Linear,
                 Filter::Linear => Filter::Nearest,
             };
-            if let Some(video) = &mut self.video {
-                video.set_filter(self.settings.filter);
-            }
             println!("HOTKEY filter={:?}", self.settings.filter);
         } else if key == hotkeys.vsync {
             self.settings.vsync = !self.settings.vsync;
-            if let Some(video) = &mut self.video {
-                video.set_vsync(self.settings.vsync);
-            }
             println!("HOTKEY vsync={}", self.settings.vsync);
         } else if key == hotkeys.volume_up || key == hotkeys.volume_down {
             let direction = if key == hotkeys.volume_up {
@@ -340,15 +559,13 @@ impl App {
                 -0.05
             };
             self.settings.volume = (self.settings.volume + direction).clamp(0.0, 1.0);
-            if let Some(audio) = &self.audio {
-                audio.set_volume(self.settings.volume);
-            }
             println!("HOTKEY volume={:.2}", self.settings.volume);
         } else {
             return Ok(());
         }
-        self.storage.save(&self.settings)?;
-        if let Some(window) = &self.window {
+        if settings_changed {
+            self.save_settings();
+        } else if let Some(window) = &self.window {
             window.request_redraw();
         }
         Ok(())
@@ -366,13 +583,9 @@ impl App {
         }
         self.changes.clear();
         self.tick += 1;
-        if let Some(audio) = &self.audio {
-            audio.check()?;
-        }
-        if self.paused {
-            return Ok(());
-        }
-        if let Some(backend) = &mut self.backend {
+        if !self.is_paused()
+            && let Some(backend) = &mut self.backend
+        {
             let controllers = self.input.controllers(&self.settings.players);
             let samples = backend.advance(controllers)?;
             self.audio.as_ref().unwrap().push(samples);
@@ -423,10 +636,83 @@ impl App {
                 .run_frames
                 .is_some_and(|frames| self.total_frames >= frames);
         }
-        if let Some(window) = &self.window {
+        self.completed |= self.args.run_ticks.is_some_and(|ticks| self.tick >= ticks);
+        if let Some(window) = &self.window
+            && ((!self.is_paused() && self.backend.is_some())
+                || self.completed
+                || self.script.is_some())
+        {
             window.request_redraw();
         }
         Ok(())
+    }
+
+    fn redraw(&mut self) -> Result<()> {
+        let was_open = self.overlay.open;
+        let paused = self.is_paused();
+        let (frame, actions) = self.overlay.draw(
+            self.window.as_ref().unwrap(),
+            &mut self.settings,
+            Info {
+                has_game: self.backend.is_some(),
+                paused,
+                recording: self.recorder.active(),
+                audio: self
+                    .audio
+                    .as_ref()
+                    .map_or("Audio starts after cartridge import", Audio::status),
+                storage: &self.storage,
+                input: &self.input,
+                devices: &self.devices,
+            },
+        );
+        if actions.restore_defaults {
+            self.settings = Settings {
+                gamepad_devices: self.input.saved_devices(),
+                ..Settings::default()
+            };
+            self.input.clear_keys();
+        }
+        if actions.settings_changed || actions.restore_defaults {
+            self.save_settings();
+        }
+        if actions.refresh_devices {
+            self.refresh_devices();
+        }
+        if actions.dismiss {
+            self.overlay.message = None;
+        }
+        if actions.resume {
+            self.paused = false;
+            self.overlay.open = false;
+        }
+        if let Some(path) = actions.import {
+            match self.import(&path, true) {
+                Ok(()) => {
+                    self.overlay.open = false;
+                    self.overlay.message = None;
+                    self.input.clear_keys();
+                }
+                Err(error) => self.import_error(error),
+            }
+        }
+        if was_open != self.overlay.open {
+            self.input.clear_keys();
+            if self.overlay.open {
+                self.refresh_devices();
+            }
+        }
+        self.sync_pause();
+        let now = Instant::now();
+        self.ui_repaint = now
+            .checked_add(frame.repaint_after)
+            .unwrap_or(now + Duration::from_secs(3600));
+        self.video.as_mut().unwrap().present(
+            self.window.as_ref().unwrap(),
+            self.settings.scale,
+            self.backend.is_some(),
+            frame,
+        )
     }
 
     fn finish(&mut self) {
@@ -475,6 +761,11 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        if let Some(window) = &self.window
+            && self.overlay.event(window, &event)
+        {
+            window.request_redraw();
+        }
         let result = match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
@@ -489,34 +780,55 @@ impl ApplicationHandler for App {
                 }
                 Ok(())
             }
-            WindowEvent::Focused(false) if self.script.is_none() => {
-                self.input.clear_keys();
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let (Some(video), Some(window)) = (&mut self.video, &self.window) {
+                    video.resize(window.inner_size());
+                    window.request_redraw();
+                    println!(
+                        "DPI scale={} physical={:?}",
+                        window.scale_factor(),
+                        window.inner_size()
+                    );
+                }
+                Ok(())
+            }
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                if !focused && self.script.is_none() {
+                    self.input.clear_keys();
+                }
+                self.sync_pause();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
                 Ok(())
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if let PhysicalKey::Code(key) = event.physical_key {
+                if let PhysicalKey::Code(key) = event.physical_key
+                    && (!event.repeat || event.state == ElementState::Released)
+                {
                     self.key(key, event.state == ElementState::Pressed)
                 } else {
                     Ok(())
                 }
             }
             WindowEvent::DroppedFile(path) => {
-                if let Err(error) = self.import(&path, true) {
-                    eprintln!("IMPORT rejected: {error:#}");
-                    if let Some(window) = &self.window {
-                        window.set_title(&format!(
-                            "Cartridge rejected: {error} — drop a valid ToeJam & Earl ROM"
-                        ));
+                match self.import(&path, true) {
+                    Ok(()) => {
+                        self.overlay.open = false;
+                        self.overlay.message = None;
+                        self.input.clear_keys();
+                        self.sync_pause();
                     }
+                    Err(error) => self.import_error(error),
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
                 Ok(())
             }
             WindowEvent::RedrawRequested => {
-                let result = self.video.as_mut().unwrap().present(
-                    self.window.as_ref().unwrap(),
-                    self.settings.scale,
-                    self.backend.is_some(),
-                );
+                let result = self.redraw();
                 if self.completed && result.is_ok() {
                     event_loop.exit();
                 }
@@ -530,33 +842,56 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.input.poll_gamepads();
+        let pads = self.input.poll_gamepads();
+        if self.overlay.open
+            && let Some(press) = pads.pressed
+            && self.overlay.capture_pad(&mut self.settings, press)
+        {
+            self.save_settings();
+        }
+        if pads.devices_changed {
+            self.settings.gamepad_devices = self.input.saved_devices();
+            if !self.preserve_config {
+                self.save_settings();
+            }
+        }
+        let now = Instant::now();
+        if let Some(audio) = &mut self.audio
+            && let Some(rate) = audio.maintain(now)
+            && let Some(backend) = &mut self.backend
+            && let Err(error) = backend.set_audio_sample_rate(rate)
+        {
+            self.fail(event_loop, error);
+            return;
+        }
         if self.completed {
             event_loop.set_control_flow(ControlFlow::Wait);
             return;
         }
-        let now = Instant::now();
-        if self.backend.is_some() {
-            // Vsync controls presentation, not game speed. A monotonic console
-            // clock advances every frame, with bounded catch-up after a stall.
-            let fps = self.backend.as_ref().unwrap().fps();
-            let period = Duration::from_secs_f64(1.0 / fps);
-            if now.saturating_duration_since(self.deadline) > period * 4 {
-                self.deadline = now;
-            }
-            let mut count = 0;
-            while Instant::now() >= self.deadline && count < 4 && !self.completed {
-                self.deadline += period;
-                if let Err(error) = self.step() {
-                    self.fail(event_loop, error);
-                    return;
-                }
-                count += 1;
-            }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.deadline));
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(now + Duration::from_millis(100)));
+        // Keep the injected-key clock running through pause and first launch.
+        // The game advances only on console deadlines; idle UI repaints follow
+        // egui's requested cadence instead of regenerating meshes every tick.
+        let fps = self.backend.as_ref().map_or(60.0, |backend| backend.fps());
+        let period = Duration::from_secs_f64(1.0 / fps);
+        if now.saturating_duration_since(self.deadline) > period * 4 {
+            self.deadline = now;
         }
+        let mut count = 0;
+        while Instant::now() >= self.deadline && count < 4 && !self.completed {
+            self.deadline += period;
+            if let Err(error) = self.step() {
+                self.fail(event_loop, error);
+                return;
+            }
+            count += 1;
+        }
+        if now >= self.ui_repaint {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            self.ui_repaint = now + Duration::from_secs(1);
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.deadline.min(self.ui_repaint)));
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
@@ -592,4 +927,19 @@ fn main() -> Result<()> {
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pause_tests {
+    use super::effective_pause;
+
+    #[test]
+    fn focus_and_settings_pause_do_not_override_a_manual_pause() {
+        assert!(effective_pause(false, false, false, true, false));
+        assert!(!effective_pause(false, false, true, true, false));
+        assert!(effective_pause(true, false, true, true, false));
+        assert!(effective_pause(false, true, true, false, false));
+        assert!(!effective_pause(false, false, false, false, false));
+        assert!(!effective_pause(false, false, false, true, true));
+    }
 }

@@ -17,6 +17,7 @@ pub struct Video {
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
+    ui_renderer: egui_wgpu::Renderer,
     pub presented: u64,
     suspended: bool,
 }
@@ -144,6 +145,11 @@ impl Video {
         let texture = texture(&device, 320, 224);
         let sampler = sampler(&device, filter);
         let bind_group = bind_group(&device, &layout, &texture, &sampler);
+        let ui_renderer = egui_wgpu::Renderer::new(
+            &device,
+            config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
         Ok(Self {
             _instance: instance,
             surface,
@@ -155,6 +161,7 @@ impl Video {
             layout,
             sampler,
             bind_group,
+            ui_renderer,
             presented: 0,
             suspended: size.width == 0 || size.height == 0,
         })
@@ -208,7 +215,34 @@ impl Video {
         );
     }
 
-    pub fn present(&mut self, window: &Window, scale: Scale, has_game: bool) -> Result<()> {
+    pub fn present(
+        &mut self,
+        window: &Window,
+        scale: Scale,
+        has_game: bool,
+        mut ui: crate::overlay::Frame,
+    ) -> Result<()> {
+        for (id, deltas) in &ui.textures.set {
+            for delta in deltas {
+                self.ui_renderer
+                    .update_texture(&self.device, &self.queue, *id, delta);
+            }
+        }
+        let result = self.present_inner(window, scale, has_game, &ui);
+        for id in &ui.textures.free {
+            self.ui_renderer.free_texture(id);
+        }
+        ui.textures.clear();
+        result
+    }
+
+    fn present_inner(
+        &mut self,
+        window: &Window,
+        scale: Scale,
+        has_game: bool,
+        ui: &crate::overlay::Frame,
+    ) -> Result<()> {
         if self.suspended {
             return Ok(());
         }
@@ -227,6 +261,17 @@ impl Video {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        let screen = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: ui.pixels_per_point,
+        };
+        let command_buffers = self.ui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &ui.jobs,
+            &screen,
+        );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("present game"),
@@ -260,7 +305,25 @@ impl Video {
                 pass.draw(0..3, 0..1);
             }
         }
-        self.queue.submit([encoder.finish()]);
+        if !ui.jobs.is_empty() {
+            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("native controls overlay"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            self.ui_renderer
+                .render(&mut pass.forget_lifetime(), &ui.jobs, &screen);
+        }
+        self.queue
+            .submit(command_buffers.into_iter().chain([encoder.finish()]));
         window.pre_present_notify();
         self.queue.present(frame);
         self.presented += 1;

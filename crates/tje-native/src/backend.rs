@@ -27,6 +27,7 @@ pub trait GameBackend {
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]>;
     fn video(&self) -> VideoFrame<'_>;
     fn fps(&self) -> f64;
+    fn set_audio_sample_rate(&mut self, sample_rate: u32) -> Result<()>;
     fn reset(&mut self);
     fn status(&mut self) -> Status;
 }
@@ -85,6 +86,10 @@ impl GameBackend for HybridBackend {
 
     fn fps(&self) -> f64 {
         self.host.target_fps()
+    }
+
+    fn set_audio_sample_rate(&mut self, sample_rate: u32) -> Result<()> {
+        Ok(self.host.set_audio_sample_rate(sample_rate)?)
     }
 
     fn reset(&mut self) {

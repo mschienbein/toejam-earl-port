@@ -1,10 +1,15 @@
-use crate::input::PlayerBindings;
-use anyhow::{Context, Result, ensure};
+use crate::input::{GameButton, PadButton, PlayerBindings};
+use anyhow::{Context, Result, bail, ensure};
 use clap::ValueEnum;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf};
 use winit::keyboard::KeyCode;
+
+const SETTINGS_VERSION: u32 = 2;
+fn legacy_version() -> u32 {
+    1
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -22,9 +27,10 @@ pub enum Filter {
     Linear,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Hotkeys {
+    pub settings: KeyCode,
     pub pause: KeyCode,
     pub reset: KeyCode,
     pub record: KeyCode,
@@ -39,6 +45,7 @@ pub struct Hotkeys {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
+            settings: KeyCode::F1,
             pause: KeyCode::Escape,
             reset: KeyCode::F5,
             record: KeyCode::F9,
@@ -52,15 +59,38 @@ impl Default for Hotkeys {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+impl Hotkeys {
+    pub fn entries(&self) -> [(&'static str, KeyCode); 10] {
+        [
+            ("Settings", self.settings),
+            ("Pause", self.pause),
+            ("Reset", self.reset),
+            ("Record", self.record),
+            ("Fullscreen", self.fullscreen),
+            ("Scale", self.scale),
+            ("Filter", self.filter),
+            ("Vsync", self.vsync),
+            ("Volume up", self.volume_up),
+            ("Volume down", self.volume_down),
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default = "legacy_version")]
+    pub version: u32,
     pub window_scale: u32,
     pub scale: Scale,
     pub filter: Filter,
     pub fullscreen: bool,
     pub vsync: bool,
     pub volume: f32,
+    #[serde(default)]
+    pub pause_on_focus_loss: bool,
+    pub audio_device: Option<String>,
+    pub gamepad_devices: Vec<crate::input::SavedPad>,
     pub players: [PlayerBindings; 2],
     pub hotkeys: Hotkeys,
 }
@@ -68,12 +98,16 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            version: SETTINGS_VERSION,
             window_scale: 3,
             scale: Scale::Integer,
             filter: Filter::Nearest,
             fullscreen: false,
             vsync: true,
             volume: 0.8,
+            pause_on_focus_loss: true,
+            audio_device: None,
+            gamepad_devices: Vec::new(),
             players: [PlayerBindings::one(), PlayerBindings::two()],
             hotkeys: Hotkeys::default(),
         }
@@ -81,7 +115,58 @@ impl Default for Settings {
 }
 
 impl Settings {
+    fn migrate(&mut self) -> Result<()> {
+        ensure!(
+            (1..=SETTINGS_VERSION).contains(&self.version),
+            "unsupported settings version {}; this application supports 1..={SETTINGS_VERSION}",
+            self.version
+        );
+        if self.version == 1 {
+            // Preserve existing controls, including a user binding on the newly
+            // introduced settings shortcut. The settings button is also always
+            // available in the on-screen toolbar.
+            let occupied = |key| {
+                self.players
+                    .iter()
+                    .flat_map(|p| &p.bindings)
+                    .any(|b| b.key == Some(key))
+                    || self
+                        .hotkeys
+                        .entries()
+                        .iter()
+                        .skip(1)
+                        .any(|(_, other)| *other == key)
+            };
+            if occupied(self.hotkeys.settings) {
+                self.hotkeys.settings = [
+                    KeyCode::F1,
+                    KeyCode::F2,
+                    KeyCode::F3,
+                    KeyCode::F4,
+                    KeyCode::F10,
+                    KeyCode::F12,
+                    KeyCode::F13,
+                    KeyCode::F14,
+                ]
+                .into_iter()
+                .find(|&key| !occupied(key))
+                .context("no free settings shortcut in legacy configuration")?;
+            }
+            self.version = SETTINGS_VERSION;
+        }
+        self.validate()
+    }
+
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.gamepad_devices.len() <= 32,
+            "at most 32 gamepad slot identities can be saved"
+        );
+        ensure!(
+            self.version == SETTINGS_VERSION,
+            "unsupported settings version {}",
+            self.version
+        );
         ensure!(
             (1..=8).contains(&self.window_scale),
             "window_scale must be 1..8"
@@ -90,58 +175,222 @@ impl Settings {
             self.volume.is_finite() && (0.0..=1.0).contains(&self.volume),
             "volume must be 0..1"
         );
-        for player in &self.players {
+        ensure!(
+            self.audio_device
+                .as_ref()
+                .is_none_or(|name| !name.trim().is_empty()),
+            "audio device name cannot be empty"
+        );
+        let hotkeys = self.hotkeys.entries();
+        for (index, &(name, key)) in hotkeys.iter().enumerate() {
+            ensure!(
+                !hotkeys[..index].iter().any(|(_, other)| *other == key),
+                "{key:?} is assigned to more than one hotkey ({name})"
+            );
+        }
+        for (index, player) in self.players.iter().enumerate() {
             ensure!(
                 player.deadzone.is_finite() && (0.0..1.0).contains(&player.deadzone),
                 "gamepad deadzone must be 0 <= value < 1"
             );
+            ensure!(player.gamepad_slot < 32, "gamepad slot must be below 32");
+            for binding in &player.bindings {
+                if let Some(key) = binding.key {
+                    if let Some((name, _)) = hotkeys.iter().find(|(_, hotkey)| *hotkey == key) {
+                        bail!("{key:?} is reserved for {name}; choose a different game key");
+                    }
+                    for (other_index, other) in self.players.iter().enumerate() {
+                        ensure!(
+                            !other.bindings.iter().any(|b| b.key == Some(key)
+                                && (index != other_index || b.button != binding.button)),
+                            "{key:?} is already assigned to another player/action"
+                        );
+                    }
+                }
+                if let Some(pad) = binding.gamepad {
+                    ensure!(
+                        !player
+                            .bindings
+                            .iter()
+                            .any(|b| b.gamepad == Some(pad) && b.button != binding.button),
+                        "P{} {pad:?} is already assigned to another action",
+                        index + 1
+                    );
+                }
+            }
+        }
+        if self.players.iter().all(|p| p.enabled && p.gamepad_enabled) {
+            ensure!(
+                self.players[0].gamepad_slot != self.players[1].gamepad_slot,
+                "players cannot share a gamepad slot; select another device or Keyboard only"
+            );
         }
         Ok(())
+    }
+
+    pub fn bind_key(
+        &mut self,
+        player: usize,
+        button: GameButton,
+        key: Option<KeyCode>,
+    ) -> Result<()> {
+        ensure!(player < 2, "invalid player");
+        if let Some(key) = key {
+            if let Some((name, _)) = self
+                .hotkeys
+                .entries()
+                .into_iter()
+                .find(|(_, code)| *code == key)
+            {
+                bail!("{key:?} is reserved for {name}");
+            }
+            for (index, bindings) in self.players.iter().enumerate() {
+                if let Some(binding) = bindings
+                    .bindings
+                    .iter()
+                    .find(|b| b.key == Some(key) && (index != player || b.button != button))
+                {
+                    bail!(
+                        "{key:?} is already P{} {:?}; clear that binding first",
+                        index + 1,
+                        binding.button
+                    );
+                }
+            }
+        }
+        self.players[player].set_key(button, key);
+        Ok(())
+    }
+
+    pub fn bind_pad(
+        &mut self,
+        player: usize,
+        button: GameButton,
+        pad: Option<PadButton>,
+    ) -> Result<()> {
+        ensure!(player < 2, "invalid player");
+        if let Some(pad) = pad
+            && let Some(binding) = self.players[player]
+                .bindings
+                .iter()
+                .find(|b| b.gamepad == Some(pad) && b.button != button)
+        {
+            bail!(
+                "{pad:?} is already P{} {:?}; clear that binding first",
+                player + 1,
+                binding.button
+            );
+        }
+        self.players[player].set_pad(button, pad);
+        Ok(())
+    }
+
+    /// Selecting the other player's device swaps slots, never duplicates input.
+    pub fn assign_slot(&mut self, player: usize, slot: usize) {
+        let old = self.players[player].gamepad_slot;
+        let other = 1 - player;
+        if self.players[other].gamepad_slot == slot {
+            self.players[other].gamepad_slot = old;
+        }
+        self.players[player].gamepad_slot = slot;
+        self.players[player].gamepad_enabled = true;
     }
 }
 
 pub struct Storage {
     pub directory: PathBuf,
+    pub config_directory: PathBuf,
 }
 
 impl Storage {
     pub fn new(override_path: Option<PathBuf>) -> Result<Self> {
-        let directory = match override_path {
-            Some(path) => path,
-            None => ProjectDirs::from("org", "toejam-earl-port", "ToeJam & Earl")
-                .context("no user data directory; specify --data-dir")?
-                .data_local_dir()
-                .to_path_buf(),
+        let (directory, config_directory) = if let Some(path) = override_path {
+            (path.clone(), path)
+        } else {
+            let dirs = ProjectDirs::from("org", "toejam-earl-port", "ToeJam & Earl")
+                .context("no user data directory; specify --data-dir")?;
+            (
+                dirs.data_local_dir().to_path_buf(),
+                dirs.config_dir().to_path_buf(),
+            )
         };
-        fs::create_dir_all(&directory)
-            .with_context(|| format!("create {}", directory.display()))?;
-        Ok(Self { directory })
+        for path in [&directory, &config_directory] {
+            fs::create_dir_all(path).with_context(|| format!("create {}", path.display()))?;
+        }
+        Ok(Self {
+            directory,
+            config_directory,
+        })
     }
 
     pub fn rom_path(&self) -> PathBuf {
         self.directory.join("cartridge.bin")
     }
 
+    pub fn store_rom(&self, bytes: &[u8]) -> Result<()> {
+        let temp = self
+            .directory
+            .join(format!("cartridge-{}.importing", std::process::id()));
+        let result = (|| -> Result<()> {
+            let mut file = fs::File::create(&temp)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            fs::rename(&temp, self.rom_path())?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        result.context("store verified cartridge; previous cartridge was not replaced")
+    }
+
     pub fn load(&self) -> Result<Settings> {
-        let path = self.directory.join("config.toml");
-        let settings = match fs::read_to_string(&path) {
-            Ok(contents) => {
-                toml::from_str(&contents).with_context(|| format!("read {}", path.display()))?
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Settings::default(),
-            Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+        let path = self.config_directory.join("config.toml");
+        let legacy = self.directory.join("config.toml");
+        let source = if !path.exists() && legacy != path && legacy.is_file() {
+            &legacy
+        } else {
+            &path
         };
-        settings.validate()?;
+        let mut settings: Settings = match fs::read_to_string(source) {
+            Ok(contents) => {
+                toml::from_str(&contents).with_context(|| format!("read {}", source.display()))?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Settings::default());
+            }
+            Err(error) => return Err(error).with_context(|| format!("read {}", source.display())),
+        };
+        settings.migrate()?;
+        if source != &path {
+            self.save(&settings)?;
+            fs::remove_file(source)
+                .context("remove migrated legacy config after saving the new file")?;
+        }
         Ok(settings)
     }
 
     pub fn save(&self, settings: &Settings) -> Result<()> {
         settings.validate()?;
-        fs::write(
-            self.directory.join("config.toml"),
-            toml::to_string_pretty(settings)?,
-        )
-        .context("save config.toml")
+        let path = self.config_directory.join("config.toml");
+        let temp = self
+            .config_directory
+            .join(format!("config-{}.tmp", std::process::id()));
+        let result = (|| -> Result<()> {
+            let mut file = fs::OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&temp)?;
+            file.write_all(toml::to_string_pretty(settings)?.as_bytes())?;
+            file.sync_all()?;
+            fs::rename(&temp, &path)?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        result.with_context(|| format!("save {}", path.display()))
     }
 }
 
@@ -153,15 +402,88 @@ mod tests {
     fn defaults_roundtrip_and_reject_invalid_settings() {
         let defaults = Settings::default();
         let mut restored: Settings = toml::from_str(&toml::to_string(&defaults).unwrap()).unwrap();
-        restored.validate().unwrap();
-        assert_eq!(restored.players[0].bindings[0].key, Some(KeyCode::ArrowUp));
-        assert_eq!(restored.hotkeys.record, KeyCode::F9);
-        // Existing user configs gain the new hotkey through serde defaults.
-        let old: Settings = toml::from_str("[hotkeys]\npause = \"Escape\"\n").unwrap();
-        assert_eq!(old.hotkeys.record, KeyCode::F9);
+        restored.migrate().unwrap();
+        assert_eq!(defaults, restored);
         restored.volume = f32::NAN;
         assert!(restored.validate().is_err());
         assert!(toml::from_str::<Settings>("typo = true").is_err());
+        restored = defaults.clone();
+        restored.window_scale = 0;
+        assert!(restored.validate().is_err());
+        restored = defaults.clone();
+        restored.hotkeys.pause = restored.hotkeys.reset;
+        assert!(restored.validate().is_err());
+        restored = defaults.clone();
+        restored.players[0].deadzone = 1.0;
+        assert!(restored.validate().is_err());
+        restored = defaults;
+        restored.version = 999;
+        assert!(restored.migrate().is_err());
+    }
+
+    #[test]
+    fn legacy_migration_preserves_controls_and_avoids_new_hotkey_conflict() {
+        let old = "[hotkeys]\npause = \"Escape\"\n";
+        let mut settings: Settings = toml::from_str(old).unwrap();
+        assert_eq!(settings.version, 1);
+        settings.players[0].bindings[0].key = Some(KeyCode::F1);
+        settings.migrate().unwrap();
+        assert_eq!(settings.version, SETTINGS_VERSION);
+        assert_eq!(settings.hotkeys.record, KeyCode::F9);
+        assert_eq!(settings.hotkeys.settings, KeyCode::F2);
+        assert_eq!(settings.players[0].bindings[0].key, Some(KeyCode::F1));
+        assert!(!settings.pause_on_focus_loss);
+    }
+
+    #[test]
+    fn binding_conflicts_are_rejected_without_changing_the_old_binding() {
+        let mut settings = Settings::default();
+        let original = settings.clone();
+        assert!(
+            settings
+                .bind_key(0, GameButton::A, Some(KeyCode::KeyW))
+                .is_err()
+        );
+        assert!(
+            settings
+                .bind_key(0, GameButton::A, Some(KeyCode::F9))
+                .is_err()
+        );
+        assert!(
+            settings
+                .bind_pad(0, GameButton::A, Some(PadButton::South))
+                .is_err()
+        );
+        assert_eq!(settings, original);
+        settings
+            .bind_key(0, GameButton::A, Some(KeyCode::KeyI))
+            .unwrap();
+        settings
+            .bind_pad(0, GameButton::A, Some(PadButton::North))
+            .unwrap();
+        settings.validate().unwrap();
+        settings.bind_pad(0, GameButton::Up, None).unwrap();
+        assert!(
+            settings.players[0]
+                .bindings
+                .iter()
+                .filter(|b| b.button == GameButton::Up)
+                .all(|b| b.gamepad.is_none())
+        );
+    }
+
+    #[test]
+    fn assigning_a_taken_gamepad_slot_swaps_players() {
+        let mut settings = Settings::default();
+        settings.assign_slot(0, 1);
+        assert_eq!(
+            [
+                settings.players[0].gamepad_slot,
+                settings.players[1].gamepad_slot
+            ],
+            [1, 0]
+        );
+        settings.validate().unwrap();
     }
 
     #[test]
@@ -179,16 +501,55 @@ mod tests {
         settings.fullscreen = true;
         settings.vsync = false;
         settings.volume = 0.25;
-        settings.players[0].bindings[0].key = Some(KeyCode::KeyI);
+        settings.pause_on_focus_loss = true;
+        settings.audio_device = Some("Example output".into());
+        settings
+            .bind_key(0, GameButton::Up, Some(KeyCode::KeyI))
+            .unwrap();
         storage.save(&settings).unwrap();
-        let restored = storage.load().unwrap();
-        assert_eq!(restored.window_scale, 4);
-        assert_eq!(restored.scale, Scale::Fit);
-        assert_eq!(restored.filter, Filter::Linear);
-        assert!(restored.fullscreen);
-        assert!(!restored.vsync);
-        assert_eq!(restored.volume, 0.25);
-        assert_eq!(restored.players[0].bindings[0].key, Some(KeyCode::KeyI));
-        std::fs::remove_dir_all(path).unwrap();
+        storage.save(&settings).unwrap(); // Atomic replacement must work on Windows too.
+        assert_eq!(storage.load().unwrap(), settings);
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn migrates_old_data_directory_config_only_after_a_successful_new_save() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("tje-config-migration-{nonce}"));
+        let data = root.join("data");
+        let config = root.join("config");
+        fs::create_dir_all(&data).unwrap();
+        fs::create_dir_all(&config).unwrap();
+        fs::write(data.join("config.toml"), "volume = 0.3\n").unwrap();
+        let storage = Storage {
+            directory: data.clone(),
+            config_directory: config.clone(),
+        };
+        assert_eq!(storage.load().unwrap().volume, 0.3);
+        assert!(config.join("config.toml").is_file());
+        assert!(!data.join("config.toml").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_or_future_config_is_reported_without_overwriting_it() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("tje-invalid-config-{nonce}"));
+        let storage = Storage::new(Some(root.clone())).unwrap();
+        for source in ["version = 999\n", "volume = 20.0\n", "not valid TOML"] {
+            fs::write(root.join("config.toml"), source).unwrap();
+            assert!(storage.load().is_err());
+            assert_eq!(
+                fs::read_to_string(root.join("config.toml")).unwrap(),
+                source
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 }

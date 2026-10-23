@@ -39,6 +39,7 @@ Player 1 uses arrows, Z/X/C and Enter; player 2 uses W/S/A/D, G/H/J and Space.
 Esc pauses, F5 resets and F11 toggles fullscreen. Run `--help` for more controls
 and options. The imported ROM and settings stay in the OS user-data directory
 printed at startup, not in the extracted package.
+Open **Settings (F1)** for live remapping and options; see the [native controls guide](crates/tje-native/README.md).
 
 For the browser build, open the GitHub Pages URL shown by a completed web release
 workflow, choose the ROM locally, and click **Play / enable audio**. Nothing is
