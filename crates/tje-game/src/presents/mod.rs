@@ -236,17 +236,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
         function: items::present_try_end_active_powerup,
     },
-];
-
-/// Framed candidates still awaiting proof. The first six passed both revisions
-/// with the nested-original audit enabled and are now in TRANSLATIONS.
-pub static PENDING_FRAMES: &[crate::Translation] = &[];
-
-/// Complete candidate bodies held outside production dispatch until their
-/// dual-revision differential proofs pass. The opt-in lane harness may register
-/// these explicitly; frontends and Dispatcher::hybrid never consult this list.
-pub static PENDING: &[crate::Translation] = &[
-    // W3-W5 TimeAware: awaiting differential proof through HookRegistry::proof.
     crate::Translation {
         id: ids::EAT_YUMMY_FOOD,
         function: items::eat_yummy_food,
@@ -275,7 +264,6 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::PRESENT_UPDATE_BURPS,
         function: effects::present_update_burps,
     },
-    // W5-W6 TimeAware: awaiting differential proof through HookRegistry::proof.
     crate::Translation {
         id: ids::SETUP_SELECTED_PRESENT,
         function: dispatch::setup_selected_present,
@@ -288,14 +276,9 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::BUMMER_LIFE_PROMO,
         function: effects::bummer_life_promo,
     },
-    // W9-W15 TimeAware: VBlank/input/redraw paths still need differential proof.
     crate::Translation {
         id: ids::PROCESS_PRESENTS,
         function: dispatch::process_presents,
-    },
-    crate::Translation {
-        id: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
-        function: effects::player_teleport_through_doorway,
     },
     crate::Translation {
         id: ids::PRESENT_UPDATE_DOORWAY,
@@ -309,7 +292,6 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
         function: items::map_update_items_and_presents,
     },
-    // Partial EarthlingState frames also need the nested-original audit fix.
     crate::Translation {
         id: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
         function: hazard_frames::player_check_level_item_hazards,
@@ -317,6 +299,22 @@ pub static PENDING: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
         function: hazard_frames::present_update_terrain_effects,
+    },
+];
+
+/// Framed candidates still awaiting proof. The first six passed both revisions
+/// with the nested-original audit enabled and are now in TRANSLATIONS.
+pub static PENDING_FRAMES: &[crate::Translation] = &[];
+
+/// Complete candidate bodies held outside production dispatch until their
+/// dual-revision differential proofs pass. The opt-in lane harness may register
+/// these explicitly; frontends and Dispatcher::hybrid never consult this list.
+pub static PENDING: &[crate::Translation] = &[
+    // Redraw fixture fails strict main/ISR observations in both revisions:
+    // REV02 Z80 A0004A operand0/1; REV00 missing/shifted vector28 boundary.
+    crate::Translation {
+        id: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+        function: effects::player_teleport_through_doorway,
     },
 ];
 

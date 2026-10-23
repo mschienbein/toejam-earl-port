@@ -430,6 +430,14 @@ fn main() {
                 later_atomic_fixtures(&mut host);
                 wave67_atomic_fixtures(&mut host);
                 word_index_fixtures(&mut host);
+                placement_frame_fixtures(&mut host);
+                for translation in tje_game::presents::TRANSLATIONS {
+                    if tje_game::execution_class(translation.id)
+                        == Some(tje_game::execution::ExecutionClass::TimeAware)
+                    {
+                        time_fixtures::run(&mut host, translation.id);
+                    }
+                }
             }
         }));
         fs::write(
