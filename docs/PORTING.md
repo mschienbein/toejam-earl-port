@@ -771,6 +771,17 @@ paper over a value-call edge. This applies to AllocateSpriteSlots and its
 AllocateEntityViewportSprites caller, and BuildViewportSpriteLinks and its map,
 elevator and sprite-queue callers.
 
+When the ID is **already production in legacy form**, stage its alternative as
+a public, canonical framed function referenced only by a private or opt-in proof
+harness's static `FramedTranslation` array. Do **not** put that ID in a public
+`PENDING_FRAMED_TRANSLATIONS` table while its legacy record remains in
+`TRANSLATIONS`: production/pending overlap correctly fails the trace generator.
+`FUNCTIONS.md` continues to show the ID as production (legacy). No parser waiver,
+table renaming or proof-only body adapter is allowed. The atomic promotion range
+removes the legacy entry, adds the same canonical body to `FRAMED_TRANSLATIONS`,
+and migrates/proves all affected callers together. For an ID with no production
+entry, the ordinary public `PENDING_FRAMED_TRANSLATIONS` table is appropriate.
+
 Ordinary errors restore suspended caller bookkeeping while remaining errors.
 Non-returning typed control transfers retain their live frame for the exit
 contract, with no fake RTS/cleanup. Unexpected SP, a corrupted return PC or an
