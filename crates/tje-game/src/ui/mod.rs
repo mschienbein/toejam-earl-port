@@ -236,14 +236,16 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::INVENTORY_SERVICE_REDRAW_PHASE,
         function: control::inventory_service_redraw_phase,
     },
-    crate::Translation {
-        id: ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
-        function: inventory_animations::entity_clear_viewport_sprites,
-    },
 ];
 
 /// Opt-in inventory candidates; not registered until both-revision proof.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // Cooperation REV00 frame39908 has an extra original VBlank/HBlank pair
+    // and unequal frame-counter RAM; source-clocked interleaving is unproved.
+    crate::Translation {
+        id: ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
+        function: inventory_animations::entity_clear_viewport_sprites,
+    },
     // Cooperation REV02 frame15370 enters HBlank before a purchase RAM store;
     // await a proved ISR commutation or source-clocked timing contract.
     crate::Translation {
@@ -381,6 +383,7 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 /// call-frame composition are still proof prerequisites, never assumed passed.
 pub static PENDING: &[crate::FunctionId] = &[
     // Exact per-entry blockers are on the body registry above, not approval.
+    ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
     ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
     ids::OPEN_PRESENT,
     ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
