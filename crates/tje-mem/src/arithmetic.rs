@@ -30,6 +30,7 @@ pub fn rem_i32(dividend: i32, divisor: i32) -> Result<i32, ArithmeticTrap> {
     Ok(dividend.wrapping_rem(divisor))
 }
 
+/// Direct UDIV runtime entry (`uldivt`), not MCC68K's inline expression dispatch.
 pub fn div_u32(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
     if divisor == 0 {
         return Err(ArithmeticTrap::DivideByZero);
@@ -37,11 +38,42 @@ pub fn div_u32(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
     Ok(dividend / divisor)
 }
 
+/// Direct UDIV remainder entry (`ulmodt`), not inline compiler-expression lowering.
 pub fn rem_u32(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
     if divisor == 0 {
         return Err(ArithmeticTrap::DivideByZero);
     }
     Ok(dividend % divisor)
+}
+
+/// The default MCC68K dynamic-unsigned-expression guard treats a signed-word
+/// range as eligible for DIVU. High unsigned divisors therefore use their low
+/// word when the native quotient fits; quotient overflow falls back to UDIV.
+fn expression_unsigned_divisor(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
+    if divisor <= 0x7fff || divisor >= 0xffff8000 {
+        let word = divisor & 0xffff;
+        if word == 0 {
+            return Err(ArithmeticTrap::DivideByZero);
+        }
+        // DIVU's unsigned 16-bit quotient fits iff dividend < word * 65536.
+        if dividend >> 16 < word {
+            return Ok(word);
+        }
+    }
+    Ok(divisor)
+}
+
+/// Value of the measured MCC68K dynamic `unsigned long a / b` sequence,
+/// including its high-divisor low-word fast-path defect and overflow fallback.
+/// Use `div_u32` instead for an actual direct call to the `uldivt` runtime entry.
+pub fn expr_div_u32(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
+    Ok(dividend / expression_unsigned_divisor(dividend, divisor)?)
+}
+
+/// Value of the matching dynamic unsigned `%` lowering. Constant/other optimized
+/// lowerings must still be translated from the operations actually emitted.
+pub fn expr_rem_u32(dividend: u32, divisor: u32) -> Result<u32, ArithmeticTrap> {
+    Ok(dividend % expression_unsigned_divisor(dividend, divisor)?)
 }
 
 /// Stock ABS's NEG.L wraps for the most-negative input, preserving the original bug.
@@ -113,6 +145,30 @@ mod tests {
                 assert_eq!(rem_u32(n, d), Ok(n % d));
             }
         }
+    }
+
+    #[test]
+    fn unsigned_expression_dispatch_keeps_the_compiler_fast_path_defect() {
+        for (a, b, quotient, remainder) in [
+            (65535, u32::MAX, 1, 0),
+            (65535, 0xffff8000, 1, 32767),
+            (32768, 0xffff8000, 1, 0),
+            (0x7fffffff, 0xffff8000, 65535, 32767),
+            (0x80000000, 0xffff8000, 0, 0x80000000),
+            (0xffff0000, u32::MAX, 0, 0xffff0000),
+            (0xfffeffff, u32::MAX, 65535, 65534),
+            (u32::MAX, u32::MAX, 1, 0),
+            (65535, 0xffff7fff, 0, 65535),
+            (65535, 0x8000, 1, 32767),
+            (u32::MAX, 1, u32::MAX, 0),
+        ] {
+            assert_eq!(expr_div_u32(a, b), Ok(quotient));
+            assert_eq!(expr_rem_u32(a, b), Ok(remainder));
+        }
+        assert_eq!(div_u32(65535, u32::MAX), Ok(0));
+        assert_eq!(rem_u32(65535, u32::MAX), Ok(65535));
+        assert_eq!(expr_div_u32(7, 0), Err(ArithmeticTrap::DivideByZero));
+        assert_eq!(expr_rem_u32(7, 0), Err(ArithmeticTrap::DivideByZero));
     }
 
     #[test]

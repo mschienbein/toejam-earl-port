@@ -25,6 +25,7 @@ PRIMITIVES = {"char": ("i8", 1), "unsigned char": ("u8", 1),
               "int": ("i32", 4), "unsigned int": ("u32", 4),
               "long": ("i32", 4), "unsigned long": ("u32", 4)}
 KEYWORDS = {"type", "match", "loop", "ref", "self", "in", "move", "where", "use"}
+C_TYPE_HEAD = re.compile(r"(struct\s+\w+|(?:unsigned\s+)?(?:char|short|int|long)|void)\b\s*(.*)")
 
 # These names select known elements, not inferred capacities of incomplete arrays.
 OPEN_ARRAY_ALIASES = {
@@ -111,8 +112,9 @@ class Model:
                 self.records[match[1]] = Record(match[1], header, fields)
             for match in re.finditer(r"\bextern\s+([^;]+);", text, re.S):
                 declaration = " ".join(match[1].split())
-                if "(" in declaration and not re.search(r"\(\s*\*", declaration):
-                    continue  # K&R function declaration, not storage.
+                head = C_TYPE_HEAD.fullmatch(declaration)
+                if head and re.fullmatch(r"(?:\*\s*)*[A-Za-z_]\w*\s*\([^()]*\)", head[2]):
+                    continue  # A bare K&R function declarator, not a parenthesized array bound.
                 for field in self.parse_declaration(declaration):
                     previous = self.declarations.get(field.name)
                     if previous and previous[0] != field.ctype:
@@ -144,18 +146,20 @@ class Model:
         function = re.fullmatch(r"void\s*\(\s*\*\s*(\w+)\s*\)\s*\(\s*\)", declaration)
         if function:
             return [Field(function[1], CType("function", 1))]
-        match = re.match(r"(struct\s+\w+|(?:unsigned\s+)?(?:char|short|int|long)|void)\s*(.*)$", declaration)
+        match = C_TYPE_HEAD.fullmatch(declaration)
         if not match:
             raise ValueError(f"unsupported C declaration (extend parser, never guess): {declaration}")
         base, declarators = match.groups()
         fields = []
         for declarator in declarators.split(","):
-            match = re.fullmatch(r"\s*(\*\s*)*(\w+)\s*((?:\[[^\]]*\]\s*)*)", declarator)
+            match = re.fullmatch(r"\s*((?:\*\s*)*)([A-Za-z_]\w*)\s*((?:\[[^\]]*\]\s*)*)", declarator)
             if not match:
                 raise ValueError(f"unsupported C declarator: {declaration}")
             dimensions = tuple(self.integer(x) if x.strip() else None
                                for x in re.findall(r"\[([^\]]*)\]", match[3]))
-            fields.append(Field(match[2], CType(base, declarator.count("*"), dimensions)))
+            if None in dimensions[1:]:
+                raise ValueError(f"incomplete inner array bound: {declaration}")
+            fields.append(Field(match[2], CType(base, match[1].count("*"), dimensions)))
         return fields
 
     def shape(self, ctype: CType) -> tuple[int, int]:
@@ -297,6 +301,72 @@ def compiler_probes(model: Model, out: Path) -> dict:
             "semantic_probe_sha256": hashlib.sha256(semantics.read_bytes()).hexdigest()}
 
 
+def declaration_levels(ctype: CType) -> list[tuple[str, CType]]:
+    """Object, each array row/element, then each measured pointer indirection."""
+    levels = [("root", ctype)]
+    while True:
+        if ctype.dimensions:
+            ctype = replace(ctype, dimensions=ctype.dimensions[1:])
+            step = "array"
+        elif ctype.pointers and not (ctype.pointers == 1 and ctype.base in ("void", "function")):
+            ctype = replace(ctype, pointers=ctype.pointers - 1)
+            step = "pointer"
+        else:
+            return levels
+        levels.append((step, ctype))
+
+
+def global_type_probes(model: Model, out: Path) -> dict:
+    """Compare every declared global and every sized row/element with MCC68K."""
+    mcc = importlib.import_module("mcc")
+    groups: dict[str, dict[str, CType]] = {}
+    for name, (ctype, source) in model.declarations.items():
+        groups.setdefault(Path(source).name, {})[name] = ctype
+    fixture = Path(__file__).with_name("declarators.h")
+    regression = {}
+    for match in re.finditer(r"\bextern\s+([^;]+);", without_comments(fixture.read_text()), re.S):
+        regression.update((field.name, field.ctype) for field in model.parse_declaration(match[1]))
+    groups[fixture.name] = regression
+    facts = {}
+    for revision in ("rev02", "rev00"):
+        measured = {}
+        for header, declarations in sorted(groups.items()):
+            expressions, expected, slots = [], [], []
+            for name, ctype in sorted(declarations.items()):
+                levels = []
+                expression = name
+                for step, level in declaration_levels(ctype):
+                    if step == "array":
+                        expression = f"({expression})[0]"
+                    elif step == "pointer":
+                        expression = f"*({expression})"
+                    size = None if level.dimensions and level.dimensions[0] is None else model.shape(level)[0]
+                    levels.append({"step": step, "size": size})
+                    if size is not None:
+                        expressions.append(f"sizeof({expression})")
+                        expected.append(size)
+                        slots.append(levels[-1])
+                measured[name] = {"source": f"include/{header}" if header != fixture.name else "tools/declarators.h",
+                                  "c_type": ctype.spelling(), "levels": levels}
+            source = out / f"global_{Path(header).stem}_{revision}.c"
+            includes = {header}
+            includes.update(model.records[ctype.base[7:]].header for ctype in declarations.values()
+                            if ctype.base.startswith("struct "))
+            source.write_text("\n".join(f'#include "{name}"' for name in sorted(includes)) +
+                              "\nunsigned long global_type_values[] = {\n" +
+                              ",\n".join(expressions) + "\n};\n")
+            listing = mcc.compile_c(source, [model.root / "include", fixture.parent], version=revision)
+            source.with_suffix(".SRC").write_text(listing)
+            observed = parse_initializers(mcc, listing, "global_type_values")
+            if observed != expected:
+                raise ValueError(f"{revision} global object/row/pointee size mismatch in {header}: "
+                                 f"model={expected}, compiler={observed}")
+            for slot, size in zip(slots, observed, strict=True):
+                slot["size"] = size
+        facts[revision] = measured
+    return facts
+
+
 def check_maps(root: Path, revisions: dict, maps: dict[str, Path], out: Path) -> dict:
     """Check shipped maps and force otherwise unused aliases through G's real linker resolver."""
     build = importlib.import_module("build")
@@ -356,7 +426,125 @@ def check_maps(root: Path, revisions: dict, maps: dict[str, Path], out: Path) ->
     return facts
 
 
-def emit(model: Model, revisions: dict, units: dict, facts: dict) -> tuple[dict[str, str], dict]:
+def resolved_rom_symbols(model: Model) -> dict:
+    resolver = importlib.import_module("names")
+    revisions = {}
+    for revision in ("rev02", "rev00"):
+        symbols = {}
+        for canonical in resolver.load(revision, model.root).values():
+            if canonical.kind != "rom_data":
+                continue
+            for name in (canonical.name, *canonical.aliases):
+                declaration = model.declarations.get(name)
+                entry = {"address": canonical.address, "canonical": canonical.name,
+                         "c_type": declaration[0].spelling() if declaration else None}
+                if name in symbols and symbols[name] != entry:
+                    raise ValueError(f"{revision} conflicting ROM resolver spelling: {name}")
+                symbols[name] = entry
+        revisions[revision] = dict(sorted(symbols.items()))
+    return revisions
+
+
+def rom_api_files(model: Model, revisions: dict, symbols: dict, banner: str) -> dict[str, list[str]]:
+    """Separate source spellings/typed views from data-unit allocation metadata."""
+    files = {}
+    catalogue = [banner, "use crate::{Revision, RomSymbol};", ""]
+    chunks = {}
+    for revision, entries in symbols.items():
+        chunks[revision] = []
+        items = list(entries.items())
+        for offset in range(0, len(items), 256):
+            module = f"{revision}_{offset // 256:03d}"
+            catalogue += [f"mod {module};"]
+            chunks[revision].append(f"{module}::SYMBOLS")
+            rows = [banner, "use crate::RomSymbol;", "", "#[rustfmt::skip]",
+                    "pub(super) static SYMBOLS: &[RomSymbol] = &["]
+            for name, entry in items[offset:offset + 256]:
+                c_type = "None" if entry["c_type"] is None else f"Some({quote(entry['c_type'])})"
+                rows += [f"    RomSymbol {{ name: {quote(name)}, address: 0x{entry['address']:06X}, "
+                         f"canonical: {quote(entry['canonical'])}, c_type: {c_type} }},"]
+            rows += ["];", ""]
+            files[f"generated/rom_names/{module}.rs"] = rows
+    for revision, names in chunks.items():
+        catalogue += [f"static {revision.upper()}: &[&[RomSymbol]] = &[" + ", ".join(names) + "];"]
+    catalogue += [
+        "fn chunks(revision: Revision) -> &'static [&'static [RomSymbol]] {",
+        "    match revision { Revision::Rev02 => REV02, Revision::Rev00 => REV00 }", "}",
+        "/// Every canonical and alias spelling supplied by G's real ROM resolver.",
+        "pub fn rom_symbols(revision: Revision) -> impl Iterator<Item = &'static RomSymbol> {",
+        "    chunks(revision).iter().flat_map(|chunk| chunk.iter())", "}",
+        "/// Resolve an exact source spelling without inferring an allocation or extent.",
+        "pub fn rom_symbol(revision: Revision, name: &str) -> Option<&'static RomSymbol> {",
+        "    let chunks = chunks(revision);",
+        "    let index = chunks.partition_point(|chunk| chunk.last().is_some_and(|last| last.name < name));",
+        "    let chunk = *chunks.get(index)?;",
+        "    let index = chunk.binary_search_by(|symbol| symbol.name.cmp(name)).ok()?;",
+        "    Some(&chunk[index])", "}",
+        "#[cfg(test)]", "mod tests {", "    use super::*;", "    #[test]",
+        "    fn every_revision_spelling_round_trips_across_chunk_boundaries() {",
+        "        for (revision, count) in [(Revision::Rev02, " + str(len(symbols["rev02"])) +
+        "), (Revision::Rev00, " + str(len(symbols["rev00"])) + ")] {",
+        "            let mut previous = None;",
+        "            for entry in rom_symbols(revision) {",
+        "                if let Some(previous) = previous { assert!(previous < entry.name); }",
+        "                assert_eq!(rom_symbol(revision, entry.name), Some(entry));",
+        "                previous = Some(entry.name);", "            }",
+        "            assert_eq!(rom_symbols(revision).count(), count);",
+        "            assert!(rom_symbol(revision, \"\").is_none());",
+        "            assert!(rom_symbol(revision, \"not_a_rom_symbol\").is_none());",
+        "        }", "    }", "}", "",
+    ]
+    files["generated/rom_names.rs"] = catalogue
+    ram_names = {s["name"] for s in revisions["rev02"]}
+    declarations = {n: declaration for n, declaration in model.declarations.items() if n not in ram_names}
+    views = [banner, "use super::structs::*;", "use crate::{Address, OpenArray, Ptr, Revision};",
+             "/// Header-declared ROM views; a bound is a declaration, never an inferred allocation.",
+             "pub mod rom {", "    use super::*;"]
+    emitted = set()
+    for name, (ctype, source) in sorted(declarations.items()):
+        rust_name = snake(name)
+        if rust_name in emitted:
+            raise ValueError(f"Rust ROM declaration name collision: {name}")
+        emitted.add(rust_name)
+        views += [f"    /// `{name}` — {source}.",
+                  f"    pub const fn {rust_name}(revision: Revision) -> Address<{ctype.rust()}> {{",
+                  "        Address::new(match revision {"]
+        for revision in ("rev02", "rev00"):
+            if name not in symbols[revision]:
+                raise ValueError(f"{revision} declared ROM global has no resolver spelling: {name}")
+            views += [f"            Revision::{revision.capitalize()} => 0x{symbols[revision][name]['address']:06X},"]
+        views += ["        })", "    }"]
+    views += ["}", ""]
+    files["generated/rom_views.rs"] = views
+    return files
+
+
+def global_layout_test_file(model: Model, revisions: dict, facts: dict, banner: str) -> list[str]:
+    ram_names = {s["name"] for s in revisions["rev02"]}
+    lines = [banner, "use crate::{ram, rom, Address, Ptr, Revision, Target};",
+             "fn view_size<T: Target>(_: Address<T>) -> u32 { T::SIZE }",
+             "fn pointee<T>(_: Address<Ptr<T>>) -> Address<T> { Address::new(0) }",
+             "#[test]", "fn every_declared_global_object_row_and_pointee_matches_mcc68k() {",
+             "    for revision in [Revision::Rev02, Revision::Rev00] {"]
+    for name in sorted(model.declarations):
+        namespace = "ram" if name in ram_names else "rom"
+        measured = facts["global_layouts"]["rev02"][name]["levels"]
+        if measured != facts["global_layouts"]["rev00"][name]["levels"]:
+            raise ValueError(f"revision-dependent global type needs distinct views: {name}")
+        lines += [f"        let view = {namespace}::{snake(name)}(revision);"]
+        for level in measured:
+            if level["step"] == "array":
+                lines += [f"        assert_eq!(view.at(1).address().wrapping_sub(view.at(0).address()), {level['size']});",
+                          "        let view = view.at(0);"]
+            elif level["step"] == "pointer":
+                lines += ["        let view = pointee(view);"]
+            if level["size"] is not None:
+                lines += [f"        assert_eq!(view_size(view), {level['size']});"]
+    lines += ["    }", "}", ""]
+    return lines
+
+
+def emit(model: Model, revisions: dict, units: dict, facts: dict, rom_names: dict) -> tuple[dict[str, str], dict]:
     banner = "// @generated by tools/generate.py. No ROM contents; do not hand edit."
     files: dict[str, list[str]] = {}
     lines = [banner,
@@ -461,11 +649,15 @@ def emit(model: Model, revisions: dict, units: dict, facts: dict) -> tuple[dict[
     lines += ["}", "", "#[cfg(test)]", "mod compiler_address_tests {", "    use super::*;",
               "    #[test]", "    fn every_ram_view_matches_the_linked_address_probe() {", *ram_checks, "    }", "}", ""]
     files["generated/ram_views.rs"] = lines
+    files.update(rom_api_files(model, revisions, rom_names, banner))
+    files["generated/global_layout_tests.rs"] = global_layout_test_file(model, revisions, facts, banner)
     files["generated.rs"] = [
         banner, "mod structs;", "mod ram_views;", "mod rom_rev00;", "mod rom_rev02;", "",
+        "mod rom_names;", "mod rom_views;", "#[cfg(test)]", "mod global_layout_tests;",
         "pub use structs::*;",
         "pub use ram_views::{ram, ram_symbols, RAM_REV00, RAM_REV02};",
         "pub use rom_rev00::ROM_DATA_REV00;", "pub use rom_rev02::ROM_DATA_REV02;", "",
+        "pub use rom_names::{rom_symbol, rom_symbols};", "pub use rom_views::rom;",
         "use crate::{Revision, RomDataUnit};", "",
         "pub fn rom_data_units(revision: Revision) -> &'static [RomDataUnit] {",
         "    match revision { Revision::Rev02 => ROM_DATA_REV02, Revision::Rev00 => ROM_DATA_REV00 }", "}", "",
@@ -542,8 +734,13 @@ def main() -> int:
     units = {r: json.loads((root / "config" / r / "data_units.json").read_text())["units"] for r in revisions}
     maps = {r: getattr(args, f"map_{r}") or root / "build" / r / "toejam.map" for r in revisions}
     facts = compiler_probes(model, out)
+    facts["global_layouts"] = global_type_probes(model, out)
     facts["ram_maps"] = check_maps(root, revisions, maps, out)
-    rust, coverage = emit(model, revisions, units, facts)
+    rom_names = resolved_rom_symbols(model)
+    rust, coverage = emit(model, revisions, units, facts, rom_names)
+    facts["rom_symbol_counts"] = {revision: len(entries) for revision, entries in rom_names.items()}
+    facts["typed_rom_views"] = len(model.declarations) - sum(name in model.declarations for name in
+                                                        {symbol["name"] for symbol in revisions["rev02"]})
     facts["ram_type_coverage"] = coverage
     facts["rom_data_unit_counts"] = {r: len(values) for r, values in units.items()}
     facts["header_sha256"] = {h: hashlib.sha256(text.encode()).hexdigest() for h, text in model.headers.items()}
@@ -562,8 +759,9 @@ def main() -> int:
             path.write_text(contents)
     fields = sum(len(r.fields) for r in model.records.values())
     print(f"MCC68K: {len(model.records)} structs, {fields} fields; maps: {len(revisions['rev02'])} RAM names/revision; "
-          f"ROM units: {facts['rom_data_unit_counts']}; types: {coverage['declared']} declared, "
-          f"{coverage['structural_alias']} structural aliases, {len(coverage['opaque_byte'])} opaque byte views")
+          f"globals: {len(model.declarations)}; ROM units: {facts['rom_data_unit_counts']}; "
+          f"ROM spellings: {facts['rom_symbol_counts']}; types: {coverage['declared']} declared, "
+          f"{coverage['structural_alias']} structural aliases, {len(coverage['opaque_byte'])} opaque views")
     return 0
 
 

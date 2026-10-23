@@ -4,12 +4,18 @@ mod rom_rev00;
 mod rom_rev02;
 mod structs;
 
+#[cfg(test)]
+mod global_layout_tests;
+mod rom_names;
+mod rom_views;
 pub use ram_views::{RAM_REV00, RAM_REV02, ram, ram_symbols};
 pub use rom_rev00::ROM_DATA_REV00;
 pub use rom_rev02::ROM_DATA_REV02;
 pub use structs::*;
 
 use crate::{Revision, RomDataUnit};
+pub use rom_names::{rom_symbol, rom_symbols};
+pub use rom_views::rom;
 
 pub fn rom_data_units(revision: Revision) -> &'static [RomDataUnit] {
     match revision {

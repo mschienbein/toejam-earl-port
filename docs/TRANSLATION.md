@@ -22,9 +22,34 @@ G=/absolute/path/to/toejam-earl-decomp
 # Recompile probes, check links, and compare without changing committed output:
 "$G/.venv/bin/python" -B crates/tje-mem/tools/generate.py \
   --decomp "$G" --probe-out "$PWD/scratch/memory-probes" --check
+python3 -B -m unittest discover -s crates/tje-mem/tools -p 'test_*.py'
 cargo test -p tje-mem
 cargo build -p tje-mem --target wasm32-unknown-unknown
 ```
+
+The separately committed [`execution_receipt.json`](../crates/tje-mem/execution_receipt.json)
+comes from executing synthetic MCC68K machine code, not a Rust-versus-Rust formula
+test. Its optional verifier needs **Unicorn 2.1.4**, explicitly selecting M68000.
+Install that verifier dependency outside G, or point `--unicorn-path` at an
+existing user-local installation:
+
+```sh
+uv pip install --target "$PWD/scratch/memory-python" 'unicorn==2.1.4'
+"$G/.venv/bin/python" -B crates/tje-mem/tools/execute_semantics.py \
+  --decomp "$G" --out "$PWD/scratch/memory-execution" \
+  --unicorn-path "$PWD/scratch/memory-python"
+# Repeat execution and compare the committed receipt without rewriting it:
+"$G/.venv/bin/python" -B crates/tje-mem/tools/execute_semantics.py \
+  --decomp "$G" --out "$PWD/scratch/memory-execution" \
+  --unicorn-path "$PWD/scratch/memory-python" --check
+```
+
+This verifier compiles `tools/execution.c`, assembles G's runtime in private
+scratch, executes the compiled code, and compares its results with the actual
+Rust arithmetic API through a temporary Rust driver. It also executes aggregate,
+pointer, and narrow-update probes. Neither the executables nor runtime-derived
+instruction bytes are committed. This is CPU-instruction execution evidence,
+not a whole-Genesis/reference-ROM differential run.
 
 `--map-rev02` and `--map-rev00` optionally select existing G link maps; by default
 these are `G/build/<revision>/toejam.map`. G is read-only: generated C, compiler
@@ -32,11 +57,11 @@ listings, objects, ELF files, and forced-reference maps go into `--probe-out`,
 which must be outside G. Do not commit that scratch directory. The generator
 reads headers/configuration and link maps, never a ROM or extracted asset.
 
-Generated source is split into a small `src/generated.rs` entry point and
-`src/generated/{structs,ram_views,rom_rev00,rom_rev02}.rs`. Record accessors, RAM
-views/address tests, and each revision's ROM metadata have separate modules, all
-below the public audit's unchanged 1-MB per-blob limit. Their public Rust API is
-unchanged; `--check` deterministically compares every module and the receipt.
+Generated source uses a small `src/generated.rs` entry point, separate record/RAM
+views, global layout tests, ROM allocation tables, typed ROM views, and bounded
+chunks under `src/generated/rom_names/` for the complete resolver spelling API.
+Every source module stays below the public audit's unchanged 1-MB per-blob limit.
+`--check` deterministically compares every generated module and the receipt.
 
 For each of **27 structs and all 186 fields**, the generator compiles independent
 C constants recording `sizeof(struct)`, alignment via an enclosing `char`-prefix
@@ -47,6 +72,20 @@ actual emulated field type size with those compiler facts. For example,
 `object_state` is 128 bytes, `process` is at `0x16`, `current_frame` at `0x22`, and
 `next` at `0x5a`; pointers/longs require **two**, not four, byte alignment.
 Even byte-only structs have two-byte alignment.
+
+Both revisions additionally compile the declared **object size and every sized
+array-row/element and pointer-pointee size for all 655 header globals**. An
+incomplete outer array has no `sizeof` assertion; its complete row/element types
+are still checked. Generated Rust tests verify the actual named view's type,
+array strides, and pointee types against those C facts, not just its base address.
+For example, `gMapPathDirectionBanks[MAP_ROWS * 2][MAP_COLUMNS]` is **988 bytes**,
+**19 bytes per row**, and **1 byte per element**, with Rust type
+`[[u8; 19]; 52]`. Multiplication in a bound is never a pointer-prefix star.
+Synthetic compiler fixtures and ROM/G-free parser tests cover multiplied bounds,
+real `***` pointers, pointer arrays with multiplied bounds, incomplete outer
+arrays, independent comma declarators, and function pointers. Unmeasured
+parenthesized declarators, incomplete inner arrays, and bitfields are rejected
+rather than assigned guessed layouts.
 
 Both revision catalogues contain **438 RAM names with identical addresses**.
 Each existing G game map names 378 of them; the remaining 60 are unused aliases,
@@ -61,6 +100,33 @@ pretending the existing maps contain every alias.
 There are **4,163 ROM data units per revision**. Only their names, kinds, addresses,
 and sizes are generated, never their contents. Use the selected revision's table:
 ROM addresses can move even though RAM addresses do not.
+
+**Data units are not the source-name API.** `rom_symbols(revision)` and
+`rom_symbol(revision, exact_name)` expose every canonical and alias spelling from
+G's real `tools/names.py:load` resolver: **4,545 REV 02** and **4,542 REV 00**
+spellings, including all **711 named `rom_data` symbols per revision** and their
+interior aliases. Search is allocation-free over sorted bounded chunks.
+`rom::<snake_case_name>(revision)` supplies typed views for all **287
+header-declared ROM globals**. For example:
+
+```rust
+use tje_mem::{rom, rom_symbol, Revision};
+let second_player = rom::player2_animation_descriptors(Revision::Rev02);
+assert_eq!(second_player.address(), 0x0ae9de);
+assert_eq!(
+    rom_symbol(Revision::Rev00, "Player2AnimationDescriptors").unwrap().address,
+    0x0ae96e,
+);
+let projectiles = rom::tomato_projectile_animations(Revision::Rev02);
+let directions = rom::control_remap_directions(Revision::Rev00);
+```
+
+Other source names such as `HealthDrainDisplayAnimation` and
+`MapBoundaryShapesPlain` also resolve directly. Symbol metadata deliberately has
+**no size/extent field**: being an interior alias does not create an independent
+asset allocation. Typed views retain only the header's declared bounds, including
+`OpenArray` for incomplete declarations. Keep `rom_data_units` for allocation
+metadata and use the symbol API for source spellings and their revision addresses.
 
 ### What a typed view means
 
@@ -139,11 +205,12 @@ worked example 2. Rust's `as i8`/`as u8` gives the required low-bit reinterpreta
 G's compiler document records that prototypes, `signed`, and `volatile` are
 rejected, while K&R definitions work. Do not translate a call as if a modern
 prototype performed implicit narrowing first. Default argument promotions apply;
-**each argument occupies a four-byte stack slot**, pointers included. With the
-return address at `SP`, a first `char` parameter is loaded from `7(SP)`, a `short`
-from `6(SP)`, and a full word/pointer from `4(SP)` (observed in the probes).
-Sign/zero extend at the call site's original declared expression type; a K&R
-callee then reads the portion selected by its own parameter declaration.
+**promoted scalar integers and pointers occupy four-byte stack slots**. This rule
+does **not** apply to aggregate-by-value parameters. With the return address at
+`SP`, a first scalar `char` parameter is loaded from `7(SP)`, a `short` from
+`6(SP)`, and a full scalar/pointer from `4(SP)` (observed in the probes). Sign/zero
+extend at the call site's original declared expression type; a K&R callee then
+reads the portion selected by its own parameter declaration.
 
 Integer results use D0. Do not assume that an original narrow result always
 cleared or sign-extended its unused upper bits. G explicitly marks several
@@ -153,6 +220,48 @@ silently substituting a corrected shared signature. Missing arguments,
 uninitialized locals, and residual register bits require the corresponding
 original stack/register state from the hybrid host; inventing a zero is not a
 faithful translation.
+
+### Aggregate parameters, assignment, and return storage
+
+The executable synthetic probe uses `{ char first; long value; char last; }`:
+**8 bytes**, fields at **0, 2, 6**, with padding at bytes **1 and 7**. Its by-value
+argument occupies **eight inline stack bytes**, padding included, at the callee's
+`SP+4..SP+11`. The callee reads the two chars at `SP+4` and `SP+10` and the long at
+`SP+6`; there is no implicit pointer or single scalar slot. Preserve the
+compiler's caller-side placement/access order when constructing that stack image.
+Other aggregate shapes require their own measured lowering; this eight-byte
+probe is not a claim that every record uses a host ABI or four-byte slots.
+
+Record assignment for that shape copies **all eight bytes including padding** as
+two **forward, interleaved longword reads/writes**. Its explicit translation is:
+
+```rust
+fn copy_measured_eight_bytes(bus: &mut impl tje_mem::Bus, dst: u32, src: u32) {
+    let first = bus.read_u32(src);
+    bus.write_u32(dst, first);
+    let second = bus.read_u32(src.wrapping_add(4));
+    bus.write_u32(dst.wrapping_add(4), second);
+}
+```
+
+Do not read both halves before writing, copy just the named fields, use a host
+marker's `Copy`, or replace this with `memmove`. With `dst=src+2`, the first write
+changes bytes that the second read then consumes. The execution probe checks
+exact access widths/order, copied padding, and this overlapping case. For other
+record sizes, translate the actual emitted copy sequence, not a guessed generic
+copy policy.
+
+The measured struct-return function copies into **persistent per-function
+scratch** and returns that scratch's **address in D0**. A second invocation
+returns the same address and overwrites its bytes. The idiom is to run the
+measured bus copy into that function's recovered per-machine scratch location and
+return the numeric scratch address; callers needing the old result must consume
+or copy it before another call overwrites it. A fresh Rust value/allocation on
+each call or a process-global scratch shared by independent machines is wrong.
+The executable probe verifies both inline argument bytes and persistent return
+storage. No aggregate-by-value game call has been established in the current
+source survey; these are measured compiler-contract rules, not newly asserted
+game routines.
 
 ### Wraparound, narrowing, and shifts
 
@@ -180,26 +289,49 @@ preserve those flags at the CPU/translation boundary too.
 
 ### Division and modulo
 
-The probes demonstrate native `DIVS`/`DIVU` fast paths with fallback calls to
-`ldivt`, `lmodt`, `uldivt`, and `ulmodt`. G's runtime source establishes their full
-32-bit magnitude/restoring-division behavior:
+**Direct runtime entries and compiler-expression lowering are different
+contracts.** G's `ldivt/lmodt/uldivt/ulmodt` implement full-width magnitude/restoring
+division. The Rust `div_i32`, `rem_i32`, `div_u32`, and `rem_u32` represent those
+entries:
 
-- Signed division truncates toward **zero**, not toward negative infinity.
-- Signed remainder has the **dividend's** sign: `-7 / 3 = -2`, `-7 % 3 = -1`;
-  `7 % -3 = 1`. Do not use Rust's Euclidean division/remainder.
-- `i32::MIN / -1` returns the wrapped `i32::MIN`; its remainder is zero.
-- Unsigned division/remainder operate on all 32 bits, including divisors above
-  `0xffff`; do not truncate the inputs to the native 68000 word-divisor format.
-- **Division by zero is a real 68000 vector-5 exception.** In G's helpers, zero
-  takes the word-divisor path and executes `DIVU` with zero; there is no zero
-  result or saturation path. `tje_mem::arithmetic` returns
-  `Err(ArithmeticTrap::DivideByZero)` (vector 5), which the hybrid/platform caller
-  must propagate as that exception, not swallow. A fixed nonzero literal divisor
-  may use the corresponding Rust operator directly, as in example 1.
+- Signed division truncates toward **zero**, not negative infinity. Remainder
+  has the dividend's sign: `-7 / 3 = -2`, `-7 % 3 = -1`, and `7 % -3 = 1`.
+- Direct signed `i32::MIN / -1` wraps to `i32::MIN`; its remainder is zero.
+- Direct unsigned runtime entries use **all 32 divisor bits**, even above `0xffff`.
+- Zero executes a native zero-divisor instruction and raises **68000 vector 5**,
+  never a fabricated zero/saturated result. `ArithmeticTrap::DivideByZero` must
+  be propagated to the host's exception dispatch.
 
-Unit tests cover signs, minimum values, both divisor paths, and all four zero
-cases. These are synthetic semantic tests, not a claim that those exceptional
-paths have already been differentially executed in the reference emulator.
+The default dynamic `unsigned long a / b` and `%` compiler probes instead select
+native `DIVU` when **`b <= 0x7fff || b >= 0xffff8000`**. The instruction consumes
+only **`b & 0xffff`**. If its quotient fits in 16 unsigned bits, that native
+quotient/remainder is returned; on quotient overflow the code falls back to
+`uldivt`/`ulmodt` with the **original full divisor**. Thus a high unsigned divisor
+can produce a different value from both mathematical division and a direct
+runtime call:
+
+| Operands | Executed compiled expression `/`, `%` | Direct runtime `/`, `%` |
+|---|---|---|
+| `65535`, `0xffffffff` | **1, 0** | **0, 65535** |
+| `0x7fffffff`, `0xffff8000` | **65535, 32767** | **0, 0x7fffffff** |
+| `0x80000000`, `0xffff8000` | native quotient overflows, fallback **0, 0x80000000** | **0, 0x80000000** |
+
+Use **`expr_div_u32` / `expr_rem_u32`** for this measured compiler dispatch.
+Use **`div_u32` / `rem_u32`** for an actual direct runtime entry. Do not change
+the correct runtime helpers to imitate a compiler defect. Other optimized or
+constant-divisor lowerings still require their own emitted operations; a
+nonzero literal alone is not permission to replace an arbitrary sequence with
+ordinary Rust division. Example 1's signed literal-six case is safe at its
+promoted width.
+
+`execute_semantics.py` compiles the real operator probes and executes them plus
+the direct runtime entries on M68000. It compares those observed results with
+the actual Rust APIs across small/large divisors, both guard boundaries,
+high-divisor native successes, quotient-overflow fallbacks, and vector-5 zero
+cases. The committed execution receipt records coverage and representative
+results. This is instruction execution, not Rust-versus-Rust arithmetic and not
+a whole-Genesis replay; signed-runtime minimum/overflow unit checks remain
+separate from that unsigned execution matrix.
 
 ### Comparisons and evaluation order
 
@@ -226,9 +358,13 @@ width and ordered side effects.
 
 - Keep addresses as 32-bit values; `Address::offset` scales by the emulated type's
   `Target::SIZE` with wrapping arithmetic, and `byte_offset` does not scale.
-  Casts change the view, not the bytes or address. Pointer subtraction is address
-  subtraction followed by the original element-size division, with its original
-  signed width. Do not use host pointer provenance or Rust reference subtraction.
+  Casts change the view, not the bytes or address. Pointer comparison/equality
+  uses the **full unsigned 32-bit numeric address**; `0x01000000` and zero compare
+  differently even though the physical bus masks them to the same address.
+  Pointer subtraction must preserve the emitted width and operation: the
+  measured `short *` difference uses wrapping `SUB.L` then **`ASR.L #1`**, not
+  signed division truncating toward zero. See the explicit idiom below.
+  Do not use host pointer provenance or Rust reference subtraction.
 - Pointer zero is **ROM address zero**, not an invented trap. Only a C truth test
   treats zero as false. Do not make pointer dereference an `Option` that hides an
   original read. ROM pointers stored in RAM remain big-endian numeric words.
@@ -264,6 +400,61 @@ width and ordered side effects.
   clamp, fallback pointer, extra allocation retry, initialized zero, or corrected
   call signature changes the program. G's `[INFERENCE]` reachability and matching
   qualifications remain qualifications, not permission to repair behavior.
+
+### Explicit pointer and narrow-update idioms
+
+For the measured `short *` subtraction, use:
+
+```rust
+let byte_difference = left.address().wrapping_sub(right.address()) as i32;
+let element_difference = tje_mem::arithmetic::asr_i32(byte_difference, 1);
+```
+
+A byte difference of **-1 yields -1**, not zero. This preserves the instruction's
+rounding toward minus infinity even for misaligned stored pointers; do not
+normalize or validate the values into a different program. Other pointee strides
+must follow their measured lowering, not assume this shift.
+
+For `return *(*slot)++` with a stored `char *`, the compiler saves the old pointer,
+performs the pointer's longword read-modify-write, **then** reads the old pointee:
+
+```rust
+let old = slot.read(bus);
+let advanced = slot.read(bus).address().wrapping_add(1);
+slot.write(bus, tje_mem::Ptr::new(advanced));
+let result = i32::from(old.target().read(bus));
+```
+
+The second slot read represents `ADDQ.L`'s read half, distinct from the saved
+old-pointer load. For `short *`, advance by two and read the old signed word.
+If the old pointee aliases the slot's changing low byte/word, reading it first
+changes the result: the execution probe observes the pointer store before that
+pointee read, including an aliasing case returning the **new** low value.
+
+Narrow compound updates operate on storage width, e.g. an emitted `ADD.W`:
+
+```rust
+let delta = delta as i16;
+let current = word.read(bus);
+word.write(bus, current.wrapping_add(delta));
+```
+
+For an emitted signed-byte post-increment, the old returned value and the
+read-modify-write are separate:
+
+```rust
+let old = byte.read(bus);
+let current = byte.read(bus);
+byte.write(bus, current.wrapping_add(1));
+let result = i32::from(old);
+```
+
+Use the analogous `i16` operations for a word and zero-extension for unsigned
+results. Do not widen a byte/word store or return the updated value. The compiled
+execution probes check byte/word write widths, wraparound, returned old values,
+and stored-pointer alias order. `Bus` adapters tracing physical accesses must
+override wider primitives where needed to retain the original word/longword
+transaction width rather than merely the storage byte decomposition.
 
 ## Survey: does the flat big-endian model hold?
 

@@ -67,7 +67,7 @@ pub static RAM_REV02: &[RamSymbol] = &[
     RamSymbol { name: "gPlayer1LevelMap", address: 0xFF81AA, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gPlayer2LevelMap", address: 0xFF8586, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gSavedLevelMap", address: 0xFF8962, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
-    RamSymbol { name: "gMapPathDirectionBanks", address: 0xFF8D3E, c_type: "unsigned char *[52][19]", source: "include/ram_map.h" },
+    RamSymbol { name: "gMapPathDirectionBanks", address: 0xFF8D3E, c_type: "unsigned char[52][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gSavedMapPathDirections", address: 0xFF8F2C, c_type: "unsigned char[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gLevelAnchorPositions", address: 0xFF911A, c_type: "struct elevator_position[8]", source: "include/ram_elevator.h" },
     RamSymbol { name: "gArrivalElevatorMapX", address: 0xFF911C, c_type: "char", source: "include/ram_elevator.h" },
@@ -509,7 +509,7 @@ pub static RAM_REV00: &[RamSymbol] = &[
     RamSymbol { name: "gPlayer1LevelMap", address: 0xFF81AA, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gPlayer2LevelMap", address: 0xFF8586, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gSavedLevelMap", address: 0xFF8962, c_type: "unsigned short[26][19]", source: "include/ram_map.h" },
-    RamSymbol { name: "gMapPathDirectionBanks", address: 0xFF8D3E, c_type: "unsigned char *[52][19]", source: "include/ram_map.h" },
+    RamSymbol { name: "gMapPathDirectionBanks", address: 0xFF8D3E, c_type: "unsigned char[52][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gSavedMapPathDirections", address: 0xFF8F2C, c_type: "unsigned char[26][19]", source: "include/ram_map.h" },
     RamSymbol { name: "gLevelAnchorPositions", address: 0xFF911A, c_type: "struct elevator_position[8]", source: "include/ram_elevator.h" },
     RamSymbol { name: "gArrivalElevatorMapX", address: 0xFF911C, c_type: "char", source: "include/ram_elevator.h" },
@@ -1337,7 +1337,7 @@ pub mod ram {
         })
     }
     /// `gMapPathDirectionBanks` — include/ram_map.h.
-    pub const fn g_map_path_direction_banks(revision: Revision) -> Address<[[Ptr<u8>; 19]; 52]> {
+    pub const fn g_map_path_direction_banks(revision: Revision) -> Address<[[u8; 19]; 52]> {
         Address::new(match revision {
             Revision::Rev02 => 0xFF8D3E,
             Revision::Rev00 => 0xFF8D3E,

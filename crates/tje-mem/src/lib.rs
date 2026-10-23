@@ -316,6 +316,16 @@ pub struct RomDataUnit {
     pub size: u32,
 }
 
+/// A resolver spelling, not an asset allocation. Interior aliases and incomplete
+/// declarations intentionally have no inferred extent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RomSymbol {
+    pub name: &'static str,
+    pub address: u32,
+    pub canonical: &'static str,
+    pub c_type: Option<&'static str>,
+}
+
 impl Address<RenderFrame> {
     /// The bounded C access views are not ROM strides: the actual tail is count * 10 bytes.
     pub fn byte_len(self, bus: &(impl Bus + ?Sized)) -> u32 {

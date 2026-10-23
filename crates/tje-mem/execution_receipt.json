@@ -1,0 +1,165 @@
+{
+  "aggregate_and_pointer": {
+    "aggregate_layout": [
+      8,
+      0,
+      2,
+      6
+    ],
+    "aliasing_stored_pointer_events": {
+      "post_char_pointer": [
+        [
+          "read",
+          262144,
+          4
+        ],
+        [
+          "read",
+          262144,
+          4
+        ],
+        [
+          "write",
+          262144,
+          4
+        ],
+        [
+          "read",
+          262147,
+          1
+        ]
+      ],
+      "post_short_pointer": [
+        [
+          "read",
+          262144,
+          4
+        ],
+        [
+          "read",
+          262144,
+          4
+        ],
+        [
+          "write",
+          262144,
+          4
+        ],
+        [
+          "read",
+          262146,
+          2
+        ]
+      ]
+    },
+    "argument_padding_preserved": true,
+    "copy_events": [
+      [
+        "read",
+        262144,
+        4
+      ],
+      [
+        "write",
+        262152,
+        4
+      ],
+      [
+        "read",
+        262148,
+        4
+      ],
+      [
+        "write",
+        262156,
+        4
+      ]
+    ],
+    "inline_argument_bytes": 8,
+    "narrow_update_cases": 22,
+    "overlap_preserves_forward_bus_behavior": true,
+    "pointer_comparison_cases": 4,
+    "pointer_difference_cases": 5,
+    "return_scratch_is_persistent": true
+  },
+  "compiler": "MCC68K 3.3K, defaults + /STRINTEXT",
+  "engine": "Unicorn 2.1.4, M68000",
+  "runtime_source_sha256": "7729635d0b1883e48cb25564add83a0f7abae256b9790c2837f6db7a26d7dbaa",
+  "rust_arithmetic_sha256": "6a75414cf9d159060909e0969ce0f2872b367103894381c5ef4fc0d57ab8643a",
+  "source_sha256": "32c73514981f1110a1442fc360243e8963b36425405cf1e4ae165f55a4bc882b",
+  "unsigned_division": {
+    "native_nonzero_pairs": 64,
+    "operand_pairs": 210,
+    "pairs_differing_from_direct_runtime": 21,
+    "representative_cases": [
+      {
+        "direct_runtime": [
+          "0",
+          "65535"
+        ],
+        "dividend": 65535,
+        "divisor": 4294967295,
+        "expression": [
+          "1",
+          "0"
+        ],
+        "expression_called_runtime": false
+      },
+      {
+        "direct_runtime": [
+          "0",
+          "2147483647"
+        ],
+        "dividend": 2147483647,
+        "divisor": 4294934528,
+        "expression": [
+          "65535",
+          "32767"
+        ],
+        "expression_called_runtime": false
+      },
+      {
+        "direct_runtime": [
+          "0",
+          "2147483648"
+        ],
+        "dividend": 2147483648,
+        "divisor": 4294934528,
+        "expression": [
+          "0",
+          "2147483648"
+        ],
+        "expression_called_runtime": true
+      },
+      {
+        "direct_runtime": [
+          "0",
+          "4294901760"
+        ],
+        "dividend": 4294901760,
+        "divisor": 4294967295,
+        "expression": [
+          "0",
+          "4294901760"
+        ],
+        "expression_called_runtime": true
+      },
+      {
+        "direct_runtime": [
+          "1",
+          "0"
+        ],
+        "dividend": 4294967295,
+        "divisor": 4294967295,
+        "expression": [
+          "1",
+          "0"
+        ],
+        "expression_called_runtime": true
+      }
+    ],
+    "runtime_nonzero_pairs": 131,
+    "rust_vs_executed_results": 840,
+    "zero_vectors_per_entry": 15
+  }
+}
