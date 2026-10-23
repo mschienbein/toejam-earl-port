@@ -1,6 +1,6 @@
 //! Elevator record and animation leaves; see docs/PORTING.md.
 
-use crate::{Context, Result, Translation, ids};
+use crate::{Context, Result, Translation, execution::ExecutionClass, ids};
 use tje_mem::{Address, Bus, ElevatorRecord, ObjectState, Revision, ram, rom};
 
 /// Available Rust entries owned by this subsystem.
@@ -23,13 +23,73 @@ pub static TRANSLATIONS: &[Translation] = &[
     },
 ];
 
-/// All four leaves access only RAM and ROM. Every branch returns directly;
-/// none calls another function or waits for devices, time, or interrupts.
+/// Reviewed ORIGINAL Atomic entries, translated or not.
+/// These paths only perform RAM/ROM logic, entity/sprite allocation/release,
+/// arithmetic runtime calls, and RAM sound requests; none waits for hardware.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::ELEVATOR_SET_STATE,
     ids::PLAYER_SET_POSITION_FROM_SAVED_MAP_CELL,
     ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS,
     ids::PROCESS_ELEVATOR,
+    // elevator_scene.c:97,149,161,204 — record/entity management; FreeEntity,
+    // ResetEntityRuntimeState and ElevatorSetState have RAM-only return paths.
+    ids::SETUP_ELEVATOR,
+    ids::SETUP_INITIAL_ELEVATOR,
+    ids::ELEVATOR_CREATE_ENTITY_PAIR,
+    ids::ELEVATOR_UPDATE_ENTITY_VISIBILITY,
+    // elevator_scene.c:240,285,311 — threshold queries; abs is no-wait.
+    ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT,
+    ids::ELEVATOR_BLOCKS_ENTITY_MOVEMENT,
+    ids::ELEVATOR_CONTAINS_POSITION,
+    // elevator_scene.c:358 — bank/entity release and transient cleanup only.
+    ids::MAP_CLEAR_ACTIVE_LEVEL_OBJECTS,
+    // elevator_scene.c:530 — counter tests and speech-entity release only.
+    ids::ELEVATOR_UPDATE_RIDE_DIALOGUE,
+    // elevator_transitions.c:22,52,192 — RAM state machines and PlaySound
+    // request stores; queries and arithmetic runtime return without clocks.
+    ids::ELEVATOR_CHECK_PLAYER_PROXIMITY_AND_INPUT,
+    ids::ELEVATOR_STEP_DEPARTURE_HEIGHT_CYCLES,
+    ids::PROCESS_ELEVATOR_STEP2,
+];
+
+/// Reviewed non-Atomic ORIGINAL contracts; sources are G/src/elevator/.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // elevator_scene.c:327 — stable ROM tile/palette stream and RAM HUD state.
+    (ids::LOAD_FINAL_LEVEL_MAP, ExecutionClass::Functional),
+    // elevator_scene.c:437 — ROM decode into RAM, then stable sprite-tile DMA.
+    (
+        ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
+        ExecutionClass::Functional,
+    ),
+    // elevator_scene.c:463 — RAM link rebuild followed by sprite-table DMA;
+    // asm/dma.s:15-75 contains writes only, no DMA-status read or polling.
+    (
+        ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
+        ExecutionClass::Functional,
+    ),
+    // elevator_scene.c:396 — UpdateScreenSplitMode can run VBlank animations.
+    (ids::MAP_ENTER_FINAL_LEVEL, ExecutionClass::TimeAware),
+    // elevator_scene.c:484 — GenerateSpeech waits for the IRQ-cleared upload
+    // pending byte (speech/speech_and_dialogue.c:135-136).
+    (
+        ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        ExecutionClass::TimeAware,
+    ),
+    // elevator_scene.c:562 — MusicUpdateSequencer can execute real Z80 mailbox
+    // lock retries, DBRA delays and BUSACK polls; original fallback needs clocks.
+    (ids::ELEVATOR_RIDE_V_BLANK, ExecutionClass::TimeAware),
+    // elevator_scene.c:579 — waits for IRQ sprite upload/frame readiness.
+    (ids::ELEVATOR_BEGIN_RIDE_SCENE, ExecutionClass::TimeAware),
+    // elevator_scene.c:633 — waits on VBlank-integrated scroll velocity twice.
+    (ids::ELEVATOR_END_RIDE_SCENE, ExecutionClass::TimeAware),
+    // elevator_scene.c:652 — music-selection, ride, and split-screen waits.
+    (
+        ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
+        ExecutionClass::TimeAware,
+    ),
+    // elevator_transitions.c:73,270 — departure completion invokes the ride.
+    (ids::PROCESS_ELEVATOR_STEP1, ExecutionClass::TimeAware),
+    (ids::PROCESS_ELEVATORS, ExecutionClass::TimeAware),
 ];
 
 /// G/src/elevator/elevator_scene.c:37 (`ElevatorSetState`).

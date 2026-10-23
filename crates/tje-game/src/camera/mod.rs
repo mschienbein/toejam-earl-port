@@ -1,6 +1,6 @@
 //! Camera translation ownership; see docs/PORTING.md.
 
-use crate::{Context, Result, ids};
+use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{Bus, Revision, ram, rom};
 
 /// Available Rust entries owned by this subsystem.
@@ -27,14 +27,51 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed original entries that return without clock/interrupt progress.
-/// Missing IDs are deliberately not approved for atomic checking or fallback.
+/// Reviewed original Atomic entries, including untranslated callees.
+/// Tile builders and pending-bit dispatch only touch RAM/ROM; camera velocity
+/// only reads animation data and calls the no-wait division runtime.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
     ids::CLEAR_CAMERA_TILE_ROW,
     ids::GET_LEVEL_METATILE_TILE,
     ids::GET_OVERLAY_METATILE_TILE,
     ids::CLEAR_CAMERA_TILE_COLUMN,
+    // camera_tiles_and_scroll.c:68,270,522 — RAM/ROM builders and bit dispatch.
+    ids::BUILD_CAMERA_TILE_ROW,
+    ids::BUILD_CAMERA_TILE_COLUMN,
+    ids::BUILD_PENDING_CAMERA_TILES,
+    // camera_follow.c:17 — animation scan and scalar division, no hardware.
+    ids::GET_PLAYER_CAMERA_VELOCITY,
+];
+
+/// Reviewed non-Atomic ORIGINAL contracts, translated or not.
+/// Sources are G/src/camera/; no raster/status observations occur in the
+/// Functional streams. TimeAware entries include every conditional wait path.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // camera_tiles_and_scroll.c:209,412 — stable RAM tile buffers to VDP.
+    (ids::UPDATE_CAMERA_Y, ExecutionClass::Functional),
+    (ids::UPDATE_CAMERA_X, ExecutionClass::Functional),
+    // camera_tiles_and_scroll.c:448,477 — build/upload loops, no clock reads.
+    (ids::REDRAW_CAMERA_TILE_ROWS, ExecutionClass::Functional),
+    (ids::SET_CAMERA_VIEW_ORIGIN, ExecutionClass::Functional),
+    // set_camera_position.c:8 — redraw, then copy fixed-point coordinates.
+    (ids::SET_CAMERA_POSITION, ExecutionClass::Functional),
+    // camera_tiles_and_scroll.c:551,570 — explicitly wait one VBlank.
+    (ids::TRY_UPDATE_CAMERA_Y, ExecutionClass::TimeAware),
+    (ids::TRY_UPDATE_CAMERA_X, ExecutionClass::TimeAware),
+    // camera_tiles_and_scroll.c:589,627,665,703 — may flush via the waits above.
+    (ids::MOVE_CAMERA_UP, ExecutionClass::TimeAware),
+    (ids::MOVE_CAMERA_DOWN, ExecutionClass::TimeAware),
+    (ids::MOVE_CAMERA_LEFT, ExecutionClass::TimeAware),
+    (ids::MOVE_CAMERA_RIGHT, ExecutionClass::TimeAware),
+    // camera_follow.c:97 — may call any of the four time-aware pixel movers.
+    (ids::UPDATE_CAMERA_FOLLOWING, ExecutionClass::TimeAware),
+    // split_screen_wipe.c:12 and split_views.c:12 — VBlank-driven animations.
+    (ids::ANIMATE_SPLIT_SCREEN_WIPE, ExecutionClass::TimeAware),
+    (
+        ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        ExecutionClass::TimeAware,
+    ),
 ];
 /// G/src/camera/toggle_camera_flag.c:6 (`SetCameraTilePriorityEnabled`).
 pub fn set_camera_tile_priority_enabled(
