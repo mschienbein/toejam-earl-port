@@ -99,6 +99,11 @@ pub fn function_at(revision: Revision, address: u32) -> Option<FunctionId> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     Untranslated(FunctionId),
+    Unclassified(FunctionId),
+    ExecutionUnavailable {
+        caller: execution::ExecutionClass,
+        callee: execution::ExecutionClass,
+    },
     Arithmetic(ArithmeticTrap),
     Platform(String),
 }
@@ -107,6 +112,14 @@ impl fmt::Display for Error {
         match self {
             Self::Untranslated(id) => {
                 write!(formatter, "untranslated function: {}", id.metadata().name)
+            }
+            Self::Unclassified(id) => write!(
+                formatter,
+                "no unique reviewed execution class: {}",
+                id.metadata().name
+            ),
+            Self::ExecutionUnavailable { caller, callee } => {
+                write!(formatter, "{callee:?} call unavailable inside {caller:?}")
             }
             Self::Arithmetic(trap) => write!(formatter, "68000 arithmetic exception: {trap:?}"),
             Self::Platform(message) => formatter.write_str(message),
@@ -140,6 +153,10 @@ pub trait Platform: tje_mem::Platform {
 
     fn wait_vblank_frame(&mut self, address: u32, previous: u16) -> Result<()> {
         self.wait_until(execution::WaitRequest::vblank_frame(address, previous))
+    }
+
+    fn wait_for_interrupt(&mut self) -> Result<()> {
+        self.wait_until(execution::WaitRequest::interrupt())
     }
 
     fn read_vdp_status(&mut self) -> u16 {
@@ -195,6 +212,21 @@ pub trait Context: Bus + Platform {
     fn status_register(&self) -> u16;
     fn set_status_register(&mut self, value: u16);
     fn dispatcher(&self) -> Dispatcher;
+    /// Default contexts support Atomic only. Clock-capable platforms override
+    /// both methods and enforce their entry execution envelope.
+    fn execution_class(&self) -> execution::ExecutionClass {
+        execution::ExecutionClass::Atomic
+    }
+    fn set_execution_class(&mut self, class: execution::ExecutionClass) -> Result<()> {
+        if class == execution::ExecutionClass::Atomic {
+            Ok(())
+        } else {
+            Err(Error::ExecutionUnavailable {
+                caller: self.execution_class(),
+                callee: class,
+            })
+        }
+    }
     fn call_original(&mut self, function: FunctionId, arguments: &[u32]) -> Result<u32>;
 
     /// Explicit reviewed residual call. Native platforms never fall back to ROM;
@@ -202,10 +234,14 @@ pub trait Context: Bus + Platform {
     fn call_original_with_execution(
         &mut self,
         function: FunctionId,
-        _arguments: &[u32],
-        _class: execution::ExecutionClass,
+        arguments: &[u32],
+        class: execution::ExecutionClass,
     ) -> Result<u32> {
-        Err(Error::Untranslated(function))
+        if class == execution::ExecutionClass::Atomic {
+            self.call_original(function, arguments)
+        } else {
+            Err(Error::Untranslated(function))
+        }
     }
 }
 
@@ -222,6 +258,7 @@ pub struct Subsystem {
     pub name: &'static str,
     pub translations: &'static [Translation],
     pub atomic_capable: &'static [FunctionId],
+    pub execution_contracts: &'static [(FunctionId, execution::ExecutionClass)],
 }
 
 pub fn subsystem(name: &str) -> Option<&'static Subsystem> {
@@ -229,8 +266,50 @@ pub fn subsystem(name: &str) -> Option<&'static Subsystem> {
 }
 
 pub fn is_atomic_capable(id: FunctionId) -> bool {
-    subsystem(id.metadata().subsystem)
-        .is_some_and(|subsystem| subsystem.atomic_capable.contains(&id))
+    execution_class(id) == Some(execution::ExecutionClass::Atomic)
+}
+
+#[derive(Clone, Copy)]
+enum ClassDeclaration {
+    Missing,
+    Declared(execution::ExecutionClass),
+    Conflict,
+}
+
+static EXECUTION_CLASSES: std::sync::LazyLock<[ClassDeclaration; 648]> =
+    std::sync::LazyLock::new(|| {
+        let mut classes = [ClassDeclaration::Missing; 648];
+        for owner in SUBSYSTEMS {
+            for (id, class, valid) in
+                owner
+                    .atomic_capable
+                    .iter()
+                    .map(|id| (*id, execution::ExecutionClass::Atomic, true))
+                    .chain(owner.execution_contracts.iter().map(|(id, class)| {
+                        (*id, *class, *class != execution::ExecutionClass::Atomic)
+                    }))
+            {
+                let slot = &mut classes[usize::from(id.0)];
+                *slot = if valid
+                    && id.metadata().subsystem == owner.name
+                    && matches!(*slot, ClassDeclaration::Missing)
+                {
+                    ClassDeclaration::Declared(class)
+                } else {
+                    ClassDeclaration::Conflict
+                };
+            }
+        }
+        classes
+    });
+
+/// Owner declarations are indexed once without allocation. Conflicting,
+/// duplicate, cross-owner and misfiled Atomic declarations fail closed.
+pub fn execution_class(id: FunctionId) -> Option<execution::ExecutionClass> {
+    match EXECUTION_CLASSES[usize::from(id.0)] {
+        ClassDeclaration::Declared(class) => Some(class),
+        _ => None,
+    }
 }
 
 pub fn translations() -> impl Iterator<Item = &'static Translation> + Clone {
@@ -262,6 +341,16 @@ impl Dispatcher {
             original_fallback: true,
         }
     }
+
+    /// Explicit proof overrides retain all proven Rust callees. Supplied entries
+    /// remain outside the production registry until their proof lands.
+    pub const fn hybrid_with_overrides(translations: &'static [Translation]) -> Self {
+        Self {
+            translations,
+            subsystems: SUBSYSTEMS,
+            original_fallback: true,
+        }
+    }
     /// Native startup validates the full dependency closure of each requested
     /// entry. Failure lists every missing target; it never enables ROM fallback.
     pub fn native(roots: &[FunctionId]) -> std::result::Result<Self, Vec<FunctionId>> {
@@ -277,7 +366,7 @@ impl Dispatcher {
             if !visited.insert(id) {
                 continue;
             }
-            if dispatcher.translation(id).is_none() {
+            if dispatcher.translation(id).is_none() || execution_class(id).is_none() {
                 missing.push(id);
             }
             pending.extend_from_slice(id.metadata().callees);
@@ -302,15 +391,40 @@ impl Dispatcher {
         )
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
-        if let Some(translation) = self.translation(id) {
-            if let Some(value) = (translation.function)(context, arguments)? {
-                context.set_data_register(0, value);
+        let translation = self.translation(id);
+        if translation.is_none() && !self.original_fallback {
+            return Err(Error::Untranslated(id));
+        }
+        let class = execution_class(id).ok_or(Error::Unclassified(id))?;
+        let parent = context.execution_class();
+        if !parent.permits(class) {
+            return Err(Error::ExecutionUnavailable {
+                caller: parent,
+                callee: class,
+            });
+        }
+        if let Some(translation) = translation {
+            let scoped = parent != class;
+            if scoped {
+                context.set_execution_class(class)?;
             }
-            Ok(context.data_register(0))
-        } else if self.original_fallback {
-            context.call_original(id, arguments)
+            let result = (translation.function)(context, arguments).map(|value| {
+                if let Some(value) = value {
+                    context.set_data_register(0, value);
+                }
+                context.data_register(0)
+            });
+            let restore = if scoped {
+                context.set_execution_class(parent)
+            } else {
+                Ok(())
+            };
+            match (result, restore) {
+                (Err(error), _) | (_, Err(error)) => Err(error),
+                (Ok(value), Ok(())) => Ok(value),
+            }
         } else {
-            Err(Error::Untranslated(id))
+            context.call_original_with_execution(id, arguments, class)
         }
     }
 }
@@ -325,86 +439,103 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "audio",
         translations: audio::TRANSLATIONS,
         atomic_capable: audio::ATOMIC_CAPABLE,
+        execution_contracts: audio::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "camera",
         translations: camera::TRANSLATIONS,
         atomic_capable: camera::ATOMIC_CAPABLE,
+        execution_contracts: camera::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "collision",
         translations: collision::TRANSLATIONS,
         atomic_capable: collision::ATOMIC_CAPABLE,
+        execution_contracts: collision::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "core",
         translations: core::TRANSLATIONS,
         atomic_capable: core::ATOMIC_CAPABLE,
+        execution_contracts: core::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "cutscenes",
         translations: cutscenes::TRANSLATIONS,
         atomic_capable: cutscenes::ATOMIC_CAPABLE,
+        execution_contracts: cutscenes::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "earthlings",
         translations: earthlings::TRANSLATIONS,
         atomic_capable: earthlings::ATOMIC_CAPABLE,
+        execution_contracts: earthlings::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "elevator",
         translations: elevator::TRANSLATIONS,
         atomic_capable: elevator::ATOMIC_CAPABLE,
+        execution_contracts: elevator::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "jamout",
         translations: jamout::TRANSLATIONS,
         atomic_capable: jamout::ATOMIC_CAPABLE,
+        execution_contracts: jamout::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "map",
         translations: map::TRANSLATIONS,
         atomic_capable: map::ATOMIC_CAPABLE,
+        execution_contracts: map::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "platform",
         translations: platform::TRANSLATIONS,
         atomic_capable: platform::ATOMIC_CAPABLE,
+        execution_contracts: platform::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "player",
         translations: player::TRANSLATIONS,
         atomic_capable: player::ATOMIC_CAPABLE,
+        execution_contracts: player::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "presents",
         translations: presents::TRANSLATIONS,
         atomic_capable: presents::ATOMIC_CAPABLE,
+        execution_contracts: presents::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "runtime",
         translations: runtime::TRANSLATIONS,
         atomic_capable: runtime::ATOMIC_CAPABLE,
+        execution_contracts: runtime::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "ship",
         translations: ship::TRANSLATIONS,
         atomic_capable: ship::ATOMIC_CAPABLE,
+        execution_contracts: ship::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "speech",
         translations: speech::TRANSLATIONS,
         atomic_capable: speech::ATOMIC_CAPABLE,
+        execution_contracts: speech::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "sprites",
         translations: sprites::TRANSLATIONS,
         atomic_capable: sprites::ATOMIC_CAPABLE,
+        execution_contracts: sprites::EXECUTION_CONTRACTS,
     },
     Subsystem {
         name: "ui",
         translations: ui::TRANSLATIONS,
         atomic_capable: ui::ATOMIC_CAPABLE,
+        execution_contracts: ui::EXECUTION_CONTRACTS,
     },
 ];
 
@@ -446,20 +577,34 @@ mod tests {
     }
 
     #[test]
-    fn subsystem_ownership_and_atomic_review_are_complete_and_disjoint() {
+    fn subsystem_ownership_and_execution_review_are_complete_and_disjoint() {
         let mut names = std::collections::BTreeSet::new();
-        let mut atomic = std::collections::BTreeSet::new();
+        let mut classified = std::collections::BTreeSet::new();
         let mut translated = std::collections::BTreeSet::new();
         for owner in SUBSYSTEMS {
             assert!(names.insert(owner.name));
             for id in owner.atomic_capable {
                 assert_eq!(id.metadata().subsystem, owner.name);
-                assert!(atomic.insert(*id));
+                assert!(classified.insert(*id));
+                assert_eq!(
+                    execution_class(*id),
+                    Some(execution::ExecutionClass::Atomic)
+                );
+            }
+            for (id, class) in owner.execution_contracts {
+                assert_eq!(id.metadata().subsystem, owner.name);
+                assert_ne!(*class, execution::ExecutionClass::Atomic);
+                assert!(classified.insert(*id));
+                assert_eq!(execution_class(*id), Some(*class));
             }
             for entry in owner.translations {
                 assert_eq!(entry.id.metadata().subsystem, owner.name);
                 assert!(translated.insert(entry.id));
-                assert!(is_atomic_capable(entry.id));
+                assert!(
+                    execution_class(entry.id).is_some(),
+                    "unclassified translation: {}",
+                    entry.id.metadata().name
+                );
             }
         }
         for function in functions() {

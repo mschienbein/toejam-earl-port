@@ -27,6 +27,9 @@ pub static TRANSLATIONS: &[Translation] = &[
     },
 ];
 
+/// All five original collision queries are reviewed Atomic.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[];
+
 /// Each query only walks RAM links and reads object fields; there are no callees,
 /// device accesses, interrupt waits, or clock-dependent return paths.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[

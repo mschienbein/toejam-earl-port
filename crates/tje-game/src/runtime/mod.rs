@@ -74,6 +74,9 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
+/// Runtime entries need no non-atomic execution contract.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[];
+
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::ABS,

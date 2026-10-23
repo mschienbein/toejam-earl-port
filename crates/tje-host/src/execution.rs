@@ -146,6 +146,49 @@ fn condition_holds(
     })
 }
 
+pub(crate) fn functional_wait_supported(request: WaitRequest) -> bool {
+    matches!(
+        request.condition,
+        WaitCondition::DeviceByte {
+            address: 0xa04000 | 0xa04002,
+            mask: 0x80,
+            value: 0
+        } | WaitCondition::DeviceWord {
+            address: 0xa11100,
+            mask: 0x0100,
+            value: 0
+        }
+    )
+}
+
+/// Discharge only an already-ready device predicate on a functional check fork.
+/// The actual bus read still occurs, including its trace/latch/cache effects.
+/// Unsatisfied readiness requires timed execution; never invent success.
+pub(crate) fn discharge_functional_wait(
+    emulator: &mut GenesisEmulator,
+    request: WaitRequest,
+) -> Result<()> {
+    if !emulator.hybrid_bus().hybrid_functional_mode() {
+        return Err(HostError::Metadata(
+            "functional readiness discharge requires a functional check fork".into(),
+        ));
+    }
+    if !functional_wait_supported(request) {
+        return Err(HostError::Metadata(format!(
+            "functional wait cannot discharge {:?}",
+            request.condition
+        )));
+    }
+    emulator.hybrid_bus_mut().apply_pending_writes();
+    if !condition_holds(emulator, request.condition, false)? {
+        return Err(HostError::Metadata(format!(
+            "functional device predicate {:?} is not ready; timed execution is required",
+            request.condition
+        )));
+    }
+    Ok(())
+}
+
 fn drain_accesses(emulator: &mut GenesisEmulator, pc: u32, run: &mut ClockRun) {
     let bus = emulator.hybrid_bus_mut();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
@@ -698,5 +741,93 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("trace exceptions"));
+    }
+
+    #[test]
+    fn functional_wait_uses_actual_busack_and_keeps_the_read() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        let bus = emulator.hybrid_bus_mut();
+        bus.hybrid_set_functional_mode(true);
+        write(bus, 0xa11100, 0x100);
+        bus.hybrid_accesses = Some(Vec::new());
+        let phase = (bus.vdp.scanline(), bus.vdp.scanline_mclk());
+        assert!(discharge_functional_wait(&mut emulator, WaitRequest::z80_busack()).is_err());
+        let bus = emulator.hybrid_bus_mut();
+        assert!(matches!(bus.hybrid_accesses.as_ref().unwrap().as_slice(),
+            [HybridAccess::Read { address: 0xa11100, word: true, value, .. }] if value & 0x100 != 0));
+        write(bus, 0xa11200, 0x100);
+        bus.hybrid_accesses.as_mut().unwrap().clear();
+        discharge_functional_wait(&mut emulator, WaitRequest::z80_busack()).unwrap();
+        let bus = emulator.hybrid_bus();
+        assert!(matches!(bus.hybrid_accesses.as_ref().unwrap().as_slice(),
+            [HybridAccess::Read { address: 0xa11100, word: true, value, .. }] if value & 0x100 == 0));
+        assert_eq!((bus.vdp.scanline(), bus.vdp.scanline_mclk()), phase);
+    }
+
+    #[test]
+    fn functional_wait_does_not_forge_ym_cached_readiness() {
+        let config = GenesisEmulatorConfig {
+            opn2_busy_behavior: genesis_config::Opn2BusyBehavior::Ym2612,
+            ..GenesisEmulatorConfig::default()
+        };
+        let mut emulator = GenesisEmulator::create(None, config, &mut NoCartridgeSaves);
+        let bus = emulator.hybrid_bus_mut();
+        write(bus, 0xa11200, 0x100);
+        write(bus, 0xa11100, 0x100);
+        bus.write_byte(0xa04000, 0x22);
+        bus.apply_pending_writes();
+        bus.write_byte(0xa04001, 0);
+        bus.apply_pending_writes();
+        assert_ne!(bus.read_byte(0xa04000) & 0x80, 0);
+        bus.hybrid_set_functional_mode(true);
+        let bank1 = WaitRequest::new(WaitCondition::DeviceByte {
+            address: 0xa04002,
+            mask: 0x80,
+            value: 0,
+        });
+        assert!(discharge_functional_wait(&mut emulator, bank1).is_err());
+        discharge_functional_wait(&mut emulator, WaitRequest::ym2612_ready()).unwrap();
+        discharge_functional_wait(&mut emulator, bank1).unwrap();
+    }
+
+    #[test]
+    fn functional_wait_rejects_time_and_unreviewed_predicates_before_reading() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        assert!(discharge_functional_wait(&mut emulator, WaitRequest::ym2612_ready()).is_err());
+        emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+        emulator.hybrid_bus_mut().hybrid_accesses = Some(Vec::new());
+        for request in [
+            WaitRequest::vblank_frame(0xff8000, 0),
+            WaitRequest::dma_done(),
+            WaitRequest::interrupt(),
+            WaitRequest::new(WaitCondition::DeviceByte {
+                address: 0xa04001,
+                mask: 0x80,
+                value: 0,
+            }),
+            WaitRequest::new(WaitCondition::DeviceWord {
+                address: 0xa11100,
+                mask: 0xff00,
+                value: 0,
+            }),
+        ] {
+            assert!(discharge_functional_wait(&mut emulator, request).is_err());
+        }
+        assert!(
+            emulator
+                .hybrid_bus()
+                .hybrid_accesses
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
     }
 }

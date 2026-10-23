@@ -239,6 +239,8 @@ pub struct HookContext<'a> {
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
     stack_audit: Option<TranslatedStackAudit>,
     pub(crate) execution_class: ExecutionClass,
+    execution_ceiling: ExecutionClass,
+    timed_execution: bool,
     pub(crate) wait_clock: WaitClock,
     pub(crate) time_audio: Vec<[f64; 2]>,
     pub time_frames: u64,
@@ -259,6 +261,8 @@ impl<'a> HookContext<'a> {
             uninitialized_reads: RefCell::new(BTreeSet::new()),
             stack_audit: None,
             execution_class: ExecutionClass::Atomic,
+            execution_ceiling: ExecutionClass::Atomic,
+            timed_execution: false,
             wait_clock: WaitClock::default(),
             time_audio: Vec::new(),
             time_frames: 0,
@@ -267,6 +271,10 @@ impl<'a> HookContext<'a> {
 
     pub(crate) fn with_execution(mut self, class: ExecutionClass, clock: WaitClock) -> Self {
         self.execution_class = class;
+        self.execution_ceiling = class;
+        self.timed_execution = class == ExecutionClass::TimeAware
+            || (class == ExecutionClass::Functional
+                && !self.emulator.hybrid_bus().hybrid_functional_mode());
         self.wait_clock = clock;
         self
     }
@@ -456,9 +464,15 @@ impl<'a> HookContext<'a> {
     /// This atomic call is for functions that do not wait for peripheral time.
     pub fn call_original(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
         let id = tje_game::function_at(self.revision, address).ok_or_else(|| {
-            HostError::Metadata(format!("no declared atomic call contract at {address:06X}"))
+            HostError::Metadata(format!("no reviewed call contract at {address:06X}"))
         })?;
-        self.call_original_with_contract(id.metadata(), tje_game::is_atomic_capable(id), arguments)
+        let class = tje_game::execution_class(id).ok_or_else(|| {
+            HostError::Metadata(format!(
+                "{} has no reviewed execution class",
+                id.metadata().name
+            ))
+        })?;
+        self.call_original_with_execution_contract(id.metadata(), class, arguments)
     }
 
     /// Explicit contracts also support authored, ROM-free machine-code fixtures.
@@ -482,11 +496,7 @@ impl<'a> HookContext<'a> {
         execution_class: ExecutionClass,
         arguments: &[u32],
     ) -> Result<u32> {
-        if (self.execution_class == ExecutionClass::Atomic
-            && execution_class != ExecutionClass::Atomic)
-            || (self.execution_class == ExecutionClass::Functional
-                && execution_class == ExecutionClass::TimeAware)
-        {
+        if !self.execution_class.permits(execution_class) {
             return Err(HostError::Metadata(format!(
                 "{} requires {execution_class:?}, unavailable inside {:?}",
                 contract.name, self.execution_class
@@ -507,10 +517,7 @@ impl<'a> HookContext<'a> {
         let (cpu, bus) = self.emulator.hybrid_parts();
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
-        let audit = if self.execution_class == ExecutionClass::TimeAware
-            || (execution_class == ExecutionClass::Functional
-                && !self.emulator.hybrid_bus().hybrid_functional_mode())
-        {
+        let audit = if self.timed_execution {
             let (_, clock_run) = run_original_timed_with_audio(
                 self.emulator,
                 &mut self.wait_clock,
@@ -631,10 +638,21 @@ impl tje_mem::Platform for HookContext<'_> {
 }
 impl tje_game::Platform for HookContext<'_> {
     fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
-        if self.execution_class != ExecutionClass::TimeAware {
+        if self.execution_class == ExecutionClass::Atomic {
             return Err(tje_game::Error::Platform(
-                "a wait requires an explicit time-aware execution contract".into(),
+                "an atomic function cannot wait".into(),
             ));
+        }
+        if self.execution_class == ExecutionClass::Functional {
+            if !crate::execution::functional_wait_supported(request) {
+                return Err(tje_game::Error::Platform(
+                    "Functional admits only reviewed YM/BUSACK readiness".into(),
+                ));
+            }
+            if self.emulator.hybrid_bus().hybrid_functional_mode() {
+                return crate::execution::discharge_functional_wait(self.emulator, request)
+                    .map_err(|error| tje_game::Error::Platform(error.to_string()));
+            }
         }
         let observe = self.stack_audit.is_some();
         let result = if observe && self.time_audio.is_empty() {
@@ -725,6 +743,19 @@ impl tje_game::Context for HookContext<'_> {
     }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
+    }
+    fn execution_class(&self) -> ExecutionClass {
+        self.execution_class
+    }
+    fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
+        if !self.execution_ceiling.permits(class) {
+            return Err(tje_game::Error::ExecutionUnavailable {
+                caller: self.execution_ceiling,
+                callee: class,
+            });
+        }
+        self.execution_class = class;
+        Ok(())
     }
     fn call_original(&mut self, id: FunctionId, arguments: &[u32]) -> tje_game::Result<u32> {
         HookContext::call_original(self, id.metadata().address(self.revision), arguments)

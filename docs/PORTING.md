@@ -30,12 +30,16 @@ in `lib.rs`: `audio`, `camera`, `collision`, `core`, `cutscenes`, `earthlings`,
 `speech`, `sprites`, `ui`. Runtime/platform assembly remains cited to G's
 `src/asm`; other game code follows G's subsystem directories.
 
-Every subsystem exports its own `TRANSLATIONS: &[Translation]` and
-`ATOMIC_CAPABLE: &[FunctionId]`. Add bodies, tests and entries **in the owning
-subsystem only**. Shared `SUBSYSTEMS`, the dispatcher/context, host and generated
-metadata require no lane edits. `tje_game::translations()` aggregates the slices
-without allocation; ownership tests reject duplicate IDs or a function registered
-under another subsystem. A lane owning several subsystems edits each one's module.
+Every subsystem exports `TRANSLATIONS: &[Translation]`,
+`ATOMIC_CAPABLE: &[FunctionId]` and
+`EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)]`. The latter contains only
+reviewed Functional/TimeAware entries, translated **or still original**. Add bodies,
+tests and declarations in the owning subsystem only. Shared `SUBSYSTEMS`, the
+dispatcher/context, host and generated metadata need no lane edits.
+`tje_game::execution_class(id)` indexes those immutable declarations once; missing,
+duplicate, cross-owner or overlapping classes fail closed. Ownership tests require
+every production translation to have exactly one class, not necessarily Atomic.
+A lane owning several subsystems edits each one's module.
 If an original callee belongs to another lane, ask that owner to review/classify
 it; do not add its ID to your own subsystem's list.
 
@@ -74,10 +78,10 @@ must be included in the closure through the inventory's indirect dependencies.
 
 Do not translate time-dependent waits using the atomic bridge: peripheral clocks
 are frozen inside check calls. Registration and nested original calls require an
-explicit reviewed atomic contract. Each subsystem's `ATOMIC_CAPABLE` slice lists
-its **translated entries and any still-original callees** reviewed to return
-without clock/interrupt progress. Host registration and nested original fallback
-look up these local lists; generated metadata contains no atomic policy. Missing
+explicit reviewed execution contract. `ATOMIC_CAPABLE` declares bounded no-clock
+entries; `EXECUTION_CONTRACTS` declares Functional or TimeAware originals. Host
+registration, translated-callee dispatch and original fallback all resolve the
+same owner declaration. Generated metadata contains no execution policy. Missing
 IDs fail closed, not optimistically inferred safe from W0 membership or missing
 hardware annotations. Read every relevant return/wait path before adding an ID;
 record its source and reasoning in the lane's evidence. `SetupYM2612`, VBlank waits and STOP/IRQ
@@ -88,13 +92,28 @@ live entry state in which its frozen FIFO can accept the original access.
 
 ## 3. Register and test
 
-Add the function ID and Rust body to the owning module's `TRANSLATIONS` slice and
-classify it in that module's `ATOMIC_CAPABLE`. The host's
-`HookRegistry::translated(revision)` registers all available entries using the
-generated address/ABI for **both** revisions. `Host::new` rejects a registry/ROM
-revision mismatch. Custom authored checker fixtures use explicit capability
-arguments to `register_contract` / `call_original_with_contract`, separate from
-inventory metadata; production registration always consults the owning module.
+Put a body in production `TRANSLATIONS` only after both-revision zero-mismatch,
+exercised proof. Classify it in its owner's Atomic or non-Atomic list. The host's
+`HookRegistry::translated` / `filtered` registers the declared class for each
+translation; check mode uses that class's fork semantics. Callers may use their
+own class or a weaker one: Atomic→Atomic, Functional→Atomic/Functional,
+TimeAware→all. A TimeAware caller's real-clock envelope is retained through
+Functional/Atomic callees; nested original calls do not silently freeze clocks.
+Scoped Rust callees restore their caller's class even when they return an error.
+
+Keep unproved bodies in a non-test `PENDING_TRANSLATIONS: &[Translation]` table
+(and a `PENDING: &[FunctionId]` blocker list), never production `TRANSLATIONS`.
+An opt-in lane harness uses `HookRegistry::proof(revision, PENDING_TRANSLATIONS)`:
+only pending entry hooks are checked, while pending bodies override and compose
+with every proven Rust callee. `from_translations` is the deliberately isolated
+registry for testing original fallback, not the pending-composition harness.
+All these constructors resolve the owner classes; no metadata regeneration,
+shared-table edit or incorrect Atomic approval is required.
+
+`Host::new` rejects registry/ROM revision mismatch. Authored machine-code checker
+fixtures still supply explicit classes using `register_execution_contract`.
+Native dispatchers reject missing translations/classes at startup and never
+fall back to ROM; native contexts must implement their real execution capability.
 
 For fast lane iteration, check only your subsystem(s) or an explicit list of
 canonical function names/inventory IDs (`func_...`):
@@ -267,11 +286,15 @@ hardware wait atomic. A reviewed execution contract uses
 | `Functional` | Both forks use immediate device transaction completion, clocks otherwise frozen; existing full state/trace comparison | No raster/status/HV/FIFO/DMA-busy observation, timing-dependent concurrent observer, unstable DMA source, or Z80-mailbox retry requiring the Z80 to run |
 | `TimeAware` | Independent original and Rust forks run real clocks; a Rust wait suspends the current emulated frame while original IRQ handlers execute | Explicit conditions and input timeline; identical ordered transactions, RAM and ABI outputs at return; every observed read still compares exactly |
 
-Existing subsystem `ATOMIC_CAPABLE` lists retain their meaning. Do not put a
-functional or time-aware ID there to bypass registration. Authored proofs use
-`HookRegistry::register_execution_contract` with an explicit class. New production
-registrations likewise need an explicit reviewed class; missing declarations fail
-closed. An atomic or functional context cannot invoke a time-progressing wait.
+`ATOMIC_CAPABLE` retains its meaning; never put a Functional/TimeAware ID there.
+Production declarations belong in the owner's `EXECUTION_CONTRACTS` and are
+consumed automatically by hook registration and dispatch. Authored proofs may use
+`HookRegistry::register_execution_contract` with an explicit class. Missing or
+conflicting declarations fail closed. Atomic contexts cannot wait.
+Functional **check forks** may discharge only reviewed, already-satisfied
+YM BUSY/BUSACK predicates without advancing clocks;
+their live replacement envelope uses real-clock waits rather than spinning on
+timed hardware.
 
 ### Functional device semantics and their limits
 
@@ -315,6 +338,12 @@ entered and its original handler has returned. A STOP translation first applies
 the source instruction's SR, then requests that wait; the primitive never lowers
 the interrupt mask to make progress. Trace mode is rejected, not mistaken for an
 external interrupt.
+Functional check-fork discharge admits only byte BUSY-bit predicates at YM ports
+`0xA04000`/`0xA04002` and word BUSACK bit `0x0100` at `0xA11100`, with ready value
+zero. It performs the actual modeled read, retaining its trace/latch effects, and
+errors if not already ready. In YM2612 cached-status mode, a cached busy value at
+port 2 is not cleared artificially. RAM, interrupt, VDP/raster/DMA-status and
+unreviewed predicates cannot use this clock-free discharge path.
 
 The hybrid implementation parks the CPU in a synthetic idle loop in disjoint,
 temporarily reserved stack space, retaining the suspended frame's SP and original

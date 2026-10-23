@@ -15,6 +15,16 @@ pub enum ExecutionClass {
     TimeAware,
 }
 
+impl ExecutionClass {
+    pub const fn permits(self, required: Self) -> bool {
+        match self {
+            Self::Atomic => matches!(required, Self::Atomic),
+            Self::Functional => !matches!(required, Self::TimeAware),
+            Self::TimeAware => true,
+        }
+    }
+}
+
 /// Explicitly observable condition. Device reads retain their real side effects;
 /// this is not permission to invent ready bits or erase polling transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

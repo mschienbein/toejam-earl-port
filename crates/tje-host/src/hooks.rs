@@ -102,11 +102,7 @@ impl HookRegistry {
             let symbol = translation.id.metadata();
             if all || subsystems.contains(&symbol.subsystem) || functions.contains(&translation.id)
             {
-                registry.insert(
-                    HookSymbol::Generated(symbol),
-                    tje_game::is_atomic_capable(symbol.id),
-                    Body::Game(translation),
-                )?;
+                registry.register_translation(translation)?;
             }
         }
         Ok(registry)
@@ -118,13 +114,35 @@ impl HookRegistry {
         let mut registry = Self::empty(revision);
         registry.dispatcher = Dispatcher::hybrid_with(translations);
         for &translation in translations {
-            registry.insert(
-                HookSymbol::Generated(translation.id.metadata()),
-                tje_game::is_atomic_capable(translation.id),
-                Body::Game(translation),
-            )?;
+            registry.register_translation(translation)?;
         }
         Ok(registry)
+    }
+
+    /// Opt-in pending proof: hook only supplied entries, but use them ahead of
+    /// all proven translations when a checked Rust caller dispatches a callee.
+    pub fn proof(revision: Revision, pending: &'static [Translation]) -> Result<Self> {
+        let mut registry = Self::empty(revision);
+        registry.dispatcher = Dispatcher::hybrid_with_overrides(pending);
+        for &translation in pending {
+            registry.register_translation(translation)?;
+        }
+        Ok(registry)
+    }
+
+    fn register_translation(&mut self, translation: Translation) -> Result<()> {
+        let symbol = translation.id.metadata();
+        let class = tje_game::execution_class(translation.id).ok_or_else(|| {
+            HostError::Metadata(format!(
+                "{} has no unique reviewed execution class",
+                symbol.name
+            ))
+        })?;
+        self.insert_execution(
+            HookSymbol::Generated(symbol),
+            class,
+            Body::Game(translation),
+        )
     }
     fn insert(&mut self, symbol: HookSymbol, atomic_capable: bool, body: Body) -> Result<()> {
         if !atomic_capable {
@@ -272,6 +290,13 @@ mod tests {
                         .symbol
                         .id,
                     translation.id
+                );
+                let hook = registry
+                    .at(translation.id.metadata().address(revision))
+                    .unwrap();
+                assert_eq!(
+                    Some(hook.execution_class),
+                    tje_game::execution_class(translation.id)
                 );
             }
         }

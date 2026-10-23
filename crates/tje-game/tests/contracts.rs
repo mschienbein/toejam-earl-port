@@ -1,3 +1,4 @@
+use tje_game::execution::ExecutionClass;
 use tje_game::{Context, Dispatcher, Error, FunctionId, ids};
 use tje_mem::{AddressSpace, Bus, Revision, arithmetic::ArithmeticTrap, ram};
 
@@ -9,6 +10,8 @@ struct Fixture {
     dispatcher: Dispatcher,
     original_calls: Vec<FunctionId>,
     ports: Vec<(u32, u16, bool)>,
+    execution: ExecutionClass,
+    original_class: Option<ExecutionClass>,
 }
 impl Fixture {
     fn new(dispatcher: Dispatcher) -> Self {
@@ -20,6 +23,8 @@ impl Fixture {
             dispatcher,
             original_calls: Vec::new(),
             ports: Vec::new(),
+            execution: ExecutionClass::Atomic,
+            original_class: None,
         }
     }
 }
@@ -77,6 +82,22 @@ impl Context for Fixture {
     }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
+    }
+    fn execution_class(&self) -> ExecutionClass {
+        self.execution
+    }
+    fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
+        self.execution = class;
+        Ok(())
+    }
+    fn call_original_with_execution(
+        &mut self,
+        id: FunctionId,
+        arguments: &[u32],
+        class: ExecutionClass,
+    ) -> tje_game::Result<u32> {
+        self.original_class = Some(class);
+        self.call_original(id, arguments)
     }
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> tje_game::Result<u32> {
         self.original_calls.push(id);
@@ -149,10 +170,10 @@ fn native_never_falls_back_and_translated_nested_calls_stay_rust() {
     let hybrid = Dispatcher::hybrid_with(&[]);
     assert!(
         hybrid
-            .call(&mut context, ids::FURTHER_INITIALISATION, &[])
+            .call(&mut context, ids::GET_RANDOM_NUMBER, &[])
             .is_err()
     );
-    assert_eq!(context.original_calls, [ids::FURTHER_INITIALISATION]);
+    assert_eq!(context.original_calls, [ids::GET_RANDOM_NUMBER]);
 }
 
 #[test]
@@ -203,4 +224,61 @@ fn leaf_truth_promotion_and_alias_contracts() {
             );
         }
     }
+}
+
+#[test]
+fn production_classes_scope_rust_and_original_calls_and_restore_on_errors() {
+    fn functional(context: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+        assert_eq!(context.execution_class(), ExecutionClass::Functional);
+        let result = context
+            .dispatcher()
+            .call(context, ids::ABS, &[(-7_i32) as u32])?;
+        assert_eq!(context.execution_class(), ExecutionClass::Functional);
+        Ok(Some(result))
+    }
+    fn failing(context: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+        assert_eq!(context.execution_class(), ExecutionClass::Functional);
+        Err(Error::Arithmetic(ArithmeticTrap::DivideByZero))
+    }
+    static PENDING: &[tje_game::Translation] = &[
+        tje_game::Translation {
+            id: ids::MOVE_DATA_TO_VRAM,
+            function: functional,
+        },
+        tje_game::Translation {
+            id: ids::CLEAR_COLOUR_RAM,
+            function: failing,
+        },
+    ];
+    let dispatcher = Dispatcher::hybrid_with_overrides(PENDING);
+    let mut context = Fixture::new(dispatcher);
+    assert!(matches!(
+        dispatcher.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        Err(Error::ExecutionUnavailable { .. })
+    ));
+    context.execution = ExecutionClass::TimeAware;
+    assert_eq!(
+        dispatcher.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        Ok(7)
+    );
+    assert_eq!(context.execution, ExecutionClass::TimeAware);
+    assert_eq!(
+        dispatcher.call(&mut context, ids::CLEAR_COLOUR_RAM, &[]),
+        Err(Error::Arithmetic(ArithmeticTrap::DivideByZero))
+    );
+    assert_eq!(context.execution, ExecutionClass::TimeAware);
+    assert!(context.original_calls.is_empty()); // proven ABS stayed Rust
+    let residual = Dispatcher::hybrid_with(&[]);
+    assert_eq!(
+        residual.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        Err(Error::Untranslated(ids::MOVE_DATA_TO_VRAM))
+    );
+    assert_eq!(context.original_class, Some(ExecutionClass::Functional));
+    assert_eq!(context.execution, ExecutionClass::TimeAware); // caller envelope retained
+    context.execution = ExecutionClass::Functional;
+    let wait = ids::WAIT_FOR_NEXT_V_BLANK;
+    assert!(matches!(
+        residual.call(&mut context, wait, &[]),
+        Err(Error::ExecutionUnavailable { .. })
+    ));
 }
