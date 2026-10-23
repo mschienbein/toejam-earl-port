@@ -1,20 +1,13 @@
-//! Separate opt-in host target for the ten Functional platform writers.
+//! Opt-in proof target: published platform leaves plus explicitly pending DMA.
 use std::{fs, path::PathBuf};
-use tje_game::{Context, FunctionId, execution::ExecutionClass, ids, platform};
+use tje_game::{Context, FunctionId, ids, platform};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram, rom};
 
 fn registry(revision: Revision) -> HookRegistry {
-    let mut registry = HookRegistry::empty(revision);
+    let mut registry = HookRegistry::proof(revision, platform::PENDING_TRANSLATIONS).unwrap();
     for &entry in platform::TRANSLATIONS {
-        let class = platform::EXECUTION_CONTRACTS
-            .iter()
-            .find_map(|&(id, class)| (id == entry.id).then_some(class))
-            .unwrap_or_else(|| {
-                let atomic = platform::ATOMIC_CAPABLE.contains(&entry.id);
-                assert!(atomic);
-                ExecutionClass::Atomic
-            });
+        let class = tje_game::execution_class(entry.id).unwrap();
         registry
             .register_translation_with_execution(entry, class)
             .unwrap();
@@ -118,6 +111,14 @@ fn fixtures(host: &mut Host, natural: &serde_json::Value) {
             natural,
         );
     }
+    // This observes DMA's own MOVEM save area. It must pass before DMA can leave
+    // PENDING; the earlier ROM-source zero-count proof did not exercise it.
+    check(
+        host,
+        ids::DMA_COPY_WORDS_TO_VRAM,
+        &[source, 0xc002, 0],
+        natural,
+    );
 }
 
 #[test]

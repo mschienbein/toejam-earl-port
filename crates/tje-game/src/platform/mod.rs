@@ -84,10 +84,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: get_ctrl2_input,
     },
     crate::Translation {
-        id: crate::ids::DMA_COPY_WORDS_TO_VRAM,
-        function: video::dma_copy_words_to_vram,
-    },
-    crate::Translation {
         id: crate::ids::CLEAR_VIDEO_RAM,
         function: video::clear_video_ram,
     },
@@ -124,6 +120,16 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: video::copy_palette_to_cram_slot,
     },
 ];
+
+/// Pending until its source-backed MOVEM frame is materialized and proved:
+/// a zero-length DMA from RAM reads all 64 KiB, including its own saved D2-D4.
+pub static PENDING: &[crate::FunctionId] = &[crate::ids::DMA_COPY_WORDS_TO_VRAM];
+
+/// Explicit proof-only bodies. Never used by the production registry.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: crate::ids::DMA_COPY_WORDS_TO_VRAM,
+    function: video::dma_copy_words_to_vram,
+}];
 
 /// Reviewed entries with no clock/interrupt-dependent return paths or callees.
 /// Interrupt masks are straight-line SR operations (interrupts.s:33,41).

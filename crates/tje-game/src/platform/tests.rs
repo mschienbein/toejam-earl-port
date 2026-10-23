@@ -262,7 +262,6 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
     let roots: Vec<_> = TRANSLATIONS.iter().map(|entry| entry.id).collect();
     assert!(Dispatcher::native(&roots).is_ok());
     for id in [
-        crate::ids::DMA_COPY_WORDS_TO_VRAM,
         crate::ids::CLEAR_VIDEO_RAM,
         crate::ids::CLEAR_VERTICAL_SCROLL_RAM,
         crate::ids::CLEAR_COLOUR_RAM,
@@ -277,6 +276,11 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
         assert!(Dispatcher::hybrid().translation(id).is_some());
         assert!(EXECUTION_CONTRACTS.contains(&(id, ExecutionClass::Functional)));
     }
+    let dma = crate::ids::DMA_COPY_WORDS_TO_VRAM;
+    assert!(PENDING.contains(&dma));
+    assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == dma));
+    assert!(Dispatcher::hybrid().translation(dma).is_none());
+    assert!(!crate::is_atomic_capable(dma));
 }
 
 #[test]
