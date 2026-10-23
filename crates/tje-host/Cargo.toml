@@ -1,0 +1,25 @@
+[package]
+name = "tje-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1"
+bincode = "2"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tje-rom = { path = "../tje-rom" }
+genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core" }
+genesis-components = { path = "../../vendor/jgenesis/backend/genesis-components" }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
+jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
+m68000-emu = { path = "../../vendor/jgenesis/cpu/m68000-emu" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# jgenesis-common uses rand; browsers supply entropy through Web Crypto.
+getrandom = { version = "0.4", features = ["wasm_js"] }

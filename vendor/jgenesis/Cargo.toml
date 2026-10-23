@@ -1,0 +1,82 @@
+# Subset of jgenesis d41e2d975771c78ee2efe80f8ec5768b87e3f7eb; see NOTICE.md.
+# TJE standalone cutover: exclude all addon/firmware-bearing crate dependencies.
+[workspace]
+members = ["common/*", "cpu/*", "config/*", "backend/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.14.1"
+
+[workspace.dependencies]
+bincode = "2"
+bytemuck = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+crc = "3"
+js-sys = "0.3"
+log = "0.4"
+multiversion = "0.9"
+num = "0.4"
+rand = "0.10"
+regex = "1"
+rustc-hash = "2"
+serde = { version = "1", features = ["derive"] }
+test-log = "0.2"
+thiserror = "2"
+time = "0.3"
+toml = "1"
+dsp = { path = "common/dsp" }
+jgenesis-common = { path = "common/jgenesis-common" }
+jgenesis-proc-macros = { path = "common/jgenesis-proc-macros" }
+m68000-emu = { path = "cpu/m68000-emu" }
+z80-emu = { path = "cpu/z80-emu" }
+genesis-config = { path = "config/genesis-config" }
+genesis-components = { path = "backend/genesis-components" }
+genesis-core = { path = "backend/genesis-core" }
+ti-sn76489 = { path = "backend/ti-sn76489" }
+
+[workspace.lints.rust]
+rust_2018_idioms = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+float_cmp_const = "warn"
+fn_to_numeric_cast_any = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+mixed_read_write_in_expression = "warn"
+mod_module_files = "warn"
+mutex_atomic = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+suspicious_xor_used_as_pow = "warn"
+todo = "warn"
+try_err = "warn"
+unneeded_field_pattern = "warn"
+unseparated_literal_suffix = "warn"
+verbose_file_reads = "warn"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+enum_glob_use = "allow"
+if_not_else = "allow"
+inline_always = "allow"
+manual_string_new = "allow"
+map_unwrap_or = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+stable_sort_primitive = "allow"
+struct_excessive_bools = "allow"
+struct_field_names = "allow"
+too_many_lines = "allow"
+unchecked_time_subtraction = "allow"
+unreadable_literal = "allow"
+verbose_bit_mask = "allow"
