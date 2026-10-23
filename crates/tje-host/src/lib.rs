@@ -759,6 +759,20 @@ mod checker_regressions {
     }
 
     #[test]
+    fn z80_audio_ram_corruption_is_not_masked_as_dead_68000_stack() {
+        let mut original = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        let mut changed = original.partial_clone();
+        changed.hybrid_bus_mut().memory.debug_ram_view().1[0] ^= 1;
+        let symbol = tje_game::ids::GET_RANDOM_NUMBER.metadata();
+        let error = compare_calls(&mut original, &mut changed, 0xff7ffc, &symbol.abi).unwrap_err();
+        assert_eq!(error, "Z80 audio RAM differs");
+    }
+
+    #[test]
     fn ram_io_timeline_compares_intermediate_not_only_final_values() {
         let ram = [0_u16; 32768];
         let device = OrderedWrite::DeviceWord {

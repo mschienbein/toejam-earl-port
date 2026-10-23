@@ -212,6 +212,40 @@ fn sequential_dead_stack_composition_fails_approval() {
 }
 
 #[test]
+#[ignore = "requires both private ROMs"]
+fn missing_reset_write_is_rejected_even_when_register_value_was_already_zero() {
+    fn passthrough(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        c.call_original(ids::RESET_VDP.metadata().address(c.revision()), &[])?;
+        Ok(None)
+    }
+    fn missing_final_write(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+        // G/src/core/startup_and_main_loop.c:33 ResetVDP, omitting its final write.
+        // These are peripheral register programs, not cartridge code/data bytes.
+        for word in [
+            0x8004, 0x8144, 0x8228, 0x8334, 0x8407, 0x857c, 0x8700, 0x8a00, 0x8b00, 0x8c89, 0x8d3f,
+            0x8f02, 0x9001, 0x9100, 0x9200, 0x9302, 0x9400, 0x9500, 0x9600,
+        ] {
+            c.bus().write_word(0xc00004, word);
+        }
+        Ok(None)
+    }
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let source = ids::RESET_VDP.metadata();
+        let mut correct = fixture_host(revision, source.clone(), passthrough);
+        correct
+            .check_fixture(source.address(revision), &[])
+            .unwrap();
+        assert_eq!(correct.checks.mismatches, 0);
+        let mut incorrect = fixture_host(revision, source.clone(), missing_final_write);
+        let error = incorrect
+            .check_fixture(source.address(revision), &[])
+            .unwrap_err();
+        assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+        assert_eq!(incorrect.checks.mismatches, 1);
+    }
+}
+
+#[test]
 fn non_atomic_contracts_are_rejected_before_execution() {
     fn never(_: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         panic!("non-atomic hook ran")
