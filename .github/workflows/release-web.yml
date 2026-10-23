@@ -31,8 +31,16 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
-      - name: Audit tracked public inputs and full history without ROMs
-        run: python3 tools/audit_public.py --history --no-rom
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install pinned audit grammars
+        run: uv pip install --system --python 3.12 --requirement tools/audit_requirements.txt
+      - name: Audit tracked public inputs and the released history without ROMs
+        run: |
+          python tools/audit_public.py --no-rom
+          python tools/audit_public.py --history --refs HEAD --no-rom
       - name: Test packaging allowlists, metadata, icons and checksums
         run: python3 -m unittest discover -s tools -p 'test_release.py' -v
       - name: Install the repository-pinned Rust toolchain
