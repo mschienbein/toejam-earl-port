@@ -1,0 +1,8 @@
+/target/
+/roms/
+/scratch/
+/.cache/
+*.zip
+*.bin
+*.gen
+*.smd
