@@ -443,6 +443,20 @@ sides, and calls with differing raw device/chip-write streams.
 these private runtime observations must not be committed or distributed.
 The quotient changes comparison only, never the executed device protocol.
 
+VDP equality failures also retain a bounded `CheckReport::last_vdp_mismatch`
+before the failing check fork is dropped. It identifies the compared scope
+(`logical` for TimeAware, `full` for Atomic/Functional), the function/frame and
+whether this was the cross-language check or a particular stack-perturbation
+replay. `state.differences[0]` is the first differing field; at most fifteen more
+follow, with a `truncated` flag if further differences exist. Locations name the
+register index or indices, command/FIFO/latch/DMA field, or memory kind and byte
+address; both values are retained. Individual values are capped at 256 characters.
+Logical diagnostics do not present excluded FIFO/raster/cache differences as a
+cause. Collection is read-only: it neither completes transactions nor changes
+the selected equality comparison. The error string includes the first
+difference, and CLI metrics include the structured report. These runtime values
+are private evidence, not distributable cartridge-derived fixtures.
+
 Raster/HV phase, FIFO occupancy/latency, render caches/pixels, independently
 progressing Z80 state and audio phase are **not** readable TimeAware outputs.
 The asynchronous Z80 chip-write stream is recorded rather than compared as one

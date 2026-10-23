@@ -742,3 +742,96 @@ fn player_entity_fixture_after_recorded_10000_frames() {
         );
     }
 }
+
+#[test]
+fn vdp_failure_evidence_and_counts_survive_fixture_restoration_and_host_drop() {
+    fn wrong_register(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+        tje_mem::Platform::write_vdp_control(context, 0x8aff);
+        Ok(None)
+    }
+    let report = {
+        let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
+        let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+        symbol.name = "AuthoredVdpDiagnostic";
+        symbol.addresses = [0xfff000; 2];
+        symbol.abi.argument_count = 0;
+        symbol.abi.returns_value = false;
+        let mut registry = HookRegistry::empty(host.revision);
+        registry
+            .register_execution_contract(symbol, ExecutionClass::TimeAware, wrong_register)
+            .unwrap();
+        host.checks = CheckReport::registered(&registry);
+        host.registry = registry;
+        host.context().write_u16(0xfff000, 0x4e75);
+        let before = machine_bytes(&host);
+        let error = host.check_fixture(0xfff000, &[]).unwrap_err();
+        assert!(error.to_string().contains("first difference:"), "{error}");
+        assert_eq!(before, machine_bytes(&host));
+        let report = serde_json::to_vec(&host.checks).unwrap();
+        drop(host);
+        report
+    };
+    let report: serde_json::Value = serde_json::from_slice(&report).unwrap();
+    assert_eq!(report["calls"], 1);
+    assert_eq!(report["mismatches"], 1);
+    let diagnostic = &report["last_vdp_mismatch"];
+    assert_eq!(diagnostic["function"], "AuthoredVdpDiagnostic");
+    assert_eq!(diagnostic["scope"], "logical");
+    assert_eq!(diagnostic["origin"]["kind"], "check");
+    assert!(
+        diagnostic["state"]["differences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |difference| difference["registers"] == serde_json::json!([10])
+                    && difference["field"] == "h_interrupt_interval"
+                    && difference["original"] == "0"
+                    && difference["translated"] == "255"
+            )
+    );
+}
+
+#[test]
+fn vdp_dependency_probe_reports_the_actual_perturbed_fork_before_it_drops() {
+    fn stack_color(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+        let address = context.cpu().stack_pointer() - 1;
+        let value = context.read_u8(address);
+        tje_mem::Platform::write_vdp_control(context, 0x8700 | u16::from(value));
+        Ok(None)
+    }
+    let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
+    let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+    symbol.name = "AuthoredVdpProbeDiagnostic";
+    symbol.addresses = [0xfff000; 2];
+    symbol.abi.argument_count = 0;
+    symbol.abi.returns_value = false;
+    let mut registry = HookRegistry::empty(host.revision);
+    registry
+        .register_execution_contract(symbol, ExecutionClass::TimeAware, stack_color)
+        .unwrap();
+    host.checks = CheckReport::registered(&registry);
+    host.registry = registry;
+    for (index, word) in [0x33fc, 0x8700, 0x00c0, 4, 0x4e75].into_iter().enumerate() {
+        host.context().write_u16(0xfff000 + 2 * index as u32, word);
+    }
+    let candidate = host.cpu().stack_pointer() - 5;
+    host.context().write_u8(candidate, 0);
+    let error = host.check_fixture(0xfff000, &[]).unwrap_err();
+    assert!(
+        error.to_string().contains("uninitialized stack read"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("first difference:"), "{error}");
+    assert_eq!(host.checks.mismatches, 1);
+    let report = serde_json::to_value(&host.checks.last_vdp_mismatch).unwrap();
+    assert_eq!(report["origin"]["kind"], "stack_probe");
+    assert_eq!(report["origin"]["side"], "Rust");
+    assert!(
+        report["state"]["differences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|difference| difference["registers"] == serde_json::json!([7]))
+    );
+}

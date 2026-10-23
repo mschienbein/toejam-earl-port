@@ -188,6 +188,7 @@ fn main() -> Result<()> {
         "nondependent_stack_read_sites": host.checks.nondependent_stack_reads.len(),
         "nondependent_stack_reads": host.checks.nondependent_stack_reads,
         "stack_dependency_reruns": host.checks.stack_dependency_reruns,
+        "last_vdp_mismatch": host.checks.last_vdp_mismatch,
         "idle_random_draws": { "game_frames": draws.len(), "total": idle_total,
             "min": draws.iter().min(), "max": draws.iter().max(),
             "mean": if draws.is_empty() { 0.0 } else { idle_total as f64 / draws.len() as f64 } },

@@ -140,6 +140,41 @@ impl VdpFifo {
     pub fn iter(&self) -> VdpFifoIter<'_> {
         VdpFifoIter { buffer: &self.buffer, idx: self.pop_idx, remaining: self.len }
     }
+
+    /// TJE hybrid: read-only, bounded field evidence for full-state failures.
+    pub(super) fn hybrid_differences(
+        &self,
+        other: &Self,
+        output: &mut super::debug::VdpStateDifferences,
+    ) -> bool {
+        use super::debug::{VdpDifferenceLocation, difference_location};
+        for (index, (a, b)) in self.buffer.iter().zip(&other.buffer).enumerate() {
+            macro_rules! fields {
+                ($($field:ident),+ $(,)?) => {
+                    $(if !output.compare(
+                        VdpDifferenceLocation {
+                            index: Some(index),
+                            ..difference_location("fifo", stringify!($field))
+                        },
+                        &a.$field,
+                        &b.$field,
+                    ) { return false; })+
+                };
+            }
+            fields!(mode, location, address, word, size, vram_write, latency);
+        }
+        macro_rules! fields {
+            ($($field:ident),+ $(,)?) => {
+                $(if !output.compare(
+                    difference_location("fifo", stringify!($field)),
+                    &self.$field,
+                    &other.$field,
+                ) { return false; })+
+            };
+        }
+        fields!(push_idx, pop_idx, len);
+        true
+    }
 }
 
 pub struct VdpFifoIter<'fifo> {

@@ -198,7 +198,18 @@ impl Host {
                         }
                         Err(error) => Err(format!("dependency probe did not complete: {error}")),
                     };
-                    if let Err(detail) = comparison {
+                    if let Err(mut detail) = comparison {
+                        self.record_vdp_mismatch(
+                            &mut detail,
+                            baseline,
+                            &perturbed,
+                            hook,
+                            crate::diagnostics::VdpMismatchOrigin::StackProbe {
+                                side: side.name(),
+                                xor_mask: mask,
+                                selected_address: selected,
+                            },
+                        );
                         failure.get_or_insert_with(|| {
                             format!(
                                 "uninitialized stack read: {} dependency with XOR {mask:02X} {}: {detail}",

@@ -91,7 +91,7 @@
       "upstream_path": "backend/genesis-components/src/vdp/cramdots.rs"
     },
     "backend/genesis-components/src/vdp/debug.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "c4ab09050609e6fbfefc79419dbcf05c770b84e0",
       "upstream_path": "backend/genesis-components/src/vdp/debug.rs"
     },

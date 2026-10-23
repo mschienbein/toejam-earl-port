@@ -11,6 +11,7 @@ pub mod abi;
 pub mod catalogue;
 pub mod check_projection;
 mod coverage;
+pub mod diagnostics;
 pub use coverage::FunctionCoverageTable;
 pub mod dependent_equivalence;
 pub mod execution;
@@ -189,6 +190,8 @@ pub struct CheckReport {
     /// Private raw observations; never export cartridge-derived runtime traces.
     #[serde(skip)]
     pub last_time_aware: Option<check_projection::TimeAwareObservation>,
+    /// Bounded field-level VDP evidence captured before the failing forks drop.
+    pub last_vdp_mismatch: Option<diagnostics::VdpMismatchReport>,
 }
 
 impl CheckReport {
@@ -558,7 +561,14 @@ impl Host {
                 }
                 Ok(translated_run.outcome)
             }
-            Err(detail) => {
+            Err(mut detail) => {
+                self.record_vdp_mismatch(
+                    &mut detail,
+                    &original,
+                    &translated,
+                    hook,
+                    diagnostics::VdpMismatchOrigin::Check,
+                );
                 self.checks.mismatches += 1;
                 self.checks
                     .by_function

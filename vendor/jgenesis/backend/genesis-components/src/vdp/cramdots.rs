@@ -39,6 +39,32 @@ impl CramDotBuffer {
         Self { prev_line: LineBuffer::new(), current_line: LineBuffer::new() }
     }
 
+    /// TJE hybrid: bounded per-pixel diagnostic evidence, never a state change.
+    pub(super) fn hybrid_differences(
+        &self,
+        other: &Self,
+        output: &mut super::debug::VdpStateDifferences,
+    ) -> bool {
+        for (component, a, b) in [
+            ("cram_dots.prev_line", &self.prev_line, &other.prev_line),
+            ("cram_dots.current_line", &self.current_line, &other.current_line),
+        ] {
+            if !output.compare_slice(
+                super::debug::difference_location(component, "dot"),
+                a.dots.as_slice(),
+                b.dots.as_slice(),
+                None,
+            ) || !output.compare(
+                super::debug::difference_location(component, "any"),
+                &a.any,
+                &b.any,
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn check_for_dot(
         &mut self,
         registers: &Registers,

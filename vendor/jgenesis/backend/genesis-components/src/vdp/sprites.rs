@@ -73,6 +73,32 @@ impl SpriteState {
             pixel + h_display_size.pixels_including_hblank() - self.display_enabled_pixel
         };
     }
+
+    /// TJE hybrid: identify full-state flag/latch differences without mutation.
+    pub(super) fn hybrid_differences(
+        &self,
+        other: &Self,
+        output: &mut super::debug::VdpStateDifferences,
+    ) -> bool {
+        macro_rules! fields {
+            ($($field:ident),+ $(,)?) => {
+                $(if !output.compare(
+                    super::debug::difference_location("sprite_state", stringify!($field)),
+                    &self.$field,
+                    &other.$field,
+                ) { return false; })+
+            };
+        }
+        fields!(
+            overflow,
+            collision,
+            dot_overflow_on_prev_line,
+            pixels_disabled_during_hblank,
+            display_enabled,
+            display_enabled_pixel
+        );
+        true
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
