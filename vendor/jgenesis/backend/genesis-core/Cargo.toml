@@ -25,6 +25,7 @@ genesis-components = { workspace = true, default-features = false }
 ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }
+libm = { workspace = true, default-features = false, features = ["force-soft-floats"] }
 log = { workspace = true }
 thiserror = { workspace = true }
 

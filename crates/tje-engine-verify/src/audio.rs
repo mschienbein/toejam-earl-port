@@ -200,7 +200,7 @@ pub fn verify_audio_hashes() -> Result<Vec<AudioHash>> {
                 && actual.samples == expected.samples
                 && actual.master_clocks == expected.master_clocks
                 && actual.sha256 == expected.sha256,
-            "canonical audio {} at {} Hz: expected {} samples / {} clocks / {}, got {} samples / {} clocks / {}",
+            "canonical audio {} at {} Hz: expected {} samples / {} clocks / {}, got {} samples / {} clocks / {}; all observed cases: {hashes:?}",
             expected.scenario.name(),
             expected.rate,
             expected.samples,

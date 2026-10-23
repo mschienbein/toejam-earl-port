@@ -936,6 +936,7 @@ name = "dsp"
 version = "0.14.1"
 dependencies = [
  "bincode",
+ "libm",
  "log",
  "num",
 ]
@@ -1088,16 +1089,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "fax"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "fax"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fdeflate"
@@ -1234,6 +1235,7 @@ dependencies = [
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "libm",
  "log",
  "m68000-emu",
  "regex",
@@ -1262,6 +1264,7 @@ dependencies = [
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "libm",
  "log",
  "m68000-emu",
  "thiserror 2.0.21",

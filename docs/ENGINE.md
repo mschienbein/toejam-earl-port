@@ -177,9 +177,19 @@ The accepted reference uses the **portable scalar resampler on every target**,
 including the reference oracle, desktop engines and browser. Runtime CPU-feature
 selection must not change tap order, addition grouping or FMA contraction.
 The original x86 SIMD/FMA paths produced different sample bits from the portable
-path; they are removed from this vendored build. This is an explicit decision
-about the reference's post-chip resampling arithmetic, not a change to game
-instructions, device clocks or sound-chip register streams.
+path; they are removed from this vendored build. Scalar accumulation alone is
+insufficient: platform C math libraries also differed on the ARM64 CI runner.
+Filter poles/warping, configured volume gain, and YM sine/log/power table
+initialization therefore use pinned pure-Rust `libm` with `force-soft-floats`.
+This disables architecture/intrinsic specializations even when dependency
+feature unification enables `arch`. Butterworth unit-circle poles use explicit
+deterministic sine/cosine rather than a hidden `num_complex::powc` math chain.
+
+PSG volumes and sinc kernels are committed mathematical constants, not runtime
+transcendental calculations. IIR filtering and sinc accumulation retain ordered
+basic arithmetic; exact alternating signs use integer parity. This is an
+explicit reference-audio arithmetic policy, not a change to game instructions,
+device clocks or sound-chip register streams.
 
 ROM-free production-device goldens program authored PSG and YM2612 register
 sequences at 44.1 and 48 kHz and compare sample-bit SHA-256 hashes. The same

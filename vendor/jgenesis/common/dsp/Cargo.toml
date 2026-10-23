@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bincode = { workspace = true }
+libm = { workspace = true, default-features = false, features = ["force-soft-floats"] }
 log = { workspace = true }
 num = { workspace = true }
 

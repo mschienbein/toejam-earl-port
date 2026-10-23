@@ -62,8 +62,8 @@ fn volume_multiplier(enabled: bool, adjustment_db: f64) -> f64 {
         return 0.0;
     }
 
-    // Decibels to linear
-    10.0_f64.powf(adjustment_db / 20.0)
+    // TJE native: decibels to linear through the pinned pure-Rust implementation.
+    libm::pow(10.0, adjustment_db / 20.0)
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -245,5 +245,34 @@ impl GenesisAudioOutput for GenesisAudioResampler {
     fn collect_psg(&mut self, sample: f64) {
         let sample = self.filter.filter_psg(sample);
         self.psg_resampler.collect([sample]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_nonzero_gains_use_the_pinned_software_power() {
+        for db in [-40.0, -20.0, -13.0, -7.0, 3.0, 6.0, 13.0, 20.0, 40.0] {
+            assert_eq!(volume_multiplier(true, db).to_bits(), libm::pow(10.0, db / 20.0).to_bits());
+            assert_eq!(volume_multiplier(false, db).to_bits(), 0.0_f64.to_bits());
+        }
+        for (db, gain) in [(20.0, 10.0_f64), (40.0, 100.0), (-20.0, 0.1), (-40.0, 0.01)] {
+            assert_eq!(volume_multiplier(true, db).to_bits(), gain.to_bits());
+        }
+        let config = GenesisEmulatorConfig {
+            ym2612_enabled: true,
+            psg_enabled: true,
+            ym2612_volume_adjustment_db: 13.0,
+            psg_volume_adjustment_db: -7.0,
+            ..GenesisEmulatorConfig::default()
+        };
+        let volumes = VolumeMultipliers::from_config(&config);
+        assert_eq!(volumes.ym2612.to_bits(), libm::pow(10.0, 13.0 / 20.0).to_bits());
+        assert_eq!(
+            volumes.psg.to_bits(),
+            (PSG_COEFFICIENT * libm::pow(10.0, -7.0 / 20.0)).to_bits()
+        );
     }
 }

@@ -134,10 +134,11 @@ fn phase_to_attenuation(phase: u16) -> u16 {
             // The table indices represent numbers in the range 0 to PI/2, but slightly offset in order
             // to avoid computing log2(0)
             let n = ((i << 1) | 1) as f64;
-            let sine = (n / 512.0 * PI / 2.0).sin();
+            // TJE native: table generation must not depend on the host's libm.
+            let sine = libm::sin(n / 512.0 * PI / 2.0);
 
             // The table stores attenuation values, but on a log2 scale instead of log10
-            let attenuation = -sine.log2();
+            let attenuation = -libm::log2(sine);
 
             // Table contains 12-bit values that represent 4.8 fixed-point
             (attenuation * f64::from(1 << 8)).round() as u16
@@ -155,7 +156,7 @@ fn attenuation_to_amplitude(attenuation: u16) -> u16 {
             // This is a lookup table for 2^(-n), where n is a value between 0 and 1
             // Index i represents the number (i + 1)/256
             let n = ((i + 1) as f64) / 256.0;
-            let inverse_pow2 = 2.0_f64.powf(-n);
+            let inverse_pow2 = libm::pow(2.0, -n);
 
             // Table contains 11-bit values that represent 0.11 fixed-point
             (inverse_pow2 * f64::from(1 << 11)).round() as u16
@@ -1056,5 +1057,34 @@ mod tests {
         // Status value should have decayed to 0 by now
         check_4001_4003(&mut ym2612, 0);
         assert_eq!(ym2612.read_register(0x4000) & 0x80, 0);
+    }
+
+    #[test]
+    fn software_log_sine_table_covers_all_phase_entries() {
+        let quarter: [u16; 256] = std::array::from_fn(|i| {
+            let angle = ((2 * i + 1) as f64) / 512.0 * std::f64::consts::PI / 2.0;
+            // Natural-log reference is independent of the production log2 path.
+            let attenuation = -libm::log(libm::sin(angle)) / std::f64::consts::LN_2;
+            libm::round(attenuation * 256.0) as u16
+        });
+        for phase in 0_u16..1024 {
+            let half = usize::from(phase & HALF_PHASE_MASK);
+            let index = if half < 256 { half } else { 511 - half };
+            assert_eq!(phase_to_attenuation(phase), quarter[index], "phase {phase}");
+        }
+    }
+
+    #[test]
+    fn software_power_table_covers_all_fractions_and_shifts() {
+        for fraction in 0_u16..256 {
+            // exp2 reference is independent of the production pow path.
+            let exponent = -f64::from(fraction + 1) / 256.0;
+            let raw = libm::round(libm::exp2(exponent) * 2048.0) as u16;
+            for integer in 0_u16..32 {
+                let attenuation = (integer << 8) | fraction;
+                let expected = if integer >= 13 { 0 } else { (raw << 2) >> integer };
+                assert_eq!(attenuation_to_amplitude(attenuation), expected);
+            }
+        }
     }
 }

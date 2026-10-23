@@ -15,12 +15,40 @@ are removed, not disabled through environment variables. SIMD-only buffer
 padding and tests are removed; scalar compaction/order/unfused-operation
 regressions replace the former tolerance-based SIMD comparisons.
 
+Coefficient and chip-table generation also use one implementation: registry
+dependency `libm` is pinned to **0.2.16**, with default features disabled and
+`force-soft-floats` enabled in the vendored workspace. That feature overrides
+architecture and unstable-intrinsic selection even if another dependency
+enables them through Cargo feature unification.
+
+- `common/dsp/src/design.rs`: Butterworth poles use pure-Rust cosine/sine at
+  the original angle, instead of `E.powc` and its hidden `ComplexFloat`
+  hypot/atan2/log/exp path. Frequency warping uses pure-Rust tangent. Exact
+  alternating polynomial signs use integer parity rather than floating powers.
+- `backend/genesis-core/src/audio.rs`: configured decibel gains use pure-Rust
+  power. The oracle and native runtime share this same resampler/filter code.
+- `backend/genesis-components/src/ym2612.rs`: lazy log-sine and power tables
+  use pure-Rust sine, log2 and power before the unchanged integer quantization.
+- The corresponding three package manifests and workspace manifest select the
+  same pinned software backend; no per-platform math fallback remains.
+
+The rest of the shipped audio closure needs no transcendental implementation:
+PSG amplitudes and both sinc FIR kernels are precomputed public constants;
+PSG/YM oscillators and clocks are integer logic; IIR filters, scalar convolution,
+gain application and mixing use ordered basic arithmetic. Sinc fixed-point
+rounding/fraction extraction, table quantization and buffer-capacity ceiling
+retain their specified rounding behavior. Remaining complex operators are
+addition/subtraction/multiplication/division, not `ComplexFloat` functions.
+
 This intentionally establishes a new cross-target sample-bit baseline. Audio
 receipts made with the previous CPU-dispatched implementation must be rerun;
-they do not prove the scalar implementation. FIR coefficients, resampling
-ratios, chip clocks, filtering and sample mixing order are otherwise unchanged.
-Cross-target bit proofs belong to the synthetic chip-sequence and session
-verification suites; source selection alone is not such a proof.
+they do not prove the scalar/software-math implementation. This software-math
+cutover also requires rerunning receipts made with platform coefficient/table
+generation. FIR constants, resampling ratios, filter topology, chip scheduling
+and sample mixing order are unchanged. Coefficient/table bits may change from
+the former platform-libm results; cross-target bit proofs and any intentional
+golden refresh belong to the synthetic chip-sequence and session verification
+suites, not to source selection alone.
 
 ## Crates retained
 

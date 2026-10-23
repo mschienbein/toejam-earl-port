@@ -19,6 +19,7 @@ z80-emu = { workspace = true, features = ["bincode"] }
 
 bincode = { workspace = true }
 crc = { workspace = true }
+libm = { workspace = true, default-features = false, features = ["force-soft-floats"] }
 regex = { workspace = true }
 log = { workspace = true }
 

@@ -17,12 +17,13 @@ entry points below. JSON measurement outputs stay in private scratch, not Git.
 
 ### Canonical resampling decision
 
-The shipped faithful engine and its reference oracle now use the same portable
-scalar resampler arithmetic on all targets. The earlier x86 SIMD/FMA dispatch
-could change sample bits relative to aarch64/WebAssembly because its operation
-order and fused operations differed. The user explicitly selected the portable
-path as the canonical reference resampling stage; no CPU/device timing or sound
-register stream is changed by this decision. See [ENGINE.md](ENGINE.md).
+The shipped faithful engine and its reference oracle use the same portable
+scalar resampler arithmetic on all targets, including deterministic pure-Rust
+math for filter coefficients, gain and YM table initialization. Both x86 SIMD/FMA
+operation grouping and platform C transcendental functions were observed to
+change sample bits across architectures. The user explicitly selected the
+portable path as the canonical reference audio arithmetic; no CPU/device timing
+or sound register stream is changed by this decision. See [ENGINE.md](ENGINE.md).
 
 The timing survey below is the historical measurement, not a newly rerun
 canonical-audio receipt. Instruction/clock/access observations retain their

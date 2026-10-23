@@ -13,6 +13,9 @@ bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 crc = "3"
 js-sys = "0.3"
+# TJE native: one pinned pure-Rust math implementation, even if another
+# dependency enables libm's architecture/intrinsic features through unification.
+libm = { version = "=0.2.16", default-features = false, features = ["force-soft-floats"] }
 log = "0.4"
 multiversion = "0.9"
 num = "0.4"
