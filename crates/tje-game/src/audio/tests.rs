@@ -271,6 +271,66 @@ fn play_sound_preserves_signed_priority_short_circuits_and_store_order() {
 }
 
 #[test]
+fn play_sound_effect_keeps_sample_bits_priority_and_one_way_blocking_latch() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision, Vec::new());
+        let cooldown = ram::g_pcm_effect_cooldown_ticks(revision).address();
+        let status = ram::g_psg_effect_status(revision).address();
+        let pending = ram::g_pending_pcm_sample(revision).address();
+        let active = ram::g_sound_effect_priority(revision).address();
+        let block = ram::g_pcm_blocks_sequencer(revision).address();
+        let release = ram::g_fm_channel_release_requested(revision).address();
+        for ticks in [i16::MIN, 0, 1] {
+            for psg in [-1_i16, 0, i16::MAX] {
+                for old in [i16::MIN, -1, 0, 1, i16::MAX] {
+                    for priority in [i16::MIN, -1, 0, 1, i16::MAX] {
+                        for stop in [0, 1, 0xffff] {
+                            context.memory.ram_mut().fill(0xa5);
+                            context.memory.write_i16(cooldown, ticks);
+                            context.memory.write_i16(status, psg);
+                            context.memory.write_i16(active, old);
+                            context.accesses.borrow_mut().clear();
+                            let mut expected_ram = context.memory.clone();
+                            let mut expected =
+                                vec![Access::Read(cooldown), Access::Read(cooldown + 1)];
+                            if ticks == 0 {
+                                expected.extend([Access::Read(status), Access::Read(status + 1)]);
+                            }
+                            if ticks != 0 || psg != 0 {
+                                expected.extend([Access::Read(active), Access::Read(active + 1)]);
+                            }
+                            let sample = 0xfedc_0000 | u32::from(priority as u16);
+                            if (ticks == 0 && psg == 0) || priority >= old {
+                                expected.push(Access::Long(pending, sample));
+                                expected.push(Access::Word(active, priority as u16));
+                                expected_ram.write_u32(pending, sample);
+                                expected_ram.write_i16(active, priority);
+                                if stop != 0 {
+                                    expected.push(Access::Word(block, 1));
+                                    expected.push(Access::Word(release, 1));
+                                    expected_ram.write_u16(block, 1);
+                                    expected_ram.write_u16(release, 1);
+                                }
+                            }
+                            assert_eq!(
+                                play_sound_effect(
+                                    &mut context,
+                                    &[sample, 0xbeef_0000 | u32::from(priority as u16), stop]
+                                )
+                                .unwrap(),
+                                None
+                            );
+                            assert_eq!(*context.accesses.borrow(), expected);
+                            assert_eq!(context.memory.ram(), expected_ram.ram());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
     // ATOMIC_CAPABLE also classifies untranslated originals; the native closure
     // obligation applies to the translated roots.
@@ -280,7 +340,9 @@ fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
         .collect();
     let dispatcher = Dispatcher::native(&roots).unwrap();
     for translation in TRANSLATIONS {
-        assert!(translation.id.metadata().callees.is_empty());
+        for callee in translation.id.metadata().callees {
+            assert!(crate::is_atomic_capable(*callee));
+        }
         assert!(crate::is_atomic_capable(translation.id));
         assert!(dispatcher.translation(translation.id).is_some());
     }

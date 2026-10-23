@@ -81,6 +81,30 @@ fn drive_live_fixtures(host: &mut Host) {
             }
         }
     }
+    for cooldown in [i16::MIN, 0, 1] {
+        for psg in [-1_i16, 0, i16::MAX] {
+            for old_priority in [i16::MIN, -1, 0, 1, i16::MAX] {
+                for priority in [i16::MIN, -1, 0, 1, i16::MAX] {
+                    for stop in [0, 1, 0xffff] {
+                        let mut context = host.context();
+                        ram::g_pcm_effect_cooldown_ticks(revision).write(&mut context, cooldown);
+                        ram::g_psg_effect_status(revision).write(&mut context, psg);
+                        ram::g_sound_effect_priority(revision).write(&mut context, old_priority);
+                        ram::g_pcm_blocks_sequencer(revision).write(&mut context, -1);
+                        check(
+                            host,
+                            ids::PLAY_SOUND_EFFECT,
+                            &[
+                                0xfedc_0000 | u32::from(priority as u16),
+                                0xbeef_0000 | u32::from(priority as u16),
+                                stop,
+                            ],
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -96,7 +120,7 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
         let registry = HookRegistry::filtered(revision, &["audio"], &[]).unwrap();
-        assert_eq!(registry.len(), 6);
+        assert_eq!(registry.len(), audio::TRANSLATIONS.len());
         let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
         for frame in 0..10_000 {

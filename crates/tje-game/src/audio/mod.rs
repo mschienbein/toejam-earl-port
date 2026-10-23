@@ -1,8 +1,8 @@
 //! Audio translation ownership; see docs/PORTING.md.
 //!
 //! Original execution classes are reviewed for all 22 inventory entries.
-//! Seven RAM-only entries are Atomic, including the still-original
-//! `PlaySoundEffect` and its Atomic request-only callee.
+//! Seven RAM-only entries are Atomic, including `PlaySoundEffect` and its
+//! Atomic request-only callee.
 //! Nine fixed-source hardware transaction entries are Functional, not Atomic.
 //!
 //! Six originals are TimeAware: `AudioRetryPendingPcmMailbox`,
@@ -44,6 +44,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PLAY_SOUND,
         function: play_sound,
+    },
+    crate::Translation {
+        id: ids::PLAY_SOUND_EFFECT,
+        function: play_sound_effect,
     },
 ];
 
@@ -233,6 +237,28 @@ pub fn play_sound(context: &mut dyn Context, arguments: &[u32]) -> Result<Option
     {
         ram::g_pending_psg_effect(revision).write(context, sound_number);
         ram::g_sound_effect_priority(revision).write(context, priority);
+    }
+    Ok(None)
+}
+
+/// G/src/audio/play_sound_effect.c:15 (`PlaySoundEffect`, REV 02 0x03f5dc).
+/// Keep the raw long sample value, signed-short admission, ordered request and
+/// priority stores, and the one-way blocking latch. Both sizeof uses are inert.
+pub fn play_sound_effect(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let sample = arguments[0] as i32;
+    let priority = arguments[1] as i16;
+    let stop_channels = arguments[2] as i16;
+    if (ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
+        && ram::g_psg_effect_status(revision).read(context) == 0)
+        || priority >= ram::g_sound_effect_priority(revision).read(context)
+    {
+        ram::g_pending_pcm_sample(revision).write(context, sample);
+        ram::g_sound_effect_priority(revision).write(context, priority);
+        if stop_channels != 0 {
+            ram::g_pcm_blocks_sequencer(revision).write(context, 1);
+            crate::call(context, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, &[])?;
+        }
     }
     Ok(None)
 }
