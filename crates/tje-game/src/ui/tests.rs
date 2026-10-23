@@ -378,6 +378,19 @@ fn ui_leaf_native_closure_and_original_classification_are_complete() {
             .count();
         assert_eq!(atomic + non_atomic, 1, "{}", function.name);
     }
+    let all_ui_roots: Vec<_> = TRANSLATIONS.iter().map(|entry| entry.id).collect();
+    match Dispatcher::native(&all_ui_roots) {
+        Ok(_) => println!("UI_NATIVE_CLOSURE complete"),
+        Err(missing) => {
+            assert!(
+                missing
+                    .iter()
+                    .all(|id| Dispatcher::hybrid().translation(*id).is_none())
+            );
+            let names: Vec<_> = missing.iter().map(|id| id.metadata().name).collect();
+            println!("UI_NATIVE_CLOSURE missing {names:?}");
+        }
+    }
 }
 
 #[test]

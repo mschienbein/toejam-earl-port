@@ -240,18 +240,22 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
         function: inventory_animations::entity_clear_viewport_sprites,
     },
-    crate::Translation {
-        id: ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
-        function: control::inventory_buy_selected_mail_order_present,
-    },
-    crate::Translation {
-        id: ids::OPEN_PRESENT,
-        function: control::open_present,
-    },
 ];
 
 /// Opt-in inventory candidates; not registered until both-revision proof.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // Cooperation REV02 frame15370 enters HBlank before a purchase RAM store;
+    // await a proved ISR commutation or source-clocked timing contract.
+    crate::Translation {
+        id: ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
+        function: control::inventory_buy_selected_mail_order_present,
+    },
+    // Committed cooperation session REV00 frame21751 interleaves VBlank before
+    // a present-effect RAM store; await a proved ISR/timing schedule contract.
+    crate::Translation {
+        id: ids::OPEN_PRESENT,
+        function: control::open_present,
+    },
     // Committed cooperation session REV02 frame4903 has unequal VDP state;
     // withdrawn from production until the IRQ redraw interaction is proved.
     crate::Translation {
@@ -377,6 +381,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 /// call-frame composition are still proof prerequisites, never assumed passed.
 pub static PENDING: &[crate::FunctionId] = &[
     // Exact per-entry blockers are on the body registry above, not approval.
+    ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
+    ids::OPEN_PRESENT,
     ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
     ids::CHECK_IF_OPEN_FOR_BOTH,
     // Exact direct redraw/clock/device-observation receipts remain required.
