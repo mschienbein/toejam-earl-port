@@ -1,7 +1,12 @@
 //! Speech translation ownership; see docs/PORTING.md.
 
+mod dialogue;
+pub use dialogue::{
+    clear_speech_bubbles_and_replies, generate_speech, start_dialogue, update_speech_and_dialogue,
+};
+
 use crate::{Context, Result, execution::ExecutionClass, ids};
-use tje_mem::ram;
+use tje_mem::{ram, rom};
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
@@ -17,6 +22,42 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::HAS_SPEAKER_SPEECH,
         function: has_speaker_speech,
     },
+    crate::Translation {
+        id: ids::QUEUE_SPEECH_TEXT_TILES,
+        function: queue_speech_text_tiles,
+    },
+    crate::Translation {
+        id: ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
+        function: clear_speech_bubbles_and_replies,
+    },
+];
+
+/// Complete bodies excluded from production until their timing proofs pass.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::UPDATE_SPEECH_AND_DIALOGUE,
+        function: update_speech_and_dialogue,
+    },
+    crate::Translation {
+        id: ids::GENERATE_SPEECH,
+        function: generate_speech,
+    },
+    crate::Translation {
+        id: ids::START_DIALOGUE,
+        function: start_dialogue,
+    },
+];
+
+pub static PENDING: &[crate::FunctionId] = &[
+    // Actual pending-upload IRQ fixture passes at frame 2000 in both revisions
+    // but fails REV 02 frame 10000's device-write trace. No phase waiver.
+    ids::GENERATE_SPEECH,
+    // All 174 descriptor cases pass at frame 2000; IRQ writes differ at frame 10000.
+    ids::START_DIALOGUE,
+    // Both revisions pass source-driven logic fixtures. A REV 02 natural
+    // session fails at frame 2437 with a device-write trace difference; no
+    // timing equivalence is claimed or status/IRQ comparison relaxed.
+    ids::UPDATE_SPEECH_AND_DIALOGUE,
 ];
 
 /// Reviewed original Atomic entries, including untranslated originals.
@@ -48,8 +89,8 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     // :200-247: the first-line path calls the time-aware GenerateSpeech.
     (ids::START_DIALOGUE, ExecutionClass::TimeAware),
     // :264-320: replies and random/reunion dialogues call GenerateSpeech and
-    // StartDialogue; those paths can wait for the upload IRQ. Missing speaker
-    // arguments on reunion/contact calls remain separate call-frame obligations.
+    // StartDialogue; those paths can wait for the upload IRQ. The omitted
+    // speaker is recovered from the original caller's saved entry-D2 slot.
     (ids::UPDATE_SPEECH_AND_DIALOGUE, ExecutionClass::TimeAware),
 ];
 /// G/src/speech/speech_and_dialogue.c:63 (`SetNextSpeechLifetime`).
@@ -111,4 +152,62 @@ pub fn has_speaker_speech(context: &mut dyn Context, arguments: &[u32]) -> Resul
         return Ok(Some(1));
     }
     Ok(Some(0))
+}
+
+/// G/src/speech/speech_and_dialogue.c:19 (`QueueSpeechTextTiles`).
+/// Keep the signed word counters and unsigned byte queue-index wrap.
+pub fn queue_speech_text_tiles(
+    context: &mut dyn Context,
+    arguments: &[u32],
+) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let text = arguments[0];
+    let length = arguments[1] as i16;
+    let tile = arguments[2] as i16;
+    let font = rom::runtime_text_font_tiles(revision).address();
+    crate::call(
+        context,
+        ids::APPEND_SPRITE_TILES_TO_BUFFER,
+        &[font.wrapping_add(27 * 32), 1],
+    )?;
+    let mut padding = ((12 - i32::from(length)) / 2) as i16;
+    let mut index = 0_i16;
+    while index < padding {
+        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        index = index.wrapping_add(1);
+    }
+    index = 0;
+    while index < length {
+        let character =
+            i32::from(context.read_u8(text.wrapping_add(i32::from(index) as u32)) as i8);
+        let mut glyph = crate::call(
+            context,
+            ids::TEXT_MAP_CHARACTER_TO_GLYPH,
+            &[character as u32],
+        )? as i8;
+        if glyph == 27 {
+            glyph = glyph.wrapping_add(1);
+        }
+        let source = font.wrapping_add((i32::from(glyph) << 5) as u32);
+        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[source, 1])?;
+        index = index.wrapping_add(1);
+    }
+    if length & 1 != 0 {
+        padding = padding.wrapping_add(1);
+    }
+    index = 0;
+    while index < padding {
+        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        index = index.wrapping_add(1);
+    }
+    for value in [tile, 13] {
+        let count = ram::g_sprite_tile_upload_queue_word_count(revision);
+        let old = count.read(context);
+        let next = count.read(context).wrapping_add(1);
+        count.write(context, next);
+        ram::g_sprite_tile_upload_runs(revision)
+            .at(i32::from(old))
+            .write(context, value as u16);
+    }
+    Ok(None)
 }

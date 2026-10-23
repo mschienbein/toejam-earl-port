@@ -1,13 +1,104 @@
 //! Ship translation ownership; see docs/PORTING.md.
 
+mod background;
+mod collection;
+pub use background::{
+    animate_ship_screen_background, animate_transition_background,
+    initialize_ship_screen_tilemap_and_palettes, restore_gameplay_graphics,
+    show_missing_ship_piece_summary, show_ship_piece_name, wait_for_ship_screen_acknowledgement,
+};
+pub use collection::{
+    play_ship_completion_sequence, ship_piece_ability, ship_update_pending_piece_indicator,
+    show_random_uncollected_ship_piece,
+};
+
 use crate::{Context, Result, execution::ExecutionClass, ids};
-use tje_mem::ram;
+use tje_mem::{ram, rom};
 
 /// Available Rust entries owned by this subsystem.
-pub static TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
-    id: crate::ids::FILL_SPRITE_OPAQUE_PIXELS,
-    function: fill_sprite_opaque_pixels,
-}];
+pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::FILL_SPRITE_OPAQUE_PIXELS,
+        function: fill_sprite_opaque_pixels,
+    },
+    crate::Translation {
+        id: ids::ASSIGN_SHIP_PIECE_LEVELS,
+        function: assign_ship_piece_levels,
+    },
+    crate::Translation {
+        id: ids::SHIP_UPDATE_PENDING_PIECE_INDICATOR,
+        function: ship_update_pending_piece_indicator,
+    },
+    crate::Translation {
+        id: ids::SHOW_MISSING_SHIP_PIECE_SUMMARY,
+        function: show_missing_ship_piece_summary,
+    },
+    crate::Translation {
+        id: ids::RESTORE_GAMEPLAY_GRAPHICS,
+        function: restore_gameplay_graphics,
+    },
+];
+
+/// Complete bodies awaiting their explicitly reviewed check-mode proofs.
+/// Never registered by production or replacement mode.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
+        function: animate_ship_screen_background,
+    },
+    crate::Translation {
+        id: ids::ANIMATE_TRANSITION_BACKGROUND,
+        function: animate_transition_background,
+    },
+    crate::Translation {
+        id: ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
+        function: initialize_ship_screen_tilemap_and_palettes,
+    },
+    crate::Translation {
+        id: ids::SHOW_SHIP_PIECE_NAME,
+        function: show_ship_piece_name,
+    },
+    crate::Translation {
+        id: ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
+        function: wait_for_ship_screen_acknowledgement,
+    },
+    crate::Translation {
+        id: ids::PLAY_SHIP_COMPLETION_SEQUENCE,
+        function: play_ship_completion_sequence,
+    },
+    crate::Translation {
+        id: ids::SHIP_PIECE_ABILITY,
+        function: ship_piece_ability,
+    },
+    crate::Translation {
+        id: ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
+        function: show_random_uncollected_ship_piece,
+    },
+];
+
+pub static PENDING: &[crate::FunctionId] = &[
+    // Real-clock counter-only proof differs by one IRQ frame in both revisions.
+    ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
+    // All 256 bytes pass at frame 2000; real audio IRQ writes differ at frame 10000.
+    ids::ANIMATE_TRANSITION_BACKGROUND,
+    // The original plane fill consumes eight additional IRQ frames at frame 2000.
+    ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
+    // The original's fixed 1,000,000-tick check bound expires before 90 frames.
+    ids::SHOW_SHIP_PIECE_NAME,
+    // The same timed bound expires before the 240-frame acknowledgement timeout.
+    ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
+    // No body: palette[16] escapes through a callee pointer; requires a frame.
+    ids::ANIMATE_SHIP_SCREEN_PALETTE,
+    // No body: sprites[50] plus residual stack tail are read by a 640-byte DMA.
+    ids::SHOW_SHIP_PIECES,
+    // PlayEndingSequence transitively reads EndingPlayBouncingRocketshipScene's
+    // uninitialized movement_frame stack word; residual call-frame API required.
+    ids::PLAY_SHIP_COMPLETION_SEQUENCE,
+    // ShowShipPieces passes a partly initialized stack-local sprite array to
+    // a 640-byte DMA; neither that frame nor its residual tail is yet modeled.
+    ids::SHIP_PIECE_ABILITY,
+    ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
+];
 
 /// Reviewed original Atomic entries, including untranslated originals.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
@@ -110,5 +201,63 @@ pub fn fill_sprite_opaque_pixels(
         pixels = pixels.wrapping_add(1);
         byte_number = byte_number.wrapping_add(1);
     }
+    Ok(None)
+}
+
+/// G/src/ship/piece_level_assignment.c:9 (`AssignShipPieceLevels`).
+/// RNG results are unsigned words; every divisor here fits native DIVU.
+pub fn assign_ship_piece_levels(
+    context: &mut dyn Context,
+    _arguments: &[u32],
+) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let assignments = ram::g_ship_piece_level_assignments(revision);
+    if ram::g_world_type(revision).read(context) != 0 {
+        for piece in 0..10 {
+            let level = rom::fixed_world_ship_pieces(revision)
+                .at(piece)
+                .read(context);
+            assignments.at(piece).write(context, level);
+        }
+        return Ok(None);
+    }
+    for group in 0..5 {
+        let piece = loop {
+            let candidate =
+                i32::from(crate::call(context, ids::GET_RANDOM_NUMBER, &[])? as u16 % 10);
+            if assignments.at(candidate).read(context) == 0 {
+                break candidate;
+            }
+        };
+        loop {
+            let level = (u32::from(crate::call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 5
+                + (group * 5 + 1)) as i8;
+            assignments.at(piece).write(context, level);
+            if level > 1 && level < 25 {
+                break;
+            }
+        }
+    }
+    for _group in 0..5 {
+        let piece = loop {
+            let candidate =
+                i32::from(crate::call(context, ids::GET_RANDOM_NUMBER, &[])? as u16 % 10);
+            if assignments.at(candidate).read(context) == 0 {
+                break candidate;
+            }
+        };
+        let level = loop {
+            let candidate =
+                (crate::call(context, ids::GET_RANDOM_NUMBER, &[])? as u16 % 23 + 2) as i16;
+            if !(0..10)
+                .any(|previous| i16::from(assignments.at(previous).read(context)) == candidate)
+            {
+                break candidate;
+            }
+        };
+        assignments.at(piece).write(context, level as i8);
+    }
+    let piece = i32::from(crate::call(context, ids::GET_RANDOM_NUMBER, &[])? as u16 % 10);
+    assignments.at(piece).write(context, 25);
     Ok(None)
 }
