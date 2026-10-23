@@ -12,6 +12,10 @@ publish = false
 name = "tje-ui-check"
 path = "main.rs"
 
+[[bin]]
+name = "tje-ui-inventory-check"
+path = "inventory.rs"
+
 [dependencies]
 serde_json = "1"
 tje-game = { path = "../../.." }

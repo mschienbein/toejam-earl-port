@@ -33,8 +33,9 @@ fn run_session(
     output: &Path,
 ) -> Result<Host> {
     let script = InputScript::parse(source)?;
-    let mut registry = HookRegistry::proof(revision, ui::PENDING_TRANSLATIONS)?;
-    // Pending callees overlay all proven Rust bodies only in this opt-in binary.
+    let mut registry = HookRegistry::proof(revision, &[])?;
+    // This baseline runner never enables unproven modal/input-loop bodies.
+    // The separate inventory runner opts into an explicit named subset.
     for &translation in ui::TRANSLATIONS {
         let class = if ui::ATOMIC_CAPABLE.contains(&translation.id) {
             ExecutionClass::Atomic
@@ -382,7 +383,6 @@ fn main() -> Result<()> {
     fs::create_dir_all(output)?;
     let roots: Vec<_> = ui::TRANSLATIONS
         .iter()
-        .chain(ui::PENDING_TRANSLATIONS)
         .map(|entry| entry.id)
         .collect();
     let native_missing: Vec<_> = Dispatcher::native(&roots)

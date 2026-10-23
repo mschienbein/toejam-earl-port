@@ -1,0 +1,21 @@
+[package]
+name = "tje-ui-hud-check"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+# Opt-in private-ROM evidence; no emulator dependency enters the game crate.
+[workspace]
+
+[[bin]]
+name = "tje-ui-hud-check"
+path = "main.rs"
+
+[dependencies]
+genesis-config = { path = "../../../../../../vendor/jgenesis/config/genesis-config" }
+serde_json = "1"
+tje-game = { path = "../../../.." }
+tje-host = { path = "../../../../../tje-host" }
+tje-mem = { path = "../../../../../tje-mem" }
+tje-session = { path = "../../../../../tje-session" }

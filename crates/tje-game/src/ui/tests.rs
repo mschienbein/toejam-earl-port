@@ -379,3 +379,27 @@ fn ui_leaf_native_closure_and_original_classification_are_complete() {
         assert_eq!(atomic + non_atomic, 1, "{}", function.name);
     }
 }
+
+#[test]
+fn word_scaled_entity_address_matches_every_original_short_index() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let context = Fixture::new(revision);
+        let base = ram::g_player_info(revision).at(0).address();
+        for bits in 0..=u16::MAX {
+            let index = bits as i16;
+            let displacement = i32::from((u32::from(bits).wrapping_mul(128) as u16) as i16);
+            assert_eq!(
+                super::entities::entity(&context, index).address(),
+                base.wrapping_add(displacement as u32)
+            );
+        }
+    }
+}
+
+#[test]
+fn pending_inventory_candidates_are_not_production_registered() {
+    for entry in PENDING_TRANSLATIONS {
+        assert!(!TRANSLATIONS.iter().any(|proven| proven.id == entry.id));
+        assert!(PENDING.contains(&entry.id));
+    }
+}
