@@ -59,6 +59,8 @@ fn check(
     if !host.checks.by_function.contains_key(id.metadata().name) {
         return;
     }
+    let entry_pc = host.cpu().pc();
+    let entry_sr = host.cpu().status_register();
     let result = host.check_fixture(id.metadata().address(host.revision()), arguments);
     let error = result.as_ref().err().map(ToString::to_string);
     println!(
@@ -70,6 +72,8 @@ fn check(
         "name": id.metadata().name,
         "label": label,
         "arguments": arguments,
+        "entry_pc": entry_pc,
+        "entry_sr": entry_sr,
         "error": error,
     }));
 }
@@ -513,9 +517,12 @@ fn fixtures(host: &mut Host, outcomes: &mut Vec<Value>) -> Result {
         outcomes,
     );
     let frame = host.frame_count();
+    // Preserve the released current-frame sample supplied while settling.
+    // The first held sample is explicitly on the next crossed frame.
+    let first_press = frame + 1;
     let abort_timeline = Arc::new(InputScript::parse(&format!(
         r#"{{"holds": [
-            {{"start": {frame}, "end": {}, "p1": ["start"]}},
+            {{"start": {first_press}, "end": {}, "p1": ["start"]}},
             {{"start": {}, "end": {}, "p1": ["start"]}}
         ]}}"#,
         frame + 30,
@@ -666,6 +673,9 @@ fn main() -> Result {
                 && metadata.wave > 0
                 && (names.is_empty()
                     || (names == "atomic" && tje_game::is_atomic_capable(translation.id))
+                    || (names == "time-aware"
+                        && tje_game::execution_class(translation.id)
+                            == Some(tje_game::execution::ExecutionClass::TimeAware))
                     || names
                         .split(',')
                         .any(|name| name == translation.id.metadata().name))
@@ -687,6 +697,11 @@ fn main() -> Result {
     for frame in 0..frames {
         live.run_frame(script.at(frame))?;
     }
+    // Settle original work before any synthetic fixture writes or argument slots.
+    // Keep the complete returned snapshots, including audio/device observations,
+    // in this owned advance through reporting; publish only bounded metadata.
+    let settle_inputs = script.at(live.frame_count());
+    let settled = live.settle_fixture_boundary(settle_inputs)?;
     let gameplay = live.measurements.game_frame;
     let mut outcomes = Vec::new();
     let fixture_error = fixtures(&mut live, &mut outcomes)
@@ -706,6 +721,23 @@ fn main() -> Result {
         "natural": natural.checks,
         "live_state_frames": live.frame_count(),
         "live_state_gameplay": gameplay,
+        "fixture_boundary": {
+            "start_pc": settled.start_pc,
+            "end_pc": settled.end_pc,
+            "start_frame": settled.start_frame,
+            "end_frame": settled.end_frame,
+            "ticks": settled.ticks,
+            "master_clocks": settled.master_clocks,
+            "handlers_completed": settled.handlers_completed,
+            "completed_frames": settled.completed_frames.iter().map(|frame| json!({
+                "frame": frame.frame,
+                "frame_counter": frame.frame_counter,
+                "audio_samples": frame.audio_samples.len(),
+                "writes": frame.writes.len(),
+                "idle_random_draws": frame.idle_random_draws,
+                "lag_events": frame.lag_events,
+            })).collect::<Vec<_>>(),
+        },
         "fixture_error": fixture_error,
         "fixtures": live.checks,
         "outcomes": outcomes,

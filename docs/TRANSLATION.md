@@ -475,6 +475,21 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 
 Add new cases here when you find them.
 
+**Scratch registers left on exit.** The C ABI treats D0/D1/A0/A1/CCR as scratch, but a
+compiled caller can still read what a callee left there, so some callees must
+reproduce their exact exit values even though the declared signature is `void` or
+narrower. Known cases, each confirmed in G's emitted assembly:
+
+| Callee | Exit state callers observe |
+| --- | --- |
+| `ReadMappedPlayerInput` | full D1 = the mapped input (startup listing lines 35-79) |
+| `GetPlayerInput` | D0, D1, A0 and CCR as the source leaves them (lines 489-568), seen by `FurtherInitialisation`'s after-menu stage |
+| `SetRAMIndexes` | D0 = (entry & 0xFFFF0000) \| 40, A0 = player info + 40 × 128, CCR Z only; D1/A1 preserved (`c_entity_indexes.s` lines 4-15) |
+| `GetRandomNumber` | D1, A0, A1 and CCR as compiled |
+
+Prove such callees with strict register comparison over all registers and CCR, not
+the scratch-clobber C ABI check alone.
+
 ## Pointers, control flow, storage, and names
 
 - Keep addresses as 32-bit values; `Address::offset` scales by the emulated type's

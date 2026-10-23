@@ -16,22 +16,37 @@ pub mod sega_logo;
 
 /// Complete bodies withheld from production until both-revision check evidence.
 pub static PENDING: &[crate::FunctionId] = &[
-    // TimeAware checks did not return from original IRQ/frame waits in both
-    // revisions (proof-class-rev02/rev00); no successful checked entries yet.
+    // Settled frame-10000 proof: REV02 Z80 DAC-delay device read differs;
+    // REV00 fixture passes, so there is no dual-revision approval.
     ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+    // Both revisions: returned gFrameCounter differs after settled scene setup.
     ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+    // Complete scene hits fixed original-call ceiling; abort VDP state differs.
     ids::INTRO_PART5,
+    // Complete scene hits fixed ceiling; abort DAC-delay read differs in REV02.
     ids::INTRO_PART6,
+    // Complete scene hits fixed ceiling; abort DAC-delay read differs in both.
     ids::INTRO_PART7,
+    // Complete scene hits fixed ceiling; abort frame-counter value differs.
     ids::INTRO_PART8,
+    // Complete scene hits fixed ceiling; abort DAC-delay read differs in both.
     ids::INTRO_PART9,
+    // Both rocket-pass variants hit the fixed original-call ceiling. Await the
+    // reviewed whole-scene ceiling contract; no synthetic timing charge.
     ids::SEGA_VIDEO,
+    // Complete scene hits fixed ceiling; released-Start frame counter differs.
     ids::INTRO_PART1,
+    // Complete scene hits fixed ceiling; abort DAC-delay read differs in both.
     ids::INTRO_PART10,
+    // Complete scene hits fixed ceiling; abort logical VDP state differs.
     ids::INTRO_PART11,
+    // Complete scene hits fixed ceiling; abort frame-counter value differs.
     ids::INTRO_PART2,
+    // Complete scene hits fixed ceiling; abort frame-counter value differs.
     ids::INTRO_PART3,
+    // Complete scene hits fixed ceiling; abort frame-counter value differs.
     ids::INTRO_PART4,
+    // Complete dispatcher hits fixed ceiling; abort frame-counter value differs.
     ids::INTRO_VIDEO,
     // A: settled both-revision fixtures: clears still mismatch logical VDP.
     ids::CLEAR_LOWER_VRAM_TILEMAP,
