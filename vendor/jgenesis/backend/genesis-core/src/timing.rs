@@ -214,3 +214,314 @@ impl CycleCounters {
         self.last_ym2612_drain_mclk + MAX_YM2612_LAG_MCLK <= self.z80_mclk_cycles
     }
 }
+
+// TJE timing survey: opt-in instrumentation, isolated from the clock algorithms.
+pub mod survey {
+    //! TJE timing survey: passive, opt-in bus observation and explicit retiming experiments.
+    //! No observer is installed during ordinary emulation.
+
+    use crate::bus::GenesisBus;
+    use bincode::{Decode, Encode};
+    use std::collections::VecDeque;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+    pub enum TimingCpu {
+        M68k,
+        Z80,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
+    pub enum TimingKind {
+        VdpData,
+        VdpControl,
+        VdpCounter,
+        VdpDebug,
+        DmaStart,
+        Ym2612,
+        Psg,
+        Z80BusRequest,
+        Z80Reset,
+        Z80Ram,
+        Controller,
+        Z80Bank,
+    }
+
+    #[derive(Debug, Clone, Copy, Encode, Decode)]
+    pub struct TimingAccess {
+        pub clock: u64,
+        pub scanline: u16,
+        pub line_clock: u16,
+        pub active_lines: u16,
+        pub cpu: TimingCpu,
+        pub pc: u32,
+        /// Nonzero only for 68000 interrupt work, never concurrent Z80 work.
+        pub interrupt: u8,
+        pub kind: TimingKind,
+        pub write: bool,
+        pub address: u32,
+        pub value: u16,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+    pub enum TimingClass {
+        VdpControl,
+        VdpData,
+        VdpAll,
+        Ym2612,
+        Psg,
+        SoundAll,
+    }
+
+    #[derive(Debug, Clone, Copy, Encode, Decode)]
+    pub struct TimingPolicy {
+        pub class: TimingClass,
+        pub scanline: u16,
+    }
+
+    #[derive(Debug, Clone, Copy, Encode, Decode)]
+    struct DeferredWrite {
+        kind: TimingKind,
+        address: u32,
+        value: u16,
+    }
+
+    #[derive(Debug, Clone, Encode, Decode)]
+    pub struct TimingSurvey {
+        pub accesses: Vec<TimingAccess>,
+        pub policy: Option<TimingPolicy>,
+        pub retimed_writes: u64,
+        pub maximum_delay_clocks: u64,
+        pub cpu: TimingCpu,
+        pub pc: u32,
+        interrupts: Vec<u8>,
+        deferred: VecDeque<(DeferredWrite, u64)>,
+        draining: bool,
+        replaying: bool,
+        previous_line: u16,
+    }
+
+    impl Default for TimingSurvey {
+        fn default() -> Self {
+            Self {
+                accesses: Vec::new(),
+                policy: None,
+                retimed_writes: 0,
+                maximum_delay_clocks: 0,
+                cpu: TimingCpu::M68k,
+                pc: 0,
+                interrupts: Vec::new(),
+                deferred: VecDeque::new(),
+                draining: false,
+                replaying: false,
+                previous_line: 0,
+            }
+        }
+    }
+
+    impl GenesisBus {
+        pub(crate) fn timing_m68k(&mut self, pc: u32) {
+            if let Some(survey) = &mut self.timing_survey {
+                survey.cpu = TimingCpu::M68k;
+                survey.pc = pc;
+            }
+        }
+
+        pub(crate) fn timing_z80(&mut self, pc: u16) {
+            if let Some(survey) = &mut self.timing_survey {
+                survey.cpu = TimingCpu::Z80;
+                survey.pc = pc.into();
+            }
+        }
+
+        pub(crate) fn timing_interrupt(&mut self, level: u8) {
+            if let Some(survey) = &mut self.timing_survey {
+                survey.interrupts.push(level);
+            }
+        }
+
+        pub(crate) fn timing_return(&mut self) {
+            if let Some(survey) = &mut self.timing_survey {
+                survey.interrupts.pop();
+            }
+        }
+
+        pub(crate) fn timing_access(
+            &mut self,
+            kind: TimingKind,
+            write: bool,
+            address: u32,
+            value: u16,
+        ) {
+            let Some(survey) = &mut self.timing_survey else {
+                return;
+            };
+            if survey.replaying {
+                return;
+            }
+            let clock = match survey.cpu {
+                TimingCpu::M68k => self.cycles.m68k_mclk_cycles,
+                TimingCpu::Z80 => self.cycles.z80_mclk_cycles,
+            };
+            // Z80 runs ahead of VDP within one 68000 instruction. Use its own clock,
+            // not the stale VDP position, to place concurrent chip traffic.
+            let (scanline, line_clock) = match survey.cpu {
+                TimingCpu::M68k => (self.vdp.scanline(), self.vdp.scanline_mclk() as u16),
+                TimingCpu::Z80 => (((clock / 3420) % 262) as u16, (clock % 3420) as u16),
+            };
+            survey.accesses.push(TimingAccess {
+                clock,
+                scanline,
+                line_clock,
+                active_lines: self.vdp.hybrid_registers().vertical_display_size.active_scanlines(),
+                cpu: survey.cpu,
+                pc: survey.pc,
+                interrupt: if survey.cpu == TimingCpu::M68k {
+                    survey.interrupts.last().copied().unwrap_or(0)
+                } else {
+                    0
+                },
+                kind,
+                write,
+                address,
+                value,
+            });
+        }
+
+        pub(crate) fn timing_main_access(&mut self, address: u32, write: bool, value: u16) {
+            if self.timing_survey.as_ref().is_none_or(|s| s.cpu != TimingCpu::M68k) {
+                return;
+            }
+            let kind = match address & 0xFF_FFFF {
+                0xA00000..=0xA03FFF | 0xA08000..=0xA0BFFF => TimingKind::Z80Ram,
+                0xA04000..=0xA05FFF | 0xA0C000..=0xA0DFFF => TimingKind::Ym2612,
+                0xA10000..=0xA1001F => TimingKind::Controller,
+                0xA11100..=0xA11101 => TimingKind::Z80BusRequest,
+                0xA11200..=0xA11201 => TimingKind::Z80Reset,
+                0xC00000..=0xC00003 => TimingKind::VdpData,
+                0xC00004..=0xC00007 => TimingKind::VdpControl,
+                0xC00008..=0xC0000B => TimingKind::VdpCounter,
+                0xC00010..=0xC00017 => TimingKind::Psg,
+                0xC0001C..=0xC0001D => TimingKind::VdpDebug,
+                _ => return,
+            };
+            self.timing_access(kind, write, address, value);
+        }
+
+        pub(crate) fn timing_audio_access(&mut self, address: u16, write: bool, value: u8) {
+            if self.timing_survey.as_ref().is_none_or(|s| s.cpu != TimingCpu::Z80) {
+                return;
+            }
+            let kind = match address {
+                0x0000..=0x3FFF => TimingKind::Z80Ram,
+                0x4000..=0x5FFF => TimingKind::Ym2612,
+                0x6000..=0x60FF => TimingKind::Z80Bank,
+                0x7F00..=0x7F03 => TimingKind::VdpData,
+                0x7F04..=0x7F07 => TimingKind::VdpControl,
+                0x7F08..=0x7F0B => TimingKind::VdpCounter,
+                0x7F10..=0x7F17 => TimingKind::Psg,
+                _ => return,
+            };
+            self.timing_access(kind, write, address.into(), value.into());
+        }
+
+        pub(crate) fn timing_defer(&mut self, kind: TimingKind, address: u32, value: u16) -> bool {
+            let Some(survey) = &mut self.timing_survey else {
+                return false;
+            };
+            let Some(policy) = survey.policy else {
+                return false;
+            };
+            let clock = match survey.cpu {
+                TimingCpu::M68k => self.cycles.m68k_mclk_cycles,
+                TimingCpu::Z80 => self.cycles.z80_mclk_cycles,
+            };
+            let line = match survey.cpu {
+                TimingCpu::M68k => self.vdp.scanline(),
+                TimingCpu::Z80 => ((clock / 3420) % 262) as u16,
+            };
+            if survey.replaying
+                || (!survey.draining
+                    && line >= self.vdp.hybrid_registers().vertical_display_size.active_scanlines())
+            {
+                return false;
+            }
+            let selected = match policy.class {
+                TimingClass::VdpControl => kind == TimingKind::VdpControl,
+                TimingClass::VdpData => kind == TimingKind::VdpData,
+                TimingClass::VdpAll => {
+                    matches!(
+                        kind,
+                        TimingKind::VdpControl | TimingKind::VdpData | TimingKind::VdpDebug
+                    )
+                }
+                TimingClass::Ym2612 => kind == TimingKind::Ym2612,
+                TimingClass::Psg => kind == TimingKind::Psg,
+                TimingClass::SoundAll => matches!(kind, TimingKind::Ym2612 | TimingKind::Psg),
+            };
+            if selected {
+                survey.deferred.push_back((DeferredWrite { kind, address, value }, clock));
+                survey.retimed_writes += 1;
+            }
+            selected
+        }
+
+        pub(crate) fn timing_halt(&self) -> bool {
+            self.timing_survey.as_ref().is_some_and(|survey| {
+                survey.draining
+                    && survey.policy.is_some_and(|policy| {
+                        matches!(
+                            policy.class,
+                            TimingClass::VdpControl | TimingClass::VdpData | TimingClass::VdpAll
+                        )
+                    })
+            })
+        }
+
+        pub(crate) fn timing_flush(&mut self) {
+            let Some(survey) = &mut self.timing_survey else {
+                return;
+            };
+            let line = self.vdp.scanline();
+            let crossed = line != survey.previous_line;
+            survey.previous_line = line;
+            let Some(policy) = survey.policy else {
+                return;
+            };
+            if crossed && line == policy.scanline {
+                survey.draining = !survey.deferred.is_empty();
+            }
+            if !survey.draining {
+                return;
+            }
+            survey.replaying = true;
+            loop {
+                let Some(&(write, issued)) = self.timing_survey.as_ref().unwrap().deferred.front()
+                else {
+                    break;
+                };
+                let vdp_write = matches!(
+                    write.kind,
+                    TimingKind::VdpData | TimingKind::VdpControl | TimingKind::VdpDebug
+                );
+                // A burst cannot bypass the real VDP FIFO or DMA bus ownership.
+                // Resume on later device ticks, stalling 68000 issue in the meantime.
+                if vdp_write && self.vdp.should_halt_cpu() {
+                    break;
+                }
+                let survey = self.timing_survey.as_mut().unwrap();
+                survey.deferred.pop_front();
+                survey.maximum_delay_clocks =
+                    survey.maximum_delay_clocks.max(self.cycles.m68k_mclk_cycles - issued);
+                match write.kind {
+                    TimingKind::Ym2612 => {
+                        self.timing_write_ym(write.address as u16, write.value as u8)
+                    }
+                    _ => self.write_vdp_psg::<true>(write.address, write.value),
+                }
+            }
+            let survey = self.timing_survey.as_mut().unwrap();
+            survey.replaying = false;
+            survey.draining = !survey.deferred.is_empty();
+        }
+    }
+}

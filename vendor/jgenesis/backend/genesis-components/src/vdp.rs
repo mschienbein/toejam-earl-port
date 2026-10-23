@@ -612,6 +612,11 @@ impl Vdp {
             && self.frame_buffer.as_ref() == other.frame_buffer.as_ref()
     }
 
+    // TJE timing survey: detect actual DMA starts, not command-shaped words.
+    pub fn timing_dma_active(&self) -> bool {
+        self.control_port.dma_active
+    }
+
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(timing_mode: TimingMode, config: VdpConfig) -> Self {

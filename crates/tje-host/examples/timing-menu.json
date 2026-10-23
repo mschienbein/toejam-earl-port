@@ -1,0 +1,8 @@
+{
+  "p2_connected": false,
+  "holds": [
+    {"start": 300, "end": 308, "p1": ["start"]},
+    {"start": 600, "end": 608, "p1": ["start"]},
+    {"start": 900, "end": 908, "p1": ["start"]}
+  ]
+}

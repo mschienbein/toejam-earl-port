@@ -145,6 +145,10 @@ impl GenesisEmulator {
         self.bus.m68k_opcode = self.m68k.next_opcode();
 
         let m68k_pc = self.m68k.pc();
+        self.bus.timing_m68k(m68k_pc);
+        let timing_rte = self.bus.timing_survey.is_some()
+            && self.bus.m68k_opcode == 0x4E73
+            && self.m68k.hybrid_instruction_ready(&self.bus);
         let m68k_wait = self.bus.cycles.m68k_wait_cpu_cycles != 0;
         let m68k_cycles = if m68k_wait {
             self.bus.cycles.take_m68k_wait_cpu_cycles()
@@ -161,17 +165,22 @@ impl GenesisEmulator {
 
         while self.bus.cycles.should_tick_z80() {
             if !self.bus.cycles.z80_halt {
+                self.bus.timing_z80(self.z80.pc());
                 self.z80.tick(&mut self.bus);
             }
             self.bus.cycles.z80_cycle();
         }
 
+        self.bus.timing_m68k(m68k_pc);
         let vdp_tick_effect = self.bus.tick_components(
             m68k_cycles,
             elapsed_mclk_cycles,
             m68k_wait,
             &mut self.audio_resampler,
         );
+        if timing_rte && !m68k_wait {
+            self.bus.timing_return();
+        }
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 

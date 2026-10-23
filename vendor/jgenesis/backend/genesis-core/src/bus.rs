@@ -139,6 +139,8 @@ pub struct GenesisBus {
     // TJE hybrid observation is opt-in; ordinary emulation does not allocate a trace.
     pub hybrid_writes: Option<Vec<HybridWrite>>,
     pub hybrid_accesses: Option<Vec<HybridAccess>>,
+    // TJE timing survey is separate from the function-check write contract.
+    pub timing_survey: Option<crate::timing_survey::TimingSurvey>,
 }
 
 impl GenesisBus {
@@ -175,6 +177,7 @@ impl GenesisBus {
             m68k_opcode: 0,
             hybrid_writes: None,
             hybrid_accesses: None,
+            timing_survey: None,
             m68k_reset: true,
         }
     }
@@ -227,6 +230,7 @@ impl GenesisBus {
             self.vdp.update_interrupt_latches();
         }
 
+        self.timing_flush();
         self.apply_pending_writes();
 
         vdp_tick_effect
@@ -345,6 +349,7 @@ impl GenesisBus {
             _ => self.read_open_bus::<WORD>(address),
         };
 
+        self.timing_main_access(address, false, value);
         if WORD {
             self.open_bus = value;
         } else {
@@ -379,6 +384,7 @@ impl GenesisBus {
         } else {
             log::trace!("Main bus byte write: address={address:06X}, value={:02X}", value & 0xFF);
         }
+        self.timing_main_access(address, true, value);
 
         match address {
             0x000000..=0x3FFFFF => {
@@ -499,11 +505,36 @@ impl GenesisBus {
         if WORD { word } else { word.to_be_bytes()[(address & 1) as usize].into() }
     }
 
-    fn write_vdp_psg<const WORD: bool>(&mut self, address: u32, value: u16) {
+    pub(crate) fn write_vdp_psg<const WORD: bool>(&mut self, address: u32, value: u16) {
         // Byte-size VDP writes duplicate the byte into a word
         let vdp_word = if WORD { value } else { (value & 0xFF) | (value << 8) };
 
         match address & 0x1F {
+            0x00..=0x03
+                if self.timing_defer(
+                    crate::timing_survey::TimingKind::VdpData,
+                    address,
+                    vdp_word,
+                ) => {}
+            0x04..=0x07
+                if self.timing_defer(
+                    crate::timing_survey::TimingKind::VdpControl,
+                    address,
+                    vdp_word,
+                ) => {}
+            0x10..=0x17
+                if (WORD || address.bit(0))
+                    && self.timing_defer(
+                        crate::timing_survey::TimingKind::Psg,
+                        address,
+                        value as u8 as u16,
+                    ) => {}
+            0x1C..=0x1D
+                if self.timing_defer(
+                    crate::timing_survey::TimingKind::VdpDebug,
+                    address,
+                    vdp_word,
+                ) => {}
             0x00..=0x03 => {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Vdp { port: 0, value: vdp_word });
@@ -514,7 +545,16 @@ impl GenesisBus {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Vdp { port: 4, value: vdp_word });
                 }
+                let was_dma = self.vdp.timing_dma_active();
                 self.vdp.write_control(vdp_word);
+                if !was_dma && self.vdp.timing_dma_active() {
+                    self.timing_access(
+                        crate::timing_survey::TimingKind::DmaStart,
+                        true,
+                        address,
+                        vdp_word,
+                    );
+                }
             }
             0x10..=0x17 if WORD || address.bit(0) => {
                 if let Some(trace) = &mut self.hybrid_writes {
@@ -541,6 +581,23 @@ impl GenesisBus {
 
         self.z80_signals.reset = z80_reset;
         log::trace!("Set Z80 RESET to {}", self.z80_signals.reset);
+    }
+
+    pub(crate) fn timing_write_ym(&mut self, address: u16, value: u8) {
+        if self.timing_defer(crate::timing_survey::TimingKind::Ym2612, address.into(), value.into())
+        {
+            return;
+        }
+        self.sync_ym2612();
+        if let Some(trace) = &mut self.hybrid_writes {
+            trace.push(HybridWrite::Ym2612 { port: (address & 3) as u8, value });
+        }
+        match address & 0x03 {
+            0x00 => self.ym2612.write_address_1(value),
+            0x02 => self.ym2612.write_address_2(value),
+            0x01 | 0x03 => self.ym2612.write_data(value),
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
     }
 
     fn sync_ym2612(&mut self) {
@@ -617,7 +674,8 @@ impl m68000_emu::BusInterface for GenesisBus {
     }
 
     #[inline]
-    fn acknowledge_interrupt(&mut self, _interrupt_level: u8) {
+    fn acknowledge_interrupt(&mut self, interrupt_level: u8) {
+        self.timing_interrupt(interrupt_level);
         // When the 68000 acknowledges a VDP interrupt, the VDP acknowledges whatever level it is
         // currently raising rather than paying attention to the 68000's IACK lines. This is noted
         // in official documentation which describes this hardware bug: If both HINT are VINT are
@@ -633,7 +691,7 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn halt(&self) -> bool {
-        self.vdp.should_halt_cpu()
+        self.vdp.should_halt_cpu() || self.timing_halt()
     }
 
     #[inline]
@@ -653,7 +711,7 @@ impl z80_emu::BusInterface for GenesisBus {
     fn read_memory(&mut self, address: u16) -> u8 {
         log::trace!("Z80 bus read from {address:04X}");
 
-        match address {
+        let value = match address {
             0x0000..=0x3FFF => {
                 // Z80 RAM (mirrored at $2000-$3FFF)
                 self.memory.read_audio_ram(address)
@@ -701,12 +759,15 @@ impl z80_emu::BusInterface for GenesisBus {
                     _ => <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr),
                 }
             }
-        }
+        };
+        self.timing_audio_access(address, false, value);
+        value
     }
 
     #[inline]
     fn write_memory(&mut self, address: u16, value: u8) {
         log::trace!("Z80 bus write at {address:04X}");
+        self.timing_audio_access(address, true, value);
 
         match address {
             0x0000..=0x3FFF => {
@@ -714,18 +775,7 @@ impl z80_emu::BusInterface for GenesisBus {
                 self.memory.write_audio_ram(address, value);
             }
             0x4000..=0x5FFF => {
-                // YM2612 registers/ports (mirrored every 4 addresses)
-                self.sync_ym2612();
-                // TJE hybrid observation includes address-latch and data writes.
-                if let Some(trace) = &mut self.hybrid_writes {
-                    trace.push(HybridWrite::Ym2612 { port: (address & 3) as u8, value });
-                }
-                match address & 0x03 {
-                    0x00 => self.ym2612.write_address_1(value),
-                    0x02 => self.ym2612.write_address_2(value),
-                    0x01 | 0x03 => self.ym2612.write_data(value),
-                    _ => unreachable!("value & 0x03 is always <= 0x03"),
-                }
+                self.timing_write_ym(address, value);
             }
             0x6000..=0x60FF => {
                 self.z80_bank.write_bit(value.bit(0));

@@ -22,7 +22,7 @@ addon hardware or pull addon code/firmware into the dependency graph.
 
 ## Modified files
 
-Local changes are marked `TJE hybrid` or `TJE standalone cutover` in code:
+Local changes are marked `TJE hybrid`, `TJE standalone cutover`, or `TJE timing survey` in code:
 
 - `backend/genesis-core/Cargo.toml`: remove CD, 32X, SH-2 and addon debugger-test dependencies.
 - `backend/genesis-core/src/api.rs`: standalone-only construction/reset/render/tick/save API, remove addon/channel-debugger paths, and add narrow CPU/bus borrow accessors for instruction-boundary interception.
@@ -32,6 +32,9 @@ Local changes are marked `TJE hybrid` or `TJE standalone cutover` in code:
 - `backend/genesis-components/src/vdp.rs`: immutable VRAM/CRAM/VSRAM/register accessors, public typed register definitions and allocation-free comparison of every mutable VDP port/render state field (including control address/code/latch, DMA, FIFO, pending writes, sprite state, CRAM dots, pixel buffers and latched registers).
 - `backend/genesis-components/src/vdp/{registers,fifo,sprites,cramdots}.rs`: derive equality for the typed state borrowed by hybrid comparisons; no device behavior changes.
 - `cpu/m68000-emu/src/core.rs`: readiness query prevents hooks from running before IRQ handling, stopped CPUs or bus stalls.
+- `backend/genesis-core/src/timing.rs`: a new, isolated `survey` module supplies opt-in hardware-access timestamps, CPU/interrupt origin, and explicit experimental write queues. Experiment-only bursts respect real VDP FIFO/DMA backpressure; no observer or policy is installed in ordinary emulation. The original clock algorithms are unchanged.
+- `backend/genesis-core/src/{api,bus,lib}.rs`: additive timing-survey hooks at instruction, interrupt, device-read/write, and peripheral-advance boundaries. Existing deferred CPU-write queues are unchanged.
+- `backend/genesis-components/src/vdp.rs`: immutable DMA-active query for counting actual starts, not command-shaped words.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 
