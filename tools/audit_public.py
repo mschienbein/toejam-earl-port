@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import math
+import posixpath
 import quopri
 import string
 import re
@@ -41,6 +42,7 @@ MIN_TEXT_MATCH = 64
 MAX_JSON_DEPTH = 64
 MAX_NON_TEXT_ESCAPES = 8
 MAX_NUMERIC_RUN = 64
+MIN_BINARY_PAYLOAD = 64
 MAX_SIGNATURE_OUTPUT = 4096
 MAX_ENCODING_DEPTH = 4
 DATA_URI = re.compile(
@@ -96,10 +98,24 @@ C_GAP = re.compile(rb"(?:\s|/\*[\s\S]*?\*/|//[^\r\n]*(?:\n|$))*")
 C_ESCAPE = re.compile(
     rb"\\(?:x[0-9a-fA-F]|[0-7]|"
     rb"u(?:[0-9a-fA-F]|\{)|U[0-9a-fA-F])")
-CHARACTER = rb"(?:u8|[uUL])?'(?:\\[\s\S]|[^'\\])*'"
+CHARACTER = rb"(?:u8|[uULb])?'(?:\\[\s\S]|[^'\\])*'"
+BYTE_STRING = (
+    rb'b"(?:\\[\s\S]|[^"\\])*"|'
+    rb'br(?P<raw_hashes>#{0,255})"[\s\S]*?"(?P=raw_hashes)')
+BYTE_CAST_ATOM = rb"(?:[ \t]*\)*\s+as\s+[ui]8)"
+BYTE_CAST = BYTE_CAST_ATOM + rb"*"
+BYTE_CAST_SUFFIX = re.compile(BYTE_CAST_ATOM + rb"+$")
+RUST_RAW_START = re.compile(rb'(?:br|r)(#{0,255})"')
+RUST_IDENTIFIER = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")
+RUST_CHAR = re.compile(
+    rb"b?'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|[^\r\n])|"
+    rb"[^\\'\r\n])'")
 INTEGER = rb"(?:0[xX]_?[0-9a-fA-F](?:_?[0-9a-fA-F])*|\$[0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO]_?[0-7](?:_?[0-7])*|0[bB]_?[01](?:_?[01])*|[0-9](?:_?[0-9])*|[0-9a-fA-F]{2,})(?:_?[uUiI](?:8|16|32|64|128|size)|[uUlL]*)"
-NUMBER = re.compile(rb"(?<![\w.\\])[+-]?(?:" + CHARACTER + rb"|" + INTEGER + rb")(?![\w.])")
-INTEGER_NUMBER = re.compile(rb"(?<![\w.\\])[+-]?(?:" + INTEGER + rb")(?![\w.])")
+NUMBER = re.compile(
+    rb"(?<![\w.\\])[+-]?(?:" + BYTE_STRING + rb"|" + CHARACTER + rb"|" + INTEGER + rb")"
+    + BYTE_CAST + rb"(?![\w.])")
+INTEGER_NUMBER = re.compile(
+    rb"(?<![\w.\\])[+-]?(?:" + INTEGER + rb")" + BYTE_CAST + rb"(?![\w.])")
 LINE_COMMENT = re.compile(rb"//[^\r\n]*|/\*[^\r\n]*?\*/")
 BYTE_SEPARATORS = re.compile(rb"""^[\s,;:{}\[\]()=:+*/\\|<>?&!%~^`"'-]*$""")
 INT_SUFFIX = re.compile(rb"(?:_?[uUiI](?:8|16|32|64|128|size)|[uUlL]+)$")
@@ -113,7 +129,6 @@ ARRAY_DECLARATION = re.compile(
     rb"[ \t]*=[ \t]*\{")
 MAX_OPAQUE_RUN = 48
 OPAQUE_ALPHABETS = {
-    "hex": string.hexdigits.encode(),
     "Base32": b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=",
     "Base64": (string.ascii_letters + string.digits + "+/=").encode(),
     "URL-safe Base64": (string.ascii_letters + string.digits + "-_=").encode(),
@@ -125,7 +140,7 @@ OPAQUE_ALPHABETS = {
 OPAQUE_RUNS = {name: re.compile(b"[" + re.escape(alphabet) + b"]{" + str(MAX_OPAQUE_RUN).encode() + b",}")
                for name, alphabet in OPAQUE_ALPHABETS.items()}
 OPAQUE_ENTROPY = {
-    name: 4.0 if name in ("hex", "Base32") else 4.45 if name in ("Base64", "URL-safe Base64") else 4.5
+    name: 4.0 if name == "Base32" else 4.45 if name in ("Base64", "URL-safe Base64") else 4.5
     for name in OPAQUE_RUNS
 }
 HASH_WORD = re.compile(rb"(?<![A-Za-z0-9_+/=-])(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})(?![A-Za-z0-9_+/=-])")
@@ -330,8 +345,8 @@ class DecodeBudget:
             raise DecodeLimitError("encoded-content decoding exceeds the per-blob byte budget")
 
 
-def decode_c_literal(token: bytes) -> tuple[bytes, int]:
-    """Decode ordinary C escapes and Rust Unicode escapes, never executable source."""
+def decode_c_literal(token: bytes, *, rust: bool = False) -> tuple[bytes, int]:
+    """Decode ordinary C/Rust escapes, never executable source."""
     body = token[token.index(b'"') + 1:-1]
     out, escaped_nontext = bytearray(), 0
     simple = {ord("a"): 7, ord("b"): 8, ord("f"): 12, ord("n"): 10, ord("r"): 13,
@@ -350,10 +365,15 @@ def decode_c_literal(token: bytes) -> tuple[bytes, int]:
         if value in (10, 13):
             if value == 13 and body[position:position + 1] == b"\n":
                 position += 1
+            if rust:
+                while position < len(body) and body[position] in b" \t\r\n":
+                    position += 1
             continue
-        if value in simple:
+        if rust and value == ord("0"):
+            decoded = bytes(1)
+        elif value in simple:
             decoded = bytes([simple[value]])
-        elif 48 <= value <= 55:
+        elif not rust and 48 <= value <= 55:
             digits = bytearray([value])
             while len(digits) < 3 and position < len(body) and 48 <= body[position] <= 55:
                 digits.append(body[position])
@@ -361,10 +381,15 @@ def decode_c_literal(token: bytes) -> tuple[bytes, int]:
             decoded = bytes([int(digits, 8) & 0xFF])
         elif value == ord("x"):
             start = position
-            while position < len(body) and body[position] in b"0123456789abcdefABCDEF":
-                position += 1
-            if position == start:
-                raise DecodeLimitError("invalid C hexadecimal escape")
+            if rust:
+                position += 2
+                if not re.fullmatch(rb"[0-9a-fA-F]{2}", body[start:position]):
+                    raise DecodeLimitError("invalid Rust hexadecimal escape")
+            else:
+                while position < len(body) and body[position] in b"0123456789abcdefABCDEF":
+                    position += 1
+                if position == start:
+                    raise DecodeLimitError("invalid C hexadecimal escape")
             decoded = bytes([int(body[start:position], 16) & 0xFF])
         elif value == ord("u") and body[position:position + 1] == b"{":
             end = body.find(b"}", position + 1)
@@ -384,6 +409,8 @@ def decode_c_literal(token: bytes) -> tuple[bytes, int]:
                 raise DecodeLimitError("invalid C universal character escape") from error
             position += length
         else:
+            if rust:
+                raise DecodeLimitError("invalid Rust string escape")
             decoded = bytes([value])  # Traditional C's implementation-defined unknown escape.
         out.extend(decoded)
         escaped_nontext += sum(byte < 32 and byte not in b"\n\r\t\f" or byte >= 127 for byte in decoded)
@@ -511,18 +538,41 @@ def python_byte_payloads(data: bytes, budget: DecodeBudget):
         yield raw
 
 
+def rust_byte_string(token: bytes) -> bytes:
+    """Decode one lexer-validated ordinary or raw Rust byte-string atom."""
+    if token.startswith(b'br'):
+        quote = token.index(b'"')
+        hashes = quote - 2
+        return token[quote + 1:len(token) - hashes - 1]
+    return decode_c_literal(token[1:], rust=True)[0]
+
+
 def literal_values(token: bytes) -> tuple[tuple[int | None, ...], bytes]:
     """One number/escape decoder: canonical, decimal-dump, hex-dump, packed-hex views.
 
     Do not discard a minus sign or silently truncate a non-byte integer. All byte views are
     mapped only for -128..255; the packed view preserves explicit hexadecimal word dumps.
     """
+    cast = BYTE_CAST_SUFFIX.search(token)
+    cast_type = token[cast.start():].split()[-1] if cast else None
+    token = token[:cast.start()] if cast else token
+
+    def cast_value(value: int) -> int:
+        if cast_type is None:
+            return value
+        value &= 255
+        return value - 256 if cast_type == b"i8" and value >= 128 else value
+
     sign = -1 if token.startswith(b"-") else 1
     unsigned = token[1:] if token[:1] in (b"+", b"-") else token
+    if unsigned.startswith((b'b"', b'br')):
+        raw = rust_byte_string(unsigned)
+        value = cast_value(raw[0] * sign) if len(raw) == 1 else None
+        return (value, value, value, value), raw
     if b"'" in unsigned:
         body = unsigned[unsigned.index(b"'") + 1:-1]
         try:
-            raw, _ = decode_c_literal(b'"' + body + b'"')
+            raw, _ = decode_c_literal(b'"' + body + b'"', rust=unsigned.startswith(b"b'"))
         except DecodeLimitError:
             return (None, None, None, None), b""  # A template is not a character literal.
         if len(raw) == 1:
@@ -535,6 +585,7 @@ def literal_values(token: bytes) -> tuple[tuple[int | None, ...], bytes]:
             if len(text) != 1:
                 return (None, None, None, None), b""
             value = ord(text) * sign
+        value = cast_value(value)
         return (value, value, value, value), bytes([value & 255]) if -128 <= value <= 255 else b""
     spelling = INT_SUFFIX.sub(b"", unsigned).replace(b"_", b"")
     lower = spelling.lower()
@@ -552,6 +603,9 @@ def literal_values(token: bytes) -> tuple[tuple[int | None, ...], bytes]:
     decimal = int(spelling, 10) * sign if spelling.isdigit() else value
     hexadecimal = int(spelling, 16) if token[:1] not in (b"+", b"-") and not explicit_hex and len(spelling) <= 2 else value
     octal = int(spelling, 8) * sign if spelling.isdigit() and all(byte in b"01234567" for byte in spelling) else value
+    if cast_type is not None:
+        values = tuple(map(cast_value, (value, decimal, hexadecimal, octal)))
+        return values, bytes([values[0] & 255])
     packed = b""
     if explicit_hex and sign > 0 and len(digits) <= 8:
         packed = bytes.fromhex(digits.zfill(len(digits) + len(digits) % 2).decode())
@@ -571,9 +625,10 @@ def numeric_variants(data: bytes, matches: list[re.Match]) -> tuple[bytes, ...]:
             line_start = newline + 1
         first_on_line = ordinal == 0 or matches[ordinal - 1].end() <= line_start
         token = match.group()
-        spelling = INT_SUFFIX.sub(b"", token.lstrip(b"+-")).replace(b"_", b"")
+        spelling = INT_SUFFIX.sub(b"", BYTE_CAST_SUFFIX.sub(b"", token.lstrip(b"+-"))).replace(b"_", b"")
         digits = spelling[2:] if spelling.lower().startswith(b"0x") else spelling[1:] if spelling.startswith(b"$") else spelling
-        offset = b"'" not in spelling and token[:1] not in (b"+", b"-") and not spelling.lower().startswith((b"0o", b"0b"))
+        offset = not any(quote in spelling for quote in (b"'", b'"'))
+        offset = offset and token[:1] not in (b"+", b"-") and not spelling.lower().startswith((b"0o", b"0b"))
         offset = offset and first_on_line and ordinal + 1 < len(matches) and len(digits) >= 4
         if offset:
             prefix = data[line_start:match.start()].strip()
@@ -624,9 +679,9 @@ def numeric_blocks(data: bytes, budget: DecodeBudget):
 
     seen = set()
     for view in views():
-        # The integer lexer sees through every kind of quoted string. A second character-atom
-        # view preserves C/Python escape arrays without letting a long quote swallow numbers.
-        lexers = (INTEGER_NUMBER, NUMBER) if b"'" in view else (INTEGER_NUMBER,)
+        # Preserve complete byte-character/string atoms as well as the integer-only
+        # view: neither a prefix nor a quoted string may hide a neighbouring run.
+        lexers = (INTEGER_NUMBER, NUMBER)
         for lexer in lexers:
             run = []
             first_line = 0
@@ -793,18 +848,22 @@ def embedded_kind(raw: bytes, budget: DecodeBudget) -> str | None:
 
 
 def payload_reason(raw: bytes, index: RomIndex | None, allowed: tuple[bytes, ...], origin: str,
-                   budget: DecodeBudget) -> str | None:
+                   budget: DecodeBudget, *, binary_limit: bool = True) -> str | None:
     kind = embedded_kind(raw, budget)
     if kind is not None:
         return f"{origin}: embedded {kind} payload"
     if index is not None and index.contains(raw, 12, allowed, evidence=True) is not None:
         return f"{origin}: ROM window in decoded bytes (binary >=12 bytes or text >={MIN_TEXT_MATCH})"
+    if binary_limit and len(raw) >= MIN_BINARY_PAYLOAD and not printable_text(raw):
+        return (f"{origin}: decoded non-text payload contains {len(raw)} bytes "
+                f"(limit {MIN_BINARY_PAYLOAD - 1}; no entropy exemption)")
     return None
 
 
 def inspect_decoded(raw: bytes, index: RomIndex | None, allowed: tuple[bytes, ...],
-                    budget: DecodeBudget, origin: str, path: str, depth: int) -> str | None:
-    reason = payload_reason(raw, index, allowed, origin, budget)
+                    budget: DecodeBudget, origin: str, path: str, depth: int,
+                    *, binary_limit: bool = True) -> str | None:
+    reason = payload_reason(raw, index, allowed, origin, budget, binary_limit=binary_limit)
     if reason is not None:
         return reason
     if len(raw) >= 12 and printable_text(raw):
@@ -997,7 +1056,11 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
             if len(raw) >= MAX_NUMERIC_RUN:
                 return f"{origin}: numeric table column contains {len(raw)} byte values (limit {MAX_NUMERIC_RUN - 1})"
         for kind, raw in conventional_payloads(data, budget):
-            reason = inspect_decoded(raw, index, allowed, budget, origin + ": " + kind, path, depth)
+            # Bare source expressions can also be valid Base85. Their unframed guesses
+            # retain the opaque-shape/private-ROM checks, not the binary length rule.
+            binary_limit = kind not in ("Base85", "Ascii85", "Z85")
+            reason = inspect_decoded(raw, index, allowed, budget, origin + ": " + kind,
+                                     path, depth, binary_limit=binary_limit)
             if reason is not None:
                 return reason
     for uri in DATA_URI.finditer(data):
@@ -1049,7 +1112,8 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
     return None
 
 
-def content_reasons(path: str, data: bytes, index: RomIndex | None) -> list[str]:
+def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
+                    inclusions: tuple[list[str], list[str]] | None = None) -> list[str]:
     reasons = []
     try:
         text = data.decode("utf-8")
@@ -1109,7 +1173,142 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None) -> list[str]
             reasons.append(reason)
     except DecodeLimitError as error:
         reasons.append(str(error))
+    reasons.extend((inclusions if inclusions is not None else rust_inclusions(path, data))[1])
     return reasons
+
+
+def rust_code_tokens(data: bytes) -> list[tuple[str, bytes]]:
+    """Lex only enough Rust to locate builtin includes; comments/strings stay opaque."""
+    tokens = []
+    position = 0
+    while position < len(data):
+        if data[position] in b" \t\r\n\f":
+            position += 1
+            continue
+        if data[position] >= 128:
+            width = 2 if data[position] < 224 else 3 if data[position] < 240 else 4
+            character = data[position:position + width].decode("utf-8", "replace")
+            if character.isspace() or character in ("\u200e", "\u200f"):
+                position += width
+                continue
+        if data.startswith(b"//", position):
+            end = data.find(b"\n", position + 2)
+            position = len(data) if end < 0 else end + 1
+            continue
+        if data.startswith(b"/*", position):
+            position += 2
+            depth = 1
+            while position < len(data) and depth:
+                if data.startswith(b"/*", position):
+                    depth += 1
+                    position += 2
+                elif data.startswith(b"*/", position):
+                    depth -= 1
+                    position += 2
+                else:
+                    position += 1
+            continue
+        raw = RUST_RAW_START.match(data, position)
+        if raw:
+            closing = b'"' + raw[1]
+            end = data.find(closing, raw.end())
+            end = len(data) if end < 0 else end + len(closing)
+            tokens.append(("string", data[position:end]))
+            position = end
+            continue
+        if data[position] == ord('"') or data.startswith((b'b"', b'c"'), position):
+            end = position + (1 if data[position] == ord('"') else 2)
+            while end < len(data):
+                if data[end] == 92:
+                    end += 2
+                elif data[end] == ord('"'):
+                    end += 1
+                    break
+                else:
+                    end += 1
+            tokens.append(("string", data[position:end]))
+            position = end
+            continue
+        character = RUST_CHAR.match(data, position)
+        if character:
+            tokens.append(("char", character[0]))
+            position = character.end()
+            continue
+        identifier = RUST_IDENTIFIER.match(data, position)
+        if identifier:
+            tokens.append(("identifier", identifier[0]))
+            position = identifier.end()
+            continue
+        tokens.append(("punctuation", data[position:position + 1]))
+        position += 1
+    return tokens
+
+
+def rust_inclusions(path: str, data: bytes) -> tuple[list[str], list[str]]:
+    """Return public literal targets and unconditional compile-time include findings.
+
+    Arbitrary Rust/build-macro evaluation is intentionally not attempted. Only a direct
+    string literal can be resolved consistently for a worktree, index stage or old tree.
+    """
+    targets, reasons = [], []
+    if PurePosixPath(path).suffix.lower() != ".rs":
+        return targets, reasons
+    tokens = rust_code_tokens(data)
+    closing = {b"(": b")", b"[": b"]", b"{": b"}"}
+    for index in range(len(tokens) - 2):
+        kind, name = tokens[index]
+        if kind != "identifier" or name not in (b"include_bytes", b"include_str"):
+            continue
+        if tokens[index + 1] != ("punctuation", b"!"):
+            continue
+        macro = name.decode() + "!"
+        opening = tokens[index + 2][1]
+        stack = [closing[opening]] if opening in closing else []
+        end = index + 3
+        while stack and end < len(tokens):
+            token_kind, value = tokens[end]
+            if token_kind == "punctuation":
+                if value in closing:
+                    stack.append(closing[value])
+                elif value == stack[-1]:
+                    stack.pop()
+            if stack:
+                end += 1
+        arguments = tokens[index + 3:end]
+        if arguments and arguments[-1] == ("punctuation", b","):
+            arguments = arguments[:-1]
+        if stack or not opening in closing or len(arguments) != 1 or arguments[0][0] != "string":
+            reasons.append(f"{macro}: compile-time inclusion requires a direct tracked public path; "
+                           "indirect or unresolved expressions are forbidden")
+            continue
+        literal = arguments[0][1]
+        try:
+            if literal.startswith(b'"'):
+                raw = decode_c_literal(literal, rust=True)[0]
+            elif literal.startswith(b"r"):
+                quote = literal.index(b'"')
+                raw = literal[quote + 1:len(literal) - quote]
+            else:
+                raise ValueError("path must be a Rust string literal")
+            target = raw.decode("utf-8").replace("\\", "/")
+            if not target or "\0" in target or target.startswith("/") or re.match(r"^[A-Za-z]:", target):
+                raise ValueError("path must be relative, nonempty and NUL-free")
+            target = posixpath.normpath(str(PurePosixPath(path).parent / target))
+            if target == ".." or target.startswith("../"):
+                raise ValueError("path escapes the repository")
+        except (DecodeLimitError, UnicodeError, ValueError) as error:
+            reasons.append(f"{macro}: invalid compile-time inclusion path: {error}")
+            continue
+        if path_reasons(target, 0, ""):
+            reasons.append(f"{macro}: compile-time inclusion of a private/binary path is forbidden: {target!r}")
+        else:
+            targets.append(target)
+    return targets, reasons
+
+
+def inclusion_context_reasons(targets: list[str], tracked: set[str]) -> list[str]:
+    return [f"compile-time Rust inclusion targets an untracked, missing or symlink input: {target!r}"
+            for target in targets if target not in tracked]
 
 
 def path_reasons(path: str, size: int, mode: str) -> list[str]:
@@ -1185,6 +1384,8 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
     index = None if no_rom else RomIndex(images)
     refs: set[tuple[str, str, str, str]] = set()
     work_paths = set()
+    index_paths: dict[str, set[str]] = {}
+    tracked_by_source: dict[str, set[str]] = {}
     for entry in git(repo, "ls-files", "--stage", "-z").split(b"\0"):
         if not entry:
             continue
@@ -1194,6 +1395,10 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         work_paths.add(name)
         if set(oid) != {"0"}:
             refs.add((oid, name, f"index:{stage}", mode))
+            if mode in ("100644", "100755"):
+                index_paths.setdefault(f"index:{stage}", set()).add(name)
+    for source, paths in index_paths.items():
+        tracked_by_source[source] = paths | index_paths.get("index:0", set())
     if history and git(repo, "rev-parse", "--is-shallow-repository").strip() == b"true":
         raise AuditError("--history requires full history; fetch the shallow clone before auditing")
     # --all includes branches, tags and other refs. Deduplicate root trees, but never paths: the
@@ -1204,11 +1409,16 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         trees.append(head.stdout.strip())
     trees = sorted(set(trees))
     for tree in trees:
+        source = f"tree:{tree.decode()}"
+        tracked_by_source[source] = set()
         for entry in git(repo, "ls-tree", "-r", "-z", tree.decode()).split(b"\0"):
             if entry:
                 meta, path = entry.split(b"\t", 1)
                 mode, kind, oid = meta.decode().split()
-                refs.add((oid, os.fsdecode(path), f"tree:{tree.decode()[:12]}", mode))
+                name = os.fsdecode(path)
+                refs.add((oid, name, source, mode))
+                if mode in ("100644", "100755"):
+                    tracked_by_source[source].add(name)
     oids = sorted({oid for oid, _, _, mode in refs if mode != "160000"})
     sizes = {}
     if oids:
@@ -1221,6 +1431,7 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
             sizes[oid] = int(size)
     findings = []
     cache: dict[tuple[str, str], list[str]] = {}
+    include_cache: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
     reader = BlobReader(repo)
     try:
         for oid, path, source, mode in sorted(refs):
@@ -1229,12 +1440,21 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
             key = (oid, path)  # Markdown policy is path-specific.
             if mode != "160000" and size <= MAX_BYTES:
                 if key not in cache:
-                    cache[key] = content_reasons(path, reader.read(oid), index)
+                    data = reader.read(oid)
+                    include_cache[key] = rust_inclusions(path, data)
+                    cache[key] = content_reasons(path, data, index, inclusions=include_cache[key])
                 reasons += cache[key]
+                reasons += inclusion_context_reasons(include_cache[key][0], tracked_by_source.get(source, set()))
             findings.extend(Finding(source, path, reason) for reason in reasons)
     finally:
         reader.close()
     work_count = 0
+    tracked_worktree = {
+        path for paths in index_paths.values() for path in paths
+        if (repo / path).is_file()
+        and not any((repo / part).is_symlink()
+                    for part in (PurePosixPath(path), *PurePosixPath(path).parents))
+    }
     for path in sorted(work_paths):
         absolute = repo / path
         if absolute.is_symlink():
@@ -1253,8 +1473,10 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         hasher.update(data)
         key = (hasher.hexdigest(), path)
         if key not in cache:
-            cache[key] = content_reasons(path, data, index)
+            include_cache[key] = rust_inclusions(path, data)
+            cache[key] = content_reasons(path, data, index, inclusions=include_cache[key])
         reasons = path_reasons(path, len(data), "") + cache[key]
+        reasons += inclusion_context_reasons(include_cache[key][0], tracked_worktree)
         findings.extend(Finding("worktree", path, reason) for reason in reasons)
     summary = {"blobs": len(oids), "trees": len(trees), "tracked_worktree_files": work_count,
                "roms": len(images), "rom_check": index is not None, "history": history,
