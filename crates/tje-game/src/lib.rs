@@ -644,7 +644,7 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
     Subsystem {
         name: "player",
         translations: player::TRANSLATIONS,
-        framed_translations: &[],
+        framed_translations: player::FRAMED_TRANSLATIONS,
         atomic_capable: player::ATOMIC_CAPABLE,
         execution_contracts: player::EXECUTION_CONTRACTS,
     },

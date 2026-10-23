@@ -812,7 +812,9 @@ A frame-sensitive body has signature `FramedTranslationFn`:
 `fn(&mut dyn Context) -> Result<Option<u32>>`. Register
 `FramedTranslation { id, function }` in the owner's `FRAMED_TRANSLATIONS`, or
 `PENDING_FRAMED_TRANSLATIONS` until its proof and caller cutover are complete.
-The Subsystem's `framed_translations` slice is wired once in `SUBSYSTEMS`.
+Bind every owner's production table to its Subsystem's `framed_translations`
+slice in `SUBSYSTEMS`, even while that table is empty. Merely exporting a module
+static does not register its functions for dispatch or hooks.
 An id has exactly one effective body form; conflicting legacy/framed declarations
 fail closed. Both forms require the same unique reviewed execution class.
 
