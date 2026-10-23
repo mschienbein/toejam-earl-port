@@ -791,6 +791,22 @@ relative to pre-local-allocation SP without LINK; it intentionally bounds-checks
 no emulated C array. The helpers model MOVEM/UNLK values, not a single-register
 MOVE restore's CCR side effects: reproduce those explicitly when source requires.
 
+`local<T>(offset)` and `frame_pointer()` use the frame's **cached entry base**;
+the returned Address is a numeric pointer snapshot, not a live A6-relative
+reference. Keep it across a call only when the compiled source captured that
+pointer before the call. A buggy callee such as overflowing BuildViewportSpriteLinks
+can restore a corrupted A6. If the next source instruction loads `-2(A6)`,
+recompute the address from `context.address_register(6)` **at that use point**
+and access the resulting address through the appropriate bus. Do not read a
+previously cached local view or force A6 back to its old value.
+
+The same distinction applies to late parameter loads: FrameState argument views
+identify the original ABI slots, not locations relative to a subsequently
+corrupted A6. For source A6-relative arguments, recompute live A6 + 8 + 4*i
+(plus the original low-word/byte offset). A pointer explicitly captured earlier
+must instead retain its earlier address. `LocalFrame::leave` already uses live
+A6 for linked restores/UNLK; this does not make earlier cached views dynamic.
+
 The predecrement MOVEM saves each long's **low word first**, then its high word,
 while transferring selected registers in descending register order. LINK and
 JSR return-address pushes retain their separate high-word-first rule. Do not
