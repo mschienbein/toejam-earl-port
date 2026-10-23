@@ -44,12 +44,12 @@ uv pip install --target "$PWD/scratch/memory-python" 'unicorn==2.1.4'
   --unicorn-path "$PWD/scratch/memory-python" --check
 ```
 
-This verifier compiles `tools/execution.c`, assembles G's runtime in private
-scratch, executes the compiled code, and compares its results with the actual
-Rust arithmetic API through a temporary Rust driver. It also executes aggregate,
-pointer, and narrow-update probes. Neither the executables nor runtime-derived
-instruction bytes are committed. This is CPU-instruction execution evidence,
-not a whole-Genesis/reference-ROM differential run.
+This verifier compiles `tools/execution.c` and `tools/indexing.c`, assembles G's
+runtime in private scratch, executes the compiled code, and compares its results
+with the actual Rust arithmetic and typed-index APIs through temporary Rust
+drivers. It also executes aggregate, pointer, and narrow-update probes. Neither
+the executables nor runtime-derived instruction bytes are committed. This is
+CPU-instruction execution evidence, not a whole-Genesis/reference-ROM run.
 
 `--map-rev02` and `--map-rev00` optionally select existing G link maps; by default
 these are `G/build/<revision>/toejam.map`. G is read-only: generated C, compiler
@@ -160,9 +160,92 @@ byte of a pointer. Legacy names are not reliable type declarations:
 
 Complete array bounds retain G's declared dimensions, including bounds that G
 itself labels inferred. `OpenArray<T>` represents an unspecified outer bound and
-has no `Target::SIZE`, invented length, or whole-array pointer stride. `.at(i32)`
-on either kind is intentionally unchecked emulated address arithmetic. This is
-not Rust slice indexing and never creates an out-of-bounds host pointer.
+has no `Target::SIZE`, invented length, or whole-array pointer stride. Generic
+`.at(i32)` / `.offset(i32)` retain **full-longword** unchecked arithmetic for
+byte-layout calculations. They do not infer the compiler's index width. These
+are not Rust slice operations and never create an out-of-bounds host pointer.
+
+### Array indexing follows the emitted offset width
+
+**Do not choose an index form from the C declaration alone.** MCC68K often keeps
+short/char record-array offsets in a word even though ordinary C expression
+promotion would suggest an int. For the common `ASL.W #7` followed by `ADDA.W`
+or an indexed `Dn.W` effective address, the 128-byte record offset is:
+
+`sign_extend_16((index * 128) & 0xffff)`, then a full 32-bit base addition.
+
+Use the explicit typed-view helpers:
+
+| Emitted byte-offset / effective-address form | Bounded or `OpenArray` view | Element pointer |
+|---|---|---|
+| Low-word scaled product, then signed word displacement | `at_word_index(index: i16)` | `offset_word_index(index: i16)` |
+| Full longword product and long displacement | `at_long_index(index: i32)` | `offset_long_index(index: i32)` |
+
+These helpers do not check bounds or mask the final address to 24 bits. The word
+helper truncates the **scaled byte product**, not just the input index, before
+sign-extension; the base addition still wraps in all 32 bits. Signed
+`ASL.W`/`ADD.W`, `MULS.W`, and `MULU.W` have the same low product bits for this
+purpose. A 68000 word multiply itself produces a **32-bit** result: it is the
+subsequent `ADDA.W` or `Dn.W` use that discards the high product half.
+
+For example, G's `PresentUpdateRainCloud` computes `gPlayerInfo[player]` using
+`ASL.W #7` and `ADDA.W`. Its correct view is:
+
+```rust
+let player = ram::g_player_info(revision).at_word_index(player_index);
+```
+
+At index **512**, the word product is zero and this addresses record zero, not
+base + 65,536. At **256**, the word displacement is **-32,768**, not +32,768.
+Negative indexes must preserve the same wrap: -512 also yields zero. A wrong
+positive long product can cross the `FF0000` RAM window and mask into ROM on the
+physical bus; checking only an in-range gameplay index misses that defect.
+
+The default-profile synthetic **direct global-array** probes measure:
+
+| Source index | Byte stride | Record strides 18, 38, 128, 512 |
+|---|---|---|
+| `short` | word-sign-extended index | word-scaled result/displacement |
+| `int` / 32-bit value | full longword | full longword |
+| signed `char` | sign-extend byte before address calculation | sign-extend byte to word, then word-scale |
+| `unsigned char` / `unsigned short` | zero-extend the original byte/word before address calculation | low-word product, then signed word displacement |
+
+For byte stride a short-indexed load uses `Dn.W`, while returning that array
+pointer uses a long addition after sign-extending the word. Those two sequences
+produce the same addresses for a short input, but are still different emitted
+forms; the execution receipt records both rather than inferring one from syntax.
+
+For signed byte indexes, pass `i16::from(index_i8)` to the word helper; for
+unsigned bytes use `i16::from(index_u8)`. A word-displacement sequence can accept
+an unsigned short's low bits via `index_u16 as i16`. A **long** sequence instead
+needs the extension actually emitted, e.g. `i32::from(index_i16)` or
+`i32::from(index_u16)`.
+
+This table is **not universal**. The same compiler emits full-longword scaling
+for `(unsigned long)&base[index]` in the parameter-pointer probes, including a
+short index. A direct `MULS.W` feeding a **long** displacement consumes the signed
+low word first: reproduce that input narrowing with `index as i16 as i32` before
+the long helper. Do not mistake a pair of word partial multiplies combined into
+a long result for a word product/displacement. If an emitted sequence interprets
+the stride itself differently from `Target::SIZE`, translate those byte-offset
+operations explicitly and use `byte_offset`.
+
+At each translated site inspect **(1)** input load/extension, **(2)** every
+scale/add operation's width, and **(3)** the final `ADDA.W`/`ADDA.L` or indexed
+`Dn.W`/`Dn.L` operand. Inspect all fused dimensions too: `row * columns + column`
+may wrap once as one word before a single base addition. Chaining separate word
+row and column helpers is not equivalent when the combined offset overflows.
+Carry out the observed word operations with wrapping arithmetic, then apply the
+one resulting displacement; do not distribute or widen them by algebra.
+
+`tools/indexing.c` covers byte stride, word shift/add scaling, native word
+multiply scaling, and power-of-two shifts, with signed/unsigned short and byte
+indexes and full int indexes. The execution verifier compares compiled address
+results with all three real helper surfaces (bounded array, open array, element
+pointer), covering both signs, index 512, and adjacent overflow boundaries.
+The receipt also records the different field-access and integer-address-cast
+lowerings. Rust regressions exhaust every i16 value for the word helper's stride
+classes and check negative/large int values and full-base wrap.
 
 ## Integer and expression rules
 

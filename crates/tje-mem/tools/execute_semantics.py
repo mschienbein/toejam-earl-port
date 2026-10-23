@@ -14,6 +14,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -98,19 +99,24 @@ class Machine:
 def compile_probes(root: Path, out: Path, source: Path) -> Path:
     mcc = importlib.import_module("mcc")
     toolchain = importlib.import_module("toolchain")
-    compiled = mcc.compile_to_gas(source, "execution")
-    (out / "execution.SRC").write_text(compiled.listing)
-    obj = out / "execution.o"
-    mcc.assemble(compiled.gas, source, obj, "execution")
+    objects = []
+    for probe, unit in ((source, "execution"), (source.with_name("indexing.c"), "indexing")):
+        compiled = mcc.compile_to_gas(probe, unit)
+        (out / f"{unit}.SRC").write_text(compiled.listing)
+        obj = out / f"{unit}.o"
+        mcc.assemble(compiled.gas, probe, obj, unit)
+        objects.append(str(obj))
     runtime = out / "runtime.o"
     command([str(toolchain.tool("m68k-elf", "as")), "-m68000", "-o", str(runtime),
              str(root / "src/asm/runtime.s")])
     script = out / "execution.ld"
     script.write_text("SECTIONS { .text 0x10000 : { *(.text*) } .data 0x20000 : { *(.data*) } "
-                      ".bss : { *(.bss*) } }\n")
+                      ".bss : { *(.bss*) } }\nPROVIDE(ulmult = lmult);\n" +
+                      "\n".join(f"{name} = {DATA};" for name in
+                                ("index_bytes", "index_nonpow", "index_mul", "index_pow", "index_largepow")) + "\n")
     elf = out / "execution.elf"
     command([str(toolchain.tool("m68k-elf", "ld")), "-T", str(script), "-Map", str(out / "execution.map"),
-             "-o", str(elf), str(obj), str(runtime)])
+             "-o", str(elf), *objects, str(runtime)])
     return elf
 
 
@@ -141,7 +147,8 @@ fn main() {
     }
 }
 ''')
-    result = command(["cargo", "run", "--quiet", "--manifest-path", str(project / "Cargo.toml")],
+    result = command(["cargo", "run", "--quiet", "--manifest-path", str(project / "Cargo.toml"),
+                      "--bin", "memory-semantic-execution"],
                      input="".join(f"{a} {b}\n" for a, b in pairs),
                      env={**os.environ, "CARGO_TARGET_DIR": str(target), "CARGO_BUILD_JOBS": "4"})
     return [line.split() for line in result.stdout.splitlines()]
@@ -190,6 +197,137 @@ def divisions(machine: Machine, crate: Path, out: Path, target: Path) -> dict:
             "native_nonzero_pairs": native, "runtime_nonzero_pairs": runtime,
             "pairs_differing_from_direct_runtime": differences,
             "zero_vectors_per_entry": len(dividends), "representative_cases": representatives}
+
+
+def rust_index_results(out: Path, target: Path, cases: list[dict]) -> list[list[int]]:
+    project = out / "rust-api"
+    (project / "src/bin").mkdir(parents=True, exist_ok=True)
+    (project / "src/bin/indexing.rs").write_text('''use std::io::{self, BufRead};
+use tje_mem::{Address, OpenArray};
+fn offsets<const STRIDE: usize>(base: u32, index: i32, form: u32) -> (u32, u32, u32) {
+    let pointer = Address::<[u8; STRIDE]>::new(base);
+    let bounded = Address::<[[u8; STRIDE]; 40]>::new(base);
+    let open = Address::<OpenArray<[u8; STRIDE]>>::new(base);
+    if form == 0 {
+        let index = index as i16;
+        (bounded.at_word_index(index).address(), open.at_word_index(index).address(),
+         pointer.offset_word_index(index).address())
+    } else {
+        let index = if form == 2 { index as i16 as i32 } else { index };
+        (bounded.at_long_index(index).address(), open.at_long_index(index).address(),
+         pointer.offset_long_index(index).address())
+    }
+}
+fn main() {
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    let mut line = String::new();
+    while input.read_line(&mut line).unwrap() != 0 {
+        let mut values = line.split_whitespace().map(|s| s.parse::<u32>().unwrap());
+        let base = values.next().unwrap();
+        let raw = values.next().unwrap();
+        let stride = values.next().unwrap();
+        let kind = values.next().unwrap();
+        let form = values.next().unwrap();
+        let index = match kind {
+            0 => raw as i32,
+            1 => raw as i16 as i32,
+            2 => raw as i8 as i32,
+            3 => raw as u8 as i32,
+            4 => raw as u16 as i32,
+            _ => panic!("unknown compiler index type"),
+        };
+        let result = match stride {
+            1 => offsets::<1>(base, index, form),
+            18 => offsets::<18>(base, index, form),
+            38 => offsets::<38>(base, index, form),
+            128 => offsets::<128>(base, index, form),
+            512 => offsets::<512>(base, index, form),
+            _ => panic!("unknown measured stride"),
+        };
+        println!("{} {} {}", result.0, result.1, result.2);
+        line.clear();
+    }
+}
+''')
+    payload = "".join(f"{case['base']} {case['raw']} {case['stride']} {case['kind']} {case['form']}\n"
+                      for case in cases)
+    result = command(["cargo", "run", "--quiet", "--manifest-path", str(project / "Cargo.toml"),
+                      "--bin", "indexing"], input=payload,
+                     env={**os.environ, "CARGO_TARGET_DIR": str(target), "CARGO_BUILD_JOBS": "4"})
+    return [[int(value) for value in line.split()] for line in result.stdout.splitlines()]
+
+
+def index_checks(machine: Machine, out: Path, target: Path) -> dict:
+    listing = (out / "indexing.SRC").read_text()
+    strides = {"byte": 1, "nonpow": 18, "mul": 38, "pow": 128, "largepow": 512}
+    size_bytes = bytes(machine.cpu.mem_read(machine.symbols["index_strides"], 20))
+    assert [int.from_bytes(size_bytes[n:n + 4], "big") for n in range(0, 20, 4)] == list(strides.values())
+    kinds = {"int": 0, "short": 1, "char": 2, "uchar": 3, "ushort": 4}
+    indices = [-2147483648, -65537, -65536, -32769, -32768, -2000, -1821, -1820,
+               -863, -862, -513, -512, -257, -256, -129, -128, -65, -64, -1,
+               0, 1, 63, 64, 127, 128, 255, 256, 511, 512, 513, 862, 863,
+               1820, 1821, 2000, 32767, 32768, 65535, 65536, 65537, 2147483647]
+    cases, profiles, representatives = [], {}, []
+
+    def body(name: str) -> str:
+        start = listing.index(f".{name}:")
+        return listing[start:listing.index("* COMPILATION SUMMARY", start)]
+
+    def address_form(text: str) -> int:
+        if re.search(r"ADDA\.W|D[0-7]\.W\)", text):
+            return 0
+        if re.search(r"ADDA\.L|D[0-7]\.L\)", text):
+            return 1
+        raise AssertionError("unmeasured compiler effective-address form")
+
+    for kind, kind_id in kinds.items():
+        for shape, stride in strides.items():
+            name = f"{kind}_{shape}"
+            pointer_body = body(name)
+            # A direct MULS.W with a long result consumes a signed low word,
+            # even when a C unsigned-short argument was initially zero-extended.
+            pointer_form = 2 if re.search(r"\bMULS\b", pointer_body) else 1
+            global_name = f"global_{name}"
+            global_form = address_form(body(global_name))
+            load_form = address_form(body(f"load_{name}"))
+            if stride != 1:
+                assert global_form == load_form
+            if shape == "mul":
+                assert "MULS" in pointer_body or "JSR\tulmult" in pointer_body
+                assert "MULU" in body(f"load_{name}")
+            elif stride > 1:
+                assert "ASL." in pointer_body and "ASL." in body(f"load_{name}")
+            assert global_form == (0 if kind != "int" and stride > 1 else 1), (kind, shape, global_form)
+            profiles[name] = {"stride": stride, "parameter_address": pointer_form,
+                              "global_address": global_form, "global_lvalue": load_form}
+            for index in indices:
+                for function, bases, form in ((name, (DATA, 0x00FFA25A, 0xFFFFFFF0), pointer_form),
+                                               (global_name, (DATA,), global_form)):
+                    for base in bases:
+                        arguments = (index,) if function == global_name else (base, index)
+                        observed = machine.run(function, arguments)
+                        assert observed != "trap5"
+                        case = {"function": function, "base": base, "raw": index & MASK,
+                                "kind": kind_id, "stride": stride, "form": form,
+                                "observed": int(observed)}
+                        cases.append(case)
+                        if base == DATA and ((name == "short_pow" and index in (-512, 256, 512))
+                                             or (name == "short_mul" and index in (-863, 863))
+                                             or (name == "char_largepow" and index in (-128, 64))
+                                             or (name == "ushort_mul" and index == 65535)):
+                            representatives.append(case)
+    actual = rust_index_results(out, target, cases)
+    assert len(actual) == len(cases)
+    for case, result in zip(cases, actual, strict=True):
+        assert result == [case["observed"]] * 3, (case, result)
+    (out / "indexing_matrix.json").write_text(json.dumps(cases, indent=2) + "\n")
+    return {"index_values_per_function": len(indices), "executed_address_functions": len(profiles) * 2,
+            "compiled_lvalue_functions": len(profiles), "executed_address_results": len(cases),
+            "rust_view_comparisons": len(cases) * 3,
+            "forms": {"0": "word-scaled signed displacement", "1": "full long scaled displacement",
+                      "2": "signed word multiply, full long displacement"},
+            "profiles": profiles, "representative_cases": representatives}
 
 
 def aggregate_and_pointer_checks(machine: Machine) -> dict:
@@ -282,10 +420,13 @@ def main() -> int:
     machine = Machine(unicorn, m68k_const, compile_probes(root, out, source))
     result = {"compiler": "MCC68K 3.3K, defaults + /STRINTEXT", "engine": "Unicorn 2.1.4, M68000",
               "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+              "index_source_sha256": hashlib.sha256(source.with_name("indexing.c").read_bytes()).hexdigest(),
+              "rust_indexing_sha256": hashlib.sha256((crate / "src/lib.rs").read_bytes()).hexdigest(),
               "runtime_source_sha256": hashlib.sha256((root / "src/asm/runtime.s").read_bytes()).hexdigest(),
               "rust_arithmetic_sha256": hashlib.sha256((crate / "src/arithmetic.rs").read_bytes()).hexdigest(),
               "unsigned_division": divisions(machine, crate, out, args.cargo_target or out / "target"),
-              "aggregate_and_pointer": aggregate_and_pointer_checks(machine)}
+              "aggregate_and_pointer": aggregate_and_pointer_checks(machine),
+              "indexing": index_checks(machine, out, args.cargo_target or out / "target")}
     contents = json.dumps(result, sort_keys=True, indent=2) + "\n"
     receipt = crate / "execution_receipt.json"
     if args.check:
@@ -295,7 +436,8 @@ def main() -> int:
         receipt.write_text(contents)
     print(f"Compiled execution PASS: {result['unsigned_division']['rust_vs_executed_results']} Rust/C/runtime "
           f"division comparisons, {result['unsigned_division']['pairs_differing_from_direct_runtime']} "
-          "compiler-expression defect cases; aggregate/pointer/narrow-update probes passed")
+          f"compiler-expression defect cases; {result['indexing']['rust_view_comparisons']} compiled/Rust "
+          "index comparisons; aggregate/pointer/narrow-update probes passed")
     return 0
 
 

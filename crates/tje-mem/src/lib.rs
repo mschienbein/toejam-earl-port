@@ -172,8 +172,25 @@ impl<T> Address<T> {
     }
 }
 impl<T: Target> Address<T> {
+    /// Generic full-32-bit scaled pointer arithmetic; this does not infer MCC68K
+    /// index lowering from a C source type. See the explicit index helpers.
     pub const fn offset(self, count: i32) -> Self {
         self.byte_offset((count as u32).wrapping_mul(T::SIZE) as i32)
+    }
+
+    /// ASL/ADD/MUL low-word scaling followed by ADDA.W or a Dn.W index:
+    /// truncate the byte product to 16 bits, sign-extend it, then add to the
+    /// full 32-bit base. Bounds remain deliberately unchecked.
+    pub const fn offset_word_index(self, index: i16) -> Self {
+        let bytes = index.wrapping_mul(T::SIZE as i16);
+        self.byte_offset(bytes as i32)
+    }
+
+    /// Full longword scaled arithmetic (e.g. ASL.L plus ADDA.L / Dn.L).
+    /// Explicitly narrow or extend the input first if the emitted multiply
+    /// consumes a signed/unsigned word rather than the original C int.
+    pub const fn offset_long_index(self, index: i32) -> Self {
+        self.offset(index)
     }
 }
 
@@ -230,16 +247,38 @@ impl<T: Target, const N: usize> Target for [T; N] {
     const SIZE: u32 = T::SIZE * N as u32;
 }
 impl<T: Target, const N: usize> Address<[T; N]> {
+    /// Generic long-form indexing, retained for byte-layout calculations.
     pub const fn at(self, index: i32) -> Address<T> {
         self.cast::<T>().offset(index)
+    }
+
+    /// Word-scaled byte offset, sign-extended at the effective-address step.
+    pub const fn at_word_index(self, index: i16) -> Address<T> {
+        self.cast::<T>().offset_word_index(index)
+    }
+
+    /// Explicit full-longword element indexing.
+    pub const fn at_long_index(self, index: i32) -> Address<T> {
+        self.cast::<T>().offset_long_index(index)
     }
     pub const fn declared_len(self) -> usize {
         N
     }
 }
 impl<T: Target> Address<OpenArray<T>> {
+    /// Generic long-form indexing; the missing outer bound adds no capacity.
     pub const fn at(self, index: i32) -> Address<T> {
         self.cast::<T>().offset(index)
+    }
+
+    /// Word-scaled indexing without inventing a bound for the open array.
+    pub const fn at_word_index(self, index: i16) -> Address<T> {
+        self.cast::<T>().offset_word_index(index)
+    }
+
+    /// Explicit full-longword indexing of an open array's declared element.
+    pub const fn at_long_index(self, index: i32) -> Address<T> {
+        self.cast::<T>().offset_long_index(index)
     }
 }
 
