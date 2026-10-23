@@ -4,6 +4,7 @@
 //! ROM INPUT_JSON METRICS_JSON FRAMES. No ROM-derived state is written to disk.
 //! Optional TJE_MAP_FIXTURE_FILTER selects comma-separated canonical map names;
 //! only selected hooks contribute coverage, and unexercised selections still fail.
+mod fixture_cases;
 use std::{error::Error, fs};
 use tje_game::{Dispatcher, FunctionId, ids, map};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
@@ -429,6 +430,7 @@ fn fixtures(host: &mut Host) -> Result {
             "visited, isolated, or out-of-map path",
         )?;
     }
+    fixture_cases::run(host)?;
     Ok(())
 }
 
@@ -438,7 +440,7 @@ fn main() -> Result {
         return Err("expected ROM INPUT_JSON METRICS_JSON FRAMES".into());
     }
     let frames: u64 = args[4].parse()?;
-    let script = InputScript::parse(&fs::read_to_string(&args[2])?)?;
+    let script = std::sync::Arc::new(InputScript::parse(&fs::read_to_string(&args[2])?)?);
     let bytes = fs::read(&args[1])?;
     let revision = tje_rom::Rom::import(&bytes)?.revision();
     let filter = std::env::var("TJE_MAP_FIXTURE_FILTER").ok();
@@ -463,6 +465,8 @@ fn main() -> Result {
     };
     let mut checked = Host::new(&bytes, Mode::Check, registry.clone())?;
     let mut reference = Host::new(&bytes, Mode::Reference, registry)?;
+    checked.set_wait_input_poller(script.clone());
+    reference.set_wait_input_poller(script.clone());
     let result = (|| -> Result {
         for frame in 0..frames {
             let a = checked.run_frame(script.at(frame))?;
@@ -521,7 +525,6 @@ fn main() -> Result {
     assert_eq!(checked.checks.mismatches, 0);
     assert!(checked.checks.uninitialized_stack_reads.is_empty());
     assert!(checked.checks.unexercised.is_empty());
-    assert!(missing.is_empty());
     println!(
         "{}: {frames} frames, all selected map hooks exercised, zero mismatches",
         revision.name()

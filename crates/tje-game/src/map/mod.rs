@@ -1,18 +1,32 @@
 // Original execution classes include untranslated routines; see contracts.rs.
 mod contracts;
 pub use contracts::EXECUTION_CONTRACTS;
+mod consume;
+mod display;
+mod drawing;
 mod generation;
 mod paths;
+mod pipeline;
+mod random_generation;
 mod regions;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod regression_tests;
 mod screen;
+mod terrain;
+mod waits;
 
+pub use consume::*;
+pub use display::*;
+pub use drawing::*;
 pub use generation::*;
 pub use paths::*;
+pub use pipeline::*;
+pub use random_generation::*;
 pub use regions::*;
 pub use screen::*;
+pub use terrain::*;
+pub use waits::*;
 
 use crate::{Context, Result, call, ids};
 use tje_mem::ram;
@@ -168,6 +182,56 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PLAYER_IS_NEAR_TERRAIN_EDGE,
         function: player_is_near_terrain_edge,
     },
+    crate::Translation {
+        id: ids::GET_MAP_TERRAIN_AT_WORLD_POSITION,
+        function: get_map_terrain_at_world_position,
+    },
+    crate::Translation {
+        id: ids::MAP_BUILD_FILLED_TERRAIN_SHAPES,
+        function: map_build_filled_terrain_shapes,
+    },
+    crate::Translation {
+        id: ids::MAP_EXPAND_REGIONS_BESIDE_PATHS,
+        function: map_expand_regions_beside_paths,
+    },
+    crate::Translation {
+        id: ids::MAP_IS_ANCHOR_CONNECTION_MISSING,
+        function: map_is_anchor_connection_missing,
+    },
+    crate::Translation {
+        id: ids::MAP_TRACE_TRANSITION_CHAIN,
+        function: map_trace_transition_chain,
+    },
+    crate::Translation {
+        id: ids::UPDATE_LAND_AROUND_PLAYER,
+        function: update_land_around_player,
+    },
+];
+
+/// Bodies excluded from production until dual-revision check proof is complete.
+/// Non-atomic proofs additionally require shared execution-class registration.
+pub static PENDING: &[crate::FunctionId] = &[
+    ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS,
+    ids::DRAW_MAP_CHARACTERS,
+    ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+    ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+    ids::MAP_DRAW_ELEVATOR,
+    ids::MAP_DRAW_PLAYER,
+    ids::MAP_DRAW_SHIP_PIECE,
+    ids::DISPLAY_MAP,
+    ids::GENERATE_LEVEL_SEEDS,
+    ids::MAP_ASSIGN_TRANSITION_CHAIN,
+    ids::MAP_CARVE_DIRECTIONAL_PATH,
+    ids::MAP_CHOOSE_BACKGROUND_TILE_BUCKET,
+    ids::MAP_CONSUME_PATH_CELL_DIRECTIONS,
+    ids::MAP_FIND_REGION_GROWTH_ORIGIN,
+    ids::MAP_GET_RANDOM_GENERATION_PARAMETER,
+    ids::MAP_STABILIZE_REGION_CONNECTIONS,
+    ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+    ids::TERRAIN_VALIDATION,
+    ids::LOAD_MAP_INTO_VRAM,
+    ids::MAP_DRAW_BACKGROUND_AND_TERRAIN,
+    ids::MAP_INITIALIZE_SCREEN_SPRITES,
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
