@@ -461,6 +461,72 @@ fn main() {
             revision.name(),
             serde_json::to_string(&checked.checks).unwrap()
         );
+        let checked_boundary = checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
+        let reference_boundary = reference
+            .settle_fixture_boundary(script.at(reference.frame_count()))
+            .unwrap();
+        assert_eq!(checked_boundary.start_pc, reference_boundary.start_pc);
+        assert_eq!(checked_boundary.end_pc, reference_boundary.end_pc);
+        assert_eq!(checked_boundary.start_frame, reference_boundary.start_frame);
+        assert_eq!(checked_boundary.end_frame, reference_boundary.end_frame);
+        assert_eq!(checked_boundary.ticks, reference_boundary.ticks);
+        assert_eq!(
+            checked_boundary.master_clocks,
+            reference_boundary.master_clocks
+        );
+        assert_eq!(
+            checked_boundary.handlers_completed,
+            reference_boundary.handlers_completed
+        );
+        assert_eq!(
+            checked_boundary.completed_frames.len(),
+            reference_boundary.completed_frames.len()
+        );
+        let mut boundary_frames = Vec::new();
+        for (a, b) in checked_boundary
+            .completed_frames
+            .iter()
+            .zip(&reference_boundary.completed_frames)
+        {
+            assert_eq!(a.frame, b.frame);
+            assert_eq!(a.frame_counter, b.frame_counter);
+            assert_eq!(a.pc, b.pc);
+            assert_eq!(a.ram, b.ram);
+            assert_eq!(a.vdp, b.vdp);
+            assert_eq!(a.writes, b.writes);
+            assert_eq!(a.idle_random_draws, b.idle_random_draws);
+            assert_eq!(a.lag_events, b.lag_events);
+            assert!(
+                a.audio_samples
+                    .iter()
+                    .flatten()
+                    .map(|value| value.to_bits())
+                    .eq(b
+                        .audio_samples
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits()))
+            );
+            boundary_frames.push(serde_json::json!({
+                "frame":a.frame, "frame_counter":a.frame_counter, "pc":a.pc,
+                "hardware_writes":a.writes.len(), "audio_samples":a.audio_samples.len(),
+                "idle_random_draws":a.idle_random_draws, "lag_events":a.lag_events,
+                "snapshot_comparison":"all returned snapshot fields exact",
+            }));
+        }
+        let boundary = serde_json::json!({
+            "start_pc":checked_boundary.start_pc, "end_pc":checked_boundary.end_pc,
+            "start_frame":checked_boundary.start_frame, "end_frame":checked_boundary.end_frame,
+            "ticks":checked_boundary.ticks, "master_clocks":checked_boundary.master_clocks,
+            "handlers_completed":checked_boundary.handlers_completed, "completed_frames":boundary_frames,
+        });
+        fs::write(
+            evidence.join(format!("{key}-boundary.json")),
+            serde_json::to_vec_pretty(&boundary).unwrap(),
+        )
+        .unwrap();
         fixture_coverage(&mut checked);
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());

@@ -237,25 +237,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
         function: dma_upload::link_player_sprites_for_split_wipe,
     },
-];
-
-/// Reviewed bodies/entries not yet eligible for production replacement.
-pub static PENDING: &[crate::FunctionId] = &[
-    // Source-backed frame bodies await two-revision local/slot/callsite proof.
-    crate::ids::ALLOCATE_SPRITE_SLOTS,
-    crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
-    crate::ids::ALLOCATE_SPRITE_SLOT,
-    // The original loads a dead high byte immediately discarded by EXT.W.
-    // Await the shared semantic-dependency audit before claiming both-ROM proof.
-    crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
-    // Zero-length DMA exposes original call-frame RAM; shared frame/callsite proof is required.
-    crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
-    // Real-IRQ wait/pipeline body awaits TimeAware and original-callee dependency proof.
-    crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
-];
-
-/// Explicit proof candidates, never consulted by production dispatch.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
         function: frame_rendering::prepare_entity_sprite_frame,
@@ -264,6 +245,21 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
         function: dma_upload::upload_queued_sprite_graphics,
     },
+];
+
+/// Reviewed bodies/entries not yet eligible for production replacement.
+pub static PENDING: &[crate::FunctionId] = &[
+    // Source-backed frame bodies await two-revision local/slot/callsite proof.
+    crate::ids::ALLOCATE_SPRITE_SLOTS,
+    crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
+    crate::ids::ALLOCATE_SPRITE_SLOT,
+    // Original/Rust IRQ counts match, but VBlank interleaving still changes the
+    // projected logic timeline; await explicit clock-region/scheduler contracts.
+    crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+];
+
+/// Explicit proof candidates, never consulted by production dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
         function: queue_update::update_and_queue_entity_sprites,
