@@ -1,15 +1,22 @@
 import init, { WebGame } from './pkg/tje_web.js';
 import { AudioStream } from './audio.js';
 import { Inputs } from './input.js';
+import { ControlSettings } from './controls.js';
 import { cartridgeStore, readSettings, saveSettings } from './storage.js';
 
 const $ = id => document.getElementById(id);
-const settings = readSettings();
+const settingsState = readSettings();
+const settings = settingsState.settings;
 const audio = new AudioStream();
 let canvas = $('canvas');
 let game;
 let wasm;
 let inputs;
+let controls;
+let starting = false;
+let resumeOnVisible = false;
+let playbackVersion = 0;
+let pauseTask = Promise.resolve();
 let loaded = false;
 let running = false;
 let busy = false;
@@ -34,20 +41,32 @@ function status(message, nextState = state) {
   $('status').textContent = message;
 }
 
-function pause(message = 'Paused. Click Play to resume.') {
+function pause(message = 'Paused. Click Play to resume.', resumeWhenVisible = false) {
+  resumeOnVisible = resumeWhenVisible;
+  playbackVersion++;
   if (running) activeSeconds += (performance.now() - activeSince) / 1000;
   running = false;
   inputs?.clear();
   $('play').textContent = 'Play / enable audio';
-  const suspended = audio.pause();
-  suspended.catch(error => status(`Could not suspend audio: ${error}`, 'error'));
+  $('play').setAttribute('aria-pressed', 'false');
+  pauseTask = audio.pause().catch(error => {
+    resumeOnVisible = false;
+    status(`Audio could not pause cleanly: ${error.message ?? error}. Click Play to retry.`, 'paused');
+  });
   if (loaded) status(message, 'paused');
-  return suspended;
+  return pauseTask;
 }
 
 function errorMessage(error) {
   console.error(error);
   status(String(error?.message ?? error), 'error');
+}
+
+function importFailure(error, name = 'This file') {
+  const detail = String(error?.message ?? error);
+  $('rom-error').textContent = `${name} was not loaded. ${detail} Use an unmodified, verified REV 02 or REV 00 dump; a wrong game or damaged image will not pass identification. ${loaded ? 'The previous cartridge and its saved copy were kept.' : 'No cartridge was replaced.'}`;
+  $('rom-error').hidden = false;
+  status(loaded ? `Import rejected. The previous cartridge ${running ? 'continues playing' : 'is paused and can still play'}.` : 'Import rejected. Choose a verified cartridge.', loaded ? (running ? 'running' : 'paused') : 'empty');
 }
 
 function resetMeasurements() {
@@ -73,7 +92,7 @@ function snapshot() {
     maxFrameMs, p95FrameMs: p95, presented, stalls, audio: audio.snapshot(),
     presentationFps: wallSeconds > 0 ? presented / wallSeconds : 0,
     gamepads: inputs?.pads ?? 0, keyEvents: inputs?.keyEvents.slice() ?? [0, 0],
-    lastInputs: inputs?.last.slice() ?? [0, 0, false], settings: { ...settings }, storageWarning,
+    lastInputs: inputs?.last.slice() ?? [0, 0, false], settings: structuredClone(settings), storageWarning,
     canvas: { width: canvas.width, height: canvas.height },
     secure: isSecureContext, crossOriginIsolated,
   };
@@ -91,15 +110,17 @@ function resize() {
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   videoDirty = true;
-  if (loaded && !running) game.render(width, height, settings.scale === 'integer');
+  if (loaded && !running) game.render(width, height, settings.scale === 'integer', settings.filter === 'linear');
 }
 
 function frame(now) {
   requestAnimationFrame(frame);
-  if (!running) return;
   try {
+    inputs?.samplePads();
+    controls?.update();
+    if (!running) return;
     if (audio.context.state !== 'running') {
-      void pause('Audio was interrupted. Click Play to resume.');
+      void pause('Audio was interrupted; trying to resume. Click Play if another gesture is required.', true).then(tryAutomaticResume);
       return;
     }
     audio.syncClock(now);
@@ -122,7 +143,7 @@ function frame(now) {
       // memory.buffer is looked up after every step: wasm memory can grow.
       audio.push(new Float32Array(wasm.memory.buffer, game.audio_ptr(), game.audio_len()));
     }
-    if ((steps > 0 || videoDirty) && game.render(canvas.width, canvas.height, settings.scale === 'integer')) {
+    if ((steps > 0 || videoDirty) && game.render(canvas.width, canvas.height, settings.scale === 'integer', settings.filter === 'linear')) {
       presented++;
       videoDirty = false;
     }
@@ -163,6 +184,7 @@ async function importFile(file) {
   if (!file || busy) return;
   busy = true;
   $('rom').disabled = true;
+  $('rom-error').hidden = true;
   try {
     await pause();
     // A bounded picker read also avoids loading enormous accidental archives.
@@ -178,7 +200,7 @@ async function importFile(file) {
       status(`${revision} ready.${storageWarning}`, 'ready');
     }
   } catch (error) {
-    errorMessage(error);
+    importFailure(error, file.name);
   } finally {
     busy = false;
     $('rom').disabled = false;
@@ -187,30 +209,50 @@ async function importFile(file) {
   }
 }
 
-$('play').addEventListener('click', async () => {
+async function tryAutomaticResume() {
+  await pauseTask;
+  if (resumeOnVisible && !document.hidden && !busy && loaded) await startPlayback(true);
+}
+
+async function startPlayback(automatic = false) {
   if (!loaded || busy) return;
-  busy = true;
+  busy = starting = true;
+  const request = ++playbackVersion;
+  $('play').setAttribute('aria-busy', 'true');
   try {
-    if (running) {
-      await pause();
-      return;
-    }
+    await pauseTask;
+    if (request !== playbackVersion || document.hidden) return;
     const sampleRate = await audio.start(settings.volume);
-    if (document.hidden) {
-      await pause('Tab hidden; paused. Click Play to resume.');
+    if (document.hidden || request !== playbackVersion) {
+      await audio.pause();
       return;
     }
     game.set_sample_rate(sampleRate);
     activeSince = performance.now();
     running = true;
+    resumeOnVisible = false;
     $('play').textContent = 'Pause';
-    canvas.focus();
-    status(`${revision} running: translated functions as Rust, the rest as original code on the emulated 68000.${storageWarning}`, 'running');
+    $('play').setAttribute('aria-pressed', 'true');
+    if (!automatic) canvas.focus();
+    status(`${revision} running: registered Rust translations and original cartridge code on the hybrid host.${storageWarning}`, 'running');
   } catch (error) {
-    errorMessage(error);
+    if (request !== playbackVersion && resumeOnVisible) {
+      status('Audio was paused while starting; returning to this tab will try to resume.', 'paused');
+    } else {
+      resumeOnVisible = false;
+      status(`${automatic ? 'Audio could not resume automatically' : 'Playback/audio could not start'}: ${error.message ?? error}. Click Play to retry.`, 'paused');
+    }
   } finally {
-    busy = false;
+    busy = starting = false;
+    $('play').setAttribute('aria-busy', 'false');
+    if (resumeOnVisible && !document.hidden) queueMicrotask(tryAutomaticResume);
   }
+}
+
+$('play').addEventListener('click', () => {
+  if (busy || !loaded) return;
+  if (running) void pause();
+  else void startPlayback();
 });
 
 $('reset').addEventListener('click', async () => {
@@ -240,7 +282,12 @@ window.addEventListener('dragleave', event => {
 window.addEventListener('drop', event => {
   event.preventDefault();
   $('drop-zone').classList.remove('dragging');
-  if (game) void importFile(event.dataTransfer?.files[0]);
+  if (!game || !event.dataTransfer?.files.length) return;
+  if (event.dataTransfer.files.length !== 1) {
+    importFailure('Drop exactly one ROM or ZIP at a time.', 'The drop');
+    return;
+  }
+  void importFile(event.dataTransfer.files[0]);
 });
 
 $('forget').addEventListener('click', async () => {
@@ -259,24 +306,67 @@ $('forget').addEventListener('click', async () => {
   }
 });
 
+function persistSettings() {
+  if (!settingsState.persistable) return;
+  try {
+    saveSettings(settings);
+    $('settings-notice').textContent = '';
+  } catch (error) {
+    $('settings-notice').textContent = `Settings could not be saved: ${error.message ?? error}. Current choices still work for this visit.`;
+  }
+}
+
 function updateSettings() {
   settings.volume = Number($('volume').value) / 100;
   settings.scale = $('scale').value;
+  settings.filter = $('filter').value;
   settings.p2 = $('p2').checked;
+  $('volume-value').value = `${$('volume').value}%`;
+  $('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
+  canvas.classList.toggle('linear-filter', settings.filter === 'linear');
   audio.setVolume(settings.volume);
-  try { saveSettings(settings); }
-  catch (error) { status(`Settings could not be saved: ${error.message ?? error}`); }
+  persistSettings();
   resize();
 }
+$('settings-notice').textContent = settingsState.notice;
 $('volume').value = String(settings.volume * 100);
+$('volume-value').value = `${$('volume').value}%`;
+$('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
 $('scale').value = settings.scale;
+$('filter').value = settings.filter;
 $('p2').checked = settings.p2;
-for (const id of ['volume', 'scale', 'p2']) $(id).addEventListener('input', updateSettings);
-$('fullscreen').addEventListener('click', () => {
-  const operation = document.fullscreenElement ? document.exitFullscreen() : $('screen').requestFullscreen();
-  operation.catch(errorMessage);
+canvas.classList.toggle('linear-filter', settings.filter === 'linear');
+for (const id of ['volume', 'scale', 'filter', 'p2']) $(id).addEventListener('input', updateSettings);
+
+let fullscreenReturnFocus;
+function toggleFullscreen() {
+  if (!document.fullscreenElement) fullscreenReturnFocus = document.activeElement;
+  const operation = document.fullscreenElement ? document.exitFullscreen() : $('screen').requestFullscreen?.();
+  if (!operation) { status('Fullscreen is unavailable in this browser.'); return; }
+  operation.catch(error => status(`Fullscreen could not change: ${error.message ?? error}`));
+}
+$('fullscreen').addEventListener('click', toggleFullscreen);
+window.addEventListener('keydown', event => {
+  if (event.code !== 'KeyF' || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (event.target instanceof Element && event.target.closest('input,select,textarea,[contenteditable]')) return;
+  event.preventDefault();
+  toggleFullscreen();
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && running) void pause('Tab hidden; paused. Click Play to resume.'); });
+document.addEventListener('fullscreenchange', () => {
+  const active = !!document.fullscreenElement;
+  $('fullscreen').textContent = active ? 'Exit fullscreen (F)' : 'Fullscreen (F)';
+  $('fullscreen').setAttribute('aria-pressed', String(active));
+  if (active) canvas.focus();
+  else fullscreenReturnFocus?.focus({ preventScroll: true });
+  resize();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && (running || starting || resumeOnVisible)) {
+    void pause('Tab hidden; game and audio paused. Returning will try to resume.', true);
+  } else if (!document.hidden) {
+    void tryAutomaticResume();
+  }
+});
 
 async function boot() {
   if (!isSecureContext) throw new Error('Use HTTPS or localhost; WebGPU and AudioWorklet require a secure context.');
@@ -298,16 +388,19 @@ async function boot() {
     }
   }
   if (!game) throw new Error(`No graphics backend is available. ${failures.join('; ')}`);
-  inputs = new Inputs();
+  inputs = new Inputs(settings.players);
+  controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
   new ResizeObserver(resize).observe($('screen'));
   status(`Checking private cartridge storage. Graphics: ${game.backend()}.`, 'loading');
-  try {
-    const stored = await cartridgeStore('get');
-    if (stored) await loadCartridge(stored.bytes, stored.name, 'stored');
-    else status(`Choose your own cartridge. Graphics: ${game.backend()}.`, 'empty');
-  } catch (error) {
-    storageWarning = ` Browser cartridge storage could not be read: ${error.message ?? error}.`;
-    status(`Choose a cartridge.${storageWarning}`, 'empty');
+  let stored;
+  try { stored = await cartridgeStore('get'); }
+  catch (error) { storageWarning = ` Browser cartridge storage could not be read: ${error.message ?? error}.`; }
+  if (stored) {
+    $('forget').disabled = false;
+    try { await loadCartridge(stored.bytes, stored.name, 'stored'); }
+    catch (error) { importFailure(error, stored.name ?? 'The saved cartridge'); }
+  } else {
+    status(`Choose your own cartridge. Graphics: ${game.backend()}.${storageWarning}`, 'empty');
   }
   $('rom').disabled = false;
   requestAnimationFrame(frame);

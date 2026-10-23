@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { gamepadMask } from './input.js';
-import { readSettings, saveSettings } from './storage.js';
+import { defaultPlayer, gamepadMask, Inputs, normalizePlayer, selectGamepads, validKeyboardCode } from './input.js';
+import { defaultSettings, readSettings, saveSettings, SETTINGS_KEY, SETTINGS_VERSION } from './storage.js';
 import { AudioStream } from './audio.js';
 
 function standardPad() {
-  return { mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+  return { id: 'Test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
 }
 
 test('standard gamepad buttons map independently to the Genesis wire order', () => {
@@ -17,10 +17,10 @@ test('standard gamepad buttons map independently to the Genesis wire order', () 
     assert.equal(gamepadMask(pad), bit);
   }
   assert.equal(gamepadMask(null), 0);
-  const unsupported = standardPad();
-  unsupported.mapping = '';
-  unsupported.buttons[0].pressed = true;
-  assert.equal(gamepadMask(unsupported), 0);
+  const unmapped = standardPad();
+  unmapped.mapping = '';
+  unmapped.buttons[0].pressed = true;
+  assert.equal(gamepadMask(unmapped), 16, 'non-standard pads remain usable and remappable');
 });
 
 test('gamepad deadzone, analog thresholds and simultaneous buttons', () => {
@@ -32,17 +32,133 @@ test('gamepad deadzone, analog thresholds and simultaneous buttons', () => {
   assert.equal(gamepadMask(pad), 1 | 8 | 32);
 });
 
-test('local settings reject malformed data and clamp numeric volume', () => {
-  const store = new Map();
-  globalThis.localStorage = { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) };
-  assert.deepEqual(readSettings(), { volume: 0.7, scale: 'integer', p2: false });
-  saveSettings({ volume: 0.45, scale: 'fit', p2: true });
-  assert.deepEqual(readSettings(), { volume: 0.45, scale: 'fit', p2: true });
-  saveSettings({ volume: 8, scale: 'bad', p2: 'true' });
-  assert.deepEqual(readSettings(), { volume: 1, scale: 'integer', p2: false });
-  store.set('tje-settings-v1', '{not json');
-  assert.deepEqual(readSettings(), { volume: 0.7, scale: 'integer', p2: false });
-  delete globalThis.localStorage;
+test('per-player mappings support non-standard buttons and axes with nonzero neutral positions', () => {
+  const p1 = defaultPlayer(0);
+  const p2 = defaultPlayer(1);
+  p1.gamepad.bindings.a = [{ kind: 'button', index: 5 }];
+  p2.gamepad.bindings.b = [{ kind: 'axis', index: 2, center: -1, direction: 1, threshold: 0.5 }];
+  const pad = standardPad();
+  pad.mapping = '';
+  pad.axes.push(-1);
+  pad.buttons[5].pressed = true;
+  assert.equal(gamepadMask(pad, p1.gamepad.bindings), 16);
+  assert.equal(gamepadMask(pad, p2.gamepad.bindings), 0);
+  pad.axes[2] = 1;
+  assert.equal(gamepadMask(pad, p2.gamepad.bindings), 32);
+  p2.gamepad.bindings.b = [];
+  assert.equal(gamepadMask(pad, p2.gamepad.bindings), 0, 'a deliberately cleared binding stays clear');
+});
+
+test('explicit and automatic pad assignments do not share a device or replace an absent explicit choice', () => {
+  const pads = [standardPad(), { ...standardPad(), index: 1 }, { ...standardPad(), id: 'Other pad', index: 2 }];
+  const players = [defaultPlayer(0), defaultPlayer(1)];
+  players[0].gamepad.device = { id: 'Test pad', index: 1 };
+  assert.deepEqual(selectGamepads(pads, players), [pads[1], pads[0]]);
+  assert.equal(selectGamepads(pads.slice(1), players)[0], pads[1], 'removing an earlier slot must not reassign the surviving pad');
+  players[1].gamepad.device = { id: 'Test pad', index: 1 };
+  assert.deepEqual(selectGamepads(pads, players), [pads[1], null]);
+  players[0].gamepad.device = { id: 'Disconnected pad', index: 0 };
+  players[1].gamepad.device = null;
+  assert.deepEqual(selectGamepads(pads, players), [null, pads[0]]);
+  players[1].gamepad.device = 'none';
+  assert.deepEqual(selectGamepads(pads, players), [null, null]);
+});
+
+test('remapped keyboard inputs stay independent and release after focus changes or blur', () => {
+  const previousWindow = globalThis.window;
+  const previousElement = globalThis.Element;
+  const listeners = new Map();
+  class TestElement { constructor(editing = false) { this.editing = editing; } closest() { return this.editing ? this : null; } }
+  globalThis.window = { addEventListener: (type, listener) => listeners.set(type, listener) };
+  globalThis.Element = TestElement;
+  try {
+    const players = [defaultPlayer(0), defaultPlayer(1)];
+    players[0].keys.up = 'KeyO';
+    players[1].keys.up = 'KeyP';
+    const inputs = new Inputs(players, () => []);
+    const event = (code, editing = false) => ({ code, target: new TestElement(editing), preventDefault() {}, repeat: false });
+    inputs.key(event('KeyO'), true);
+    inputs.key(event('KeyP'), true);
+    inputs.samplePads();
+    assert.deepEqual(inputs.poll(true), [1, 1, true]);
+    inputs.key(event('KeyO', true), false);
+    assert.deepEqual(inputs.poll(true), [0, 1, true]);
+    inputs.key(event('KeyO', true), true);
+    assert.deepEqual(inputs.poll(true), [0, 1, true], 'editing controls does not move the player');
+    listeners.get('blur')();
+    assert.deepEqual(inputs.poll(true), [0, 0, true]);
+    inputs.readPads = () => { throw new Error('Gamepad permission denied'); };
+    inputs.samplePads();
+    assert.match(inputs.gamepadError, /permission denied/);
+    inputs.key(event('KeyO'), true);
+    assert.equal(inputs.poll(false)[0], 1, 'keyboard survives an unavailable Gamepad API');
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.Element = previousElement;
+  }
+});
+
+test('reserved navigation/fullscreen keys and malformed persisted sources are normalized safely', () => {
+  assert.equal(validKeyboardCode('KeyO'), true);
+  for (const code of ['KeyF', 'Escape', 'Tab', 'ControlLeft', 'Unidentified', '<script>']) assert.equal(validKeyboardCode(code), false);
+  const value = normalizePlayer({ keys: { up: 'KeyF' }, gamepad: { bindings: { a: [{ kind: 'axis', index: -1 }] } } }, 0);
+  assert.equal(value.keys.up, 'ArrowUp');
+  assert.deepEqual(value.gamepad.bindings.a, defaultPlayer(0).gamepad.bindings.a);
+});
+
+function memoryStorage(entries = []) {
+  const values = new Map(entries);
+  return { values, getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+}
+
+test('legacy settings migrate once without losing volume/scaling/P2 choices', () => {
+  const storage = memoryStorage([['tje-settings-v1', JSON.stringify({ volume: 0.45, scale: 'fit', p2: true })]]);
+  const result = readSettings(storage);
+  assert.equal(result.persistable, true);
+  assert.equal(result.settings.version, SETTINGS_VERSION);
+  assert.equal(result.settings.volume, 0.45);
+  assert.equal(result.settings.scale, 'fit');
+  assert.equal(result.settings.p2, true);
+  assert.equal(result.settings.filter, 'nearest');
+  assert.match(result.notice, /migrated/);
+  assert.equal(storage.getItem('tje-settings-v1'), null);
+  assert.equal(JSON.parse(storage.getItem(SETTINGS_KEY)).version, SETTINGS_VERSION);
+  assert.equal(readSettings(storage).notice, '');
+});
+
+test('versioned mappings, filters and device choices persist; malformed/future versions recover without destructive migration', () => {
+  const storage = memoryStorage();
+  const settings = defaultSettings();
+  settings.volume = 8;
+  settings.filter = 'linear';
+  settings.players[0].keys.up = 'KeyO';
+  settings.players[1].gamepad.device = { id: 'Unmapped controller', index: 1 };
+  settings.players[1].gamepad.bindings.b = [{ kind: 'axis', index: 2, direction: 1, center: -1, threshold: 0.5 }];
+  saveSettings(settings, storage);
+  const restored = readSettings(storage).settings;
+  assert.equal(restored.volume, 1);
+  assert.equal(restored.filter, 'linear');
+  assert.equal(restored.players[0].keys.up, 'KeyO');
+  assert.deepEqual(restored.players[1].gamepad, settings.players[1].gamepad);
+  const future = JSON.stringify({ version: SETTINGS_VERSION + 1, futureOption: true });
+  storage.setItem(SETTINGS_KEY, future);
+  assert.equal(readSettings(storage).persistable, false);
+  assert.equal(storage.getItem(SETTINGS_KEY), future);
+  storage.setItem(SETTINGS_KEY, '{not json');
+  assert.equal(readSettings(storage).persistable, true, 'new explicit choices may repair malformed settings');
+  assert.deepEqual(readSettings(storage).settings, defaultSettings());
+});
+
+test('failed migration leaves the legacy copy and its in-memory choices intact', () => {
+  const storage = memoryStorage([['tje-settings-v1', JSON.stringify({ volume: 0.25, scale: 'fit' })]]);
+  storage.setItem = () => { throw new Error('Storage full'); };
+  const result = readSettings(storage);
+  assert.equal(result.settings.volume, 0.25);
+  assert.equal(result.settings.scale, 'fit');
+  assert.equal(result.persistable, false);
+  assert.notEqual(storage.getItem('tje-settings-v1'), null);
+  const denied = readSettings({ getItem() { throw new Error('Storage denied'); } });
+  assert.equal(denied.persistable, false);
 });
 
 async function worklet() {
@@ -125,4 +241,50 @@ test('video phase lock smooths batched audio-clock updates while tracking device
   assert(presentations >= 3600 * 0.95);
   const lead = stream.produced / 48000 - stream.context.currentTime;
   assert(lead > 0.035 && lead < 0.1, `bounded device lead: ${lead}`);
+});
+
+function audioFixture() {
+  const stream = new AudioStream();
+  const messages = [];
+  stream.context = {
+    state: 'suspended', sampleRate: 48000, currentTime: 1,
+    async resume() { this.state = 'running'; },
+    async suspend() { this.state = 'suspended'; },
+  };
+  stream.ready = Promise.resolve();
+  stream.node = { port: { postMessage: message => messages.push(message) } };
+  stream.gain = { gain: { setValueAtTime(value) { stream.testVolume = value; } } };
+  return { stream, messages };
+}
+
+test('audio suspend/resume flushes old epochs and a denied resume remains retryable', async () => {
+  const { stream, messages } = audioFixture();
+  await stream.start(0.4);
+  assert.equal(stream.context.state, 'running');
+  assert.equal(stream.testVolume, 0.4);
+  await stream.pause();
+  assert.equal(stream.context.state, 'suspended');
+  assert.equal(messages.at(-1).active, false);
+  stream.context.resume = async () => { throw new Error('User gesture required'); };
+  await assert.rejects(stream.start(0.5), /User gesture required/);
+  assert.equal(stream.context.state, 'suspended');
+  stream.context.resume = async function () { this.state = 'running'; };
+  await stream.start(0.5);
+  assert.equal(messages.at(-1).active, true);
+  assert.equal(stream.context.state, 'running');
+});
+
+test('pausing during worklet initialization waits for readiness, and a stalled resume times out', async () => {
+  const { stream } = audioFixture();
+  let ready;
+  stream.ready = new Promise(resolve => { ready = resolve; });
+  stream.node = null;
+  const paused = stream.pause();
+  await Promise.resolve();
+  stream.node = { port: { postMessage() {} } };
+  ready();
+  await paused;
+  assert.equal(stream.context.state, 'suspended');
+  stream.context.resume = () => new Promise(() => {});
+  await assert.rejects(stream.start(0.5), /another audio gesture/);
 });

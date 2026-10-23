@@ -8,7 +8,7 @@ pub struct Video {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
+    bind_groups: [wgpu::BindGroup; 2],
     size: FrameSize,
     max_dimension: u32,
     backend: &'static str,
@@ -85,7 +85,7 @@ impl Video {
         }
         surface.configure(&device, &config);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Nearest-neighbour framebuffer blit"),
+            label: Some("Framebuffer blit"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -117,7 +117,7 @@ impl Video {
             width: 320,
             height: 224,
         };
-        let (texture, bind_group) = Self::create_texture(&device, &pipeline, config.format, size);
+        let (texture, bind_groups) = Self::create_texture(&device, &pipeline, config.format, size);
         Ok(Self {
             surface,
             device,
@@ -125,7 +125,7 @@ impl Video {
             config,
             pipeline,
             texture,
-            bind_group,
+            bind_groups,
             size,
             max_dimension,
             backend: if info.backend == wgpu::Backend::BrowserWebGpu {
@@ -142,7 +142,7 @@ impl Video {
         pipeline: &wgpu::RenderPipeline,
         target_format: wgpu::TextureFormat,
         size: FrameSize,
-    ) -> (wgpu::Texture, wgpu::BindGroup) {
+    ) -> (wgpu::Texture, [wgpu::BindGroup; 2]) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("VDP RGBA framebuffer"),
             size: wgpu::Extent3d {
@@ -162,25 +162,36 @@ impl Video {
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Pixel-exact nearest sampling"),
-            ..Default::default()
+        // Prebuild both choices when the source texture changes. Switching a
+        // setting only selects a bind group; no sampler/texture allocation.
+        let bind_groups = std::array::from_fn(|index| {
+            let filter = if index == 0 {
+                wgpu::FilterMode::Nearest
+            } else {
+                wgpu::FilterMode::Linear
+            };
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Framebuffer sampling"),
+                mag_filter: filter,
+                min_filter: filter,
+                ..Default::default()
+            });
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Framebuffer and sampler"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Framebuffer and nearest sampler"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-        (texture, bind_group)
+        (texture, bind_groups)
     }
 
     pub fn render(
@@ -190,6 +201,7 @@ impl Video {
         width: u32,
         height: u32,
         integer_scale: bool,
+        linear_filter: bool,
     ) -> Result<bool, String> {
         if width == 0 || height == 0 {
             return Ok(false);
@@ -202,7 +214,7 @@ impl Video {
             self.surface.configure(&self.device, &self.config);
         }
         if size != self.size {
-            (self.texture, self.bind_group) =
+            (self.texture, self.bind_groups) =
                 Self::create_texture(&self.device, &self.pipeline, self.config.format, size);
             self.size = size;
         }
@@ -269,7 +281,7 @@ impl Video {
                 1.0,
             );
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_bind_group(0, &self.bind_groups[usize::from(linear_filter)], &[]);
             pass.draw(0..3, 0..1);
         }
         self.queue.submit([encoder.finish()]);

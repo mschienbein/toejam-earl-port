@@ -10,52 +10,61 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body data-state="loading">
+  <a class="skip-link" href="#game-controls">Skip to game controls</a>
   <main>
     <header>
       <h1>ToeJam &amp; Earl</h1>
-      <p>Faithful port in progress · Rust + WebAssembly · translated functions run as Rust, the rest as original code on an emulated 68000</p>
+      <p id="runtime-summary">Development hybrid host · registered Rust translations replace selected cartridge functions; remaining code runs on the emulated 68000.</p>
     </header>
     <section id="drop-zone" aria-label="Local cartridge import">
-      <label for="rom">Choose your own ROM, or drop it here</label>
-      <input id="rom" type="file" accept=".bin,.md,.gen,.smd,.zip" disabled>
+      <label for="rom">Choose your own ROM, or drop one file here</label>
+      <input id="rom" type="file" accept=".bin,.md,.gen,.smd,.zip" aria-describedby="rom-help rom-error" disabled>
       <p id="cartridge">No cartridge loaded.</p>
-      <p class="small">REV 02 / REV 00 identification, including ZIP and SMD imports. No ROM is supplied.
-        Both revisions play. Choose a file smaller than 16 MiB.
-        Accepted files stay in this browser’s IndexedDB; they are never uploaded.</p>
+      <p id="rom-help" class="small">Only verified ToeJam &amp; Earl REV 02 / REV 00 images are accepted, including ZIP and SMD imports.
+        No ROM is supplied. Choose a file smaller than 16 MiB. Accepted files are kept only in this browser’s IndexedDB on your machine;
+        they are never uploaded. A wrong game, modified image or bad dump is not accepted.</p>
+      <p id="rom-error" role="alert" hidden></p>
       <button id="forget" type="button" disabled>Forget stored ROM</button>
     </section>
-    <section aria-label="Game">
-      <div id="screen"><canvas id="canvas" width="640" height="448" tabindex="0" aria-label="Game screen; keyboard controls listed below"></canvas></div>
-      <div class="toolbar">
-        <button id="play" type="button" disabled>Play / enable audio</button>
+    <section id="game-controls" aria-label="Game" tabindex="-1">
+      <div id="screen"><canvas id="canvas" width="640" height="448" tabindex="0" role="img" aria-label="ToeJam and Earl game screen. F toggles fullscreen." aria-describedby="controls-summary">The game video appears here. Controls and remapping are listed below.</canvas></div>
+      <div class="toolbar" role="group" aria-label="Playback and display settings">
+        <button id="play" type="button" aria-pressed="false" aria-controls="canvas" disabled>Play / enable audio</button>
         <button id="reset" type="button" disabled>Reset</button>
-        <button id="fullscreen" type="button">Fullscreen</button>
-        <label>Volume <input id="volume" type="range" min="0" max="100" value="70"></label>
-        <label>Scaling <select id="scale"><option value="integer">Integer pixels</option><option value="fit">Fit</option></select></label>
-        <label><input id="p2" type="checkbox"> Player 2 connected</label>
+        <button id="fullscreen" type="button" aria-keyshortcuts="F" aria-pressed="false" aria-controls="screen">Fullscreen (F)</button>
+        <label for="volume">Volume <input id="volume" type="range" min="0" max="100" value="70" aria-valuetext="70 percent"><output id="volume-value" for="volume">70%</output></label>
+        <label for="scale">Scaling <select id="scale"><option value="integer">Integer pixels</option><option value="fit">Fit</option></select></label>
+        <label for="filter">Filter <select id="filter"><option value="nearest">Nearest pixels</option><option value="linear">Linear / smooth</option></select></label>
+        <label for="p2"><input id="p2" type="checkbox"> Player 2 keyboard connected</label>
       </div>
-      <p id="status" role="status" aria-live="polite">Loading WebAssembly and graphics…</p>
+      <p id="status" role="status" aria-live="polite" aria-atomic="true">Loading WebAssembly and graphics…</p>
       <p id="metrics" class="small"></p>
+      <p id="settings-notice" class="small" role="status"></p>
     </section>
+    <details id="control-settings">
+      <summary>Controls and remapping</summary>
+      <p id="controls-summary">Default player 1: arrow keys, Z / X / C, Enter. Default player 2: W / S / A / D, J / K / L, Right Shift.
+        The current assignments below can be changed with keyboard or mouse. F toggles fullscreen; Escape exits fullscreen or cancels an assignment.
+        Tab always moves focus. Connect player 2 above for its keyboard, or assign it a gamepad.</p>
+      <p>Before changing a gamepad binding, center sticks and release controls, then activate its assignment and press a button or move an axis.
+        Standard and non-standard Gamepad API devices can be assigned. A non-standard device may need every action remapped.
+        Device numbers distinguish identical names. Explicit choices pin the browser’s device slot and stay unavailable rather than switching pads;
+        if reconnection changes that slot, select the device again. Mappings are retained.</p>
+      <p id="gamepad-status" class="small" role="status">Checking gamepads…</p>
+      <p id="mapping-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <button id="cancel-mapping" type="button" hidden>Cancel assignment (Escape)</button>
+      <div id="player-controls"></div>
+    </details>
     <details>
-      <summary>Controls and browser requirements</summary>
-      <table>
-        <thead><tr><th>Controller</th><th>Move</th><th>A / B / C</th><th>Start</th></tr></thead>
-        <tbody>
-          <tr><th>Player 1</th><td>Arrow keys</td><td>Z / X / C</td><td>Enter</td></tr>
-          <tr><th>Player 2</th><td>W / S / A / D</td><td>J / K / L</td><td>Right Shift</td></tr>
-          <tr><th>Standard gamepad</th><td>D-pad or left stick</td><td>South / East / West</td><td>Start / Menu</td></tr>
-        </tbody>
-      </table>
-      <p>First and second standard-mapped gamepads control players 1 and 2. Connect player 2 above
-        for its keyboard, or attach a second gamepad. Press a gamepad button after connecting it.
-        Input is released and the game pauses when the tab is hidden. Click Play to resume.</p>
-      <p>Use an up-to-date browser on HTTPS (or localhost). WebGPU is preferred; WebGL 2 is the
-        automatic fallback. Web Audio starts on a click. Audio sample blocks are transferred to
-        an AudioWorklet without SharedArrayBuffer or cross-origin-isolation headers.</p>
-      <p>Volume, scaling and the player-2 keyboard connection are saved locally. This build runs
-        the original cartridge through the hybrid host with an empty translation registry;
-        it does not claim to be an all-native game-logic implementation.</p>
+      <summary>Privacy and browser requirements</summary>
+      <p>Use an up-to-date browser on HTTPS (or localhost). WebGPU is preferred; WebGL 2 is the automatic fallback.
+        Audio starts on Play. A hidden tab pauses the game and releases held keys; returning attempts to resume its audio and game automatically.
+        If the browser requires another gesture, Play remains available with a clear message. Manually paused games stay paused.</p>
+      <p>Audio blocks are transferred to an AudioWorklet without SharedArrayBuffer or cross-origin-isolation headers.
+        Volume, display options and both players’ mappings are versioned in localStorage. ROM data is never stored in localStorage.
+        Forget removes the IndexedDB cartridge and reloads an empty session without deleting settings.</p>
+      <p>This build runs the development hybrid replacement host with its production translation registry, not the future cycle-exact browser engine.
+        It does not claim to be an all-native game-logic implementation.</p>
     </details>
     <footer><a href="https://github.com/mschienbein/toejam-earl-port">Source · GPL-3.0</a></footer>
   </main>

@@ -1,21 +1,54 @@
-const SETTINGS_KEY = 'tje-settings-v1';
-const DEFAULTS = Object.freeze({ volume: 0.7, scale: 'integer', p2: false });
+import { defaultPlayer, normalizePlayer } from './input.js';
 
-export function readSettings() {
+export const SETTINGS_VERSION = 2;
+export const SETTINGS_KEY = 'tje-settings';
+const LEGACY_KEY = 'tje-settings-v1';
+
+export function defaultSettings() {
+  return { version: SETTINGS_VERSION, volume: 0.7, scale: 'integer', filter: 'nearest', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
+}
+
+export function normalizeSettings(value) {
+  const result = defaultSettings();
+  if (Number.isFinite(value?.volume)) result.volume = Math.max(0, Math.min(1, value.volume));
+  if (value?.scale === 'fit') result.scale = 'fit';
+  if (value?.filter === 'linear') result.filter = 'linear';
+  result.p2 = value?.p2 === true;
+  result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
+  return result;
+}
+
+export function readSettings(storage) {
   try {
-    const value = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+    storage ??= globalThis.localStorage;
+    const current = storage.getItem(SETTINGS_KEY);
+    const legacy = current === null ? storage.getItem(LEGACY_KEY) : null;
+    const value = JSON.parse(current ?? legacy ?? 'null');
+    if (value?.version > SETTINGS_VERSION) {
+      return { settings: defaultSettings(), persistable: false, notice: 'Settings from a newer app version were left untouched. Changes apply only to this visit.' };
+    }
+    const settings = normalizeSettings(value);
+    if (value && (legacy !== null || value.version !== SETTINGS_VERSION)) {
+      try {
+        saveSettings(settings, storage);
+        return { settings, persistable: true, notice: 'Previous settings migrated; your volume, scaling and player-2 choice were kept.' };
+      } catch (error) {
+        return { settings, persistable: false, notice: `Previous settings were kept for this visit, but migration could not be saved: ${error.message ?? error}.` };
+      }
+    }
+    return { settings, persistable: true, notice: '' };
+  } catch (error) {
     return {
-      volume: Number.isFinite(value?.volume) ? Math.max(0, Math.min(1, value.volume)) : DEFAULTS.volume,
-      scale: value?.scale === 'fit' ? 'fit' : 'integer',
-      p2: value?.p2 === true,
+      settings: defaultSettings(), persistable: error instanceof SyntaxError,
+      notice: error instanceof SyntaxError ? 'Malformed settings were ignored. New choices will replace them when saved.'
+        : `Settings could not be read: ${error.message ?? error}. Changes apply only to this visit.`,
     };
-  } catch {
-    return { ...DEFAULTS };
   }
 }
 
-export function saveSettings(settings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+export function saveSettings(settings, storage = globalThis.localStorage) {
+  storage.setItem(SETTINGS_KEY, JSON.stringify(normalizeSettings(settings)));
+  storage.removeItem(LEGACY_KEY); // Only after the replacement was written successfully.
 }
 
 function database() {

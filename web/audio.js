@@ -1,7 +1,21 @@
+async function resumeContext(context) {
+  if (context.state === 'running') return;
+  let timer;
+  try {
+    await Promise.race([
+      context.resume(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('The browser needs another audio gesture. Click Play.')), 1500); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class AudioStream {
   constructor() {
     this.context = null;
     this.node = null;
+    this.ready = null;
     this.gain = null;
     this.pool = [];
     this.epoch = 0;
@@ -18,35 +32,37 @@ export class AudioStream {
 
   async start(volume) {
     if (!this.context) {
-      // Construction and resume happen directly in the user's click handler.
+      // Begin resume directly in the user's gesture, before loading the worklet.
       this.context = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
-      try {
-        await Promise.all([
-          this.context.resume(),
-          this.context.audioWorklet.addModule(new URL('./audio-worklet.js', import.meta.url)),
-        ]);
-        this.node = new AudioWorkletNode(this.context, 'tje-cartridge-audio', {
-          numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
-        });
-        this.node.onprocessorerror = () => { this.failure = 'AudioWorklet processor failed.'; };
-        this.node.port.onmessage = ({ data }) => {
-          if (data.type === 'recycle') {
-            if (this.pool.length < 32) this.pool.push(data.buffer);
-            this.recycledBlocks++;
-          } else if (data.type === 'stats' && data.epoch === this.epoch) {
-            this.stats = data;
-          }
-        };
-        this.gain = this.context.createGain();
-        this.node.connect(this.gain).connect(this.context.destination);
-      } catch (error) {
-        await this.context.close();
-        this.context = this.node = this.gain = null;
-        throw error;
-      }
-    } else {
-      await this.context.resume();
+      this.ready = (async () => {
+        try {
+          await Promise.all([
+            resumeContext(this.context),
+            this.context.audioWorklet.addModule(new URL('./audio-worklet.js', import.meta.url)),
+          ]);
+          this.node = new AudioWorkletNode(this.context, 'tje-cartridge-audio', {
+            numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+          });
+          this.node.onprocessorerror = () => { this.failure = 'AudioWorklet processor failed.'; };
+          this.node.port.onmessage = ({ data }) => {
+            if (data.type === 'recycle') {
+              if (this.pool.length < 32) this.pool.push(data.buffer);
+              this.recycledBlocks++;
+            } else if (data.type === 'stats' && data.epoch === this.epoch) {
+              this.stats = data;
+            }
+          };
+          this.gain = this.context.createGain();
+          this.node.connect(this.gain).connect(this.context.destination);
+        } catch (error) {
+          await this.context.close();
+          this.context = this.node = this.gain = this.ready = null;
+          throw error;
+        }
+      })();
     }
+    await this.ready;
+    await resumeContext(this.context);
     if (this.context.state !== 'running') throw new Error(`Audio context is ${this.context.state}; click Play to retry.`);
     this.setVolume(volume);
     this.begin(true);
@@ -66,7 +82,9 @@ export class AudioStream {
   }
 
   async pause() {
-    if (!this.context) return;
+    try { await this.ready; }
+    catch { return; } // Initialization already reports its failure to start().
+    if (!this.context || this.context.state === 'closed') return;
     this.begin(false);
     await this.context.suspend();
   }

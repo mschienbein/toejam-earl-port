@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startServer } from './serve.mjs';
+import { installUxFixtures, verifyEmptyUx, verifyLoadedUx, verifyRestoredUx } from './verify-ux.mjs';
 
 const rom = process.argv[2] ?? process.env.TJE_REV02_ROM;
 assert(rom, 'Supply a private ROM path; no ROM is shipped with the frontend.');
@@ -18,7 +19,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE
   ? pathToFileURL(resolve(process.env.PLAYWRIGHT_MODULE)).href : 'playwright');
 const server = await startServer(0);
 const origin = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, args: [
+const browser = await chromium.launch({ headless: process.env.TJE_WEB_HEADED !== '1', args: [
   '--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--use-angle=swiftshader',
   '--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface',
 ] });
@@ -27,6 +28,7 @@ const disableWebgpu = process.env.TJE_WEB_DISABLE_WEBGPU === '1';
 if (disableWebgpu) {
   await context.addInitScript(() => Object.defineProperty(navigator, 'gpu', { value: undefined }));
 }
+await installUxFixtures(context);
 const page = await context.newPage();
 const errors = [];
 const log = [];
@@ -51,6 +53,7 @@ try {
   assert.equal(response.headers()['cross-origin-embedder-policy'], undefined);
   await page.waitForSelector('body[data-state="empty"]', { timeout: 45000 });
   assert.equal((await metrics()).crossOriginIsolated, false);
+  await verifyEmptyUx(page, metrics);
   // Exercise the real DOM file picker, not a direct Rust import/testing bypass.
   await page.locator('#rom').setInputFiles(resolve(rom));
   await page.waitForSelector('body[data-state="ready"]', { timeout: 15000 });
@@ -97,6 +100,7 @@ try {
   await page.screenshot({ path: `${artifacts}/${backend}-gameplay.png`, fullPage: true });
   await page.click('#play');
   await page.waitForSelector('body[data-state="paused"]');
+  const ux = await verifyLoadedUx({ page, context, metrics, rom: resolve(rom), artifacts, backend });
   await page.reload();
   await page.waitForSelector('body[data-state="ready"]', { timeout: 30000 });
   const restored = await metrics();
@@ -108,6 +112,7 @@ try {
   assert.equal(restored.settings.p2, true);
   assert.equal(await page.locator('#p2').isChecked(), true);
   assert.equal(await page.locator('#scale').inputValue(), 'fit');
+  await verifyRestoredUx(page, metrics);
   await page.click('#play');
   await frameAt(120);
   await page.waitForFunction(() => window.tje.metrics.audio.played > 1000);
@@ -131,7 +136,7 @@ try {
   assert.equal((await metrics()).source, 'file', 'drag-and-drop must use the real import listener');
   assert.deepEqual(errors, []);
   assert(requests.every(request => request.method === 'GET' && request.url.startsWith(origin)), 'ROM/network privacy: only local static GETs are allowed');
-  result = { run: result, reload: reloaded, reset: true, forget: true, dragDrop: true, browser: browser.version(), disableWebgpu, errors, requests };
+  result = { run: result, reload: reloaded, ux, reset: true, forget: true, dragDrop: true, browser: browser.version(), headed: process.env.TJE_WEB_HEADED === '1', disableWebgpu, errors, requests };
   await writeFile(`${artifacts}/${backend}-result.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {

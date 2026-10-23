@@ -8,7 +8,7 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
-/// Replacement-mode playback with every translated function registered. Keeping host
+/// Replacement-mode playback with the production translation registry. Keeping host
 /// construction here makes the hook-registry policy independent of the web UI.
 fn create_playback(rom: &Rom, sample_rate: u32) -> tje_host::Result<Host> {
     let mut host = Host::new(
@@ -100,13 +100,14 @@ impl WebGame {
         width: u32,
         height: u32,
         integer_scale: bool,
+        linear_filter: bool,
     ) -> Result<bool, JsValue> {
         let Some(host) = &self.host else {
             return Ok(false);
         };
         let (pixels, size) = host.frame_buffer();
         self.video
-            .render(pixels, size, width, height, integer_scale)
+            .render(pixels, size, width, height, integer_scale, linear_filter)
             .map_err(js_error)
     }
 
