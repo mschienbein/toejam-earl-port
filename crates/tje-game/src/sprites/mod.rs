@@ -209,6 +209,57 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::SPRITE_UNPACK_INTERLEAVED_RLE,
     crate::ids::SPRITE_UNPACK_RLE,
     crate::ids::SPRITE_UNPACK_RAW,
+    // Original-only classification, independent of translation readiness.
+    // G/src/sprites/sprite_slots.c:10-276: RAM pool scans, byte/word stores,
+    // and the already-reviewed reset/free/query helpers; no hardware or waits.
+    // Stack-local and residual-register bugs affect translation, not scheduling.
+    crate::ids::ALLOCATE_SPRITE_SLOTS,
+    crate::ids::ALLOCATE_SPRITE_SLOT,
+    crate::ids::ALLOCATE_ENTITY,
+    crate::ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
+    crate::ids::RELEASE_ENTITY_SHADOWS,
+    crate::ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
+    crate::ids::FREE_ENTITY,
+    // G/src/sprites/entity_sprite_rendering.c:43-488: RAM lists, positioning,
+    // decoding and tile queues only. Motion's four original callback targets
+    // perform bounded RAM/ROM terrain/collision work, without device progress.
+    crate::ids::POSITION_ENTITY_SPRITES,
+    crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
+    crate::ids::QUEUE_SPRITE_PIECE_TILES,
+    crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
+    crate::ids::PROCESS_ENTITY_ANIMATION_MOTION,
+    // G/src/sprites/entity_visibility.c:45-94: visibility plus RAM allocation
+    // and release; IsSpeechBubbleEntity is a four-slot RAM scan.
+    crate::ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
+    crate::ids::UPDATE_ALL_ENTITY_VIEWPORT_SPRITES,
+    // G/src/sprites/entity_depth.c:10-80: RAM shadow attributes and allocation,
+    // using only the reviewed sprite-slot query/allocation/release closure.
+    crate::ids::UPDATE_ENTITY_SHADOWS,
+    crate::ids::UPDATE_ALL_ENTITY_SHADOWS,
+];
+
+/// Reviewed non-atomic original entries. Classification is not translation proof.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+    // G/src/sprites/load_sprites.c:8-31: closed stable-RAM DMA sources and
+    // ordered register writes, with no status/raster read or concurrent observer.
+    // DmaCopyWordsToVram (G/src/asm/dma.s:15-75) needs transaction completion.
+    (
+        crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // G/src/sprites/link_player_sprites.c:9-38: finish all table RAM mutations,
+    // then one stable-source DMA through the same reviewed primitive.
+    (
+        crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // G/src/sprites/entity_sprite_rendering.c:503-584: the pending-upload byte
+    // at lines 513-514 is cleared by interrupt-driven work, so real IRQ/clock
+    // progress is required. The remaining original callees have no waits.
+    (
+        crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
 ];
 #[cfg(test)]
 mod tests {
