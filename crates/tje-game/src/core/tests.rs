@@ -154,3 +154,38 @@ fn finite_iteration_delay_has_no_memory_or_hardware_effect() {
     }
     assert!(context.writes.is_empty());
 }
+
+#[test]
+fn palette_predecrement_branches_match_subq_flags_for_every_byte() {
+    use super::test_support::{TestContext, Write};
+    use tje_mem::ram;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        for old in i8::MIN..=i8::MAX {
+            ram::g_level_palette_animation_delay(revision).write(&mut context, old);
+            ram::g_level_palette_animation_frame(revision).write(&mut context, -1);
+            context.writes.clear();
+            super::draw_level_graphics(&mut context, &[]).unwrap();
+            let mathematical_result = i16::from(old) - 1;
+            let updates = mathematical_result < 0;
+            assert_eq!(
+                ram::g_level_palette_animation_delay(revision).read(&context),
+                if updates {
+                    3
+                } else {
+                    mathematical_result as i8
+                },
+                "old delay {old}"
+            );
+            assert_eq!(
+                context
+                    .writes
+                    .iter()
+                    .filter(|write| matches!(write, Write::Data(_)))
+                    .count(),
+                if updates { 4 } else { 0 },
+                "old delay {old}"
+            );
+        }
+    }
+}

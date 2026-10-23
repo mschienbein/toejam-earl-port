@@ -4,8 +4,11 @@ use crate::execution::ExecutionClass;
 use crate::{Context, FunctionId, Result, Translation, ids};
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
+mod audio_callbacks;
 mod entities;
 mod layouts;
+mod lifecycle;
+mod scene_layouts;
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[Translation] = &[
@@ -109,14 +112,63 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
     ),
 ];
 
-/// Both-revision Functional proof passes; production class lookup is pending.
-pub static PENDING: &[FunctionId] = &[ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK];
+/// Complete bodies not approved for production replacement.
+pub static PENDING: &[FunctionId] = &[
+    // Both-revision Functional proof passes; production class lookup is pending.
+    ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+    // Complete TimeAware caller bodies await class-aware residual dispatch and
+    // both-revision proof. StartJamOut also retains the original creation call's
+    // uninitialized-local failure path until a call-frame ABI is available.
+    ids::JAM_OUT_V_BLANK,
+    ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
+    ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
+    ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
+    ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
+    ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
+    ids::START_JAM_OUT,
+];
 
 /// Unregistered bodies retained for explicit proof harnesses.
-pub static PENDING_TRANSLATIONS: &[Translation] = &[Translation {
-    id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
-    function: layouts::draw_packed_background_block,
-}];
+pub static PENDING_TRANSLATIONS: &[Translation] = &[
+    Translation {
+        id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+        function: layouts::draw_packed_background_block,
+    },
+    Translation {
+        id: ids::JAM_OUT_V_BLANK,
+        function: audio_callbacks::vblank,
+    },
+    Translation {
+        id: ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
+        function: audio_callbacks::random_sample_vblank,
+    },
+    Translation {
+        id: ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
+        function: scene_layouts::update_layouts_and_scroll,
+    },
+    Translation {
+        id: ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
+        function: scene_layouts::show_lead_pair_layout,
+    },
+    Translation {
+        id: ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
+        function: scene_layouts::show_four_pair_layout,
+    },
+    Translation {
+        id: ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
+        function: scene_layouts::show_nine_pair_layout,
+    },
+    Translation {
+        id: ids::START_JAM_OUT,
+        function: lifecycle::start_jam_out,
+    },
+];
+
+// JamOutCreateCharacterCopies (G/src/jamout/jamout.c:442) has no Rust body yet:
+// MCC68K's -2(A6) lead-tile spill and residual D3 parent byte are read if a
+// nonlead allocation succeeds after slot zero failed. Faithful failure paths,
+// including AllocateEntityViewportSprites' uninitialized tile, require the
+// reviewed call-frame API. Do not initialize those values or repair the layout.
 
 // MCC68K lowers every Jam Out handle-to-object index with ASL.W #7 / ADDA.W.
 // Keep the word-sized byte displacement even for out-of-range signed handles.
@@ -326,3 +378,6 @@ pub fn set_earl_sequence(context: &mut dyn Context, arguments: &[u32]) -> Result
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod scene_tests;

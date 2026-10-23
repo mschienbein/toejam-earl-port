@@ -4,7 +4,10 @@ use crate::execution::ExecutionClass;
 use crate::{Context, Result};
 use tje_mem::ram;
 
+mod input;
 mod remaining;
+mod vblank;
+mod views;
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
@@ -136,6 +139,16 @@ pub static PENDING: &[crate::FunctionId] = &[
     // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
     // blocked on the timing-fidelity decision, not waived by counter fixtures.
     crate::ids::WAIT_FOR_NEXT_V_BLANK,
+    // Complete caller bodies await class-aware residual dispatch and
+    // both-revision natural/live-state proof, including any IRQ phase blocker.
+    crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+    crate::ids::ENTER_SPLIT_SCREEN,
+    crate::ids::ENTER_SHARED_SCREEN,
+    crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
+    crate::ids::UPDATE_SCREEN_SPLIT_MODE,
+    crate::ids::CHECK_START_BUTTON,
+    crate::ids::PROCESS_INPUT,
+    crate::ids::HANDLE_V_BLANK,
 ];
 
 /// Unregistered bodies retained for explicit proof harnesses.
@@ -151,6 +164,38 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::HANDLE_H_BLANK,
         function: remaining::handle_hblank,
+    },
+    crate::Translation {
+        id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+        function: views::reload_active_camera_views,
+    },
+    crate::Translation {
+        id: crate::ids::ENTER_SPLIT_SCREEN,
+        function: views::enter_split_screen,
+    },
+    crate::Translation {
+        id: crate::ids::ENTER_SHARED_SCREEN,
+        function: views::enter_shared_screen,
+    },
+    crate::Translation {
+        id: crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
+        function: views::center_shared_camera_on_player,
+    },
+    crate::Translation {
+        id: crate::ids::UPDATE_SCREEN_SPLIT_MODE,
+        function: views::update_screen_split_mode,
+    },
+    crate::Translation {
+        id: crate::ids::CHECK_START_BUTTON,
+        function: input::check_start_button,
+    },
+    crate::Translation {
+        id: crate::ids::PROCESS_INPUT,
+        function: input::process_input,
+    },
+    crate::Translation {
+        id: crate::ids::HANDLE_V_BLANK,
+        function: vblank::handle_vblank,
     },
 ];
 
@@ -323,6 +368,9 @@ mod tests;
 
 #[cfg(test)]
 mod remaining_tests;
+
+#[cfg(test)]
+mod caller_tests;
 
 #[cfg(test)]
 pub(crate) mod test_support;
