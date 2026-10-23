@@ -5,10 +5,12 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     path::Path,
+    sync::Arc,
 };
 use tje_game::FunctionMetadata;
 use tje_host::{
     FrameSnapshot, Host, Mode,
+    execution::WaitInputPoller,
     hooks::HookRegistry,
     session_trace::{EntryObservation, FrameObservations, LogicTick},
 };
@@ -121,19 +123,62 @@ pub fn host(bytes: &[u8], mode: Mode, revision: Revision, capture_ticks: bool) -
     Ok(host)
 }
 
-pub fn apply_recipe(host: &mut Host, session: &Session, frame: u64) {
+fn apply_ram_recipe(memory: &mut dyn Bus, session: &Session, frame: u64) {
     for write in session
         .writes()
         .iter()
         .filter(|write| write.before_frame == frame)
     {
-        let mut context = host.context();
         match write.width {
-            1 => context.write_u8(write.address, write.value as u8),
-            2 => context.write_u16(write.address, write.value as u16),
-            4 => context.write_u32(write.address, write.value),
+            1 => memory.write_u8(write.address, write.value as u8),
+            2 => memory.write_u16(write.address, write.value as u16),
+            4 => memory.write_u32(write.address, write.value),
             _ => unreachable!("validated recipe width"),
         }
+    }
+}
+
+pub fn apply_recipe(host: &mut Host, session: &Session, frame: u64) {
+    apply_ram_recipe(&mut host.context(), session, frame);
+}
+
+/// One immutable, indexed timeline is shared by both independent check forks.
+/// RAM recipes use the same helper as ordinary frame-by-frame replay.
+struct SessionInputs {
+    session: Arc<Session>,
+    end_frames: Vec<u64>,
+}
+impl SessionInputs {
+    fn new(session: Arc<Session>) -> Self {
+        let mut end = 0;
+        let end_frames = session
+            .runs
+            .iter()
+            .map(|run| {
+                end += run.0;
+                end
+            })
+            .collect();
+        Self {
+            session,
+            end_frames,
+        }
+    }
+}
+impl WaitInputPoller for SessionInputs {
+    fn at(&self, frame: u64) -> tje_host::Result<GenesisInputs> {
+        let index = self.end_frames.partition_point(|&end| end <= frame);
+        let run = self.session.runs.get(index).ok_or_else(|| {
+            tje_host::HostError::Input(format!(
+                "session has no controller sample for video frame {frame}"
+            ))
+        })?;
+        Ok(inputs([run.1, run.2]))
+    }
+
+    fn before_frame(&self, frame: u64, memory: &mut dyn Bus) -> tje_host::Result<()> {
+        apply_ram_recipe(memory, &self.session, frame);
+        Ok(())
     }
 }
 
@@ -503,15 +548,21 @@ pub fn replay_report(
 }
 
 pub fn replay(bytes: &[u8], path: &Path, mode: Mode) -> Result<ReplayReport> {
-    let session = Session::from_json(&fs::read_to_string(path)?)?;
+    let session = Arc::new(Session::from_json(&fs::read_to_string(path)?)?);
     let revision = Revision::from(session.revision);
     ensure!(
         tje_rom::Rom::import(bytes)?.revision() == revision,
         "ROM revision does not match session"
     );
     let mut host = host(bytes, mode, revision, false)?;
+    host.set_wait_input_poller(Arc::new(SessionInputs::new(Arc::clone(&session))));
     let mut coverage = Coverage::new();
     for (frame, pads) in session.inputs().enumerate() {
+        // A suspended replacement may already have consumed these frames and
+        // applied their recipes through the wait timeline. Never replay them twice.
+        if (frame as u64) < host.frame_count() {
+            continue;
+        }
         apply_recipe(&mut host, &session, frame as u64);
         let snapshot = host
             .run_frame(inputs(pads))
@@ -579,7 +630,7 @@ fn divergence(
 /// Frame comparison checks all RAM (including dead stack), video/VDP, ordered
 /// hardware writes and bit-exact PCM; no hash-only or ignored-byte shortcuts.
 pub fn compare(bytes: &[u8], path: &Path, second: Mode, ticks: bool) -> Result<Comparison> {
-    let session = Session::from_json(&fs::read_to_string(path)?)?;
+    let session = Arc::new(Session::from_json(&fs::read_to_string(path)?)?);
     let revision = Revision::from(session.revision);
     ensure!(
         tje_rom::Rom::import(bytes)?.revision() == revision,
@@ -587,6 +638,9 @@ pub fn compare(bytes: &[u8], path: &Path, second: Mode, ticks: bool) -> Result<C
     );
     let mut reference = host(bytes, Mode::Reference, revision, ticks)?;
     let mut candidate = host(bytes, second, revision, ticks)?;
+    let timeline = Arc::new(SessionInputs::new(Arc::clone(&session)));
+    reference.set_wait_input_poller(timeline.clone());
+    candidate.set_wait_input_poller(timeline);
     let mut result = Comparison {
         session: path.display().to_string(),
         second_mode: format!("{second:?}").to_lowercase(),
@@ -605,6 +659,17 @@ pub fn compare(bytes: &[u8], path: &Path, second: Mode, ticks: bool) -> Result<C
             reference.take_session_observations(),
             candidate.take_session_observations(),
         ];
+        if a.frame != b.frame {
+            result.divergence = Some(divergence(
+                revision,
+                None,
+                [a.frame, b.frame],
+                [a.pc, b.pc],
+                [&a.ram, &b.ram],
+                "time-progressing replacement crossed video boundaries without intermediate snapshots; refusing a partial timing comparison",
+            ));
+            return Ok(result);
+        }
         if ticks {
             for (queue, observations) in queues.iter_mut().zip(observations) {
                 queue.extend(observations.ticks);
@@ -727,5 +792,38 @@ mod tests {
                 .collect::<BTreeSet<_>>();
             assert_eq!(entries.len(), 648);
         }
+    }
+
+    #[test]
+    fn wait_timeline_matches_rle_boundaries_and_runs_the_same_recipes() {
+        let mut session = Session::new(Revision::Rev02, "synthetic input and RAM recipe test");
+        for pads in [
+            [CONNECTED, 0],
+            [CONNECTED, 0],
+            [CONNECTED | tje_session::A, 0],
+        ] {
+            session.record(pads).unwrap();
+        }
+        session.start = tje_session::Start::Recipe {
+            description: "write a synthetic word at frame two".into(),
+            writes: vec![tje_session::RamWrite {
+                before_frame: 2,
+                address: 0xff8000,
+                width: 2,
+                value: 0x1234,
+                reason: "exercise identical ordinary-frame and suspended-frame recipes".into(),
+            }],
+        };
+        session.validate().unwrap();
+        let timeline = SessionInputs::new(Arc::new(session.clone()));
+        for (frame, pads) in session.inputs().enumerate() {
+            assert_eq!(timeline.at(frame as u64).unwrap(), inputs(pads));
+        }
+        assert!(timeline.at(session.frames).is_err());
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), Revision::Rev02);
+        timeline.before_frame(1, &mut memory).unwrap();
+        assert_eq!(memory.read_u16(0xff8000), 0);
+        timeline.before_frame(2, &mut memory).unwrap();
+        assert_eq!(memory.read_u16(0xff8000), 0x1234);
     }
 }

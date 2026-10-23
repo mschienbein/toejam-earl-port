@@ -329,6 +329,11 @@ Replacement hosts move the existing audio allocation through a wait rather than
 copying the generated sample stream; unchecked play disables chronological RAM
 auditing. Recorded session timelines also apply their per-frame RAM recipes
 before the first instruction of each crossed frame.
+The session runner installs the same immutable indexed recording on both check
+forks, including recipes. Replacement replay does not apply consumed frames a
+second time. A whole-session timing comparison refuses mismatched video boundaries
+if a synchronous replacement has no intermediate snapshots; it never calls that
+partial observation stream a passing timing proof.
 
 ### Exactly what a time-aware check proves
 
