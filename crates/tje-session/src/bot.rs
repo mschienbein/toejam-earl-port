@@ -628,12 +628,7 @@ pub fn generate(
         }
     }
     fs::write(path, session.to_json()?)?;
-    Ok(runner::replay_report(
-        path,
-        &session,
-        &host,
-        coverage.content,
-    ))
+    runner::replay_report(path, &session, &host, coverage.content)
 }
 
 #[cfg(test)]

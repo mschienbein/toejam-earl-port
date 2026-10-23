@@ -132,6 +132,10 @@ TimeAware traces or fabricate a completed coverage report; `union` rejects this
 failure schema. If the diagnostic cannot be written, both that I/O error and the
 original execution error remain visible. Input/ROM parse failures occur before a
 host exists and therefore have no invented host counters.
+Completed check/replacement reports also retain `checks.by_function`, including
+the exact registered production set with zero-hit entries, per-function checked/
+replacement/mismatch counts and the host's structured diagnostics. Reference-only
+reports omit this Rust-check data rather than inventing a checked registration.
 
 ## Determinism and first divergence
 
@@ -223,6 +227,9 @@ needed pickups instead of starving its own mobility supply. Real extra lives,
 promotions and later-level speed presents are used through the inventory; a live
 doorway may be reused if another route becomes inaccessible. Mystery/randomizer
 fallbacks remain actual present opens, not fabricated effects or grants.
+Already-active wings satisfy a stale mobility demand: a spare innertube, doorway
+or mystery present must not cancel the real flight. A successful elevator route
+clears the prior demand before choosing more inventory actions.
 Blocking map-screen exits use the controller that requested the map, including
 P2's telephone map; P1's C button cannot dismiss a P2-owned map wait.
 No map, route, present table, or decoded resource is embedded in the crate or

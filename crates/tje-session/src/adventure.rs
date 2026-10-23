@@ -510,6 +510,7 @@ impl Adventure {
                             .steer(memory, rom, revision, player, target, frame)
                         {
                             *pad |= input;
+                            self.mobility_needed[player] = false;
                         } else {
                             let approach = self.navigation[player]
                                 .marked_path_approach(memory, revision, player, position, target);
@@ -858,6 +859,12 @@ impl Adventure {
         health: i8,
     ) -> Option<Goal> {
         let level = self.levels[player];
+        let power = ram::g_player_powerups(revision)
+            .at(player as i32)
+            .read(memory);
+        // Actual active wings satisfy the travel demand. Do not cancel them
+        // with a spare tube/door/randomizer merely because an old flag remains.
+        let mobility_needed = self.mobility_needed[player] && power != 0;
         if self.objective == Objective::LevelZero
             && level == 0
             && friendly_done(content, 23)
@@ -873,7 +880,8 @@ impl Adventure {
             .at(player as i32)
             .read(memory);
         if doorway > 0
-            && (self.mobility_needed[player] || !self.doorway_used[player])
+            && power != 0
+            && (mobility_needed || !self.doorway_used[player])
             && ram::g_player_info(revision)
                 .at(i32::from(doorway))
                 .level()
@@ -882,38 +890,23 @@ impl Adventure {
         {
             return Some(Goal::Doorway);
         }
-        if self.mobility_needed[player]
-            && ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                != 0
+        if mobility_needed
             && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 0)
         {
             return Some(Goal::Present { slot, kind: 0 });
         }
-        if self.mobility_needed[player]
-            && ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                != 0
+        if mobility_needed
             && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 8)
         {
             return Some(Goal::Present { slot, kind: 8 });
         }
-        if self.mobility_needed[player]
-            && ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                != 2
+        if mobility_needed
+            && power != 2
             && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 2)
         {
             return Some(Goal::Present { slot, kind: 2 });
         }
-        if self.mobility_needed[player]
-            && ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                != 0
+        if mobility_needed
             && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 26)
         {
             return Some(Goal::Present { slot, kind: 26 });
@@ -983,7 +976,7 @@ impl Adventure {
                 || (self.objective == Objective::Campaign && kind == 17 && lives < 5)
                 || (self.objective == Objective::Campaign
                     && kind == 18
-                    && self.mobility_needed[player]
+                    && mobility_needed
                     && inventory_counts[0] + inventory_counts[8] == 0
                     && count >= 4)
                 || (self.objective == Objective::Campaign
@@ -1011,7 +1004,7 @@ impl Adventure {
         });
         // An unreachable ship must not starve the real mobility pickup that
         // would make it reachable. Accessible ships still have first priority.
-        if ship.is_some() && !self.mobility_needed[player] {
+        if ship.is_some() && !mobility_needed {
             return ship;
         }
         if self.objective == Objective::Explore || level == 0 || health < 8 {
@@ -1430,6 +1423,9 @@ mod tests {
             planner.levels[0] = 7;
             planner.doorway_used[0] = true;
             planner.mobility_needed[0] = true;
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
             ram::g_player_doorway_entities(revision)
                 .at(0)
                 .write(&mut memory, 6);
@@ -1450,6 +1446,39 @@ mod tests {
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
                 None
             );
+        }
+    }
+
+    #[test]
+    fn active_wings_are_not_replaced_by_spare_mobility_or_a_stale_need_flag() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 7;
+            planner.mobility_needed[0] = true;
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 2);
+            inventory.at(1).write(&mut memory, 26);
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 0);
+            ram::g_player_doorway_entities(revision)
+                .at(0)
+                .write(&mut memory, 6);
+            ram::g_player_info(revision)
+                .at(6)
+                .level()
+                .write(&mut memory, 7);
+            let ship = ram::g_earthling_banks(revision).at(0).at(0);
+            ship.kind().write(&mut memory, 0);
+            ship.level().write(&mut memory, 7);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Ship { bank: 0, index: 0 })
+            );
+            assert_eq!(ram::g_player_powerups(revision).at(0).read(&memory), 0);
+            assert_eq!(inventory.at(0).read(&memory), 2);
         }
     }
 }

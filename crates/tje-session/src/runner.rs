@@ -831,6 +831,9 @@ pub struct ReplayReport {
     pub inventory_entries: usize,
     pub entry_counts: BTreeMap<String, u64>,
     pub content: Content,
+    /// Full production registration and per-function checks, including zero hits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks: Option<serde_json::Value>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissedEntry {
@@ -919,7 +922,7 @@ pub fn replay_report(
     session: &Session,
     host: &Host,
     content: Content,
-) -> ReplayReport {
+) -> Result<ReplayReport> {
     let entry_counts = functions()
         .into_iter()
         .zip(host.session_entry_counts().unwrap())
@@ -930,7 +933,7 @@ pub fn replay_report(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    ReplayReport {
+    Ok(ReplayReport {
         session: path.display().to_string(),
         revision: format!("{:?}", Revision::from(session.revision)).to_lowercase(),
         mode: format!("{:?}", host.mode()).to_lowercase(),
@@ -960,7 +963,12 @@ pub fn replay_report(
         inventory_entries: entry_counts.len(),
         entry_counts,
         content,
-    }
+        checks: if host.mode() == Mode::Reference {
+            None
+        } else {
+            Some(serde_json::to_value(&host.checks)?)
+        },
+    })
 }
 
 #[derive(Serialize)]
@@ -1056,7 +1064,7 @@ pub fn replay(
         let observations = host.take_session_observations();
         coverage.observe(&host, &snapshot, &observations, revision);
     }
-    Ok(replay_report(path, &session, &host, coverage.content))
+    replay_report(path, &session, &host, coverage.content)
 }
 
 #[derive(Debug, Serialize)]
