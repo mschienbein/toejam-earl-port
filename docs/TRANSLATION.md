@@ -386,6 +386,8 @@ compiled caller before calling. Known cases, each confirmed in G's compiled outp
 | `MapConsumePathCellDirections` | entry D6 low byte (as shape) | pending cell has no local or adjacent directions |
 | `EntityReserveLandPathAnimations` → `AllocateEntityViewportSprites` | D4 low word = animation index 0..7 (compiled caller CLR.W D4, then ADDQ.W) | as `AllocateEntityViewportSprites` above |
 | `GenerateSpeech` → `AllocateEntityViewportSprites` | D4 low word = slot | as above |
+| `JamOutCreateCharacterCopies` | entry D3 low byte (parent number; `StartJamOut` keeps `song` in D3.W at the call) and the word at entry SP-6 (`-2(A6)`, lead tile) | a non-lead copy succeeds after slot 0 failed |
+| `ProcessElevatorStep1` → `ElevatorAdvanceRidersToNextLevel` | D3 low byte = current state, A3 = `gPlayerInfo` at the call | as `ElevatorAdvanceRidersToNextLevel` above |
 
 Add new cases here when you find them.
 
