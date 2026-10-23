@@ -33,6 +33,9 @@ enum Goal {
         row: i16,
         point: (i16, i16),
     },
+    Path {
+        point: (i16, i16),
+    },
     Doorway,
 }
 
@@ -53,7 +56,9 @@ pub struct ContentBot {
     bath_since: [Option<u64>; 2],
     mobility_needed: [bool; 2],
     doorway_used: [bool; 2],
+    service_contacts: [Option<(Goal, (i16, i16))>; 2],
     previous_health: [i8; 2],
+    initial_life_setup: Option<bool>,
     scene: &'static str,
     scene_player: usize,
     scene_since: u64,
@@ -79,7 +84,9 @@ impl ContentBot {
             bath_since: [None; 2],
             mobility_needed: [false; 2],
             doorway_used: [false; 2],
+            service_contacts: [None; 2],
             previous_health: [i8::MAX; 2],
+            initial_life_setup: None,
             scene: "game",
             scene_player: 0,
             scene_since: 0,
@@ -137,6 +144,9 @@ impl ContentBot {
             }
             return;
         }
+        if self.prepare_life_transfer(memory, rom, revision, content, frame, pads) {
+            return;
+        }
         for (player, pad) in pads.iter_mut().enumerate().take(self.players) {
             if *pad == 0 {
                 continue;
@@ -158,6 +168,7 @@ impl ContentBot {
                 self.levels[player] = level;
                 self.goals[player] = None;
                 self.bath_since[player] = None;
+                self.service_contacts[player] = None;
             }
             let mode = ram::g_player_inventory_open(revision)
                 .at(player as i32)
@@ -218,6 +229,16 @@ impl ContentBot {
                         .at(1);
                     self.arrival_exit[player] = Some(arrival.y().read(memory) + 40);
                     *pad |= DOWN;
+                } else if self
+                    .present_goal(memory, revision, content, player)
+                    .is_some()
+                {
+                    let departure = ram::g_elevator_records(revision)
+                        .at((i32::from(elevator) - 1) / 2)
+                        .at(0);
+                    self.arrival_exit[player] = Some(departure.y().read(memory) + 40);
+                    self.goals[player] = None;
+                    *pad |= DOWN;
                 }
                 continue;
             }
@@ -260,6 +281,11 @@ impl ContentBot {
             let partner_flag = ram::g_player_elevator_flags(revision)
                 .at((player ^ 1) as i32)
                 .read(memory);
+            let present = self.present_goal(memory, revision, content, player);
+            if matches!(self.goals[player], Some(Goal::Elevator { .. })) && present.is_some() {
+                self.goals[player] = present;
+                self.goal_since[player] = frame;
+            }
             if self.players == 2
                 && partner_flag & 1 != 0
                 && ram::g_player_info(revision)
@@ -267,6 +293,7 @@ impl ContentBot {
                     .level()
                     .read(memory)
                     == level
+                && present.is_none()
             {
                 let goal = Goal::Elevator {
                     bank: (i32::from(partner_flag) - 1) / 2,
@@ -353,14 +380,28 @@ impl ContentBot {
                             };
                         }
                         if matches!(kind, 9..=11 | 17) {
-                            target = (x + if position.0 < x { -24 } else { 24 }, y + 12);
-                            if (position.0 - x).abs() < 96 && (position.1 - y).abs() < 64 {
-                                if (position.1 - target.1).abs() > 2 {
-                                    *pad |= if position.1 < target.1 { DOWN } else { UP };
-                                } else if (position.0 - x).abs() > 28 {
-                                    *pad |= if position.0 < x { RIGHT } else { LEFT };
-                                }
+                            let limits = (if kind == 9 { 30 } else { 35 }, 15);
+                            if (position.0 - x).abs() < limits.0
+                                && (position.1 - y).abs() < limits.1
+                            {
                                 continue;
+                            }
+                            let cached = self.service_contacts[player].filter(|(old, point)| {
+                                *old == goal
+                                    && (point.0 - x).abs() < limits.0
+                                    && (point.1 - y).abs() < limits.1
+                            });
+                            if let Some((_, point)) = cached {
+                                target = point;
+                            } else {
+                                let _ = self.navigation[player]
+                                    .steer(memory, rom, revision, player, position, frame);
+                                if let Some(point) = self.navigation[player]
+                                    .reachable_land_in_range(position, (x, y), limits)
+                                {
+                                    self.service_contacts[player] = Some((goal, point));
+                                    target = point;
+                                }
                             }
                         }
                         if kind == 23
@@ -451,7 +492,7 @@ impl ContentBot {
                             self.travel(memory, rom, revision, player, target, frame, pad);
                         }
                     }
-                    Goal::Survey { point, .. } => {
+                    Goal::Survey { point, .. } | Goal::Path { point } => {
                         self.travel(memory, rom, revision, player, point, frame, pad);
                     }
                     Goal::Elevator { bank } => {
@@ -475,6 +516,48 @@ impl ContentBot {
                 }
             }
         }
+        if needs_gifts(content) {
+            for bank in 0..2 {
+                for index in 0..20 {
+                    let santa = ram::g_earthling_banks(revision).at(bank).at(index);
+                    if santa.kind().read(memory) != 20 || santa.state().read(memory) > 1 {
+                        continue;
+                    }
+                    for (player, pad) in pads.iter_mut().enumerate().take(self.players) {
+                        let view = ram::g_player_info(revision).at(player as i32);
+                        if view.level().read(memory) != santa.level().read(memory)
+                            || (view.x().read(memory) - santa.x().read(memory)).abs() >= 170
+                            || (view.y().read(memory) - santa.y().read(memory)).abs() >= 110
+                            || ram::g_player_lives(revision).at(player as i32).read(memory) < 0
+                            || ram::g_player_inventory_open(revision)
+                                .at(player as i32)
+                                .read(memory)
+                                != 0
+                            || ram::g_player_interaction_choice_active(revision)
+                                .at(player as i32)
+                                .read(memory)
+                                != 0
+                        {
+                            continue;
+                        }
+                        if santa.state().read(memory) == 1
+                            || ram::g_player_powerups(revision)
+                                .at(player as i32)
+                                .read(memory)
+                                >= 0
+                            || ram::g_player_burps_left(revision)
+                                .at(player as i32)
+                                .read(memory)
+                                > 0
+                        {
+                            *pad &= !(15 | A);
+                        } else if *pad & 15 != 0 {
+                            *pad |= A;
+                        }
+                    }
+                }
+            }
+        }
         if frame >= self.last_status + 1000 {
             self.last_status = frame;
             let stats: [(i8, i16, i16, i8, i8, i8, i8); 2] = std::array::from_fn(|player| {
@@ -491,8 +574,27 @@ impl ContentBot {
                     view.sprite_state().read(memory),
                 )
             });
+            let inventories: [[i8; 16]; 2] = std::array::from_fn(|player| {
+                std::array::from_fn(|slot| {
+                    ram::g_player_inventory(revision)
+                        .at(player as i32)
+                        .at(slot as i32)
+                        .read(memory)
+                })
+            });
+            let resources: [(i8, i8, i8); 2] = std::array::from_fn(|player| {
+                (
+                    ram::g_player_bucks(revision).at(player as i32).read(memory),
+                    ram::g_player_powerups(revision)
+                        .at(player as i32)
+                        .read(memory),
+                    ram::g_player_elevator_flags(revision)
+                        .at(player as i32)
+                        .read(memory),
+                )
+            });
             eprintln!(
-                "content frame={frame} players={stats:?} goals={:?} presents={} earthlings={}",
+                "content frame={frame} players={stats:?} resources={resources:?} inventories={inventories:?} goals={:?} presents={} earthlings={}",
                 self.goals,
                 content
                     .presents_opened
@@ -506,6 +608,64 @@ impl ContentBot {
                     .count()
             );
         }
+    }
+
+    fn prepare_life_transfer(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        content: &Content,
+        frame: u64,
+        pads: &mut [u16; 2],
+    ) -> bool {
+        // Only a fresh two-player game prepares this service deliberately.
+        // Continuing an existing campaign must not discard its real inventory.
+        let active = self.initial_life_setup.get_or_insert_with(|| {
+            self.players == 2
+                && content.milestones["fixed_world"].is_some_and(|start| frame <= start + 120)
+        });
+        if !*active {
+            return false;
+        }
+        if seen(&content.friendly_interactions, "life_request") {
+            *active = false;
+            return false;
+        }
+        if ram::g_player_lives(revision).at(1).read(memory) < 0 {
+            if frame % 64 < 12 {
+                pads[1] |= A;
+            }
+            if ram::g_player_interaction_choice_active(revision)
+                .at(0)
+                .read(memory)
+                != 0
+            {
+                if frame % 48 < 12 {
+                    pads[0] |= UP;
+                } else if (24..36).contains(&(frame % 48)) {
+                    pads[0] |= A;
+                }
+            } else if (32..44).contains(&(frame % 64)) {
+                // Wake a waiting donor before requesting the real transfer.
+                pads[0] |= A;
+            }
+            return true;
+        }
+        let player = ram::g_player_info(revision).at(1);
+        if matches!(player.sprite_state().read(memory), 5 | 6) {
+            return true;
+        }
+        let position = (player.x().read(memory), player.y().read(memory));
+        let _ = self.navigation[1].steer(memory, rom, revision, 1, position, frame);
+        if self.navigation[1].terrain_at(position) != 0x80
+            && let Some(target) = self.navigation[1].nearest_terrain(position, 0x80)
+            && let Some(input) =
+                self.navigation[1].toward(memory, rom, revision, 1, (target, Travel::Swim), frame)
+        {
+            pads[1] |= input;
+        }
+        true
     }
 
     pub fn complete(
@@ -576,10 +736,25 @@ impl ContentBot {
             return;
         }
         if let Some(input) = input {
+            self.mobility_needed[player] = false;
             *pad |= input;
             if power == 7 && input & 15 != 0 {
                 *pad |= A;
             }
+            return;
+        }
+        if travel == Travel::Land
+            && let Some(point) = self.navigation[player]
+                .marked_path_approach(memory, revision, player, position, target)
+            && ((position.0 - point.0).abs() >= 4 || (position.1 - point.1).abs() >= 4)
+            && self.goals[player] != Some(Goal::Path { point })
+            && !self.blocked.iter().any(|&(level, goal, until)| {
+                level == self.levels[player] && goal == Goal::Path { point } && until > frame
+            })
+        {
+            self.goals[player] = Some(Goal::Path { point });
+            self.goal_since[player] = frame;
+            self.mobility_needed[player] = false;
             return;
         }
         self.mobility_needed[player] = true;
@@ -633,7 +808,11 @@ impl ContentBot {
                 let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
                 earthling.kind().read(memory) < 0
                     || earthling.level().read(memory) != level
+                    || (earthling.kind().read(memory) == 20
+                        && earthling.object().read(memory) != 0
+                        && earthling.state().read(memory) > 1)
                     || (service_done(content, earthling.kind().read(memory))
+                        && !(earthling.kind().read(memory) == 20 && needs_gifts(content))
                         && !(earthling.kind().read(memory) == 10
                             && ram::g_player_health(revision)
                                 .at(player as i32)
@@ -654,6 +833,11 @@ impl ContentBot {
                     .level()
                     .read(memory)
                     != level
+            }
+            Goal::Path { point } => {
+                let view = ram::g_player_info(revision).at(player as i32);
+                (view.x().read(memory) - point.0).abs() < 4
+                    && (view.y().read(memory) - point.1).abs() < 4
             }
             Goal::Survey { column, row, .. } => {
                 ram::g_map_visited_cover_bits(revision)
@@ -690,6 +874,7 @@ impl ContentBot {
             .filter(|&slot| inventory.at(slot).read(memory) >= 0)
             .count();
         let collecting = count < 12
+            && health >= 12
             && !self.mobility_needed[player]
             && (0..16).any(|slot| inventory.at(slot).read(memory) == 18)
             && (0..2).any(|bank| {
@@ -705,7 +890,7 @@ impl ContentBot {
                 if !(0..28).contains(&kind) {
                     return None;
                 }
-                if collecting && !matches!(kind, 0 | 9 | 10 | 14 | 17 | 20 | 21) {
+                if collecting && !matches!(kind, 0 | 9..=11 | 14 | 17 | 20..=21 | 23) {
                     return None;
                 }
                 let missing = !content
@@ -728,7 +913,7 @@ impl ContentBot {
                     2
                 } else if missing && kind != 18 {
                     3
-                } else if (kind == 18 && (missing || count >= 5))
+                } else if (kind == 18 && (missing || count >= 5 || health < 12))
                     || matches!(kind, 7 | 27)
                         && !matches!(
                             ram::g_player_powerups(revision)
@@ -786,7 +971,12 @@ impl ContentBot {
                 }
             }
         }
-        if self.mobility_needed[player] {
+        let mobility_needed = self.mobility_needed[player]
+            && ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                != 0;
+        if mobility_needed {
             if !self.doorway_used[player]
                 && ram::g_player_doorway_entities(revision)
                     .at(player as i32)
@@ -809,11 +999,7 @@ impl ContentBot {
                 });
             }
         }
-        if self.mobility_needed[player]
-            && ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                != 0
+        if mobility_needed
             && (0..16).any(|slot| {
                 ram::g_player_inventory(revision)
                     .at(player as i32)
@@ -826,6 +1012,31 @@ impl ContentBot {
                 kind: 0,
                 drop: false,
             });
+        }
+        let view = ram::g_player_info(revision).at(player as i32);
+        let position = (view.x().read(memory), view.y().read(memory));
+        if needs_gifts(content) {
+            for bank in 0..2 {
+                for index in 0..20 {
+                    let santa = ram::g_earthling_banks(revision).at(bank).at(index);
+                    let goal = Goal::Earthling { bank, index };
+                    if santa.kind().read(memory) == 20
+                        && santa.level().read(memory) == level
+                        && (santa.state().read(memory) <= 1 || santa.object().read(memory) == 0)
+                        && (santa.x().read(memory) - position.0).abs() < 400
+                        && (santa.y().read(memory) - position.1).abs() < 250
+                        && eligible(goal)
+                    {
+                        return Some(goal);
+                    }
+                }
+            }
+        }
+        if let Some(goal @ Goal::Present { kind: 11 | 23, .. }) =
+            self.present_goal(memory, revision, content, player)
+            && eligible(goal)
+        {
+            return Some(goal);
         }
         let health = ram::g_player_health(revision)
             .at(player as i32)
@@ -864,15 +1075,13 @@ impl ContentBot {
                 || matches!(
                     goal,
                     Goal::Present {
-                        kind: 0 | 9 | 10 | 14 | 17 | 20 | 21,
+                        kind: 0 | 7 | 9..=12 | 14 | 17..=21 | 27,
                         ..
                     }
                 ))
         {
             return Some(goal);
         }
-        let view = ram::g_player_info(revision).at(player as i32);
-        let position = (view.x().read(memory), view.y().read(memory));
         let count = (0..16)
             .filter(|&slot| inventory.at(slot).read(memory) >= 0)
             .count();
@@ -904,7 +1113,9 @@ impl ContentBot {
                 let kind = earthling.kind().read(memory);
                 if !(0..25).contains(&kind)
                     || earthling.level().read(memory) != level
-                    || (service_done(content, kind) && !(kind == 10 && health < 18 && bucks > 0))
+                    || (service_done(content, kind)
+                        && !(kind == 20 && needs_gifts(content))
+                        && !(kind == 10 && health < 18 && bucks > 0))
                 {
                     continue;
                 }
@@ -913,6 +1124,9 @@ impl ContentBot {
                     10 => bucks >= 1,
                     11 => count > 0 && bucks >= 2,
                     17 => bucks >= 3,
+                    20 => {
+                        earthling.state().read(memory) <= 1 || earthling.object().read(memory) == 0
+                    }
                     _ => true,
                 };
                 let encountered = content
@@ -994,10 +1208,32 @@ impl ContentBot {
         if let Some((_, goal)) = best {
             return Some(goal);
         }
+        if needs_gifts(content)
+            && (0..2).any(|bank| {
+                (0..20).any(|index| {
+                    let santa = ram::g_earthling_banks(revision).at(bank).at(index);
+                    santa.kind().read(memory) == 20
+                        && santa.level().read(memory) == level
+                        && santa.object().read(memory) != 0
+                        && santa.state().read(memory) > 1
+                })
+            })
+            && let Some(point) = self.navigation[player].nearest_terrain(
+                (
+                    position.0 + if position.0 < 1344 { 512 } else { -512 },
+                    position.1,
+                ),
+                0x10,
+            )
+            && (position.0 - point.0).abs() > 320
+            && eligible(Goal::Path { point })
+        {
+            return Some(Goal::Path { point });
+        }
         // Discovery points are awarded only for actually entering an uncovered
         // 320x256 region. These goals earn the remaining ranks by walking the
         // generated world, not by setting points or opening the map screen.
-        if (12..26).contains(&level)
+        if (2..26).contains(&level)
             && ram::g_player_rank(revision).at(player as i32).read(memory) < 8
         {
             let mut survey = None;
@@ -1159,6 +1395,16 @@ impl ContentBot {
 
 fn seen(map: &std::collections::BTreeMap<String, Option<u64>>, name: &str) -> bool {
     map.get(name).is_some_and(Option::is_some)
+}
+
+fn needs_gifts(content: &Content) -> bool {
+    !service_done(content, 20)
+        || !content.ranks_reached.contains(&8)
+        || content.presents_opened.values().any(Option::is_none)
+        || content
+            .earthlings_encountered
+            .range(1..23)
+            .any(|(_, frame)| frame.is_none())
 }
 
 fn service_done(content: &Content, kind: i8) -> bool {
@@ -1380,6 +1626,39 @@ mod tests {
     }
 
     #[test]
+    fn active_wings_are_not_displaced_by_stale_doorway_mobility() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 8);
+            byte(
+                &mut memory,
+                ram::g_player_doorway_entities(revision).at(0).address() + 1,
+                2,
+            );
+            let mut content = Content::new();
+            content.presents_opened.insert(8, Some(1));
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 1;
+            bot.mobility_needed[0] = true;
+            assert_ne!(
+                bot.select_goal(&Ram(&memory), &[], revision, &content, 0, 40000),
+                Some(Goal::Doorway)
+            );
+            assert_ne!(
+                bot.select_goal(&Ram(&memory), &[], revision, &content, 0, 40000),
+                Some(Goal::Present {
+                    kind: 8,
+                    drop: false
+                })
+            );
+        }
+    }
+
+    #[test]
     fn retry_bookkeeping_updates_instead_of_growing_per_frame() {
         let mut bot = ContentBot::new(1);
         bot.levels[0] = 4;
@@ -1413,6 +1692,187 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn collecting_for_a_randomizer_keeps_promotions_and_earthlings_actionable() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 18);
+            byte(&mut memory, inventory.at(1).address(), 23);
+            byte(&mut memory, inventory.at(2).address(), 11);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                23,
+            );
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 4;
+            let item = ram::g_object_table(revision).at(0).at(0);
+            byte(&mut memory, item.kind().address(), 9);
+            byte(&mut memory, item.level().address(), 4);
+            let content = Content::new();
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 11,
+                    drop: false
+                })
+            );
+            byte(&mut memory, inventory.at(2).address(), -1);
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 23,
+                    drop: false
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_waiting_rider_leaves_to_open_available_content() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            for player in 0..2 {
+                let inventory = ram::g_player_inventory(revision).at(player);
+                for slot in 0..16 {
+                    byte(&mut memory, inventory.at(slot).address(), -1);
+                }
+                byte(
+                    &mut memory,
+                    ram::g_player_info(revision).at(player).level().address(),
+                    5 + player as i8,
+                );
+                byte(
+                    &mut memory,
+                    ram::g_player_health(revision).at(player).address(),
+                    23,
+                );
+                byte(
+                    &mut memory,
+                    ram::g_player_lives(revision).at(player).address(),
+                    3,
+                );
+            }
+            byte(
+                &mut memory,
+                ram::g_player_inventory(revision).at(1).at(0).address(),
+                23,
+            );
+            byte(
+                &mut memory,
+                ram::g_player_elevator_flags(revision).at(1).address(),
+                1,
+            );
+            let mut bot = ContentBot::new(2);
+            let mut pads = [tje_session::CONNECTED; 2];
+            bot.choose(
+                &Ram(&memory),
+                &[],
+                revision,
+                &Content::new(),
+                74000,
+                &mut pads,
+            );
+            assert_eq!(pads[1], tje_session::CONNECTED | DOWN);
+            assert_eq!(bot.arrival_exit[1], Some(40));
+        }
+    }
+
+    #[test]
+    fn late_prefixes_do_not_restart_the_life_transfer_setup() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut bot = ContentBot::new(2);
+            let mut content = Content::new();
+            content.milestones.insert("fixed_world".into(), Some(936));
+            let mut pads = [tje_session::CONNECTED; 2];
+            assert!(!bot.prepare_life_transfer(
+                &Ram(&[0; 65536]),
+                &[],
+                revision,
+                &content,
+                74000,
+                &mut pads,
+            ));
+            assert_eq!(bot.initial_life_setup, Some(false));
+            assert_eq!(pads, [tje_session::CONNECTED; 2]);
+        }
+    }
+
+    #[test]
+    fn a_nearby_quiet_santa_precedes_opening_another_present() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 23);
+            let santa = ram::g_earthling_banks(revision).at(0).at(0);
+            byte(&mut memory, santa.kind().address(), 20);
+            byte(&mut memory, santa.level().address(), 4);
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 4;
+            assert_eq!(
+                bot.select_goal(&Ram(&memory), &[], revision, &Content::new(), 0, 40000),
+                Some(Goal::Earthling { bank: 0, index: 0 })
+            );
+        }
+    }
+
+    #[test]
+    fn a_previously_seen_randomizer_remains_a_low_health_recovery_option() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 18);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                5,
+            );
+            let mut content = Content::new();
+            content.presents_opened.insert(18, Some(1));
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 1;
+            assert_eq!(
+                bot.select_goal(&Ram(&memory), &[], revision, &content, 0, 40000),
+                Some(Goal::Present {
+                    kind: 18,
+                    drop: false
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_gift_witness_does_not_end_the_inventory_rank_and_earthling_farm() {
+        let mut content = Content::new();
+        content
+            .friendly_interactions
+            .insert("santa_gifts".into(), Some(1));
+        for frame in content.presents_opened.values_mut() {
+            *frame = Some(2);
+        }
+        for (_, frame) in content.earthlings_encountered.range_mut(1..23) {
+            *frame = Some(3);
+        }
+        assert!(needs_gifts(&content));
+        content.ranks_reached.insert(8);
+        assert!(!needs_gifts(&content));
+        content.presents_opened.insert(23, None);
+        assert!(needs_gifts(&content));
+        content.presents_opened.insert(23, Some(4));
+        content.earthlings_encountered.insert(17, None);
+        assert!(needs_gifts(&content));
     }
 
     #[test]
