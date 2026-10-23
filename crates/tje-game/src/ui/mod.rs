@@ -113,10 +113,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: hud_hide_player_sprites,
     },
     crate::Translation {
-        id: crate::ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
-        function: inventory_refresh_contents_and_wait,
-    },
-    crate::Translation {
         id: crate::ids::DRAW_NESTED_WINDOW_FRAME,
         function: draw_nested_window_frame,
     },
@@ -256,6 +252,12 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 
 /// Opt-in inventory candidates; not registered until both-revision proof.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // Committed cooperation session REV02 frame4903 has unequal VDP state;
+    // withdrawn from production until the IRQ redraw interaction is proved.
+    crate::Translation {
+        id: ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
+        function: inventory_refresh_contents_and_wait,
+    },
     // The longer parent check differs in the global chip write stream at
     // REV02 frame4808/REV00 frame4810; autonomous origin is [INFERENCE].
     // Direct OpenPresent hooks pass separately; no parent mismatch is waived.
@@ -375,6 +377,7 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 /// call-frame composition are still proof prerequisites, never assumed passed.
 pub static PENDING: &[crate::FunctionId] = &[
     // Exact per-entry blockers are on the body registry above, not approval.
+    ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
     ids::CHECK_IF_OPEN_FOR_BOTH,
     // Exact direct redraw/clock/device-observation receipts remain required.
     ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
