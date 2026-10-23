@@ -8,6 +8,7 @@ rebuilds both retail ROMs byte for byte from readable C and assembly.
 **Status: work in progress, not a finished 68000-free release.** The native and web
 frontends currently run the hybrid host. The plan is in [docs/PLAN.md](docs/PLAN.md)
 and progress in [docs/STATUS.md](docs/STATUS.md).
+See also the [function catalogue](docs/FUNCTIONS.md) and [revision differences](docs/REVISIONS.md).
 
 You need your own copy of the game (REV 02 "Rev A" or REV 00). Nothing from the game is in this
 repository: the port reads graphics, sound and level data from your ROM.
