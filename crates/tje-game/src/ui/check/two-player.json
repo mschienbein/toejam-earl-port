@@ -1,0 +1,19 @@
+{
+  "p2_connected": true,
+  "holds": [
+    {"start": 300, "end": 308, "p1": ["start"]},
+    {"start": 600, "end": 608, "p1": ["start"]},
+    {"start": 900, "end": 908, "p1": ["start"]},
+    {"start": 1100, "end": 1108, "p1": ["start"]},
+    {"start": 1200, "end": 1208, "p1": ["start"]},
+    {"start": 1400, "end": 1408, "p1": ["b"]},
+    {"start": 1450, "end": 1458, "p1": ["right"]},
+    {"start": 1500, "end": 1508, "p1": ["b"]},
+    {"start": 1600, "end": 1608, "p2": ["b"]},
+    {"start": 1650, "end": 1658, "p2": ["right"]},
+    {"start": 1700, "end": 1708, "p2": ["b"]},
+    {"start": 1800, "end": 2000, "p1": ["left"], "p2": ["right"]},
+    {"start": 2100, "end": 2108, "p1": ["b"], "p2": ["b"]},
+    {"start": 2200, "end": 2208, "p1": ["b"], "p2": ["b"]}
+  ]
+}
