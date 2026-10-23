@@ -1,0 +1,104 @@
+//! Private framed-DMA proof; the canonical function is not in a public registry.
+use std::{fs, path::PathBuf, sync::Arc};
+use tje_game::{FramedTranslation, ids, platform};
+use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
+use tje_mem::{Revision, ram, rom};
+
+static FRAMED_DMA: &[FramedTranslation] = &[FramedTranslation {
+    id: ids::DMA_COPY_WORDS_TO_VRAM,
+    function: platform::dma_copy_words_to_vram_framed,
+}];
+
+fn save(host: &Host, natural: &serde_json::Value) {
+    let directory = PathBuf::from(std::env::var_os("TJE_PLATFORM_EVIDENCE_DIR").unwrap());
+    let report = serde_json::json!({
+        "revision": host.revision().name(), "frames": host.frame_count(),
+        "game_frame": host.measurements.game_frame,
+        "natural": natural, "with_live_fixtures": host.checks,
+    });
+    fs::write(
+        directory.join(format!(
+            "{}-canonical-framed-dma.json",
+            host.revision().name()
+        )),
+        serde_json::to_vec_pretty(&report).unwrap(),
+    )
+    .unwrap();
+    println!("CANONICAL_DMA {report}");
+}
+
+#[test]
+#[ignore = "requires both private ROMs; opt-in canonical entry only"]
+fn canonical_framed_dma_matches_both_roms_including_ram_wide_zero_length() {
+    let script = Arc::new(
+        InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
+    );
+    for (revision, key) in [
+        (Revision::Rev02, "TJE_REV02_ROM"),
+        (Revision::Rev00, "TJE_REV00_ROM"),
+    ] {
+        let bytes = fs::read(std::env::var_os(key).unwrap()).unwrap();
+        let registry = HookRegistry::proof_with_frames(revision, &[], FRAMED_DMA).unwrap();
+        let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
+        let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        checked.set_wait_input_poller(script.clone());
+        for frame in 0..10_000 {
+            let a = checked.run_frame(script.at(frame)).unwrap_or_else(|error| {
+                save(&checked, &serde_json::Value::Null);
+                panic!("{revision:?} frame {frame}: {error}")
+            });
+            let b = reference.run_frame(script.at(frame)).unwrap();
+            assert_eq!(a.ram, b.ram);
+            assert_eq!(a.vdp, b.vdp);
+            assert_eq!(a.writes, b.writes);
+            assert_eq!(a.frame_counter, b.frame_counter);
+            assert_eq!(a.idle_random_draws, b.idle_random_draws);
+            assert_eq!(a.lag_events, b.lag_events);
+            assert!(
+                a.audio_samples.iter().flatten().map(|x| x.to_bits()).eq(b
+                    .audio_samples
+                    .iter()
+                    .flatten()
+                    .map(|x| x.to_bits()))
+            );
+            let (a, size_a) = checked.frame_buffer();
+            let (b, size_b) = reference.frame_buffer();
+            assert_eq!(size_a, size_b);
+            assert_eq!(&a[..size_a.len() as usize], &b[..size_b.len() as usize]);
+        }
+        assert!(checked.measurements.game_frame.is_some());
+        let natural = serde_json::to_value(&checked.checks).unwrap();
+        checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
+        let source = ram::g_sprite_tile_upload_buffer(revision).address();
+        for index in 0..32_u32 {
+            checked
+                .context()
+                .write_u32(source + 4 * index, 0x8000_0000 | index);
+        }
+        let rom_source = rom::starfield_byte_map(revision).address();
+        for (pointer, destination, count) in [
+            (source, 0, 1),
+            (source, 0xd000, 3),
+            (source, 0xfffe, 64),
+            (rom_source, 0xc002, 0),
+            (source, 0xc002, 0),
+        ] {
+            checked
+                .check_fixture(
+                    ids::DMA_COPY_WORDS_TO_VRAM.metadata().address(revision),
+                    &[pointer, destination, count],
+                )
+                .unwrap_or_else(|error| {
+                    save(&checked, &natural);
+                    panic!("{revision:?} DMA {pointer:08x}/{destination:08x}/{count}: {error}")
+                });
+        }
+        save(&checked, &natural);
+        assert_eq!(checked.checks.mismatches, 0);
+        assert_eq!(checked.checks.dead_stack_differing_calls, 0);
+        assert!(checked.checks.uninitialized_stack_reads.is_empty());
+        assert!(checked.checks.unexercised.is_empty());
+    }
+}

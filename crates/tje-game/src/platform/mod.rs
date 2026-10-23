@@ -10,6 +10,10 @@ use tje_mem::ram;
 pub mod entries;
 mod video;
 
+/// Canonical prepared-frame DMA for explicit private proof statics only.
+/// The legacy production entry stays unique until its value callers migrate.
+pub use video::dma_copy_words_to_vram_framed;
+
 /// G/src/asm/interrupts.s:33 (`DisableAllInterrupts`).
 /// ORI to SR changes only IPL; every D/A register and all CCR bits survive.
 pub fn disable_all_interrupts(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {

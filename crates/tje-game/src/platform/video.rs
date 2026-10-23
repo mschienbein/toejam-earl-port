@@ -180,6 +180,25 @@ pub fn dma_copy_words_to_vram(context: &mut dyn Context, arguments: &[u32]) -> R
     let source = arguments[0];
     let destination = arguments[1];
     let count = arguments[2];
+    program_dma(context, source, destination, count);
+    frame.leave(context)?;
+    Ok(None)
+}
+
+/// G/src/asm/dma.s:15-19 (`DmaCopyWordsToVram`), canonical prepared-frame entry.
+/// Read each actual argument slot after MOVEM at its original use site; never
+/// convert a metadata argument snapshot into the framed entry contract.
+pub fn dma_copy_words_to_vram_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0))?;
+    let source = frame.argument_slot(0).read(context);
+    let destination = frame.argument_slot(1).read(context);
+    let count = frame.argument_slot(2).read(context);
+    program_dma(context, source, destination, count);
+    frame.leave(context)?;
+    Ok(None)
+}
+
+fn program_dma(context: &mut dyn Context, source: u32, destination: u32, count: u32) {
     let revision = context.revision();
     let mode2 = ram::g_mode2_reg_softcopy(revision).read(context);
     context.write_vdp_control(0x8104 + (u16::from(mode2) | 0x10));
@@ -203,6 +222,4 @@ pub fn dma_copy_words_to_vram(context: &mut dyn Context, arguments: &[u32]) -> R
     context.set_data_register(1, low_command);
     // Packed ADD.L cannot carry; the final MOVE.W is in the range 0x0080..0x0083.
     move_ccr(context, u32::from(low), 0x8000, false);
-    frame.leave(context)?;
-    Ok(None)
 }
