@@ -189,7 +189,7 @@ pub(super) fn player_relocate_to_partner_or_next_level(
     call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     mode.write(context, mode.read(context) & 0x3c);
-    context.write_vdp_control(0x8100 | u16::from(mode.read(context)));
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     call(
         context,
         ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
@@ -197,7 +197,7 @@ pub(super) fn player_relocate_to_partner_or_next_level(
     )?;
     call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
     mode.write(context, mode.read(context) | 0x40);
-    context.write_vdp_control(0x8100 | u16::from(mode.read(context)));
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     call(context, ids::UPDATE_LAND_AROUND_PLAYER, &[number as u32])?;
     if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
@@ -315,7 +315,7 @@ pub(super) fn make_player_fall(
     call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     mode.write(context, mode.read(context) & 0x3c);
-    context.write_vdp_control(0x8100 | u16::from(mode.read(context)));
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     let first = ram::g_player_info(revision).at(0);
     let second = ram::g_player_info(revision).at(1);
     if first.level().read(context) == second.level().read(context)
@@ -370,7 +370,7 @@ pub(super) fn make_player_fall(
     call(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
     context.write_vdp_control(0x8c89);
     mode.write(context, mode.read(context) | 0x40);
-    context.write_vdp_control(0x8100 | u16::from(mode.read(context)));
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     Ok(None)
 }

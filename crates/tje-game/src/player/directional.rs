@@ -6,26 +6,22 @@ use tje_mem::{Address, ObjectState, ram};
 /// A6-2 and animation mode A6-6. The initial mode byte is written at A6-5,
 /// then loaded as a word and EXT.W discards its old high byte; do not zero it.
 /// The frame-sensitive outgoing JSR returns at caller+0x266 in both revisions.
-pub(super) fn player_choose_directional_movement(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub(super) fn player_choose_directional_movement(context: &mut dyn Context) -> Result<Option<u32>> {
     super::frames::with_frame(
         context,
         crate::call_frame::FrameLayout::link(8, 0x7c, 0),
-        |context, stack| choose_direction(context, arguments, stack),
+        choose_direction,
     )
 }
 
 fn choose_direction(
     context: &mut dyn Context,
-    arguments: &[u32],
     stack: &crate::call_frame::LocalFrame,
 ) -> Result<Option<u32>> {
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let number = i32::from(arguments[1] as i16);
-    let mut input = arguments[2] as i16;
-    let land = arguments[3] as u16;
+    let player = Address::<ObjectState>::new(stack.argument_slot(0).read(context));
+    let number = i32::from(stack.argument_word(1).read(context));
+    let mut input = stack.argument_word(2).read(context);
+    let land = stack.argument_word(3).cast::<u16>().read(context);
     let revision = context.revision();
     let sprite = stack.local::<i16>(-4);
     let vy = stack.local::<i16>(-2);
@@ -145,17 +141,20 @@ fn choose_direction(
 /// G/src/player/sprite_checks_and_movement.c:14 (`SpriteChecks`).
 /// Matching prologue MOVEM D2-D5/A2, no LINK. Both revisions use return offsets
 /// 0x70/0xf2/0x16a/0x212 for SetSprite/remapping/elevator/directional selection.
-pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub(super) fn sprite_checks(context: &mut dyn Context) -> Result<Option<u32>> {
     super::frames::with_frame(
         context,
         crate::call_frame::FrameLayout::movem(0, 0x3c, 0x04),
-        |context, _| sprite_checks_body(context, arguments),
+        sprite_checks_body,
     )
 }
 
-fn sprite_checks_body(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
-    let number = i32::from(arguments[0] as i16);
-    let mut input = arguments[1] as i16;
+fn sprite_checks_body(
+    context: &mut dyn Context,
+    stack: &crate::call_frame::LocalFrame,
+) -> Result<Option<u32>> {
+    let number = i32::from(stack.argument_word(0).read(context));
+    let mut input = stack.argument_word(1).read(context);
     let revision = context.revision();
     let (land, player) = if number == 0 {
         (

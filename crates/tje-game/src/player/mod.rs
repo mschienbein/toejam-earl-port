@@ -16,6 +16,7 @@ mod directional_animation;
 mod effects;
 mod falling;
 mod falling_check;
+mod finalize;
 mod frames;
 mod hottub;
 mod indexing;
@@ -216,10 +217,26 @@ pub static FRAME_BLOCKED: &[crate::FunctionId] = &[
     ids::CHECK_PLAYER_FALLING,
 ];
 
-/// G/src/player/active_present_falling_and_respawn.c:956: the game-over branch
-/// calls ShowGameOverAndReset and does not return; native terminal/reset support
-/// is a shared prerequisite, not permission to replace that branch with a return.
+/// The full final-life body now propagates typed reset exits. Its UI game-over
+/// callee is still pending separate admission; both returning and reset paths
+/// are checked by the joint lane harness before production promotion.
 pub static TERMINAL_BLOCKED: &[crate::FunctionId] = &[ids::PLAYER_FINALIZE_LAST_LIFE_EXIT];
+
+/// No ctx-only frame target is published before its complete caller cohort is
+/// prepared and jointly proven; value-only dispatch must never preload it.
+pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+
+/// Canonical ctx-only frame candidates load only the source-used slots.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+        function: directional::player_choose_directional_movement,
+    },
+    crate::FramedTranslation {
+        id: ids::SPRITE_CHECKS,
+        function: directional::sprite_checks,
+    },
+];
 
 /// Complete bodies not yet admitted to production: both-revision proofs are
 /// still required. These entries are never part of the production dispatcher.
@@ -246,6 +263,7 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::MAKE_PLAYER_FALL, // Both revisions: logical VDP state mismatch.
     ids::PLAYER_UPDATE_DEATH_ANIMATION, // Both revisions: device-write trace mismatch.
     ids::PROCESS_PLAYERS, // Both revisions: device-write trace mismatch.
+    ids::PLAYER_FINALIZE_LAST_LIFE_EXIT, // Full typed-reset body; joint callee proof/admission pending.
 ];
 
 /// Non-registered pending bodies retained for the opt-in lane proof harness.
@@ -253,14 +271,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::KILL_THE_PLAYER,
         function: state::kill_the_player,
-    },
-    crate::Translation {
-        id: ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
-        function: directional::player_choose_directional_movement,
-    },
-    crate::Translation {
-        id: ids::SPRITE_CHECKS,
-        function: directional::sprite_checks,
     },
     crate::Translation {
         id: ids::CHECK_PLAYER_FALLING,
@@ -337,6 +347,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PROCESS_PLAYERS,
         function: update::process_players,
+    },
+    crate::Translation {
+        id: ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
+        function: finalize::player_finalize_last_life_exit,
     },
 ];
 
