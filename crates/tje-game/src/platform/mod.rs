@@ -7,6 +7,8 @@
 use crate::{Context, Result, execution::ExecutionClass};
 use tje_mem::ram;
 
+mod video;
+
 /// G/src/asm/interrupts.s:33 (`DisableAllInterrupts`).
 /// ORI to SR changes only IPL; every D/A register and all CCR bits survive.
 pub fn disable_all_interrupts(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
@@ -80,6 +82,46 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::GET_CTRL2_INPUT,
         function: get_ctrl2_input,
+    },
+    crate::Translation {
+        id: crate::ids::DMA_COPY_WORDS_TO_VRAM,
+        function: video::dma_copy_words_to_vram,
+    },
+    crate::Translation {
+        id: crate::ids::CLEAR_VIDEO_RAM,
+        function: video::clear_video_ram,
+    },
+    crate::Translation {
+        id: crate::ids::CLEAR_VERTICAL_SCROLL_RAM,
+        function: video::clear_vertical_scroll_ram,
+    },
+    crate::Translation {
+        id: crate::ids::CLEAR_COLOUR_RAM,
+        function: video::clear_colour_ram,
+    },
+    crate::Translation {
+        id: crate::ids::COPY_LONGWORD_RUN_TO_VRAM_TILE,
+        function: video::copy_longword_run_to_vram_tile,
+    },
+    crate::Translation {
+        id: crate::ids::FILL_VDP_DATA_WORDS,
+        function: video::fill_vdp_data_words,
+    },
+    crate::Translation {
+        id: crate::ids::FILL_VDP_DATA_BYTES,
+        function: video::fill_vdp_data_bytes,
+    },
+    crate::Translation {
+        id: crate::ids::MOVE_DATA_TO_VRAM,
+        function: video::move_data_to_vram,
+    },
+    crate::Translation {
+        id: crate::ids::UPLOAD_VRAM_WORD_RECTANGLE,
+        function: video::upload_vram_word_rectangle,
+    },
+    crate::Translation {
+        id: crate::ids::COPY_PALETTE_TO_CRAM_SLOT,
+        function: video::copy_palette_to_cram_slot,
     },
 ];
 

@@ -69,11 +69,15 @@ impl Bus for TestContext {
 }
 
 impl tje_mem::Platform for TestContext {
-    fn write_vdp_control(&mut self, _: u16) {
-        panic!("controller/interrupt routine must not write the VDP");
+    fn write_vdp_control(&mut self, value: u16) {
+        self.write_device_u16(0xc00004, value);
     }
-    fn write_vdp_data(&mut self, _: u16) {
-        panic!("controller/interrupt routine must not write the VDP");
+    fn write_vdp_data(&mut self, value: u16) {
+        self.write_device_u16(0xc00000, value);
+    }
+    fn write_vdp_command(&mut self, value: u32) {
+        self.write_device_u16(0xc00004, (value >> 16) as u16);
+        self.write_device_u16(0xc00006, value as u16);
     }
 }
 
@@ -105,13 +109,17 @@ impl Platform for TestContext {
             }
             0xa10009 | 0xa1000b => assert_eq!(value, 0x40),
             0xa0004a => self.delay = value,
+            0xc00000 => {}
             _ => panic!("unexpected device byte write {address:08x}"),
         }
         self.trace.push(Access::WriteByte(address, value));
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
-        assert_eq!(address, 0xa11100);
-        assert!(value == 0 || value == 0x0100);
+        match address {
+            0xa11100 => assert!(value == 0 || value == 0x0100),
+            0xc00000 | 0xc00002 | 0xc00004 | 0xc00006 => {}
+            _ => panic!("unexpected device word write {address:08x}"),
+        }
         self.trace.push(Access::WriteWord(address, value));
     }
 }
@@ -250,7 +258,7 @@ fn pads_preserve_full_assembly_contract_and_ordered_sound_coupling() {
 }
 
 #[test]
-fn delivered_native_closure_is_complete_and_waiting_writers_are_not_approved() {
+fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
     let roots: Vec<_> = TRANSLATIONS.iter().map(|entry| entry.id).collect();
     assert!(Dispatcher::native(&roots).is_ok());
     for id in [
@@ -266,6 +274,173 @@ fn delivered_native_closure_is_complete_and_waiting_writers_are_not_approved() {
         crate::ids::COPY_PALETTE_TO_CRAM_SLOT,
     ] {
         assert!(!crate::is_atomic_capable(id), "{}", id.metadata().name);
-        assert!(Dispatcher::hybrid().translation(id).is_none());
+        assert!(Dispatcher::hybrid().translation(id).is_some());
+        assert!(EXECUTION_CONTRACTS.contains(&(id, ExecutionClass::Functional)));
+    }
+}
+
+#[test]
+fn word_and_byte_fills_keep_counter_wrap_width_and_ccr() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for byte in [false, true] {
+            for (count, writes, extend) in [(1, 1, 0), (0x1234_0003, 3, 0), (0, 65536, 0x10)] {
+                for value in [0_u32, 0x8000, 0x80, 0x1234_ffff] {
+                    let mut context = TestContext::new(revision);
+                    let data = context.data;
+                    let addresses = context.addresses;
+                    let translated = if byte {
+                        video::fill_vdp_data_bytes
+                    } else {
+                        video::fill_vdp_data_words
+                    };
+                    translated(&mut context, &[value, count]).unwrap();
+                    assert_eq!(context.data[0], value);
+                    assert_eq!(context.data[1], (count & 0xffff_0000) | 0xffff);
+                    assert_eq!(context.data[2..], data[2..]);
+                    assert_eq!(context.addresses, addresses);
+                    assert_eq!(context.trace.len(), writes);
+                    let expected = if byte {
+                        Access::WriteByte(0xc00000, value as u8)
+                    } else {
+                        Access::WriteWord(0xc00000, value as u16)
+                    };
+                    assert!(context.trace.iter().all(|write| *write == expected));
+                    let value = if byte {
+                        u32::from(value as u8)
+                    } else {
+                        u32::from(value as u16)
+                    };
+                    let sign = if byte { 0x80 } else { 0x8000 };
+                    let nz = if value == 0 {
+                        4
+                    } else if value & sign != 0 {
+                        8
+                    } else {
+                        0
+                    };
+                    assert_eq!(context.sr, 0x2700 | extend | nz);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn clears_preserve_d0_high_word_and_inclusive_fixed_counts() {
+    for (function, command, words) in [
+        (
+            video::clear_video_ram as crate::TranslationFn,
+            0x4000_0000_u32,
+            32768,
+        ),
+        (video::clear_vertical_scroll_ram, 0x4000_0010, 40),
+        (video::clear_colour_ram, 0xc000_0000, 64),
+    ] {
+        let mut context = TestContext::new(Revision::Rev02);
+        let data = context.data;
+        function(&mut context, &[]).unwrap();
+        assert_eq!(context.data[0], 0x1234_ffff);
+        assert_eq!(context.data[1..], data[1..]);
+        assert_eq!(context.sr, 0x2714);
+        assert_eq!(context.trace.len(), words + 2);
+        assert_eq!(
+            context.trace[..2],
+            [
+                Access::WriteWord(0xc00004, (command >> 16) as u16),
+                Access::WriteWord(0xc00006, command as u16),
+            ]
+        );
+        assert!(
+            context.trace[2..]
+                .iter()
+                .all(|write| *write == Access::WriteWord(0xc00000, 0))
+        );
+    }
+}
+
+#[test]
+fn tile_palette_and_rectangle_retain_assembly_register_residue() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        let source = 0xff1000;
+        for index in 0..32 {
+            context
+                .memory
+                .write_u32(source + 4 * index, 0x8000_0000 | index);
+        }
+        video::copy_longword_run_to_vram_tile(&mut context, &[source, 0x201, 0x2000_0001]).unwrap();
+        assert_eq!(context.data[0], 0x4020_0001);
+        assert_eq!(context.data[1], 0xffff);
+        assert_eq!(context.addresses[0], source + 36);
+        assert_eq!(context.sr, 0x2718);
+        assert_eq!(
+            context.trace[2..4],
+            [
+                Access::WriteWord(0xc00000, 0x8000),
+                Access::WriteWord(0xc00002, 0),
+            ]
+        );
+        context.trace.clear();
+        video::copy_palette_to_cram_slot(&mut context, &[source, u32::MAX]).unwrap();
+        assert_eq!(context.data[0], 0xc060_ffff);
+        assert_eq!(context.addresses[0], source + 32);
+        assert_eq!(context.sr, 0x2700);
+        assert_eq!(context.trace.len(), 18);
+        for saved_d2 in [0_u32, 0x8000_0000, 1] {
+            context.data[2] = saved_d2;
+            context.trace.clear();
+            video::upload_vram_word_rectangle(&mut context, &[0xfffe, source, 3, 2, 4]).unwrap();
+            assert_eq!(context.data[0], 0xffff);
+            assert_eq!(context.data[1], 8);
+            assert_eq!(context.data[2], saved_d2);
+            assert_eq!(context.addresses[0], source + 12);
+            assert_eq!(context.addresses[1], 0x1000e);
+            assert_eq!(context.trace.len(), 10);
+            assert_eq!(
+                context.sr,
+                0x2700
+                    | if saved_d2 == 0 {
+                        4
+                    } else if saved_d2 & 0x8000_0000 != 0 {
+                        8
+                    } else {
+                        0
+                    }
+            );
+        }
+    }
+}
+
+#[test]
+fn dma_publishes_ram_command_before_split_port_writes_and_preserves_saved_registers() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        ram::g_mode2_reg_softcopy(revision).write(&mut context.memory, 0x60);
+        let data = context.data;
+        let addresses = context.addresses;
+        let command_address = ram::g_vdp_dma_command(revision).address();
+        video::dma_copy_words_to_vram(&mut context, &[0xff1234, 0xc002, 0x1234]).unwrap();
+        assert_eq!(context.data[0], 0x4002_0083);
+        assert_eq!(context.data[1], 0x4002_0080);
+        assert_eq!(context.data[2..], data[2..]);
+        assert_eq!(context.addresses, addresses);
+        assert_eq!(context.sr, 0x2700);
+        assert_eq!(
+            context.trace,
+            [
+                Access::WriteWord(0xc00004, 0x8174),
+                Access::WriteWord(0xc00004, 0x9334),
+                Access::WriteWord(0xc00004, 0x9412),
+                Access::WriteWord(0xc00004, 0x951a),
+                Access::WriteWord(0xc00004, 0x9689),
+                Access::WriteWord(0xc00004, 0x977f),
+                Access::RamByte(command_address, 0x40),
+                Access::RamByte(command_address + 1, 0x02),
+                Access::RamByte(command_address + 2, 0),
+                Access::RamByte(command_address + 3, 0x83),
+                Access::WriteWord(0xc00004, 0x4002),
+                Access::WriteWord(0xc00004, 0x0083),
+            ]
+        );
     }
 }
