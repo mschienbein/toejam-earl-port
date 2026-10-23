@@ -3,6 +3,7 @@
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
+mod dma_upload;
 mod frame_rendering;
 mod lifecycle;
 mod links;
@@ -242,13 +243,28 @@ pub static PENDING: &[crate::FunctionId] = &[
     // The original loads a dead high byte immediately discarded by EXT.W.
     // Await the shared semantic-dependency audit before claiming both-ROM proof.
     crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
+    // Functional bodies await shared production-class dispatch and both-ROM proof.
+    crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+    crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
+    // Exact pending-upload RAM-byte wait needs a time-progressing platform primitive.
+    crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
 ];
 
 /// Explicit proof candidates, never consulted by production dispatch.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
-    id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
-    function: frame_rendering::prepare_entity_sprite_frame,
-}];
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
+        function: frame_rendering::prepare_entity_sprite_frame,
+    },
+    crate::Translation {
+        id: crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+        function: dma_upload::upload_queued_sprite_graphics,
+    },
+    crate::Translation {
+        id: crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
+        function: dma_upload::link_player_sprites_for_split_wipe,
+    },
+];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
