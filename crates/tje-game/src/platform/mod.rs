@@ -132,26 +132,22 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::RESTART_FROM_RESET_ENTRY,
         function: entries::restart_from_reset_entry,
     },
+    crate::Translation {
+        id: crate::ids::LEVEL4_ISR,
+        function: entries::level4_isr,
+    },
 ];
 
 /// Remaining non-RTS candidates require hardware-clock/IRQ proofs, not quiet fixtures.
 /// START additionally needs the source-backed concurrent DMA-fill completion join.
 /// ISR fixture coverage alone does not discharge natural IRQ timing observations.
-pub static PENDING: &[crate::FunctionId] = &[
-    crate::ids::START,
-    crate::ids::LEVEL4_ISR,
-    crate::ids::LEVEL6_ISR,
-];
+pub static PENDING: &[crate::FunctionId] = &[crate::ids::START, crate::ids::LEVEL6_ISR];
 
 /// Keeps pending bodies reachable in the library without production registration.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::START,
         function: entries::start,
-    },
-    crate::Translation {
-        id: crate::ids::LEVEL4_ISR,
-        function: entries::level4_isr,
     },
     crate::Translation {
         id: crate::ids::LEVEL6_ISR,
