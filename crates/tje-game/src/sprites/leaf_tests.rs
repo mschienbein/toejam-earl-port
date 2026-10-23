@@ -1,4 +1,4 @@
-use super::{frame_rendering, lifecycle, links, rendering, slots, unpack};
+use super::{frame_rendering, lifecycle, links, rendering, slots, unpack, updates};
 use crate::{Context, Dispatcher, FunctionId, Result};
 use tje_mem::{Address, AddressSpace, Bus, Platform, Ptr, RenderPiece, Revision, ram, rom};
 
@@ -513,4 +513,81 @@ fn frame_preparation_masks_pixels_then_appends_the_original_tile_run() {
             .read(&machine),
         0x4280
     );
+}
+
+#[test]
+fn shadow_depth_zero_keeps_the_original_preceding_rom_byte_read() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let entity = ram::g_player_info(revision).at(6);
+    entity.draw_flags().write(&mut machine, 3);
+    entity.primary_shadow().write(&mut machine, 29);
+    entity.height().write(&mut machine, 0);
+    updates::update_entity_shadows(&mut machine, &[entity.address()]).unwrap();
+    let hardware = ram::g_hardware_sprite_table(revision).at(29);
+    assert_eq!(hardware.size().read(&machine), 0x7c);
+    assert_eq!(hardware.tile().read(&machine), 0xe7a0);
+    entity.height().write(&mut machine, 127);
+    updates::update_entity_shadows(&mut machine, &[entity.address()]).unwrap();
+    assert_eq!(hardware.size().read(&machine), 0);
+    assert_eq!(hardware.tile().read(&machine), 0xe7a0);
+    entity.height().write(&mut machine, -1);
+    updates::update_entity_shadows(&mut machine, &[entity.address()]).unwrap();
+    assert_eq!(hardware.size().read(&machine), 12);
+    assert_eq!(hardware.tile().read(&machine), 0x87f9);
+}
+
+#[test]
+fn entity_release_retains_players_and_frees_the_dynamic_flag() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let player = ram::g_player_info(revision).at(0);
+    player.draw_flags().write(&mut machine, 7);
+    updates::free_entity(&mut machine, &[0]).unwrap();
+    assert_eq!(player.draw_flags().read(&machine), 7);
+    let entity = ram::g_player_info(revision).at(6);
+    entity.draw_flags().write(&mut machine, 1);
+    ram::g_dynamic_entity_slot_allocated(revision)
+        .at(0)
+        .write(&mut machine, 1);
+    updates::free_entity(&mut machine, &[6]).unwrap();
+    assert_eq!(entity.draw_flags().read(&machine), 0);
+    assert_eq!(
+        ram::g_dynamic_entity_slot_allocated(revision)
+            .at(0)
+            .read(&machine),
+        0
+    );
+}
+
+#[test]
+fn original_not_ready_budget_bug_suppresses_the_later_motion_callback() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    for index in 0..4 {
+        ram::g_speech_bubble_entities(revision)
+            .at(index)
+            .write(&mut machine, -1);
+    }
+    let first = ram::g_player_info(revision).at(0);
+    first.draw_flags().write(&mut machine, 0x37);
+    first.tile_count().write(&mut machine, 255);
+    first.frame_duration().write(&mut machine, 2);
+    first.sprite_ready().write(&mut machine, 0);
+    let second = ram::g_player_info(revision).at(1);
+    second.draw_flags().write(&mut machine, 7);
+    second.tile_count().write(&mut machine, 1);
+    second.frame_duration().write(&mut machine, 1);
+    second.animation_motion_axes().write(&mut machine, 3);
+    second.process().write(
+        &mut machine,
+        Ptr::new(
+            crate::ids::PLAYER1_PROCESS_TERRAIN_MOTION
+                .metadata()
+                .address(revision),
+        ),
+    );
+    // The original adds the over-budget 255 first, so no callback is invoked.
+    updates::process_entity_animation_motion(&mut machine, &[]).unwrap();
+    assert_eq!(first.draw_flags().read(&machine), 0x37);
 }

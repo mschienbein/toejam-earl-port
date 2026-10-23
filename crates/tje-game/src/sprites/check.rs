@@ -6,6 +6,7 @@ use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 
 mod check_callers;
+mod check_updates;
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     if !host.checks.by_function.contains_key(id.metadata().name) {
@@ -311,6 +312,7 @@ fn fixture_coverage(host: &mut Host) {
         check(host, ids::HIDE_FLAGGED_PLAYER_SPRITES, &[0]);
     }
     check_callers::fixtures(host);
+    check_updates::fixtures(host);
 }
 
 fn seed_registers(host: &mut Host) {
@@ -319,6 +321,42 @@ fn seed_registers(host: &mut Host) {
             .set_data_register(index, 0xa5a5_1234u32.wrapping_add(index as u32));
     }
     host.context().set_status_register(0x271f);
+}
+
+fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
+    let mut registry = HookRegistry::empty(revision);
+    // Pending bodies require explicit selection and are confined to this proof harness.
+    for (translations, pending) in [
+        (tje_game::sprites::TRANSLATIONS, false),
+        (tje_game::sprites::PENDING_TRANSLATIONS, true),
+    ] {
+        for translation in translations {
+            if !(selected.contains(&translation.id) || selected.is_empty() && !pending) {
+                continue;
+            }
+            let atomic_capable = tje_game::sprites::ATOMIC_CAPABLE;
+            let class = if atomic_capable.contains(&translation.id) {
+                tje_game::execution::ExecutionClass::Atomic
+            } else {
+                tje_game::sprites::EXECUTION_CONTRACTS
+                    .iter()
+                    .find(|(id, _)| *id == translation.id)
+                    .expect("reviewed sprite execution class")
+                    .1
+            };
+            registry
+                .register_translation_with_execution(*translation, class)
+                .unwrap();
+        }
+    }
+    for id in selected {
+        assert!(
+            registry.at(id.metadata().address(revision)).is_some(),
+            "missing proof body for {}",
+            id.metadata().name
+        );
+    }
+    registry
 }
 
 fn main() {
@@ -350,12 +388,7 @@ fn main() {
             Revision::Rev00 => "rev00",
         };
         let bytes = fs::read(root.join("roms").join(format!("{key}.bin"))).unwrap();
-        let subsystems: &[&str] = if selected.is_empty() {
-            &["sprites"]
-        } else {
-            &[]
-        };
-        let registry = HookRegistry::filtered(revision, subsystems, &selected).unwrap();
+        let registry = registry(revision, &selected);
         let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
         for frame in 0..frames {
@@ -438,6 +471,13 @@ fn main() {
                 checked.checks.by_function[translation.id.metadata().name].calls_checked > 0,
                 "unexercised {}",
                 translation.id.metadata().name
+            );
+        }
+        for id in &selected {
+            assert!(
+                checked.checks.by_function[id.metadata().name].calls_checked > 0,
+                "unexercised selected hook {}",
+                id.metadata().name
             );
         }
         let result = serde_json::json!({"revision":revision.name(), "frames":frames, "title_frame":checked.measurements.title_frame,"menu_frame":checked.measurements.menu_frame,"game_frame":checked.measurements.game_frame,"logic_ticks":checked.measurements.logic_ticks,"whole_session_comparison":"RAM, VDP, writes, RNG draws, lag events, bitwise audio, pixels: exact every frame", "natural":natural,"with_live_fixtures":checked.checks});

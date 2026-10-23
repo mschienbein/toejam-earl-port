@@ -3,12 +3,13 @@
 
 use tje_mem::{Address, Bus, ObjectState, Platform, Revision, ram};
 
-pub mod frame_rendering;
+mod frame_rendering;
 mod lifecycle;
 mod links;
 mod rendering;
 mod slots;
 mod unpack;
+mod updates;
 
 #[cfg(test)]
 mod leaf_tests;
@@ -206,6 +207,30 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::QUEUE_SPRITE_PIECE_TILES,
         function: frame_rendering::queue_sprite_piece_tiles,
     },
+    crate::Translation {
+        id: crate::ids::FREE_ENTITY,
+        function: updates::free_entity,
+    },
+    crate::Translation {
+        id: crate::ids::UPDATE_ENTITY_SHADOWS,
+        function: updates::update_entity_shadows,
+    },
+    crate::Translation {
+        id: crate::ids::UPDATE_ALL_ENTITY_SHADOWS,
+        function: updates::update_all_entity_shadows,
+    },
+    crate::Translation {
+        id: crate::ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
+        function: updates::update_entity_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::UPDATE_ALL_ENTITY_VIEWPORT_SPRITES,
+        function: updates::update_all_entity_viewport_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::PROCESS_ENTITY_ANIMATION_MOTION,
+        function: updates::process_entity_animation_motion,
+    },
 ];
 
 /// Reviewed bodies/entries not yet eligible for production replacement.
@@ -218,6 +243,12 @@ pub static PENDING: &[crate::FunctionId] = &[
     // Await the shared semantic-dependency audit before claiming both-ROM proof.
     crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
 ];
+
+/// Explicit proof candidates, never consulted by production dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
+    function: frame_rendering::prepare_entity_sprite_frame,
+}];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
