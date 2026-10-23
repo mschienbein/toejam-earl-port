@@ -1,5 +1,10 @@
 {
   "files": {
+    "Cargo.lock": {
+      "modified": true,
+      "upstream_blob": "eee713df492291305c8681d2bd9c94935c826d98",
+      "upstream_path": "Cargo.lock"
+    },
     "Cargo.toml": {
       "modified": true,
       "upstream_blob": "c2db413748096c4866ca8cc7d6ce9d8be4ca2592",
