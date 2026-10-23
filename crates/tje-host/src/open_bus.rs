@@ -469,7 +469,16 @@ mod tests {
     #[test]
     fn wait_predicate_cannot_observe_undefined_bits_from_the_idle_loop() {
         use tje_game::Platform;
-        let mut emulator = emulator();
+        // This case executes a wait, unlike the JSR-based frame fixtures above.
+        let mut rom = vec![0; 1024];
+        rom[..4].copy_from_slice(&0xff7ff0_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x200_u32.to_be_bytes());
+        rom[0x200..0x202].copy_from_slice(&0x60fe_u16.to_be_bytes());
+        let mut emulator = GenesisEmulator::create(
+            Some(rom),
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
         let mut context = crate::abi::HookContext::new(
             &mut emulator,
             tje_rom::Revision::Rev02,

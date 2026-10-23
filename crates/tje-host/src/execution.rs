@@ -6,7 +6,7 @@
 
 use crate::{
     HostError, Result,
-    abi::{AtomicRun, OrderedWrite, UninitializedStackRead, canonical_ram_address, set_sp},
+    abi::{AtomicRun, OrderedWrite, UninitializedStackRead, canonical_ram_address},
     catalogue::{STACK_BOTTOM, STACK_TOP},
     check_projection::{LogicEvent, LogicTrace, tight_ym_busy_loop},
     input::InputScript,
@@ -101,11 +101,10 @@ pub(crate) struct ClockRun {
     pub audio: Vec<[f64; 2]>,
 }
 
-// Synthetic BRA.S to itself, not game code. The bottom four bytes of the declared
-// stack area cannot overlap the suspended frame (checked below), and are restored
-// even on failure. The second word covers the 68000's instruction prefetch.
-const PARK_PC: u32 = STACK_BOTTOM;
-const PARK_BYTES: u32 = 4;
+// G src/core/error_trap.c and both revision linker maps: the original two-byte
+// ErrorTrap self-branch is at 0x200. Execute the immutable ROM instruction with
+// the real CPU; never borrow work RAM for host-made code or a prefetch word.
+const PARK_PC: u32 = 0x000200;
 const MAX_TIMED_TICKS: u64 = 1_000_000;
 
 fn condition_holds(
@@ -223,15 +222,6 @@ fn drain_accesses(
     let bus = emulator.hybrid_bus_mut();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
         for access in accesses.drain(..) {
-            let address = match access {
-                HybridAccess::Read { address, .. } | HybridAccess::Write { address, .. } => address,
-            };
-            // Only instruction fetches of our synthetic parking loop are scaffolding.
-            if pc == PARK_PC
-                && (PARK_PC..PARK_PC + PARK_BYTES).contains(&canonical_ram_address(address))
-            {
-                continue;
-            }
             run.accesses.push((pc, access));
             run.logic_trace
                 .access(pc, master_clock, access, ym_busy_loop);
@@ -356,26 +346,22 @@ pub(crate) fn run_wait_with_audio(
     emulator.hybrid_bus_mut().apply_pending_writes();
     let saved_pc = emulator.hybrid_cpu().pc();
     let saved_sp = emulator.hybrid_cpu().stack_pointer();
-    if canonical_ram_address(saved_sp) < PARK_PC + 0x100 {
+    if !emulator
+        .hybrid_bus()
+        .cartridge
+        .as_ref()
+        .is_some_and(|cartridge| cartridge.peek_word(PARK_PC) == 0x60fe)
+    {
         return Err(HostError::Metadata(
-            "no disjoint stack space for the wait sentinel".into(),
+            "a wait requires the original ROM ErrorTrap self-branch at 000200".into(),
         ));
     }
-    let old_words = [
-        emulator.hybrid_bus().memory.read_main_ram::<true>(PARK_PC),
-        emulator
-            .hybrid_bus()
-            .memory
-            .read_main_ram::<true>(PARK_PC + 2),
-    ];
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
         audit.then(Vec::new),
     );
     {
         let (cpu, bus) = emulator.hybrid_parts();
-        bus.memory.write_main_ram::<true>(PARK_PC, 0x60fe);
-        bus.memory.write_main_ram::<true>(PARK_PC + 2, 0x4e71);
         cpu.set_pc(PARK_PC, bus);
     }
     let mut run = ClockRun {
@@ -398,11 +384,6 @@ pub(crate) fn run_wait_with_audio(
             }
             handler_entered |= depth > run.exception_base;
             if at_park && depth == run.exception_base {
-                if emulator.hybrid_bus().memory.read_main_ram::<true>(PARK_PC) != 0x60fe {
-                    return Err(HostError::Metadata(
-                        "an ISR overwrote the wait sentinel".into(),
-                    ));
-                }
                 let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
                 drain_accesses(
                     emulator,
@@ -427,11 +408,8 @@ pub(crate) fn run_wait_with_audio(
         }
     })();
     let (cpu, bus) = emulator.hybrid_parts();
-    bus.memory.write_main_ram::<true>(PARK_PC, old_words[0]);
-    bus.memory.write_main_ram::<true>(PARK_PC + 2, old_words[1]);
     // A failure aborts the call; never pretend an interrupted ISR returned.
     if result.is_ok() {
-        set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
     }
     bus.hybrid_cpu_accesses = saved_trace;
@@ -617,6 +595,7 @@ pub(crate) fn audit_accesses(accesses: &[(u32, HybridAccess)], entry_sp: u32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::abi::set_sp;
     use genesis_config::GenesisEmulatorConfig;
     use genesis_core::GenesisBus;
     use jgenesis_common::frontend::{PartialClone, TimingMode};
@@ -624,6 +603,140 @@ mod tests {
     fn write(bus: &mut GenesisBus, address: u32, value: u16) {
         bus.write_word(address, value);
         bus.apply_pending_writes();
+    }
+
+    fn emulator_with_park_rom() -> GenesisEmulator {
+        // Authored reset vectors and real self-branches; no cartridge bytes.
+        let mut rom = vec![0; 1024];
+        rom[..4].copy_from_slice(&0xff7ffc_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x100_u32.to_be_bytes());
+        rom[0x100..0x102].copy_from_slice(&0x60fe_u16.to_be_bytes());
+        rom[PARK_PC as usize..PARK_PC as usize + 2].copy_from_slice(&0x60fe_u16.to_be_bytes());
+        rom[PARK_PC as usize + 2..PARK_PC as usize + 4].copy_from_slice(&0x4e71_u16.to_be_bytes());
+        GenesisEmulator::create(
+            Some(rom),
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        )
+    }
+
+    fn assert_whole_ram_visible_during_wait(emulator: &mut GenesisEmulator) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        fn pattern(offset: u32) -> u8 {
+            (offset.wrapping_mul(37) ^ (offset >> 8)) as u8
+        }
+
+        struct WholeRamReader {
+            reads: AtomicUsize,
+        }
+        impl WaitInputPoller for WholeRamReader {
+            fn at(&self, _: u64) -> Result<GenesisInputs> {
+                Ok(GenesisInputs::default())
+            }
+
+            fn before_frame(&self, _: u64, memory: &mut dyn tje_mem::Bus) -> Result<()> {
+                // Read every byte while Rust is suspended, not after wait cleanup.
+                for offset in 0..0x10000 {
+                    assert_eq!(
+                        memory.read_u8(0xff0000 + offset),
+                        pattern(offset),
+                        "whole-RAM observer saw a changed byte at FF{offset:04X}",
+                    );
+                }
+                self.reads.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+        }
+
+        {
+            let bus = emulator.hybrid_bus_mut();
+            for offset in 0..0x10000 {
+                bus.memory
+                    .write_main_ram_byte(0xff0000 + offset, pattern(offset));
+            }
+        }
+        // No game ISR is allowed to modify the authored fixture: all 64 KiB
+        // should remain visible exactly as supplied while the real clocks run.
+        emulator.hybrid_parts().0.set_status_register(0x2700);
+        let previous = emulator.hybrid_bus().memory.read_main_ram::<true>(0xff8000);
+        let reader = Arc::new(WholeRamReader {
+            reads: AtomicUsize::new(0),
+        });
+        let mut clock = WaitClock {
+            poller: Some(reader.clone()),
+            ..WaitClock::default()
+        };
+        let request = WaitRequest {
+            condition: WaitCondition::RamWordChanged {
+                address: 0xff8000,
+                previous,
+            },
+            max_ticks: 50_000,
+        };
+        let error = run_wait(emulator, &mut clock, request).unwrap_err();
+        assert!(error.to_string().contains("was not satisfied"), "{error}");
+        assert!(clock.frame >= 2);
+        assert!(reader.reads.load(Ordering::Relaxed) >= 2);
+        assert_eq!(emulator.hybrid_cpu().pc(), PARK_PC);
+        assert_eq!(
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff0000),
+            u16::from_be_bytes([pattern(0), pattern(1)]),
+        );
+    }
+
+    #[test]
+    fn whole_ram_reader_never_sees_host_parking_bytes() {
+        assert_whole_ram_visible_during_wait(&mut emulator_with_park_rom());
+    }
+
+    #[test]
+    #[ignore = "requires both private retail ROMs; reads all RAM during real-clock waits"]
+    fn both_revisions_keep_whole_ram_visible_during_waits() {
+        for (key, revision) in [
+            ("TJE_REV02_ROM", tje_rom::Revision::Rev02),
+            ("TJE_REV00_ROM", tje_rom::Revision::Rev00),
+        ] {
+            assert_eq!(
+                tje_game::ids::ERROR_TRAP.metadata().address(revision),
+                PARK_PC,
+            );
+            let rom = std::fs::read(std::env::var_os(key).expect("private ROM path")).unwrap();
+            let mut emulator = GenesisEmulator::create(
+                Some(rom),
+                GenesisEmulatorConfig::default(),
+                &mut NoCartridgeSaves,
+            );
+            assert_whole_ram_visible_during_wait(&mut emulator);
+            println!("PASS {revision:?}: all 65536 RAM bytes unchanged during suspended wait");
+        }
+    }
+
+    #[test]
+    fn wait_without_the_original_rom_loop_fails_before_parking() {
+        let mut emulator = GenesisEmulator::create(
+            None,
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        let before = (
+            emulator.hybrid_cpu().pc(),
+            emulator.hybrid_cpu().stack_pointer(),
+        );
+        let error = run_wait(
+            &mut emulator,
+            &mut WaitClock::default(),
+            WaitRequest::vblank_frame(0xff8000, 1),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("original ROM ErrorTrap"));
+        assert_eq!(
+            (
+                emulator.hybrid_cpu().pc(),
+                emulator.hybrid_cpu().stack_pointer()
+            ),
+            before,
+        );
     }
 
     #[test]
@@ -741,22 +854,18 @@ mod tests {
     }
 
     #[test]
-    fn parking_storage_is_restored_even_when_the_wait_times_out() {
-        let mut emulator = GenesisEmulator::create(
-            None,
-            GenesisEmulatorConfig::default(),
-            &mut NoCartridgeSaves,
-        );
+    fn wait_timeout_does_not_change_work_ram() {
+        let mut emulator = emulator_with_park_rom();
         set_sp(emulator.hybrid_parts().0, 0xff7ffc);
         emulator.hybrid_parts().0.set_status_register(0x2700);
         emulator
             .hybrid_bus_mut()
             .memory
-            .write_main_ram::<true>(PARK_PC, 0x1234);
+            .write_main_ram::<true>(0xff0000, 0x1234);
         emulator
             .hybrid_bus_mut()
             .memory
-            .write_main_ram::<true>(PARK_PC + 2, 0x5678);
+            .write_main_ram::<true>(0xff0002, 0x5678);
         emulator
             .hybrid_bus_mut()
             .memory
@@ -770,25 +879,18 @@ mod tests {
         };
         assert!(run_wait(&mut emulator, &mut WaitClock::default(), request).is_err());
         assert_eq!(
-            emulator.hybrid_bus().memory.read_main_ram::<true>(PARK_PC),
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff0000),
             0x1234
         );
         assert_eq!(
-            emulator
-                .hybrid_bus()
-                .memory
-                .read_main_ram::<true>(PARK_PC + 2),
+            emulator.hybrid_bus().memory.read_main_ram::<true>(0xff0002),
             0x5678
         );
     }
 
     #[test]
     fn unchecked_wait_moves_and_retains_the_audio_allocation() {
-        let mut emulator = GenesisEmulator::create(
-            None,
-            GenesisEmulatorConfig::default(),
-            &mut NoCartridgeSaves,
-        );
+        let mut emulator = emulator_with_park_rom();
         set_sp(emulator.hybrid_parts().0, 0xff7ffc);
         emulator.hybrid_parts().0.set_status_register(0x2700);
         emulator
@@ -865,11 +967,7 @@ mod tests {
 
     #[test]
     fn interrupt_wait_does_not_succeed_without_an_accepted_handler() {
-        let mut emulator = GenesisEmulator::create(
-            None,
-            GenesisEmulatorConfig::default(),
-            &mut NoCartridgeSaves,
-        );
+        let mut emulator = emulator_with_park_rom();
         set_sp(emulator.hybrid_parts().0, 0xff7ffc);
         emulator.hybrid_parts().0.set_status_register(0x2700);
         let request = WaitRequest {
@@ -999,15 +1097,16 @@ mod tests {
     ) -> (GenesisEmulator, WaitClock) {
         // Authored vectors/handlers: VBlank increments FF8000, HBlank FF8002.
         // Main's ADDQ D7 must never execute while native continuation is parked.
-        let mut rom = vec![0; 1024];
+        let mut rom = vec![0; 2048];
         rom[..4].copy_from_slice(&0xff7ffc_u32.to_be_bytes());
         rom[4..8].copy_from_slice(&0x100_u32.to_be_bytes());
-        rom[28 * 4..29 * 4].copy_from_slice(&0x300_u32.to_be_bytes());
-        rom[30 * 4..31 * 4].copy_from_slice(&0x200_u32.to_be_bytes());
+        rom[28 * 4..29 * 4].copy_from_slice(&0x500_u32.to_be_bytes());
+        rom[30 * 4..31 * 4].copy_from_slice(&0x400_u32.to_be_bytes());
         for (address, words) in [
             (0x100, &[0x5287, 0x60fc][..]),
-            (0x200, vblank_handler),
-            (0x300, &[0x5279, 0x00ff, 0x8002, 0x4e73]),
+            (PARK_PC as usize, &[0x60fe, 0x4e71]),
+            (0x400, vblank_handler),
+            (0x500, &[0x5279, 0x00ff, 0x8002, 0x4e73]),
             (0x380, &[0x60fe, 0x4e71]),
             (0x3c0, &[0x5287, 0x60fc]),
         ] {

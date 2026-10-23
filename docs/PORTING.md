@@ -384,14 +384,27 @@ errors if not already ready. In YM2612 cached-status mode, a cached busy value a
 port 2 is not cleared artificially. RAM, interrupt, VDP/raster/DMA-status and
 unreviewed predicates cannot use this clock-free discharge path.
 
-The hybrid implementation parks the CPU in a synthetic idle loop in disjoint,
-temporarily reserved stack space, retaining the suspended frame's SP and original
-SR interrupt mask. It advances the real emulator, including DMA, Z80, sound, video
-and original interrupt handlers. Rust resumes only after the condition holds and
-the CPU has returned from all handlers to the parked SP/PC. Parking bytes are
-restored on success and failure. IRQ reads/writes are merged into the same
-chronological RAM/device trace and initialized-stack audit as ordinary execution;
-an interrupt does not reset or replace the current frame's audit bitmap.
+The hybrid parks the CPU on the original ROM's `ErrorTrap` self-branch at
+`0x200` in **both revisions**, identified by G `src/core/error_trap.c`, the matching
+linker maps and pinned disassembly. It validates that immutable instruction
+before parking. There is no RAM code, reserved RAM slot, host-made prefetch word,
+RAM restoration, or parking-read audit exclusion. The real CPU performs the
+ROM loop's actual fetch/prefetch and bus behavior with the suspended frame's SP
+and original SR interrupt mask.
+
+It advances the real emulator, including DMA, Z80, sound, video and original
+interrupt handlers. Rust resumes only after the condition and the interrupt-safe
+PC/SP/depth boundary hold. IRQ reads/writes are merged into the same chronological
+RAM/device trace and initialized-stack audit as ordinary execution; an interrupt
+does not reset or replace the current frame's audit bitmap.
+
+The whole-RAM regression reads all 64 KiB **during** masked waits on both retail
+revisions and an authored test ROM, proving no host parking bytes become
+visible. Original IRQs still write real exception frames; their saved PC is the
+ROM park address, not the original polling PC. Any code or DMA that observes
+those frame bytes remains an exact comparison obligation and may fail closed.
+This is not a whole-RAM equivalence waiver for IRQ-enabled waits or a claim of
+generalized polling/interrupt cadence equivalence.
 
 A wait spanning a video-frame boundary requires a `WaitInputPoller`; the host
 polls the timeline for each crossed frame. `InputScript` implements that trait.
@@ -821,7 +834,7 @@ original discarded read; a semantic BUSACK operand cannot be relabelled
 discarded to evade the source requirement. Reviewed readiness predicates remain
 narrow mask-only operations, not a global guard toggle. Wait masks that observe
 undefined bits (including a denied Z80 memory window) fail instead of reading
-the synthetic idle loop's unrelated bus value.
+the parked ROM loop's unrelated bus value.
 
 ### Which reads use the CPU bus latch?
 
