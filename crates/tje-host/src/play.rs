@@ -15,7 +15,8 @@ impl Host {
     pub fn play_frame(&mut self, inputs: GenesisInputs) -> Result<&[[f64; 2]]> {
         if self.mode == Mode::Check {
             return Err(HostError::Metadata(
-                "play_frame requires reference or replacement mode; check mode uses run_frame".into(),
+                "play_frame requires reference or replacement mode; check mode uses run_frame"
+                    .into(),
             ));
         }
         self.audio.samples.clear();
@@ -89,7 +90,9 @@ impl Host {
         self.audio_sample_rate = sample_rate;
         let capacity = (f64::from(sample_rate) / self.target_fps()).ceil() as usize + 16;
         if self.audio.samples.capacity() < capacity {
-            self.audio.samples.reserve(capacity - self.audio.samples.len());
+            self.audio
+                .samples
+                .reserve(capacity - self.audio.samples.len());
         }
         self.audio.samples.clear();
         Ok(())
@@ -106,5 +109,58 @@ impl Host {
         self.checks = Default::default();
         self.measurements = Default::default();
         self.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hooks::HookRegistry;
+
+    #[test]
+    #[ignore = "requires the user's private REV 02 ROM"]
+    fn playback_reuses_audio_and_preserves_rate_on_reset() {
+        let path = std::env::var_os("TJE_REV02_ROM")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "../../roms/rev02.bin".into());
+        let bytes = std::fs::read(path).unwrap();
+        let mut host = Host::new(&bytes, Mode::Reference, HookRegistry::default()).unwrap();
+        assert!((host.target_fps() - 59.9227).abs() < 0.001);
+        assert!(host.set_audio_sample_rate(0).is_err());
+        host.set_audio_sample_rate(44_100).unwrap();
+        // The first presentation starts part-way through power-on scanout.
+        // Measure a steady-state interval, not that partial startup frame.
+        host.play_frame(GenesisInputs::default()).unwrap();
+        let mut samples = 0;
+        let capacity = host.audio.samples.capacity();
+        for _ in 0..120 {
+            samples += host.play_frame(GenesisInputs::default()).unwrap().len();
+            assert_eq!(host.audio.samples.capacity(), capacity);
+            assert!(
+                host.emulator
+                    .hybrid_bus()
+                    .hybrid_writes
+                    .as_ref()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        let expected = 120.0 * 44_100.0 / host.target_fps();
+        assert!(
+            (samples as f64 - expected).abs() < 5.0,
+            "samples={samples}, expected={expected}"
+        );
+        assert!(host.measurements.idle_draws_per_frame.is_empty());
+        assert!(host.measurements.lag_events.is_empty());
+        host.reset();
+        assert_eq!(host.frame_count(), 0);
+        assert_eq!(host.audio_sample_rate, 44_100);
+        host.play_frame(GenesisInputs::default()).unwrap();
+        let mut reset_samples = 0;
+        for _ in 0..120 {
+            reset_samples += host.play_frame(GenesisInputs::default()).unwrap().len();
+        }
+        assert_eq!(reset_samples, samples);
+        assert_eq!(host.audio.samples.capacity(), capacity);
     }
 }
