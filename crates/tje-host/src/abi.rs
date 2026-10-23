@@ -14,6 +14,15 @@ use std::collections::BTreeSet;
 use tje_game::{Dispatcher, FunctionId};
 use tje_rom::Revision;
 
+pub(crate) fn canonical_ram_address(address: u32) -> u32 {
+    let physical = address & 0xFF_FFFF;
+    if physical >= 0xE00000 {
+        0xFF0000 | (physical & 0xFFFF)
+    } else {
+        physical
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OrderedWrite {
     Ram { address: u32, value: u8 },
@@ -56,7 +65,7 @@ impl StackAuditBus<'_> {
             return None;
         }
         let address = 0xFF0000 | (address & 0xFFFF);
-        (STACK_BOTTOM..self.entry_sp.min(STACK_TOP))
+        (STACK_BOTTOM..canonical_ram_address(self.entry_sp).min(STACK_TOP))
             .contains(&address)
             .then_some(address.wrapping_sub(STACK_BOTTOM) as usize)
     }
@@ -143,7 +152,7 @@ pub(crate) fn run_original_atomic(
     let (cpu, bus) = emulator.hybrid_parts();
     let mut audit = StackAuditBus {
         inner: bus,
-        entry_sp: cpu.stack_pointer() & 0xFF_FFFF,
+        entry_sp: canonical_ram_address(cpu.stack_pointer()),
         pc: cpu.pc(),
         written: [0; 512],
         reads: BTreeSet::new(),
@@ -494,6 +503,7 @@ mod tests {
         assert_eq!(audit.reads.len(), 2);
         audit.reads.clear();
         audit.write_word(0xFF7FEC, 0x4321);
+        audit.entry_sp = 0xEF7FF0; // a mirrored SP has the same local-storage boundary
         audit.read_word(0xFF7FEC);
         audit.read_word(0xFF7FF0); // caller return address: not a callee local
         audit.read_word(0xFF8000); // allocated globals: not stack

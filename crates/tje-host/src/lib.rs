@@ -619,7 +619,7 @@ fn compare_calls(
     let (ra, aa) = a.memory.debug_ram_view();
     let (rb, ab) = b.memory.debug_ram_view();
     let mut dead_bytes = 0;
-    let dead_end = (entry_sp & 0xFF_FFFF).min(catalogue::STACK_TOP);
+    let dead_end = abi::canonical_ram_address(entry_sp).min(catalogue::STACK_TOP);
     for (index, (&wa, &wb)) in ra.iter().zip(rb.iter()).enumerate() {
         if wa == wb {
             continue;
@@ -693,7 +693,7 @@ fn compare_io_ram_order(
     ) -> Option<&'a OrderedWrite> {
         for event in events {
             if let OrderedWrite::Ram { address, value } = *event {
-                if address >= entry_sp.min(catalogue::STACK_TOP) {
+                if address >= abi::canonical_ram_address(entry_sp).min(catalogue::STACK_TOP) {
                     overlay.insert(address, value);
                 }
             } else {
