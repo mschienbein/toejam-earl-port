@@ -193,6 +193,11 @@ a disconnected component, the campaign targets reachable ground inside a live
 `0x4000` marked metatile with an adjacent terrain class at least `0x50`. This is
 the original grounded `ProcessLand` trigger; only the game's ensuing path animation
 changes terrain, and the planner then replans. No invisible road is fabricated.
+On later campaign levels, existing super-hitops presents can be opened for real
+speed and the original A-modified terrain-edge hop. The bot releases A near
+interaction/elevator targets rather than treating the speed power as a grant.
+If a path animation severs the route to an older trigger, the planner abandons
+that stale trigger and considers actual inventory mobility instead of idling.
 Blocking map-screen exits use the controller that requested the map, including
 P2's telephone map; P1's C button cannot dismiss a P2-owned map wait.
 No map, route, present table, or decoded resource is embedded in the crate or

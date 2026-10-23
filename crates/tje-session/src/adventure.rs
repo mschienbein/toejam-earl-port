@@ -542,6 +542,11 @@ impl Adventure {
                             frame,
                         ) {
                             *pad |= input;
+                        } else {
+                            // A prior path animation may have severed this route.
+                            // Do not wait forever for an unreachable old trigger.
+                            self.goals[player] = None;
+                            self.mobility_needed[player] = true;
                         }
                     }
                     Goal::Doorway => {
@@ -622,6 +627,41 @@ impl Adventure {
                             *pad |= input;
                         }
                     }
+                }
+            }
+            if self.objective == Objective::Campaign
+                && ram::g_player_powerups(revision)
+                    .at(player as i32)
+                    .read(memory)
+                    == 7
+                && *pad & (UP | DOWN | LEFT | RIGHT) != 0
+            {
+                let target = match self.goals[player] {
+                    Some(Goal::Elevator { bank }) => {
+                        let elevator = ram::g_elevator_records(revision).at(bank).at(0);
+                        Some((elevator.x().read(memory), elevator.y().read(memory)))
+                    }
+                    Some(Goal::Ship { bank, index } | Goal::Earthling { bank, index }) => {
+                        let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                        Some((earthling.x().read(memory), earthling.y().read(memory)))
+                    }
+                    Some(Goal::Item { bank, index }) => {
+                        let item = ram::g_object_table(revision).at(bank).at(index);
+                        Some((item.x().read(memory), item.y().read(memory)))
+                    }
+                    Some(Goal::Path { target }) => Some(target),
+                    _ => None,
+                };
+                if matches!(self.goals[player], Some(Goal::Path { .. }))
+                    || target.is_some_and(|target| {
+                        (i32::from(position.0) - i32::from(target.0)).abs()
+                            + (i32::from(position.1) - i32::from(target.1)).abs()
+                            > 64
+                    })
+                {
+                    // A is the original hitops run modifier, including its
+                    // terrain-edge hop; release it for precise contact/elevator entry.
+                    *pad |= A;
                 }
             }
         }
@@ -922,6 +962,13 @@ impl Adventure {
                         .get(&(kind as u8))
                         .is_some_and(Option::is_none));
             let useful = useful
+                || (self.objective == Objective::Campaign
+                    && level >= 5
+                    && matches!(kind, 7 | 27)
+                    && ram::g_player_powerups(revision)
+                        .at(player as i32)
+                        .read(memory)
+                        < 0)
                 || matches!(kind, 20 | 21)
                 || (kind == 11 && ram::g_player_rank(revision).at(player as i32).read(memory) < 8)
                 || (count >= 14
@@ -1214,5 +1261,67 @@ mod tests {
             &mut pads,
         );
         assert_eq!(pads, [CONNECTED, CONNECTED | C]);
+    }
+
+    #[test]
+    fn campaign_uses_existing_hitops_once_without_fabricating_resources() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 27);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Present { slot: 0, kind: 27 })
+            );
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 7);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                None
+            );
+            assert_eq!(inventory.at(0).read(&memory), 27);
+        }
+    }
+
+    #[test]
+    fn severed_hidden_road_routes_do_not_wait_forever() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 84);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            ram::g_player1_level_map(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 0x4000);
+            let mut rom = vec![0; revision.rom_size()];
+            rom[tje_mem::rom::player_tile_property_lookup(revision).address() as usize] = 0x90;
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Path { target: (188, 84) });
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                100,
+                &mut pads,
+            );
+            assert_eq!(planner.goals[0], None);
+            assert!(planner.mobility_needed[0]);
+            assert_eq!(pads[0], CONNECTED);
+        }
     }
 }
