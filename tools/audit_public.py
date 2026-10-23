@@ -1599,12 +1599,16 @@ def literal_payloads(source: SourceContext, budget: DecodeBudget, *, individual:
             if parts:
                 budget.charge(sum(map(len, parts)))
                 combined = b"".join(parts)
-                # A list of short identifier/path facts is not a giant Base64
-                # token merely because delimiters were removed. Hex streams never
-                # receive this treatment; exact/private decoded checks still run.
-                if all(re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_.-]*", part)
-                       and not re.fullmatch(rb"[0-9a-fA-F]+", part)
-                       and not opaque_component(part) for part in parts):
+                # Names such as d0/a0 are hex-shaped only by coincidence inside
+                # an otherwise ordinary field-name list. Reject whole hex streams
+                # and substantial hex/byte fragments, not each tiny name in isolation.
+                hex_parts = [part for part in parts if re.fullmatch(rb"[0-9a-fA-F]+", part)]
+                text_literals = all(literal_category(value, source.path) == "text"
+                                    for _, value, _ in group)
+                if (text_literals and len(hex_parts) != len(parts)
+                        and not any(len(part) >= 4 for part in hex_parts)
+                        and all(re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_.-]*", part)
+                                and not opaque_component(part) for part in parts)):
                     source.fact_payloads.add(combined)
                 yield combined
     tokens = [token for token in source.tokens if token[0] != "comment"]

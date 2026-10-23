@@ -48,6 +48,11 @@ literal containers are decoded as one payload. Array/list/tuple/sequence element
 and sibling literal runs retain source order; identifiers and record/map fields
 break aggregation rather than joining unrelated data. Rust, Python, YAML and C#
 containers use their actual grammars, including nested containers. No macros run.
+Lists of plausible text identifiers are fact tables, including short names such as
+`d0`/`a0` that happen to resemble hexadecimal bytes. Their exact and decoded private
+ROM comparisons remain active, without speculative Base64/opaque size findings
+caused solely by joining names. Entire hex streams, substantial hex fragments,
+byte-literal containers and nonidentifier Base64 fragments do not get this treatment.
 Cargo-provided package metadata is a public fact,
 not an evaluated environment value; literal bytes around it are still checked.
 Vendored modifications use the same full-source tokens before changed-line

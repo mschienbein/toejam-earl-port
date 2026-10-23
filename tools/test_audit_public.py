@@ -504,6 +504,41 @@ class StructuralSourceTests(unittest.TestCase):
         hex_source = b"PARTS = [" + b", ".join(hex_literals) + b"]"
         self.assertTrue(audit.content_reasons("hex.py", hex_source, None))
 
+    def test_cpu_field_names_with_short_hex_shaped_identifiers_are_not_payloads(self) -> None:
+        source = b'''const CPU_FIELDS: [&str; 25] = [
+    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
+    "a0", "a1", "a2", "a3", "a4", "a5", "a6",
+    "usp", "ssp", "pc", "sr", "prefetch", "pending_interrupt",
+    "stopped", "frozen", "address_error", "last_muldiv",
+];'''
+        context = audit.SourceContext.build("instruction_proof.rs", source)
+        payloads = list(audit.literal_payloads(context, audit.DecodeBudget(), individual=True))
+        joined = next(payload for payload in payloads if len(payload) == 102)
+        self.assertIn(joined, context.fact_payloads)
+        self.assertEqual(len(base64.urlsafe_b64decode(joined + b"=" * (-len(joined) % 4))), 76)
+        for private in (None, audit.RomIndex(IMAGES)):
+            self.assertEqual(audit.content_reasons("instruction_proof.rs", source, private), [])
+
+    def test_identifier_rule_does_not_exempt_hex_bytes_or_nonidentifier_base64(self) -> None:
+        zeroes = bytes(WINDOW_SIZE)
+        base64_fragments = base64.b64encode(bytes([0xff]) * WINDOW_SIZE)
+        fragments = [base64_fragments[start:start + 8] for start in range(0, len(base64_fragments), 8)]
+        samples = {
+            "tiny-hex": [b"ab"] * WINDOW_SIZE,
+            "hex-plus-name": [zeroes[start:start + 8].hex().encode() for start in range(0, len(zeroes), 8)] + [b"field_name"],
+            "base64-nonidentifiers": fragments,
+        }
+        for name, parts in samples.items():
+            source = b"PARTS = [" + b", ".join(b'"' + part + b'"' for part in parts) + b"]"
+            with self.subTest(name=name):
+                self.assertTrue(audit.content_reasons(name + ".py", source, None))
+        # Even printable byte fragments retain their original literal category.
+        parts = [b'b"field_name"', b'b"d0"', b'b"a0"']
+        source = b"PARTS = [" + b", ".join(parts) + b"]"
+        context = audit.SourceContext.build("bytes.py", source)
+        list(audit.literal_payloads(context, audit.DecodeBudget(), individual=True))
+        self.assertEqual(context.fact_payloads, set())
+
     def test_malformed_example_text_is_not_reparsed_as_valid_c(self) -> None:
         slash = chr(92)
         example = (f'b"{slash}x0"' + f'b"{slash}xZZ"').encode()
