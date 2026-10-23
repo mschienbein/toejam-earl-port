@@ -1,6 +1,6 @@
 //! Speech translation ownership; see docs/PORTING.md.
 
-use crate::{Context, Result};
+use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::ram;
 
 /// Available Rust entries owned by this subsystem.
@@ -19,13 +19,38 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed original entries that return without clock/interrupt progress.
-/// Missing IDs are deliberately not approved for atomic checking or fallback.
+/// Reviewed original Atomic entries, including untranslated originals.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
-    crate::ids::SET_NEXT_SPEECH_LIFETIME,
-    // Both queries below have only a four-slot RAM scan and no callees or waits.
-    crate::ids::IS_SPEECH_BUBBLE_ENTITY,
-    crate::ids::HAS_SPEAKER_SPEECH,
+    // G/src/speech/speech_and_dialogue.c:63-67: one RAM-word store.
+    ids::SET_NEXT_SPEECH_LIFETIME,
+    // G/src/speech/speech_bubble_lookup.c:6-17: four RAM-byte comparisons.
+    ids::IS_SPEECH_BUBBLE_ENTITY,
+    // G/src/speech/speech_and_dialogue.c:173-190: four-slot RAM scan and
+    // two delayed-reply RAM queries; no callees, hardware, or waits.
+    ids::HAS_SPEAKER_SPEECH,
+    // :157-170: four RAM slots and FreeEntity's RAM-only pool release.
+    ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
+];
+
+/// Reviewed original non-Atomic classes. Together with ATOMIC_CAPABLE these
+/// classify all eight speech originals in both relocated-address revisions.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // G/src/speech/speech_and_dialogue.c:19-45: stable ROM font/RAM text
+    // copies and queue writes. TextMapCharacterToGlyph's embedded controls can
+    // emit repeated VDP writes, so transaction completion is required; there
+    // are no status/raster reads, readiness polls, or concurrent observations.
+    (ids::QUEUE_SPEECH_TEXT_TILES, ExecutionClass::Functional),
+    // :71-154, specifically :135-136: gSpriteGraphicsUploadPending is cleared
+    // by UploadQueuedSpriteGraphics via VBlankHandler (startup_and_main_loop.c:
+    // 219-220; sprites/load_sprites.c:30). Successful allocation can require
+    // actual IRQ progress, even when a particular live entry sees zero.
+    (ids::GENERATE_SPEECH, ExecutionClass::TimeAware),
+    // :200-247: the first-line path calls the time-aware GenerateSpeech.
+    (ids::START_DIALOGUE, ExecutionClass::TimeAware),
+    // :264-320: replies and random/reunion dialogues call GenerateSpeech and
+    // StartDialogue; those paths can wait for the upload IRQ. Missing speaker
+    // arguments on reunion/contact calls remain separate call-frame obligations.
+    (ids::UPDATE_SPEECH_AND_DIALOGUE, ExecutionClass::TimeAware),
 ];
 /// G/src/speech/speech_and_dialogue.c:63 (`SetNextSpeechLifetime`).
 pub fn set_next_speech_lifetime(
