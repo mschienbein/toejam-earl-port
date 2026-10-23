@@ -869,12 +869,16 @@ impl Adventure {
             return Some(Goal::Drown);
         }
         let inventory = ram::g_player_inventory(revision).at(player as i32);
-        if !self.doorway_used[player]
-            && self.last_inventory_kind[player] == 8
-            && ram::g_player_doorway_entities(revision)
-                .at(player as i32)
+        let doorway = ram::g_player_doorway_entities(revision)
+            .at(player as i32)
+            .read(memory);
+        if doorway > 0
+            && (self.mobility_needed[player] || !self.doorway_used[player])
+            && ram::g_player_info(revision)
+                .at(i32::from(doorway))
+                .level()
                 .read(memory)
-                > 0
+                == level
         {
             return Some(Goal::Doorway);
         }
@@ -905,24 +909,38 @@ impl Adventure {
         {
             return Some(Goal::Present { slot, kind: 2 });
         }
+        if self.mobility_needed[player]
+            && ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                != 0
+            && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 26)
+        {
+            return Some(Goal::Present { slot, kind: 26 });
+        }
         let bucks = ram::g_player_bucks(revision).at(player as i32).read(memory);
         let food_health = tje_mem::rom_data_units(revision)
             .iter()
             .find(|unit| unit.name == "PresentAuxiliarySignedLookup")
             .unwrap();
-        let count = (0..16)
-            .filter(|&slot| inventory.at(slot).read(memory) >= 0)
-            .count();
-        let gear = (0..16).find_map(|slot| {
-            let kind = inventory.at(slot as i32).read(memory);
-            matches!(kind, 0 | 2).then_some(Goal::Present { slot, kind })
-        });
-        let reserve_gear = (0..16).any(|slot| matches!(inventory.at(slot).read(memory), 0 | 2 | 8))
-            || ram::g_player_powerups(revision)
-                .at(player as i32)
-                .read(memory)
-                == 0;
+        let mut inventory_counts = [0_u8; 28];
+        let mut count = 0;
+        for slot in 0..16 {
+            let kind = inventory.at(slot).read(memory);
+            if kind >= 0 {
+                count += 1;
+                if let Some(total) = inventory_counts.get_mut(kind as usize) {
+                    *total += 1;
+                }
+            }
+        }
+        let lives = ram::g_player_lives(revision).at(player as i32).read(memory);
+        let rank = ram::g_player_rank(revision).at(player as i32).read(memory);
         if self.objective == Objective::LevelZero && level > 0 {
+            let gear = (0..16).find_map(|slot| {
+                let kind = inventory.at(slot as i32).read(memory);
+                matches!(kind, 0 | 2).then_some(Goal::Present { slot, kind })
+            });
             let active_gear = matches!(
                 ram::g_player_powerups(revision)
                     .at(player as i32)
@@ -962,6 +980,12 @@ impl Adventure {
                         .get(&(kind as u8))
                         .is_some_and(Option::is_none));
             let useful = useful
+                || (self.objective == Objective::Campaign && kind == 17 && lives < 5)
+                || (self.objective == Objective::Campaign
+                    && kind == 18
+                    && self.mobility_needed[player]
+                    && inventory_counts[0] + inventory_counts[8] == 0
+                    && count >= 4)
                 || (self.objective == Objective::Campaign
                     && level >= 5
                     && matches!(kind, 7 | 27)
@@ -978,14 +1002,17 @@ impl Adventure {
         if present.is_some() {
             return present;
         }
-        for bank in 0..2 {
-            for index in 0..20 {
+        let ship = (0..2).find_map(|bank| {
+            (0..20).find_map(|index| {
                 let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
-                let goal = Goal::Ship { bank, index };
-                if earthling.kind().read(memory) == 0 && earthling.level().read(memory) == level {
-                    return Some(goal);
-                }
-            }
+                (earthling.kind().read(memory) == 0 && earthling.level().read(memory) == level)
+                    .then_some(Goal::Ship { bank, index })
+            })
+        });
+        // An unreachable ship must not starve the real mobility pickup that
+        // would make it reachable. Accessible ships still have first priority.
+        if ship.is_some() && !self.mobility_needed[player] {
+            return ship;
         }
         if self.objective == Objective::Explore || level == 0 || health < 8 {
             for bank in 0..2 {
@@ -1030,21 +1057,32 @@ impl Adventure {
                 {
                     continue;
                 }
-                let needed = (self.objective == Objective::Campaign
-                    && !reserve_gear
-                    && matches!(kind, 0 | 2 | 8))
-                    || (self.objective == Objective::Explore
-                        && kind < 28
-                        && content
-                            .presents_opened
-                            .get(&(kind as u8))
-                            .is_some_and(Option::is_none))
-                    || (health < 14
-                        && (64..80).contains(&kind)
-                        && rom[food_health.address as usize + (kind - 64) as usize] as i8 > 0)
-                    || (self.objective == Objective::Explore
-                        && kind == 80
-                        && ram::g_player_bucks(revision).at(player as i32).read(memory) < 5);
+                let campaign_needed = match kind {
+                    0 | 8 => inventory_counts[kind as usize] < 2,
+                    2 => inventory_counts[2] == 0,
+                    7 | 27 => inventory_counts[7] + inventory_counts[27] < 2,
+                    11 => rank < 8 && inventory_counts[11] == 0,
+                    17 => lives < 5 && inventory_counts[17] == 0,
+                    20 | 21 => bucks < 10 && inventory_counts[kind as usize] == 0,
+                    26 => {
+                        inventory_counts[26] == 0 && inventory_counts[0] + inventory_counts[8] == 0
+                    }
+                    _ => false,
+                };
+                let needed =
+                    (self.objective == Objective::Campaign && count < 16 && campaign_needed)
+                        || (self.objective == Objective::Explore
+                            && kind < 28
+                            && content
+                                .presents_opened
+                                .get(&(kind as u8))
+                                .is_some_and(Option::is_none))
+                        || (health < 14
+                            && (64..80).contains(&kind)
+                            && rom[food_health.address as usize + (kind - 64) as usize] as i8 > 0)
+                        || (self.objective == Objective::Explore
+                            && kind == 80
+                            && ram::g_player_bucks(revision).at(player as i32).read(memory) < 5);
                 if !needed {
                     continue;
                 }
@@ -1057,6 +1095,9 @@ impl Adventure {
         }
         if let Some((_, goal)) = best_item {
             return Some(goal);
+        }
+        if ship.is_some() {
+            return ship;
         }
         for bank in 0..2 {
             let elevator = ram::g_elevator_records(revision).at(bank).at(0);
@@ -1205,6 +1246,11 @@ mod tests {
             inventory.at(0).write(&mut memory, 0);
             assert!(matches!(
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
+                Some(Goal::Item { bank: 0, index: 0 })
+            ));
+            inventory.at(1).write(&mut memory, 0);
+            assert!(matches!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
                 Some(Goal::Elevator { bank: 0 })
             ));
             planner.mobility_needed[0] = true;
@@ -1322,6 +1368,88 @@ mod tests {
             assert_eq!(planner.goals[0], None);
             assert!(planner.mobility_needed[0]);
             assert_eq!(pads[0], CONNECTED);
+        }
+    }
+
+    #[test]
+    fn unreachable_ship_does_not_starve_wings_while_an_innertube_is_active() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 7;
+            planner.mobility_needed[0] = true;
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 2);
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 2);
+            let ship = ram::g_earthling_banks(revision).at(0).at(0);
+            ship.kind().write(&mut memory, 0);
+            ship.level().write(&mut memory, 7);
+            let wings = ram::g_object_table(revision).at(0).at(0);
+            wings.kind().write(&mut memory, 0);
+            wings.level().write(&mut memory, 7);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Item { bank: 0, index: 0 })
+            );
+            planner.mobility_needed[0] = false;
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Ship { bank: 0, index: 0 })
+            );
+        }
+    }
+
+    #[test]
+    fn campaign_uses_real_extra_lives_even_when_health_is_full() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 7;
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 17);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 1);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Present { slot: 0, kind: 17 })
+            );
+            assert_eq!(inventory.at(0).read(&memory), 17);
+        }
+    }
+
+    #[test]
+    fn a_still_live_doorway_can_be_reused_only_when_mobility_is_needed_again() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 7;
+            planner.doorway_used[0] = true;
+            planner.mobility_needed[0] = true;
+            ram::g_player_doorway_entities(revision)
+                .at(0)
+                .write(&mut memory, 6);
+            ram::g_player_info(revision)
+                .at(6)
+                .level()
+                .write(&mut memory, 7);
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Doorway)
+            );
+            planner.mobility_needed[0] = false;
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                None
+            );
         }
     }
 }
