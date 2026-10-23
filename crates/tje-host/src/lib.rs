@@ -11,6 +11,7 @@ pub mod abi;
 pub mod catalogue;
 pub mod hooks;
 pub mod input;
+mod play;
 mod sinks;
 
 use abi::{HookContext, UninitializedStackRead, run_original_atomic, set_sp};
@@ -156,6 +157,7 @@ pub struct Host {
     output: HeadlessOutput,
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
+    audio_sample_rate: u32,
     pub checks: CheckReport,
     pub measurements: Measurements,
 }
@@ -192,6 +194,7 @@ impl Host {
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
+            audio_sample_rate: 48_000,
             checks: CheckReport::default(),
             measurements: Measurements::default(),
         })
