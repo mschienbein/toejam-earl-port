@@ -12,20 +12,20 @@ mod transactions;
 #[cfg(test)]
 mod tests;
 
-pub use draws::{menu_draw_text_items, text_write_decimal_tiles};
-pub use entities::{
+pub(crate) use draws::{menu_draw_text_items, text_write_decimal_tiles};
+pub(crate) use entities::{
     add_menu_header, create_menu_cursor_entity, release_menu_cursor_entity, remove_menu_header,
 };
-pub use main_menu::{
+pub(crate) use main_menu::{
     general_menu_handler, menu_controller_options_handler, menu_jam_out_handler, menu_what_handler,
     menu_who_handler, new_game_main_menu, show_game_over_and_reset,
 };
-pub use pause::{game_paused, run_final_level_pause_menu};
-pub use resources::{
+pub(crate) use pause::{game_paused, run_final_level_pause_menu};
+pub(crate) use resources::{
     check_promotion_score, player_reset_rank_and_resources, player_update_health_and_lives,
     setup_the_main_game,
 };
-pub use transactions::{
+pub(crate) use transactions::{
     clear_transient_entities, inventory_drop_selected_present, inventory_identify_selected_present,
     randomize_inventory, set_mail_order_presents,
 };

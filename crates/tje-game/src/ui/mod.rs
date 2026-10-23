@@ -240,31 +240,35 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::INVENTORY_SERVICE_REDRAW_PHASE,
         function: control::inventory_service_redraw_phase,
     },
-];
-
-/// Opt-in inventory candidates; not registered until both-revision proof.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    // Isolated prefix passes; late integrated CheckIfOpenForBoth effect traces
-    // differ at REV02 frame4808/REV00 frame4810 even with actual caller frames.
-    crate::Translation {
-        id: ids::OPEN_PRESENT,
-        function: control::open_present,
-    },
-    crate::Translation {
-        id: ids::CHECK_IF_OPEN_FOR_BOTH,
-        function: control::check_if_open_for_both,
-    },
-    // Valid clock/IRQ entry and completed natural viewport-clear receipt needed.
     crate::Translation {
         id: ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
         function: inventory_animations::entity_clear_viewport_sprites,
     },
-    // Unreached by the current controller scripts; needs a labelled valid entry.
+    crate::Translation {
+        id: ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
+        function: control::inventory_buy_selected_mail_order_present,
+    },
+    crate::Translation {
+        id: ids::OPEN_PRESENT,
+        function: control::open_present,
+    },
+];
+
+/// Opt-in inventory candidates; not registered until both-revision proof.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    // The longer parent check differs in the global chip write stream at
+    // REV02 frame4808/REV00 frame4810; autonomous origin is [INFERENCE].
+    // Direct OpenPresent hooks pass separately; no parent mismatch is waived.
+    crate::Translation {
+        id: ids::CHECK_IF_OPEN_FOR_BOTH,
+        function: control::check_if_open_for_both,
+    },
+    // Both revisions' direct live-state redraw fixtures differ in device writes.
     crate::Translation {
         id: ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
         function: control::inventory_redraw_synchronously,
     },
-    // Two natural entries pass; complete proof through the split-mode path needed.
+    // Both revisions frame2103 observe different semantic YM2612 BUSY operands.
     crate::Translation {
         id: ids::DRAW_INVENTORY,
         function: control::draw_inventory,
@@ -274,12 +278,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::TOGGLE_INVENTORY,
         function: control::toggle_inventory,
     },
-    // Needs the recorded mailbox acquisition path and completed speech waits.
-    crate::Translation {
-        id: ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
-        function: control::inventory_buy_selected_mail_order_present,
-    },
-    // Sixty redraw/VBlank iterations need a complete real-input timed receipt.
+    // Real cooperation inputs reach this root; the original long animation
+    // exceeds the timed-call ceiling before the Rust fork can be approved.
     crate::Translation {
         id: ids::RANDOMIZE_PRESENTS,
         function: input::randomize_presents,
@@ -294,7 +294,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::CHECK_B_BUTTON,
         function: input::check_b_button,
     },
-    // DrawInventory plus modal CheckBButton input/wait closure still pending.
+    // Real mailbox entries at frame19615 REV02/frame13949 REV00 differ on a
+    // semantic YM2612 BUSY read; controller-only recordings are retained.
     crate::Translation {
         id: ids::INVENTORY_OPEN_MAIL_ORDER_MENU,
         function: input::inventory_open_mail_order_menu,
@@ -374,15 +375,12 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 /// call-frame composition are still proof prerequisites, never assumed passed.
 pub static PENDING: &[crate::FunctionId] = &[
     // Exact per-entry blockers are on the body registry above, not approval.
-    ids::OPEN_PRESENT,
     ids::CHECK_IF_OPEN_FOR_BOTH,
-    // Live viewport/clock entry and direct redraw fixture coverage prerequisites.
-    ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
+    // Exact direct redraw/clock/device-observation receipts remain required.
     ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
     ids::DRAW_INVENTORY,
     // Semantic device operands and long modal/input closure must match exactly.
     ids::TOGGLE_INVENTORY,
-    ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
     ids::RANDOMIZE_PRESENTS,
     ids::PROCESS_INVENTORY,
     ids::CHECK_B_BUTTON,

@@ -72,6 +72,10 @@ fn fixtures(host: &mut Host) -> Result<()> {
     opening.write(&mut host.context(), 0);
     opening.offset(1).write(&mut host.context(), 0);
     check(host, ids::CHECK_IF_OPEN_FOR_BOTH, &[opening.address()])?;
+    // Direct redraw services all phases itself; unlike the IRQ-driven refresh,
+    // this source path has no interrupt-dependent return condition.
+    check(host, ids::INVENTORY_REDRAW_SYNCHRONOUSLY, &[0])?;
+    check(host, ids::INVENTORY_REDRAW_SYNCHRONOUSLY, &[1])?;
     Ok(())
 }
 
@@ -93,11 +97,16 @@ fn main() -> Result<()> {
         candidates.push(translation);
     }
     let candidates = CANDIDATES.get_or_init(|| candidates).as_slice();
-    let source = fs::read_to_string(&args[3])?;
     let frames: u64 = args[4].parse()?;
     let mut failures = Vec::new();
     let fixtures_enabled = std::env::var_os("TJE_UI_FIXTURES").is_some();
     for revision in [Revision::Rev02, Revision::Rev00] {
+        let revision_key = match revision {
+            Revision::Rev02 => "rev02",
+            Revision::Rev00 => "rev00",
+        };
+        let input_path = args[3].replace("{revision}", revision_key);
+        let source = fs::read_to_string(&input_path)?;
         let bytes = fs::read(Path::new(&args[0]).join(match revision {
             Revision::Rev02 => "rev02.bin",
             Revision::Rev00 => "rev00.bin",
@@ -163,7 +172,7 @@ fn main() -> Result<()> {
             output.join(format!("{}-{}.json", revision.name(), args[5])),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "revision":revision.name(), "frames":host.frame_count(), "selected":args[2],
-                "input":args[3], "whole_session_equal":natural_reference_equal, "error":result.as_ref().err().map(ToString::to_string),
+                "input":input_path, "whole_session_equal":natural_reference_equal, "error":result.as_ref().err().map(ToString::to_string),
                 "fixtures_enabled":fixtures_enabled,
                 "fixture_counts":fixture_counts, "checks":host.checks, "measurements":host.measurements,
                 "fixture_entry_sr":host.cpu().status_register(), "fixture_entry_pc":host.cpu().pc(),

@@ -8,10 +8,10 @@ mod draws;
 mod health;
 mod statistics;
 
-pub use animations::{hud_animate_health_bar, hud_load_action_icon_sprite};
-pub use draws::{draw_menu_window_frame, hud_draw_rank_labels};
-pub use health::{draw_hud, hud_initialize_health_bar};
-pub use statistics::{
+pub(crate) use animations::{hud_animate_health_bar, hud_load_action_icon_sprite};
+pub(crate) use draws::{draw_menu_window_frame, hud_draw_rank_labels};
+pub(crate) use health::{draw_hud, hud_initialize_health_bar};
+pub(crate) use statistics::{
     inventory_draw_bucks, inventory_draw_mail_order_offers, inventory_draw_player_stats,
 };
 
