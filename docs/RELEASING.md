@@ -1,10 +1,11 @@
 # Building and releasing
 
-Release automation is prepared in advance of the finished port. Packaging the
-current tree does **not** establish game fidelity or remove the hybrid host's
-68000 emulator. See [PLAN.md](PLAN.md) for that separate acceptance criterion.
-No ROM, extracted asset, capture, save, user configuration or cartridge cache is
-an input to a release build.
+Native packages use the cycle-exact engine compiled from the user's cartridge at
+first launch. The shipped native dependency graph excludes the hybrid host,
+68000 interpreter and development verifier. Packaging alone is not a game-fidelity
+proof; see [PLAN.md](PLAN.md) and the separate engine acceptance receipts.
+No ROM, extracted asset, capture, save, user configuration or generated native
+code cache is an input to a release build.
 
 ## Workflows and publication boundaries
 
@@ -83,9 +84,15 @@ system's explicit user approval mechanism; do not disable system-wide protection
    CLI alternative is `./toejam-earl --rom /path/to/cartridge.bin` (Windows:
    `.\toejam-earl.exe --rom C:\path\to\cartridge.bin`; macOS:
    `"ToeJam & Earl.app/Contents/MacOS/toejam-earl" --rom /path/to/cartridge.bin`).
-3. The native application prints its OS user-data directory at startup and stores
-   the normalized cartridge and `config.toml` there. Later launches reuse that
-   cartridge. `--data-dir PATH` chooses an isolated location. Do not publish it.
+3. The normalized cartridge is remembered in the OS **local data** directory;
+   later launches find it automatically and load its compiled engine cache with
+   no file prompt. Settings use the OS configuration directory, generated code
+   the OS cache directory. Windows cartridge/session data and code cache use
+   `%LOCALAPPDATA%`, not redirected Roaming AppData; only settings roam. The first
+   compilation displays progress. F1 → Cartridge / help can replace/forget the
+   cartridge; `--forget-rom` removes its saved copy and compiled cache while
+   preserving settings. `--data-dir PATH` isolates all these locations; do not
+   publish its cartridge or cache.
 4. Native player 1: arrows, Z/X/C = A/B/C, Enter = Start. Player 2: W/S/A/D,
    G/H/J = A/B/C, Space = Start. Esc pauses, F5 resets, F11 toggles fullscreen,
    F6 changes scaling, F7 changes filtering, F8 changes vsync, PageUp/PageDown
@@ -99,6 +106,17 @@ system's explicit user approval mechanism; do not disable system-wide protection
 
 Native archives do not install file associations or write beside the executable.
 They can be removed by deleting the extracted folder; user data is separate.
+
+### Windows network-path override limitation
+
+Use the normal local directories, or a local-disk `--data-dir`. An explicit UNC override such as
+`\\wsl.localhost\Ubuntu\...` can stall during atomic native-cache publication.
+The one instrumented test completed ROM import (18 ms), native compilation
+(12.55 s), buffered cache payload (0.57 s) and `sync_all` (11 ms), then remained
+inside the temporary file's atomic persist operation for over 96 seconds.
+No timeout-free UNC guarantee is made. The application does not weaken atomic
+publication/checksums or silently switch execution backends to bypass this.
+Default Windows data/cache are local even when Roaming AppData is redirected.
 
 ## Local builds, without publication
 

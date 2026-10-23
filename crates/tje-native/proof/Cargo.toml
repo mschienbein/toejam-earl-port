@@ -1,0 +1,19 @@
+[package]
+name = "tje-native-proof"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1"
+bincode = "2"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+tje-native = { path = ".." }
+tje-engine-cranelift = { path = "../../tje-engine-cranelift", default-features = false, features = ["devices"] }
+tje-engine-verify = { path = "../../tje-engine-verify" }
+tje-native-platform = { path = "../../tje-native-platform", default-features = false }
+tje-rom = { path = "../../tje-rom" }

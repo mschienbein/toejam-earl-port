@@ -1,17 +1,15 @@
 mod audio;
-mod backend;
-mod config;
-mod input;
+mod loading;
 mod overlay;
 mod recording;
 mod video;
 
 use anyhow::{Context, Result, ensure};
 use audio::Audio;
-use backend::{GameBackend, HybridBackend, VideoFrame};
 use clap::Parser;
 use config::{Filter, Scale, Settings, Storage};
 use input::{Input, InputScript};
+use loading::Loading;
 use overlay::{Info, Overlay};
 use recording::Recorder;
 use std::{
@@ -20,6 +18,12 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
+};
+use tje_engine_cranelift::{CacheConfig, ENGINE_VERSION};
+use tje_native::{
+    backend::{GameBackend, VideoFrame},
+    config, input,
+    replay::Replay,
 };
 use tje_rom::Rom;
 use video::Video;
@@ -37,7 +41,8 @@ use winit::{
     name = "toejam-earl",
     about = "Faithful ToeJam & Earl native port. Supply your own cartridge on first launch.",
     after_help = "First launch: enter a cartridge path in the window, drop the file, or pass --rom PATH.\n\
-Cartridges and settings use OS data/config directories; both are shown at startup and in Settings.\n\
+Your cartridge is remembered after import. Later launches use its compiled engine cache automatically.\n\
+Data/config/cache directories are shown at startup and in Settings; --forget-rom removes the saved game/cache.\n\
 Open Settings in the window (F1) to change keyboard/gamepad bindings, output and video settings live.\n\n\
 Keyboard P1: arrows, Z/X/C = A/B/C, Enter = Start.\n\
 Keyboard P2: W/S/A/D, G/H/J = A/B/C, Space = Start.\n\
@@ -46,6 +51,7 @@ Hotkeys: Esc pause, F5 hard reset, F11 fullscreen, F6 integer/NTSC fit,\n\
 F7 nearest/linear, F8 vsync, F9 record (hard-resets on start), PageUp/PageDown volume.\n\
 F1 opens in-app settings; settings pause the game without adding recorded frames.\n\
 Recording stops on F9/reset/import/exit and saves controller-only sessions under user data.\n\
+--replay PATH replays controller sessions through the native engine; F5 restarts, F9 is disabled during replay.\n\
 Keyboard script example: {\"holds\":[{\"start\":300,\"end\":308,\"keys\":[\"Enter\"]}]}.\n\
 Intervals are half-open console scheduler ticks; pause still advances the script clock.\n\
 Captures contain copyrighted game images: keep --capture-dir outside the public tree."
@@ -57,6 +63,9 @@ struct Args {
     /// Override the OS-specific per-user data directory (also useful for isolated test sessions).
     #[arg(long)]
     data_dir: Option<PathBuf>,
+    /// Forget the remembered cartridge and private compiled cache; keep controls/settings.
+    #[arg(long, conflicts_with_all = ["rom", "replay"])]
+    forget_rom: bool,
     #[arg(long, value_enum)]
     scale: Option<Scale>,
     #[arg(long, value_enum)]
@@ -74,9 +83,12 @@ struct Args {
     #[arg(long, default_value = "auto", value_parser = ["auto", "vulkan", "gl", "dx12", "metal"])]
     gpu_backend: String,
     /// Inject physical keyboard holds through the normal bindings (JSON; see --help).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "replay")]
     input_script: Option<PathBuf>,
-    /// Exit after this many emulated frames, only after presenting the last frame.
+    /// Replay a versioned input-only session through the shipped native engine.
+    #[arg(long)]
+    replay: Option<PathBuf>,
+    /// Exit after this many console frames, only after presenting the last frame.
     #[arg(long)]
     run_frames: Option<u64>,
     /// Exit after this many scheduler ticks (including paused/first-launch UI ticks).
@@ -103,6 +115,8 @@ struct App {
     video: Option<Video>,
     audio: Option<Audio>,
     backend: Option<Box<dyn GameBackend>>,
+    loading: Option<Loading>,
+    replay: Option<Replay>,
     paused: bool,
     tick: u64,
     total_frames: u64,
@@ -110,7 +124,6 @@ struct App {
     started: Instant,
     completed: bool,
     error: Option<anyhow::Error>,
-    last_stage: &'static str,
     recorder: Recorder,
     revision: Option<tje_rom::Revision>,
     overlay: Overlay,
@@ -161,6 +174,9 @@ impl App {
             "--run-ticks must be greater than zero"
         );
         let storage = Storage::new(args.data_dir.clone())?;
+        if args.forget_rom {
+            storage.forget_rom()?;
+        }
         let (mut settings, config_error) = match storage.load() {
             Ok(settings) => (settings, None),
             Err(error) => (
@@ -202,11 +218,19 @@ impl App {
             .as_deref()
             .map(InputScript::load)
             .transpose()?;
+        let replay = args.replay.as_deref().map(Replay::load).transpose()?;
+        if let (Some(replay), Some(frames)) = (&replay, args.run_frames) {
+            ensure!(
+                frames <= replay.frames(),
+                "--run-frames cannot exceed the replay length"
+            );
+        }
         if let Some(path) = &args.capture_dir {
             fs::create_dir_all(path)?;
         }
         println!("STORAGE {}", storage.directory.display());
         println!("CONFIG {}", storage.config_directory.display());
+        println!("CACHE {}", storage.cache_directory.display());
         println!(
             "SETTINGS scale={:?} filter={:?} fullscreen={} vsync={} volume={}",
             settings.scale, settings.filter, settings.fullscreen, settings.vsync, settings.volume
@@ -228,6 +252,8 @@ impl App {
             video: None,
             audio: None,
             backend: None,
+            loading: None,
+            replay,
             paused: false,
             tick: 0,
             total_frames: 0,
@@ -235,7 +261,6 @@ impl App {
             started: now,
             completed: false,
             error: None,
-            last_stage: "",
             recorder: Recorder::default(),
             revision: None,
             overlay,
@@ -274,21 +299,13 @@ impl App {
         self.window = Some(window);
         self.video = Some(video);
         self.refresh_devices();
-        let explicit = self.args.rom.clone();
-        let candidate = explicit.or_else(|| {
-            self.storage
-                .rom_path()
-                .is_file()
-                .then(|| self.storage.rom_path())
-        });
-        if let Some(path) = candidate {
-            let store = self.args.rom.is_some();
-            if let Err(error) = self.import(&path, store) {
+        if let Some((path, remember)) = self.storage.startup_rom(self.args.rom.as_deref()) {
+            if let Err(error) = self.import(&path, remember) {
                 self.import_error(error);
             }
         } else {
             println!(
-                "IMPORT waiting: use the in-app path field, drop a cartridge, or pass --rom PATH"
+                "IMPORT waiting: no saved cartridge; choose one once using the path field, drop, or --rom PATH"
             );
         }
         self.started = Instant::now();
@@ -298,39 +315,130 @@ impl App {
     }
 
     fn import(&mut self, path: &Path, store: bool) -> Result<()> {
+        ensure!(
+            self.loading.is_none(),
+            "native game preparation is already running"
+        );
         let bytes = fs::read(path).with_context(|| format!("read cartridge {}", path.display()))?;
         let rom = Rom::import(&bytes).context("identify cartridge")?;
+        if let Some(replay) = &self.replay {
+            ensure!(
+                replay.revision() == rom.revision(),
+                "this replay needs {}, not {}",
+                replay.revision(),
+                rom.revision()
+            );
+        }
         self.stop_recording()?;
-        if self.audio.is_none() {
-            self.audio = Some(Audio::new(
-                self.settings.volume,
-                self.settings.audio_device.clone(),
-            ));
-        }
-        let audio = self.audio.as_mut().unwrap();
-        let backend = HybridBackend::new(&rom, audio.sample_rate)?;
-        if store {
-            self.storage.store_rom(rom.bytes())?;
-        }
         println!(
-            "IMPORT {} revision={} normalized_bytes={} stored={}",
-            if store { "fresh" } else { "cached" },
+            "IMPORT verified revision={} normalized_bytes={} remember={store}",
             rom.revision(),
-            rom.bytes().len(),
-            self.storage.rom_path().display()
+            rom.bytes().len()
         );
-        println!("CLOCK fps={:.10} source=console", backend.fps());
-        audio.flush();
-        audio.set_paused(self.effective_paused);
-        self.backend = Some(Box::new(backend));
-        self.revision = Some(rom.revision());
-        self.paused = false;
-        self.total_frames = 0;
-        self.tick = 0;
-        self.last_stage = "";
-        self.deadline = Instant::now();
+        self.loading = Some(Loading::start(
+            rom,
+            CacheConfig {
+                data_dir: self.storage.cache_directory.clone(),
+            },
+            store,
+        )?);
         self.sync_pause();
-        self.update_title();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
+    }
+
+    fn poll_loading(&mut self) -> Result<()> {
+        let Some(loading) = &mut self.loading else {
+            return Ok(());
+        };
+        if loading.progress_changed() {
+            println!("COMPILE {:?}", loading.shown);
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        }
+        let Some(result) = loading.poll() else {
+            return Ok(());
+        };
+        let loading = self.loading.take().unwrap();
+        match result {
+            Ok(mut backend) => {
+                if loading.store {
+                    self.storage.store_rom(backend.rom_bytes())?;
+                }
+                if self.audio.is_none() {
+                    self.audio = Some(Audio::new(
+                        self.settings.volume,
+                        self.settings.audio_device.clone(),
+                    ));
+                }
+                let audio = self.audio.as_mut().unwrap();
+                backend.set_audio_sample_rate(audio.sample_rate)?;
+                audio.flush();
+                let stats = backend.compile_stats();
+                println!(
+                    "BACKEND native version={ENGINE_VERSION} revision={} instructions={} code_bytes={} cache={:?} compile_seconds={:.6} load_seconds={:.6} cache_rejection={:?}",
+                    backend.revision(),
+                    stats.instruction_count,
+                    stats.code_bytes,
+                    stats.cache_status,
+                    stats.compilation_time.as_secs_f64(),
+                    loading.started.elapsed().as_secs_f64(),
+                    stats.cache_rejection
+                );
+                println!(
+                    "IMPORT {} revision={} normalized_bytes={} stored={}",
+                    if loading.store { "fresh" } else { "cached" },
+                    backend.revision(),
+                    backend.rom_bytes().len(),
+                    self.storage.rom_path().display()
+                );
+                println!("CLOCK fps={:.10} source=cycle-exact-native", backend.fps());
+                self.revision = Some(backend.revision());
+                self.backend = Some(backend);
+                if let Some(replay) = &mut self.replay {
+                    replay.restart();
+                }
+                self.paused = false;
+                self.total_frames = 0;
+                self.tick = 0;
+                self.started = Instant::now();
+                self.deadline = self.started;
+                self.sync_pause();
+                self.update_title();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            Err(error) => {
+                self.import_error(error.context("prepare native game from the verified cartridge"))
+            }
+        }
+        Ok(())
+    }
+
+    fn forget_rom(&mut self) -> Result<()> {
+        ensure!(
+            self.loading.is_none(),
+            "wait for native game preparation before forgetting the cartridge"
+        );
+        self.stop_recording()?;
+        self.backend = None;
+        self.replay = None;
+        self.revision = None;
+        self.audio = None;
+        self.storage.forget_rom()?;
+        self.overlay.open = false;
+        self.overlay.message = Some("Saved cartridge and compiled cache forgotten. Your controls/settings were kept; choose a cartridge to play again.".into());
+        self.paused = false;
+        self.sync_pause();
+        if let Some(window) = &self.window {
+            window.set_title("ToeJam & Earl — choose a cartridge");
+            window.request_redraw();
+        }
+        println!("IMPORT forgotten");
         Ok(())
     }
 
@@ -352,7 +460,7 @@ impl App {
     fn is_paused(&self) -> bool {
         effective_pause(
             self.paused,
-            self.overlay.open,
+            self.overlay.open || self.loading.is_some(),
             self.focused,
             self.settings.pause_on_focus_loss,
             self.script.is_some(),
@@ -495,7 +603,7 @@ impl App {
             }
             return Ok(());
         }
-        if self.backend.is_none() {
+        if self.backend.is_none() || self.loading.is_some() {
             return Ok(());
         }
         let hotkeys = &self.settings.hotkeys;
@@ -513,6 +621,9 @@ impl App {
             self.sync_pause();
             println!("HOTKEY pause={}", self.paused);
         } else if key == hotkeys.reset {
+            if let Some(replay) = &mut self.replay {
+                replay.restart();
+            }
             self.stop_recording()?;
             if let Some(backend) = &mut self.backend {
                 backend.reset();
@@ -520,15 +631,17 @@ impl App {
             if let Some(audio) = &self.audio {
                 audio.flush();
             }
-            self.last_stage = "";
             println!("HOTKEY reset");
         } else if key == hotkeys.record {
+            if self.replay.is_some() {
+                self.overlay.show_error("Recording is unavailable during replay. Import a cartridge without --replay to record live input.");
+                return Ok(());
+            }
             if self.recorder.active() {
                 self.stop_recording()?;
             } else if let (Some(backend), Some(revision)) = (&mut self.backend, self.revision) {
                 backend.reset();
                 self.recorder.start(revision);
-                self.last_stage = "";
                 if let Some(audio) = &self.audio {
                     audio.flush();
                 }
@@ -572,6 +685,16 @@ impl App {
     }
 
     fn step(&mut self) -> Result<()> {
+        if self.loading.is_some() {
+            self.tick += 1;
+            self.completed |= self.args.run_ticks.is_some_and(|ticks| self.tick >= ticks);
+            if self.completed
+                && let Some(window) = &self.window
+            {
+                window.request_redraw();
+            }
+            return Ok(());
+        }
         if let Some(script) = &self.script {
             script.changes(self.tick, &mut self.changes);
         }
@@ -586,40 +709,33 @@ impl App {
         if !self.is_paused()
             && let Some(backend) = &mut self.backend
         {
-            let controllers = self.input.controllers(&self.settings.players);
-            let samples = backend.advance(controllers)?;
+            let (samples, controllers) = if let Some(replay) = &mut self.replay {
+                let frame = replay
+                    .advance(backend.as_mut())?
+                    .context("input replay ended before its advertised frame count")?;
+                (frame.audio, frame.controllers)
+            } else {
+                let controllers = self.input.controllers(&self.settings.players);
+                (backend.advance(controllers)?, controllers)
+            };
             self.audio.as_ref().unwrap().push(samples);
             self.recorder.frame(controllers)?;
             self.total_frames += 1;
             self.video.as_mut().unwrap().upload(backend.video());
             if self.total_frames == 1
-                || self.total_frames.is_multiple_of(60)
+                || self.total_frames.is_multiple_of(300)
                 || self.args.capture_frame.contains(&self.total_frames)
             {
                 let status = backend.status();
-                if status.stage != self.last_stage {
-                    println!(
-                        "STAGE {} frame={} title={:?} menu={:?} gameplay={:?}",
-                        status.stage,
-                        status.frame,
-                        status.title_frame,
-                        status.menu_frame,
-                        status.gameplay_frame
-                    );
-                    self.last_stage = status.stage;
-                }
-                if self.total_frames.is_multiple_of(300)
-                    || self.args.capture_frame.contains(&self.total_frames)
-                {
-                    println!(
-                        "FRAME total={} backend={} translated_calls={} players={:?} elapsed={:.3}",
-                        self.total_frames,
-                        status.frame,
-                        status.translated_calls,
-                        status.players,
-                        self.started.elapsed().as_secs_f64()
-                    );
-                }
+                println!(
+                    "FRAME total={} backend={} pc={:06X} master_clock={} players={:?} elapsed={:.3}",
+                    self.total_frames,
+                    status.frame,
+                    status.pc,
+                    status.master_clock,
+                    status.players,
+                    self.started.elapsed().as_secs_f64()
+                );
             }
             if self.args.capture_frame.contains(&self.total_frames) {
                 let path = self
@@ -635,6 +751,7 @@ impl App {
                 .args
                 .run_frames
                 .is_some_and(|frames| self.total_frames >= frames);
+            self.completed |= self.replay.as_ref().is_some_and(Replay::finished);
         }
         self.completed |= self.args.run_ticks.is_some_and(|ticks| self.tick >= ticks);
         if let Some(window) = &self.window
@@ -657,6 +774,14 @@ impl App {
                 has_game: self.backend.is_some(),
                 paused,
                 recording: self.recorder.active(),
+                loading: self
+                    .loading
+                    .as_ref()
+                    .map(|loading| (loading.revision, loading.shown)),
+                replay: self
+                    .replay
+                    .as_ref()
+                    .map(|replay| (replay.frame(), replay.frames())),
                 audio: self
                     .audio
                     .as_ref()
@@ -696,6 +821,12 @@ impl App {
                 Err(error) => self.import_error(error),
             }
         }
+        if actions.forget_rom
+            && let Err(error) = self.forget_rom()
+        {
+            self.overlay
+                .show_error(format!("Could not forget cartridge: {error:#}"));
+        }
         if was_open != self.overlay.open {
             self.input.clear_keys();
             if self.overlay.open {
@@ -720,12 +851,17 @@ impl App {
             self.error.get_or_insert(error);
         }
         let presented = self.video.as_ref().map_or(0, |video| video.presented);
+        let seconds = self.started.elapsed().as_secs_f64();
         println!(
-            "RUN frames={} ticks={} presented={presented} seconds={:.3} stage={}",
+            "RUN frames={} ticks={} presented={presented} seconds={seconds:.3} fps={:.6} replay_frame={:?}",
             self.total_frames,
             self.tick,
-            self.started.elapsed().as_secs_f64(),
-            self.last_stage
+            if seconds > 0.0 {
+                self.total_frames as f64 / seconds
+            } else {
+                0.0
+            },
+            self.replay.as_ref().map(Replay::frame)
         );
         if let Some(backend) = &mut self.backend {
             println!("BACKEND final={:?}", backend.status());
@@ -842,6 +978,9 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(error) = self.poll_loading() {
+            self.import_error(error);
+        }
         let pads = self.input.poll_gamepads();
         if self.overlay.open
             && let Some(press) = pads.pressed

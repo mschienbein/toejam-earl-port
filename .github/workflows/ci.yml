@@ -72,6 +72,11 @@ jobs:
       - name: Execute cold and cached native code publication on ARM64
         if: runner.os == 'macOS'
         run: cargo test --release --locked -p tje-engine-cranelift --no-default-features --lib --tests --target aarch64-apple-darwin
+      - name: Build shipped native engine frontend and separate proof on Apple ARM64
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --locked --release -p tje-native --bin toejam-earl --target aarch64-apple-darwin
+          cargo build --locked --release -p tje-native-proof --target aarch64-apple-darwin
       - name: Require real-time synthetic compiled-engine audio capacity
         run: cargo run --locked --release -p tje-engine-cranelift --example synthetic_capacity -- --frames 600
       - name: Run synthetic publication-gate regressions
@@ -79,7 +84,7 @@ jobs:
       - name: Build WebAssembly
         # Desktop presentation and native code generation are native-only; all
         # other workspace members, including the runtime and Wasm emitter, build.
-        run: cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native --exclude tje-engine-cranelift
+        run: cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native --exclude tje-engine-cranelift --exclude tje-native-proof
       - name: Check generated function traceability
         run: python tools/trace_functions.py --check
       - name: Audit public worktree and published ancestry without ROMs

@@ -1,9 +1,9 @@
-use crate::{
+use anyhow::{Context, Result, bail};
+use std::sync::Arc;
+use tje_native::{
     backend::VideoFrame,
     config::{Filter, Scale},
 };
-use anyhow::{Context, Result, bail};
-use std::sync::Arc;
 use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
 
 pub struct Video {

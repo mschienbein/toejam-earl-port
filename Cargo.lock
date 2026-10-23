@@ -3476,7 +3476,7 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
- "tje-host",
+ "tje-engine-cranelift",
  "tje-mem",
  "tje-rom",
  "tje-session",
@@ -3501,6 +3501,21 @@ dependencies = [
  "tje-host",
  "tje-mem",
  "z80-emu",
+]
+
+[[package]]
+name = "tje-native-proof"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "clap",
+ "serde_json",
+ "tje-engine-cranelift",
+ "tje-engine-verify",
+ "tje-native",
+ "tje-native-platform",
+ "tje-rom",
 ]
 
 [[package]]

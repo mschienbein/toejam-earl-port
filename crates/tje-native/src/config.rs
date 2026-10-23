@@ -3,7 +3,11 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::ValueEnum;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 use winit::keyboard::KeyCode;
 
 const SETTINGS_VERSION: u32 = 2;
@@ -300,31 +304,62 @@ impl Settings {
 pub struct Storage {
     pub directory: PathBuf,
     pub config_directory: PathBuf,
+    pub cache_directory: PathBuf,
 }
 
 impl Storage {
     pub fn new(override_path: Option<PathBuf>) -> Result<Self> {
-        let (directory, config_directory) = if let Some(path) = override_path {
-            (path.clone(), path)
+        let (directory, config_directory, cache_directory) = if let Some(path) = override_path {
+            (path.clone(), path.clone(), path.join("cache"))
         } else {
             let dirs = ProjectDirs::from("org", "toejam-earl-port", "ToeJam & Earl")
                 .context("no user data directory; specify --data-dir")?;
             (
                 dirs.data_local_dir().to_path_buf(),
                 dirs.config_dir().to_path_buf(),
+                dirs.cache_dir().to_path_buf(),
             )
         };
-        for path in [&directory, &config_directory] {
+        for path in [&directory, &config_directory, &cache_directory] {
             fs::create_dir_all(path).with_context(|| format!("create {}", path.display()))?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&cache_directory, fs::Permissions::from_mode(0o700))
+                .context("protect private native-code cache directory")?;
         }
         Ok(Self {
             directory,
             config_directory,
+            cache_directory,
         })
     }
 
     pub fn rom_path(&self) -> PathBuf {
         self.directory.join("cartridge.bin")
+    }
+
+    /// An explicit selection replaces the remembered cartridge after successful
+    /// compilation. Otherwise a saved copy starts automatically, without a picker.
+    pub fn startup_rom(&self, explicit: Option<&Path>) -> Option<(PathBuf, bool)> {
+        explicit
+            .map(|path| (path.to_path_buf(), true))
+            .or_else(|| self.rom_path().is_file().then(|| (self.rom_path(), false)))
+    }
+
+    pub fn forget_rom(&self) -> Result<()> {
+        match fs::remove_file(self.rom_path()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("forget saved cartridge"),
+        }
+        match fs::remove_dir_all(self.cache_directory.join("engine-native")) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("remove private compiled cartridge cache"),
+        }
+        Ok(())
     }
 
     pub fn store_rom(&self, bytes: &[u8]) -> Result<()> {
@@ -527,6 +562,7 @@ mod tests {
         let storage = Storage {
             directory: data.clone(),
             config_directory: config.clone(),
+            cache_directory: root.join("cache"),
         };
         assert_eq!(storage.load().unwrap().volume, 0.3);
         assert!(config.join("config.toml").is_file());
@@ -550,6 +586,40 @@ mod tests {
                 source
             );
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn second_launch_selects_saved_cartridge_without_a_prompt_and_forget_keeps_settings() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("tje-remembered-cartridge-{nonce}"));
+        let first = Storage::new(Some(root.clone())).unwrap();
+        assert!(first.startup_rom(None).is_none());
+        first.save(&Settings::default()).unwrap();
+        // Selection/storage test only: identification of real images remains in
+        // tje-rom and the opt-in two-launch production-engine integration test.
+        first
+            .store_rom(b"authored storage fixture, not a cartridge")
+            .unwrap();
+        let second = Storage::new(Some(root.clone())).unwrap();
+        assert_eq!(second.startup_rom(None), Some((second.rom_path(), false)));
+        assert_eq!(
+            second.startup_rom(Some(Path::new("replacement.bin"))),
+            Some(("replacement.bin".into(), true))
+        );
+        fs::create_dir_all(second.cache_directory.join("engine-native")).unwrap();
+        fs::write(
+            second.cache_directory.join("engine-native/authored-test"),
+            b"not code",
+        )
+        .unwrap();
+        second.forget_rom().unwrap();
+        assert!(second.startup_rom(None).is_none());
+        assert!(!second.cache_directory.join("engine-native").exists());
+        assert!(second.config_directory.join("config.toml").is_file());
         fs::remove_dir_all(root).unwrap();
     }
 }

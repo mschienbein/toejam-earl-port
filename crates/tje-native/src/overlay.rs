@@ -4,6 +4,7 @@ use crate::{
     input::{GameButton, Input, PadPress},
 };
 use std::path::PathBuf;
+use tje_engine_cranelift::CompileProgress;
 use winit::{event::WindowEvent, keyboard::KeyCode, window::Window};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub struct Actions {
     pub resume: bool,
     pub refresh_devices: bool,
     pub dismiss: bool,
+    pub forget_rom: bool,
 }
 
 pub struct Frame {
@@ -33,6 +35,8 @@ pub struct Info<'a> {
     pub has_game: bool,
     pub paused: bool,
     pub recording: bool,
+    pub loading: Option<(tje_rom::Revision, CompileProgress)>,
+    pub replay: Option<(u64, u64)>,
     pub audio: &'a str,
     pub storage: &'a Storage,
     pub input: &'a Input,
@@ -48,6 +52,7 @@ pub struct Overlay {
     path: String,
     tab: usize,
     player: usize,
+    forget_confirmation: bool,
 }
 
 impl Overlay {
@@ -61,6 +66,7 @@ impl Overlay {
             path: String::new(),
             tab: 0,
             player: 0,
+            forget_confirmation: false,
         }
     }
     pub fn initialize(&mut self, window: &Window) {
@@ -151,6 +157,7 @@ impl Overlay {
     ) -> (Frame, Actions) {
         let raw = self.state.as_mut().unwrap().take_egui_input(window);
         if info.has_game
+            && info.loading.is_none()
             && !info.paused
             && !self.open
             && self.message.is_none()
@@ -169,12 +176,29 @@ impl Overlay {
         let context = self.context.clone();
         let mut actions = Actions::default();
         let output = context.run_ui(raw, |root| {
-            if !info.has_game {
+            if let Some((revision, progress)) = info.loading {
+                egui::CentralPanel::default().show(root, |ui| {
+                    ui.heading(format!("Preparing ToeJam & Earl — {revision}"));
+                    ui.label("The original instructions are compiled to native code on this computer. No 68000 interpreter is used.");
+                    let (label, fraction) = match progress {
+                        CompileProgress::Lifting => ("Reading verified game instructions", None),
+                        CompileProgress::CheckingCache => ("Checking remembered native-code cache", None),
+                        CompileProgress::Compiling { completed, total } => ("Compiling native game", Some(if total == 0 { 0.0 } else { completed as f32 / total as f32 })),
+                        CompileProgress::WritingCache => ("Saving private compiled cache", Some(1.0)),
+                        CompileProgress::Ready { .. } => ("Starting native game", Some(1.0)),
+                    };
+                    ui.label(label);
+                    if let Some(fraction) = fraction { ui.add(egui::ProgressBar::new(fraction).show_percentage()); }
+                    ui.label("The cartridge is supplied once and remembered. Later launches load the compiled cache automatically.");
+                    ui.small(format!("Private cache: {}", info.storage.cache_directory.display()));
+                    if ui.button(format!("Settings ({:?})", settings.hotkeys.settings)).clicked() { self.open = true; }
+                });
+            } else if !info.has_game {
                 egui::CentralPanel::default().show(root, |ui| {
                     ui.heading("ToeJam & Earl");
-                    ui.label("Bring your own cartridge. No game data is included.");
+                    ui.label("Supply your cartridge once; it is remembered for later launches. No game data is included.");
                     ui.add_space(12.0);
-                    self.import_ui(ui, &mut actions);
+                    self.import_ui(ui, &mut actions, info.storage.rom_path().is_file());
                     if ui.button(format!("Settings and controls ({:?})", settings.hotkeys.settings)).clicked() { self.open = true; }
                     ui.small(format!("Cartridge and recordings: {}", info.storage.directory.display()));
                 });
@@ -200,13 +224,17 @@ impl Overlay {
                             0 => self.general(ui, settings, &info, &mut actions),
                             1 => self.controls(ui, settings, info.input, &mut actions),
                             _ => {
-                                self.import_ui(ui, &mut actions);
+                                if info.loading.is_none() {
+                                    self.import_ui(ui, &mut actions, info.storage.rom_path().is_file());
+                                } else { ui.label("Wait for native preparation before replacing or forgetting the cartridge."); }
                                 ui.separator();
                                 for (name, key) in settings.hotkeys.entries() { ui.label(format!("{name}: {key:?}")); }
                                 ui.label("Recording starts from a hard reset. Opening settings/focus pause adds no recording frames; resetting/importing/exiting saves the current session.");
                                 ui.label(format!("Recording: {}", if info.recording { "active" } else { "off" }));
+                                if let Some((frame, total)) = info.replay { ui.label(format!("Input replay: {frame}/{total} frames. F5 restarts; F9 recording is disabled during replay.")); }
                                 ui.small(format!("Data: {}", info.storage.directory.display()));
                                 ui.small(format!("Settings: {}", info.storage.config_directory.display()));
+                                ui.small(format!("Cache: {}", info.storage.cache_directory.display()));
                             }
                         }
                         if let Some(capture) = self.pending {
@@ -250,8 +278,10 @@ impl Overlay {
         (frame, actions)
     }
 
-    fn import_ui(&mut self, ui: &mut egui::Ui, actions: &mut Actions) {
-        ui.label("Drop a cartridge on the window, or enter its full file path:");
+    fn import_ui(&mut self, ui: &mut egui::Ui, actions: &mut Actions, remembered: bool) {
+        ui.label(
+            "Choose or replace your cartridge: drop it on the window, or enter its full file path:",
+        );
         ui.add(
             egui::TextEdit::singleline(&mut self.path)
                 .hint_text("Cartridge .bin, .md, .gen, .smd or .zip")
@@ -266,6 +296,25 @@ impl Overlay {
             }
         }
         ui.label("Only the original ToeJam & Earl REV 02 / REV 00 retail dumps are accepted. ZIP must contain exactly one supported cartridge. Unknown games, modified images and bad dumps are rejected without replacing your saved cartridge.");
+        if remembered {
+            if self.forget_confirmation {
+                ui.colored_label(egui::Color32::YELLOW, "Forget the saved cartridge and this app's compiled cache? Controls/settings are kept.");
+                ui.horizontal(|ui| {
+                    if ui.button("Forget now").clicked() {
+                        actions.forget_rom = true;
+                        self.forget_confirmation = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.forget_confirmation = false;
+                    }
+                });
+            } else if ui
+                .button("Forget saved cartridge and compiled cache...")
+                .clicked()
+            {
+                self.forget_confirmation = true;
+            }
+        }
         if let Some(message) = &self.message {
             ui.colored_label(egui::Color32::YELLOW, message);
         }

@@ -1,8 +1,12 @@
 use crate::input::Controllers;
-use anyhow::Result;
-use genesis_config::{GenesisButton, GenesisController, GenesisControllerType, GenesisInputs};
-use tje_host::{Host, Mode, hooks::HookRegistry};
-use tje_rom::Rom;
+use anyhow::{Result, ensure};
+use genesis_config::{
+    GenesisButton, GenesisController, GenesisControllerType, GenesisEmulatorConfig, GenesisInputs,
+};
+use tje_engine_cranelift::{CacheConfig, CompileProgress, CompileStats, Engine, load_engine};
+use tje_mem::Bus;
+use tje_rom::{Revision, Rom};
+use tje_session::RamWrite;
 
 pub struct VideoFrame<'a> {
     pub rgba: &'a [u8],
@@ -13,125 +17,138 @@ pub struct VideoFrame<'a> {
 #[derive(Debug)]
 pub struct Status {
     pub frame: u64,
-    pub stage: &'static str,
-    pub title_frame: Option<u64>,
-    pub menu_frame: Option<u64>,
-    pub gameplay_frame: Option<u64>,
-    pub translated_calls: u64,
+    pub pc: u32,
+    pub master_clock: u64,
     pub players: [[i16; 3]; 2],
 }
 
-/// Platform code knows only buttons, borrowed pixels and stereo PCM. A future
-/// native game implements this interface without changing window/audio/input.
+/// Platform code sees controllers, borrowed RGBA/PCM, reset and timing. The
+/// development proof package drives this same implementation, never a fallback.
 pub trait GameBackend {
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]>;
     fn video(&self) -> VideoFrame<'_>;
     fn fps(&self) -> f64;
     fn set_audio_sample_rate(&mut self, sample_rate: u32) -> Result<()>;
     fn reset(&mut self);
-    fn status(&mut self) -> Status;
+    fn status(&self) -> Status;
+    /// Documented input-session recipes can write work RAM before a frame.
+    fn write_ram(&mut self, write: &RamWrite) -> Result<()>;
 }
 
-pub struct HybridBackend {
-    host: Host,
-    revision: tje_rom::Revision,
+pub struct NativeBackend {
+    engine: Engine,
+    revision: Revision,
 }
 
-impl HybridBackend {
-    pub fn new(rom: &Rom, sample_rate: u32) -> Result<Self> {
-        let hooks = HookRegistry::translated(rom.revision())?;
-        println!(
-            "BACKEND hybrid mode=replace revision={} translated_functions={}",
-            rom.revision(),
-            hooks.len()
-        );
-        let mut host = Host::new(rom.bytes(), Mode::Replace, hooks)?;
-        host.set_audio_sample_rate(sample_rate)?;
-        Ok(Self {
-            host,
-            revision: rom.revision(),
-        })
+impl NativeBackend {
+    pub fn load(
+        rom: Rom,
+        cache: &CacheConfig,
+        progress: impl FnMut(CompileProgress),
+    ) -> Result<Self> {
+        let revision = rom.revision();
+        let engine = load_engine(rom, &GenesisEmulatorConfig::default(), cache, progress)?;
+        Ok(Self { engine, revision })
+    }
+
+    pub fn revision(&self) -> Revision {
+        self.revision
+    }
+    pub fn rom_bytes(&self) -> &[u8] {
+        self.engine.devices().memory().rom()
+    }
+    pub fn compile_stats(&self) -> &CompileStats {
+        self.engine.backend().stats()
+    }
+
+    /// Borrowed diagnostics for the separate proof executable. Normal gameplay
+    /// leaves all device/instruction observers disabled.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+    pub fn set_trace_enabled(&mut self, enabled: bool) {
+        if enabled {
+            self.engine.devices_mut().enable_trace();
+        } else {
+            self.engine.devices_mut().disable_trace();
+        }
     }
 }
 
-impl GameBackend for HybridBackend {
+pub fn genesis_inputs(controllers: Controllers) -> GenesisInputs {
+    use GenesisButton::*;
+    const BUTTONS: [GenesisButton; 8] = [Up, Down, Left, Right, A, B, C, Start];
+    let pads: [GenesisController; 2] = std::array::from_fn(|index| {
+        let mut controller = if controllers.connected[index] {
+            GenesisController::new(GenesisControllerType::ThreeButton)
+        } else {
+            GenesisController::None
+        };
+        for (button, pressed) in BUTTONS.into_iter().zip(controllers.buttons[index]) {
+            controller.set_field(button, pressed);
+        }
+        controller
+    });
+    GenesisInputs {
+        p1: pads[0],
+        p2: pads[1],
+    }
+}
+
+impl GameBackend for NativeBackend {
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]> {
-        use GenesisButton::*;
-        const BUTTONS: [GenesisButton; 8] = [Up, Down, Left, Right, A, B, C, Start];
-        let pads: [GenesisController; 2] = std::array::from_fn(|index| {
-            let mut controller = if controllers.connected[index] {
-                GenesisController::new(GenesisControllerType::ThreeButton)
-            } else {
-                GenesisController::None
-            };
-            for (button, pressed) in BUTTONS.into_iter().zip(controllers.buttons[index]) {
-                controller.set_field(button, pressed);
-            }
-            controller
-        });
-        Ok(self.host.play_frame(GenesisInputs {
-            p1: pads[0],
-            p2: pads[1],
-        })?)
+        self.engine.devices_mut().clear_trace();
+        Ok(self.engine.play_frame(genesis_inputs(controllers))?)
     }
 
     fn video(&self) -> VideoFrame<'_> {
-        let (pixels, size) = self.host.frame_buffer();
+        let (pixels, size) = self.engine.frame_buffer();
         VideoFrame {
             rgba: bytemuck::cast_slice(&pixels[..size.len() as usize]),
             width: size.width,
             height: size.height,
         }
     }
-
     fn fps(&self) -> f64 {
-        self.host.target_fps()
+        self.engine.target_fps()
     }
-
     fn set_audio_sample_rate(&mut self, sample_rate: u32) -> Result<()> {
-        Ok(self.host.set_audio_sample_rate(sample_rate)?)
+        Ok(self.engine.set_audio_sample_rate(sample_rate)?)
     }
-
     fn reset(&mut self) {
-        self.host.reset();
+        self.engine.reset();
     }
-
-    fn status(&mut self) -> Status {
-        let players = {
-            let revision = self.revision;
-            let context = self.host.context();
-            std::array::from_fn(|index| {
-                let player = tje_mem::ram::g_player_info(revision).at(index as i32);
-                [
-                    context.read_u16(player.x().address()) as i16,
-                    context.read_u16(player.y().address()) as i16,
-                    context.read_u16(player.height().address()) as i16,
-                ]
-            })
-        };
-        let measurements = &self.host.measurements;
+    fn status(&self) -> Status {
+        let memory = self.engine.devices().memory();
+        let players = std::array::from_fn(|index| {
+            let player = tje_mem::ram::g_player_info(self.revision).at(index as i32);
+            [
+                player.x().read(memory),
+                player.y().read(memory),
+                player.height().read(memory),
+            ]
+        });
         Status {
-            frame: self.host.frame_count(),
-            stage: if measurements.game_frame.is_some() {
-                "gameplay"
-            } else if measurements.menu_frame.is_some() {
-                "menu"
-            } else if measurements.title_frame.is_some() {
-                "title"
-            } else {
-                "intro"
-            },
-            title_frame: measurements.title_frame,
-            menu_frame: measurements.menu_frame,
-            gameplay_frame: measurements.game_frame,
-            translated_calls: self
-                .host
-                .checks
-                .by_function
-                .values()
-                .map(|coverage| coverage.calls_replaced)
-                .sum(),
+            frame: self.engine.frame_count(),
+            pc: self.engine.cpu().pc,
+            master_clock: self.engine.devices().clock(),
             players,
         }
+    }
+    fn write_ram(&mut self, write: &RamWrite) -> Result<()> {
+        ensure!(
+            matches!(write.width, 1 | 2 | 4)
+                && write.address >= 0xFF0000
+                && write.address <= 0x1000000 - u32::from(write.width),
+            "replay writes must stay inside work RAM"
+        );
+        let bytes = write.value.to_be_bytes();
+        for (offset, &value) in bytes[4 - usize::from(write.width)..].iter().enumerate() {
+            self.engine
+                .devices_mut()
+                .memory_mut()
+                .write_u8(write.address + offset as u32, value);
+        }
+        Ok(())
     }
 }

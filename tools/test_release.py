@@ -122,6 +122,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(f"{stem}/README.md", members)
             self.assertIn(f"{stem}/LICENSE", members)
             self.assertIn(f"{stem}/docs/RELEASING.md", members)
+            self.assertIn(f"{stem}/crates/tje-native/README.md", members)
             self.assertIn(f"{stem}/SOURCE.txt", members)
             self.assertFalse(any("cartridge.bin" in name or "/roms/" in name for name in members))
             self.assertEqual(archive.getmember(f"{stem}/toejam-earl").mode, 0o755)
@@ -137,6 +138,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(appdir.joinpath("AppRun").read_bytes().startswith(b"#!/bin/sh\n"))
         for name in ("AppRun", "toejam-earl.desktop", "SOURCE.txt"):
             self.assertNotIn(b"\r", appdir.joinpath(name).read_bytes())
+        self.assertTrue(appdir.joinpath("crates/tje-native/README.md").is_file())
         # Reusing a dirty staging tree must never pull a ROM into the AppImage.
         appdir.joinpath("cartridge.bin").write_text("must not survive a new staging operation")
         with self.assertRaisesRegex(ValueError, "AppDir must not already exist"):
@@ -150,6 +152,7 @@ class ReleaseTests(unittest.TestCase):
             names = archive.namelist()
             self.assertIn(f"{stem}/toejam-earl.exe", names)
             self.assertIn(f"{stem}/icons/toejam-earl.ico", names)
+            self.assertIn(f"{stem}/crates/tje-native/README.md", names)
             self.assertFalse(any(name.endswith((".rc", ".icns", ".o")) for name in names))
             self.assertEqual(archive.read(f"{stem}/toejam-earl.exe"), self.binary.read_bytes())
             self.assertIn(b"Commit: ", archive.read(f"{stem}/SOURCE.txt"))
