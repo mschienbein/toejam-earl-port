@@ -94,7 +94,7 @@ pub fn drop_presents_ability(context: &mut dyn Context, arguments: &[u32]) -> Re
     call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     object.frame().write(context, -1);
-    let player = ram::g_player_info(revision).at(i32::from(player_number));
+    let player = super::word_object(revision, player_number);
     let saved_x = player.x().read(context);
     let saved_y = player.y().read(context);
     player.x().write(context, earthling.x().read(context));

@@ -178,10 +178,11 @@ pub fn earthling_apply_nearby_sleep(
         } else {
             1
         };
-        let mut slot = i32::from(ram::g_earthling_update_parity(revision).read(context));
+        let mut slot = ram::g_earthling_update_parity(revision).read(context);
         while slot < 20 {
-            let earthling = ram::g_earthling_banks(revision).at(bank).at(slot);
-            slot += 2;
+            let earthling =
+                super::word_record(ram::g_earthling_banks(revision).at(bank).at(0), slot);
+            slot = slot.wrapping_add(2);
             let kind = earthling.kind().read(context);
             let state = earthling.state().read(context);
             if kind == -1

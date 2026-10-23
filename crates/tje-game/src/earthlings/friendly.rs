@@ -29,7 +29,7 @@ pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<O
     let revision = context.revision();
     let number = i32::from(arguments[0] as i16);
     let earthling = Address::<EarthlingState>::new(arguments[1]);
-    let player = ram::g_player_info(revision).at(number);
+    let player = super::word_object(revision, number as i16);
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     let interaction = ram::g_player_wizard_interaction_states(revision).at(number);
     let mut next = -1_i8;
@@ -151,7 +151,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
     let revision = context.revision();
     let mut number = i32::from(arguments[0] as i16);
     let earthling = Address::<EarthlingState>::new(arguments[1]);
-    let mut player = ram::g_player_info(revision).at(number);
+    let mut player = super::word_object(revision, number as i16);
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     let interaction = ram::g_player_opera_singer_interaction_states(revision).at(number);
     let mut next = -1_i8;
@@ -213,7 +213,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
                 bucks.write(context, bucks.read(context).wrapping_sub(3));
                 call(context, ids::SET_SPRITE, &[player.address(), 69])?;
                 number ^= 1;
-                player = ram::g_player_info(revision).at(number);
+                player = super::word_object(revision, number as i16);
                 if ram::g_player_lives(revision).at(number).read(context) >= 0
                     && ram::g_split_screen_enabled(revision).read(context) == 0
                     && (player.sprite_state().read(context) == 0
@@ -245,7 +245,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
             next = 0;
             restore_player_sprite(context, player)?;
             number ^= 1;
-            player = ram::g_player_info(revision).at(number);
+            player = super::word_object(revision, number as i16);
             if ram::g_player_lives(revision).at(number).read(context) >= 0
                 && ram::g_split_screen_enabled(revision).read(context) == 0
                 && player.sprite_state().read(context) == 69
@@ -293,7 +293,7 @@ pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
         1
     };
     let mailbox = ram::g_mailbox_level_states(revision).at(bank);
-    let player = ram::g_player_info(revision).at(number);
+    let player = super::word_object(revision, number as i16);
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     if mailbox.mode().read(context) != 1 {
         if can_interact(context, player, None)
@@ -401,7 +401,7 @@ pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
     let revision = context.revision();
     let number = i32::from(arguments[0] as i16);
     let earthling = Address::<EarthlingState>::new(arguments[1]);
-    let player = ram::g_player_info(revision).at(number);
+    let player = super::word_object(revision, number as i16);
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     let interaction = ram::g_player_wiseman_interaction_states(revision).at(number);
     let mut next = -1_i8;

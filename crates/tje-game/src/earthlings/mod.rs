@@ -1,4 +1,15 @@
 //! Earthlings translation ownership; see docs/PORTING.md.
+//!
+//! Index-width audit (both G compiler listings): short player-object subscripts
+//! use word scaling; banked parity record subscripts use word scaling, except
+//! LoadInEarthlings' long-scaled pointer subscript. State animation *10, mailbox
+//! bank *6, Earthling bank *360 and unsigned random-cache *2 stay long-scaled.
+//! Framed retain/spawn additionally preserve word-scaled level seeds, choice
+//! rows, failure masks and the spawn definition index, as emitted in G.
+//! Signed-char object/definition/sleep/pair indexes cannot overflow their word
+//! products (strides 128/38/8/2); bounded slot/player/effect loops likewise fit.
+//! Byte-array indexes have stride one, so sign extension before/after scaling
+//! agrees. Movement and pointer-only steering helpers introduce no array index.
 
 use crate::{Context, Result, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram};
@@ -9,12 +20,26 @@ mod behaviors;
 mod decisions;
 mod dispatch;
 mod effects;
+mod framed;
 mod friendly;
 mod generic;
 mod interactions;
 mod movement;
+mod open_present;
 mod santa;
 mod state;
+
+/// G's ASL.W #7 followed by ADDA.W, used for short player/entity indexes.
+/// G/build/rev02/asm/c_nice_earthling_touch.s:27–31,1134–1137.
+fn word_object(revision: tje_mem::Revision, index: i16) -> Address<ObjectState> {
+    ram::g_player_info(revision).at_word_index(index)
+}
+
+/// G/build/rev02/asm/c_spawning_and_banks.s:1814–1820,1887–1893,2044–2050.
+/// Bank selection remains long-scaled; only these record subscripts truncate.
+fn word_record(base: Address<EarthlingState>, index: i16) -> Address<EarthlingState> {
+    base.offset_word_index(index)
+}
 
 /// SUBQ.B followed by a signed branch consumes N xor V, not the wrapped sign.
 /// G/src/earthlings/spawning_and_banks.c:786 and animation_behaviours.c:202.
@@ -261,11 +286,29 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PROCESS_EARTHLINGS,
         function: dispatch::process_earthlings,
     },
+    crate::Translation {
+        id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+        function: framed::find_spawn_location_for_earthling,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_RETAIN_LEVEL_BANK,
+        function: framed::earthling_retain_level_bank,
+    },
+    // Dependent residual: awaiting dependent-equivalence proof.
+    crate::Translation {
+        id: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+        function: framed::earthling_steer_toward_nearest_target,
+    },
+    crate::Translation {
+        id: ids::OPEN_EARTHLING_PRESENT,
+        function: open_present::open_earthling_present,
+    },
 ];
 
-/// Unregistered body identities: the composed proof stops at REV 02 frame 2437
-/// with a ProcessEarthlings device-write trace mismatch. No both-revision proof
-/// is approved for these entries; this does not attribute the mismatch to each one.
+/// Unregistered body identities. Timed bodies await the IRQ projection proof;
+/// explicit-frame bodies await the nested-original stack-audit fix. Nearest
+/// targeting also needs the dependent-residual contract, and OpenEarthlingPresent
+/// needs the discarded-upper-byte output-insensitivity proof.
 pub static PENDING: &[crate::FunctionId] = &[
     ids::AI_GENERIC_ENEMY_THINK,
     ids::AI_OPERA_SINGER_TOUCH,
@@ -276,6 +319,13 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::AI_WISEMAN_TOUCH,
     ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
     ids::PROCESS_EARTHLINGS,
+    // Re-prove after nested-original prepared-slot/local auditing is fixed.
+    ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+    ids::EARTHLING_RETAIN_LEVEL_BANK,
+    // Dependent residual: awaiting dependent-equivalence proof.
+    ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+    // Discarded upper-byte read: awaiting output-insensitivity proof.
+    ids::OPEN_EARTHLING_PRESENT,
 ];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
@@ -629,6 +679,42 @@ mod decrement_tests {
             assert_eq!(difference <= 0, zero || (negative ^ overflow));
             assert_eq!(difference > 0, !zero && !(negative ^ overflow));
             assert_eq!(difference == 0, zero);
+        }
+    }
+
+    #[test]
+    fn every_short_index_preserves_the_emitted_word_and_long_distinction() {
+        let base = tje_mem::Address::<tje_mem::EarthlingState>::new(0xff4000);
+        for revision in [tje_mem::Revision::Rev02, tje_mem::Revision::Rev00] {
+            for index in i16::MIN..=i16::MAX {
+                let object = super::word_object(revision, index).address();
+                let object_base = tje_mem::ram::g_player_info(revision).at(0).address();
+                let object_delta = ((i32::from(index) * 128) as u16 as i16) as i32 as u32;
+                assert_eq!(object, object_base.wrapping_add(object_delta));
+                let delta = ((i32::from(index) * 18) as u16 as i16) as i32 as u32;
+                assert_eq!(
+                    super::word_record(base, index).address(),
+                    base.address().wrapping_add(delta)
+                );
+                assert_eq!(
+                    base.offset(i32::from(index)).address(),
+                    base.address().wrapping_add((i32::from(index) * 18) as u32)
+                );
+            }
+            assert_eq!(
+                super::word_object(revision, 512),
+                super::word_object(revision, 0)
+            );
+            assert_eq!(
+                super::word_object(revision, -512),
+                super::word_object(revision, 0)
+            );
+            for kind in i8::MIN..=i8::MAX {
+                assert_eq!(
+                    super::word_object(revision, i16::from(kind)),
+                    tje_mem::ram::g_player_info(revision).at(i32::from(kind))
+                );
+            }
         }
     }
 }

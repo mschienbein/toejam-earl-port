@@ -70,7 +70,7 @@ pub fn player_create_life_request_display(
     let allocated = call(context, ids::ALLOCATE_ENTITY, &[])? as i16;
     handle.write(context, allocated);
     if allocated != 0 {
-        let object = ram::g_player_info(revision).at(i32::from(handle.read(context)));
+        let object = super::word_object(revision, handle.read(context));
         object.x().write(
             context,
             ram::g_camera1_pending_x(revision)
@@ -143,8 +143,7 @@ pub fn player_create_interaction_choice_display(
         let display = ram::g_player_info(revision).at(i32::from(handle.read(context)));
         display.level().write(
             context,
-            ram::g_player_info(revision)
-                .at(player)
+            super::word_object(revision, player as i16)
                 .level()
                 .read(context),
         );
@@ -191,7 +190,7 @@ pub fn player_process_life_request(
         return Ok(None);
     }
     let other = number ^ 1;
-    let mut player = ram::g_player_info(revision).at(other);
+    let mut player = super::word_object(revision, other as i16);
     let handle = ram::g_life_request_display_entity(revision);
     let state = player.sprite_state().read(context);
     if handle.read(context) == 0
@@ -219,7 +218,7 @@ pub fn player_process_life_request(
     {
         let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
         call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
-        player = ram::g_player_info(revision).at(i32::from(handle.read(context)));
+        player = super::word_object(revision, handle.read(context));
         player
             .height()
             .write(context, player.height().read(context).wrapping_add(30));
@@ -267,7 +266,7 @@ pub fn player_process_life_request(
             call(context, ids::COPY_LEVEL_BETWEEN_PLAYERS, &[0])?;
             ram::g_player2_map_level(revision)
                 .write(context, ram::g_player1_map_level(revision).read(context));
-            player = ram::g_player_info(revision).at(number);
+            player = super::word_object(revision, number as i16);
             player.draw_flags().write(context, 1);
             player.behavior_flags().write(context, 1);
             player.sprite_state().write(context, 0);

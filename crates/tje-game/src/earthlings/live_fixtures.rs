@@ -678,6 +678,400 @@ fn decrement_boundary_fixtures(host: &mut Host) {
     }
 }
 
+fn present_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    // Source-reviewed exhausted scans deliberately reach bank zero's one-past
+    // record, which is bank one's first record; no bounds guard is added.
+    let player = ram::g_player_info(revision).at(0);
+    player.level().write(&mut host.context(), 0);
+    player.entity_index().write(&mut host.context(), 0);
+    player.x().write(&mut host.context(), 512);
+    player.y().write(&mut host.context(), 512);
+    player.draw_flags().write(&mut host.context(), 3);
+    ram::g_earthling_bank_users(revision)
+        .at(0)
+        .write(&mut host.context(), 1);
+    ram::g_earthling_bank_levels(revision)
+        .at(0)
+        .write(&mut host.context(), 0);
+    for kind in [-1, 1, 0] {
+        for slot in 0..=20 {
+            let entry = ram::g_earthling_banks(revision).at(0).at(0).offset(slot);
+            entry.kind().write(&mut host.context(), kind);
+            entry.object().write(&mut host.context(), 0);
+            entry.second_object().write(&mut host.context(), 0);
+        }
+        fixture(host, ids::OPEN_EARTHLING_PRESENT, &[player.address(), 0x10]);
+    }
+    player.level().write(&mut host.context(), 1);
+    ram::g_earthling_bank_levels(revision)
+        .at(0)
+        .write(&mut host.context(), 1);
+    for seed in [1, 7, 12345, 127773, i32::MAX] {
+        for slot in 0..20 {
+            let entry = ram::g_earthling_banks(revision).at(0).at(slot);
+            entry.kind().write(&mut host.context(), -1);
+            entry.object().write(&mut host.context(), 0);
+        }
+        ram::g_rng_state(revision).write(&mut host.context(), seed);
+        fixture(host, ids::OPEN_EARTHLING_PRESENT, &[player.address(), 0x10]);
+    }
+}
+
+fn index_and_present_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    let record = ram::g_earthling_banks(revision).at(0).at(0);
+    let object = ram::g_player_info(revision).at(6);
+    record.kind().write(&mut host.context(), 1);
+    record.object().write(&mut host.context(), 6);
+    record.second_object().write(&mut host.context(), 0);
+    for state in [-4096_i16, -512, -1, 0, 1, 512, 4096] {
+        object.frame().write(&mut host.context(), -1);
+        fixture(
+            host,
+            ids::SET_EARTHLING_STATE,
+            &[record.address(), state as u32],
+        );
+    }
+    for bank in [-6000_i16, -1, 0, 1, 6000] {
+        fixture(
+            host,
+            ids::EARTHLING_CONFIGURE_MAILBOX_LEVEL_BANK,
+            &[bank as u32, 2],
+        );
+    }
+    // ±256 wrap into dead stack; the separate rejection test covers them.
+    for number in [-512_i16, -1, 0, 1, 512] {
+        let aliased = ram::g_player_info(revision)
+            .at(0)
+            .byte_offset(i32::from(number.wrapping_mul(128)));
+        aliased.level().write(&mut host.context(), 17);
+        fixture(
+            host,
+            ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
+            &[number as u32],
+        );
+        record.state().write(&mut host.context(), 0);
+        record.kind().write(&mut host.context(), 20);
+        fixture(
+            host,
+            ids::DROP_PRESENTS_ABILITY,
+            &[number as u32, record.address()],
+        );
+    }
+    // An explicit flat RAM table exercises negative short parity without
+    // accidentally depending on live objects outside the twenty-record bank.
+    let table = tje_mem::Address::<tje_mem::EarthlingState>::new(0xfff000);
+    for index in -2..20 {
+        let entry = table.offset(index);
+        entry.kind().write(&mut host.context(), -1);
+        entry.object().write(&mut host.context(), 0);
+        entry.second_object().write(&mut host.context(), 0);
+    }
+    for parity in [-2, 0, 1, 4096] {
+        ram::g_earthling_update_parity(revision).write(&mut host.context(), parity);
+        fixture(host, ids::LOAD_IN_EARTHLINGS, &[table.address()]);
+    }
+    if earthlings::TRANSLATIONS
+        .iter()
+        .any(|entry| entry.id == ids::OPEN_EARTHLING_PRESENT)
+    {
+        present_fixtures(host);
+    }
+    record.kind().write(&mut host.context(), 1);
+    record.object().write(&mut host.context(), 0);
+    record.state().write(&mut host.context(), 0);
+    for index in [255, 256, 32767, 32768, 65534, 65535] {
+        ram::g_random_cache_index(revision).write(&mut host.context(), index);
+        fixture(host, ids::EARTHLING_SELECT_TURN_STATE, &[record.address()]);
+    }
+}
+
+#[test]
+#[ignore = "requires both private retail ROMs; pending bodies stay unregistered"]
+fn pending_short_index_widths_on_live_states() {
+    static WIDTH_PENDING: &[tje_game::Translation] = &[
+        earthlings::PENDING_TRANSLATIONS[1],
+        earthlings::PENDING_TRANSLATIONS[2],
+        earthlings::PENDING_TRANSLATIONS[4],
+        earthlings::PENDING_TRANSLATIONS[5],
+        earthlings::PENDING_TRANSLATIONS[6],
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let key = if revision == Revision::Rev02 {
+            "TJE_REV02_ROM"
+        } else {
+            "TJE_REV00_ROM"
+        };
+        let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
+        let registry = HookRegistry::proof(revision, WIDTH_PENDING).unwrap();
+        // Reference replay has no entry replacements; check_fixture explicitly
+        // checks candidates only after the live-state boundary is reached.
+        let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        let script = std::sync::Arc::new(
+            InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
+        );
+        host.set_wait_input_poller(script.clone());
+        for frame in 0..1300 {
+            host.run_frame(script.at(frame)).unwrap();
+        }
+        let record = ram::g_earthling_banks(revision).at(0).at(0);
+        let object = ram::g_player_info(revision).at(6);
+        record.object().write(&mut host.context(), 6);
+        record.level().write(&mut host.context(), 1);
+        object.x().write(&mut host.context(), 512);
+        object.y().write(&mut host.context(), 512);
+        object.level().write(&mut host.context(), 1);
+        for number in [-512_i16, -1, 0, 1, 512] {
+            let player = ram::g_player_info(revision)
+                .at(0)
+                .byte_offset(i32::from(number.wrapping_mul(128)));
+            player.x().write(&mut host.context(), 512);
+            player.y().write(&mut host.context(), 512);
+            player.level().write(&mut host.context(), 1);
+            player.sprite_state().write(&mut host.context(), 0);
+            player.animation_group_mask().write(&mut host.context(), 0);
+            ram::g_player_interaction_choice_active(revision)
+                .at(i32::from(number))
+                .write(&mut host.context(), 0);
+            for (kind, id, interaction) in [
+                (
+                    10,
+                    ids::AI_WIZARD_TOUCH,
+                    ram::g_player_wizard_interaction_states(revision).at(i32::from(number)),
+                ),
+                (
+                    17,
+                    ids::AI_OPERA_SINGER_TOUCH,
+                    ram::g_player_opera_singer_interaction_states(revision).at(i32::from(number)),
+                ),
+                (
+                    11,
+                    ids::AI_WISEMAN_TOUCH,
+                    ram::g_player_wiseman_interaction_states(revision).at(i32::from(number)),
+                ),
+            ] {
+                record.kind().write(&mut host.context(), kind);
+                interaction.write(&mut host.context(), 2);
+                fixture(&mut host, id, &[number as u32, record.address()]);
+            }
+            record.kind().write(&mut host.context(), 9);
+            let mailbox = ram::g_mailbox_level_states(revision).at(0);
+            mailbox.level().write(&mut host.context(), 1);
+            mailbox.mode().write(&mut host.context(), 0);
+            mailbox
+                .contact()
+                .at(i32::from(number))
+                .write(&mut host.context(), 2);
+            fixture(
+                &mut host,
+                ids::AI_MAILBOX_TOUCH,
+                &[number as u32, record.address()],
+            );
+            ram::g_life_request_pending(revision).write(&mut host.context(), 0);
+            ram::g_life_request_display_entity(revision).write(&mut host.context(), 1);
+            fixture(
+                &mut host,
+                ids::PLAYER_PROCESS_LIFE_REQUEST,
+                &[number as u32],
+            );
+        }
+        assert_eq!(host.checks.mismatches, 0);
+        println!(
+            "WIDTH_PENDING {revision:?} {}",
+            serde_json::to_string(&host.checks).unwrap()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires private ROMs; malformed stack aliases must fail closed"]
+fn word_index_stack_alias_is_a_dependency_audit_rejection() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let key = if revision == Revision::Rev02 {
+            "TJE_REV02_ROM"
+        } else {
+            "TJE_REV00_ROM"
+        };
+        let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
+        let registry = HookRegistry::filtered(revision, &["earthlings"], &[]).unwrap();
+        let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        let script =
+            InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+        for frame in 0..1300 {
+            host.run_frame(script.at(frame)).unwrap();
+        }
+        for number in [-256_i16, 256] {
+            let player = ram::g_player_info(revision)
+                .at(0)
+                .byte_offset(i32::from(number.wrapping_mul(128)));
+            player.level().write(&mut host.context(), 17);
+            let error = host
+                .check_fixture(
+                    ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY
+                        .metadata()
+                        .address(revision),
+                    &[number as u32],
+                )
+                .expect_err("stack-alias read must not be approved");
+            assert!(
+                error.to_string().contains("uninitialized stack read"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires both private retail ROMs"]
+fn open_present_branches_on_live_states() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let key = if revision == Revision::Rev02 {
+            "TJE_REV02_ROM"
+        } else {
+            "TJE_REV00_ROM"
+        };
+        let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
+        static OPEN: &[tje_game::Translation] = &[earthlings::PENDING_TRANSLATIONS[12]];
+        let registry = HookRegistry::proof(revision, OPEN).unwrap();
+        let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        let script =
+            InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+        for frame in 0..1300 {
+            host.run_frame(script.at(frame)).unwrap();
+        }
+        present_fixtures(&mut host);
+        assert_eq!(host.checks.mismatches, 0);
+        println!(
+            "OPEN_PRESENT {revision:?} {}",
+            serde_json::to_string(&host.checks).unwrap()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires both private retail ROMs; frame candidates are opt-in only"]
+fn explicit_earthling_frames_on_live_states() {
+    static FRAMES: &[tje_game::Translation] = &[
+        earthlings::PENDING_TRANSLATIONS[9],
+        earthlings::PENDING_TRANSLATIONS[10],
+        earthlings::PENDING_TRANSLATIONS[11],
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let key = if revision == Revision::Rev02 {
+            "TJE_REV02_ROM"
+        } else {
+            "TJE_REV00_ROM"
+        };
+        let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
+        let mut registry = HookRegistry::proof(revision, FRAMES).unwrap();
+        for entry in earthlings::TRANSLATIONS {
+            registry
+                .register_translation_with_execution(
+                    *entry,
+                    tje_game::execution_class(entry.id).unwrap(),
+                )
+                .unwrap();
+        }
+        let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        let script =
+            InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
+        for frame in 0..1300 {
+            host.run_frame(script.at(frame)).unwrap();
+        }
+        for bank in 0..2 {
+            for slot in 0..20 {
+                let entry = ram::g_earthling_banks(revision).at(bank).at(slot);
+                entry.kind().write(&mut host.context(), -1);
+                entry.object().write(&mut host.context(), 0);
+                entry.second_object().write(&mut host.context(), 0);
+            }
+        }
+        for kind in [0, 1, 8, 13, 14, 18, 19] {
+            fixture(
+                &mut host,
+                ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+                &[kind, 0, 0xfff000, 0xfff002, 1],
+            );
+        }
+        for level in [0, 1, 2, 26] {
+            ram::g_earthling_bank_users(revision)
+                .at(0)
+                .write(&mut host.context(), 0);
+            ram::g_earthling_bank_users(revision)
+                .at(1)
+                .write(&mut host.context(), 0);
+            for piece in 0..10 {
+                ram::g_ship_piece_level_assignments(revision)
+                    .at(piece)
+                    .write(&mut host.context(), -1);
+            }
+            if level < 26 {
+                ram::g_earthling_spawn_failure_masks(revision)
+                    .at(level)
+                    .write(&mut host.context(), 0);
+            }
+            fixture(&mut host, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level as u32]);
+        }
+        let state = ram::g_player_info(revision).at(6);
+        state.x().write(&mut host.context(), 500);
+        state.y().write(&mut host.context(), 500);
+        state.level().write(&mut host.context(), 1);
+        state.sprite_state().write(&mut host.context(), 0);
+        state.attachment_x_or_latch().write(&mut host.context(), 0);
+        state.attachment_y_or_latch().write(&mut host.context(), 0);
+        for player in 0..2 {
+            let target = ram::g_player_info(revision).at(player);
+            target.level().write(&mut host.context(), 1);
+            target.x().write(&mut host.context(), 512);
+            target.y().write(&mut host.context(), 512);
+            target.sprite_state().write(&mut host.context(), 0);
+            target.animation_group_mask().write(&mut host.context(), 0);
+            ram::g_player_elevator_flags(revision)
+                .at(player)
+                .write(&mut host.context(), 0);
+            ram::g_player_decoy_entities(revision)
+                .at(player)
+                .write(&mut host.context(), 0);
+            ram::g_player_control_remap_entities(revision)
+                .at(player)
+                .write(&mut host.context(), 0);
+            ram::g_player_inventory(revision)
+                .at(player)
+                .at(0)
+                .write(&mut host.context(), 0);
+        }
+        for mode in [1, 7, 12, 14, 18] {
+            fixture(
+                &mut host,
+                ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+                &[state.address(), 20, 0, mode],
+            );
+        }
+        println!(
+            "FRAMED_NORMAL {revision:?} {}",
+            serde_json::to_string(&host.checks).unwrap()
+        );
+        state.level().write(&mut host.context(), 3);
+        let error = host
+            .check_fixture(
+                ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET
+                    .metadata()
+                    .address(revision),
+                &[state.address(), 255, 0, 1],
+            )
+            .expect_err("dependent residual path must stay unapproved");
+        assert!(
+            error.to_string().contains("uninitialized stack read"),
+            "{error}"
+        );
+        println!(
+            "DEPENDENT_RESIDUAL {revision:?}: {error}; {:?}",
+            host.checks.uninitialized_stack_reads
+        );
+    }
+}
+
 #[test]
 fn native_startup_reports_the_untranslated_dependency_closure() {
     let roots: Vec<_> = earthlings::TRANSLATIONS
@@ -754,6 +1148,7 @@ fn earthlings_sessions_and_labeled_live_fixtures() {
         allocation_and_timed_fixtures(&mut checked);
         visibility_fixtures(&mut checked);
         decrement_boundary_fixtures(&mut checked);
+        index_and_present_fixtures(&mut checked);
         if pending == "all" {
             time_aware_fixtures(&mut checked);
         }

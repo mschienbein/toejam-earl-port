@@ -111,9 +111,8 @@ pub fn earthling_dispatch_abilities(
         }
         let mut index = ram::g_earthling_update_parity(revision).read(context);
         while index < 20 {
-            let earthling = ram::g_earthling_banks(revision)
-                .at(bank)
-                .at(i32::from(index));
+            let earthling =
+                super::word_record(ram::g_earthling_banks(revision).at(bank).at(0), index);
             if earthling.kind().read(context) != -1
                 && earthling.object().read(context) != 0
                 && earthling.state().read(context) != 99
@@ -156,9 +155,8 @@ pub fn earthling_dispatch_player_contacts(
         }
         let mut slot = ram::g_earthling_update_parity(revision).read(context);
         while slot < 20 {
-            let earthling = ram::g_earthling_banks(revision)
-                .at(bank)
-                .at(i32::from(slot));
+            let earthling =
+                super::word_record(ram::g_earthling_banks(revision).at(bank).at(0), slot);
             slot = slot.wrapping_add(2);
             if earthling.kind().read(context) == -1
                 || earthling.object().read(context) == 0
