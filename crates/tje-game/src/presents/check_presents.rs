@@ -5,6 +5,8 @@ use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
+mod time_fixtures;
+
 fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| panic!("{} {arguments:08x?}: {error}", id.metadata().name));
@@ -252,7 +254,10 @@ fn main() {
         .unwrap(),
     );
     for revision in [Revision::Rev02, Revision::Rev00] {
-        if args.get(4).is_some_and(|argument| argument == "rev00") && revision != Revision::Rev00 {
+        if args.get(4).is_some_and(|argument| {
+            (argument == "rev00" && revision != Revision::Rev00)
+                || (argument == "rev02" && revision != Revision::Rev02)
+        }) {
             continue;
         }
         let name = if revision == Revision::Rev02 {
@@ -263,13 +268,32 @@ fn main() {
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
         let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
         let time_mode = args.get(3).is_some_and(|argument| argument == "time");
-        let registry = if frame_mode {
+        let registry = if frame_mode && !tje_game::presents::PENDING_FRAMES.is_empty() {
             HookRegistry::proof(revision, tje_game::presents::PENDING_FRAMES).unwrap()
+        } else if frame_mode {
+            HookRegistry::filtered(
+                revision,
+                &[],
+                &[
+                    ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
+                    ids::MAP_PLACE_LARGE_LEVEL_ITEMS,
+                    ids::LOAD_LEVEL_ITEM_BANK,
+                    ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
+                    ids::ENTITY_CREATE_LEVEL_ITEM,
+                    ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+                ],
+            )
+            .unwrap()
         } else if time_mode {
+            let requested = args
+                .get(5)
+                .map(String::as_str)
+                .unwrap_or("PresentTryEndActivePowerup");
             let candidate = tje_game::presents::PENDING
                 .iter()
-                .find(|translation| translation.id == ids::PRESENT_TRY_END_ACTIVE_POWERUP)
-                .unwrap();
+                .chain(tje_game::presents::TRANSLATIONS)
+                .find(|translation| translation.id.metadata().name == requested)
+                .expect("unknown requested TimeAware fixture root");
             HookRegistry::proof(revision, std::slice::from_ref(candidate)).unwrap()
         } else {
             registry(revision)
@@ -278,6 +302,7 @@ fn main() {
         host.set_wait_input_poller(script.clone());
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
+        reference.set_wait_input_poller(script.clone());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             for frame in 0..10000 {
                 let actual = host.run_frame(script.at(frame)).unwrap();
@@ -326,10 +351,78 @@ fn main() {
                 serde_json::to_vec_pretty(&host.checks).unwrap(),
             )
             .unwrap();
+            let settled = host
+                .settle_fixture_boundary(script.at(host.frame_count()))
+                .unwrap();
+            let settled_reference = reference
+                .settle_fixture_boundary(script.at(reference.frame_count()))
+                .unwrap();
+            assert_eq!(
+                (
+                    settled.start_pc,
+                    settled.end_pc,
+                    settled.start_frame,
+                    settled.end_frame,
+                    settled.ticks,
+                    settled.master_clocks,
+                    settled.handlers_completed
+                ),
+                (
+                    settled_reference.start_pc,
+                    settled_reference.end_pc,
+                    settled_reference.start_frame,
+                    settled_reference.end_frame,
+                    settled_reference.ticks,
+                    settled_reference.master_clocks,
+                    settled_reference.handlers_completed
+                )
+            );
+            assert_eq!(
+                settled.completed_frames.len(),
+                settled_reference.completed_frames.len()
+            );
+            for (actual, expected) in settled
+                .completed_frames
+                .iter()
+                .zip(&settled_reference.completed_frames)
+            {
+                assert_eq!(actual.pc, expected.pc);
+                assert_eq!(actual.frame_counter, expected.frame_counter);
+                assert_eq!(actual.ram, expected.ram);
+                assert_eq!(actual.vdp, expected.vdp);
+                assert_eq!(actual.writes, expected.writes);
+                assert_eq!(actual.idle_random_draws, expected.idle_random_draws);
+                assert_eq!(actual.lag_events, expected.lag_events);
+                assert!(
+                    actual
+                        .audio_samples
+                        .iter()
+                        .flatten()
+                        .map(|value| value.to_bits())
+                        .eq(expected
+                            .audio_samples
+                            .iter()
+                            .flatten()
+                            .map(|value| value.to_bits()))
+                );
+            }
+            assert_eq!(host.frame_buffer().0, reference.frame_buffer().0);
+            fs::write(evidence.join(format!("{name}-settled.json")), serde_json::to_vec_pretty(&serde_json::json!({
+                "start_pc":settled.start_pc,"end_pc":settled.end_pc,
+                "start_frame":settled.start_frame,"end_frame":settled.end_frame,
+                "ticks":settled.ticks,"master_clocks":settled.master_clocks,
+                "handlers_completed":settled.handlers_completed,
+                "completed_frames":settled.completed_frames.iter().enumerate().map(|(index,frame)| serde_json::json!({"index":index,"pc":frame.pc,"frame_counter":frame.frame_counter})).collect::<Vec<_>>(),
+                "all_completed_snapshots_reference_equal":true
+            })).unwrap()).unwrap();
             if frame_mode {
                 placement_frame_fixtures(&mut host);
             } else if time_mode {
-                powerup_end_time_fixtures(&mut host);
+                let id = tje_game::functions()
+                    .find(|function| host.checks.by_function.contains_key(function.name))
+                    .unwrap()
+                    .id;
+                time_fixtures::run(&mut host, id);
             } else {
                 fixtures(&mut host);
                 wave2_fixtures(&mut host);

@@ -208,11 +208,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PROCESS_TOMATO_RAIN,
         function: projectiles::process_tomato_rain,
     },
-];
-
-/// Source-backed framed candidates held for the nested-original stack audit fix.
-/// Earlier fixture receipts are provisional; re-prove before production dispatch.
-pub static PENDING_FRAMES: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
         function: placement_frames::map_find_item_placement_position,
@@ -237,17 +232,21 @@ pub static PENDING_FRAMES: &[crate::Translation] = &[
         id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
         function: item_frames::entity_update_level_item_visibility,
     },
+    crate::Translation {
+        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        function: items::present_try_end_active_powerup,
+    },
 ];
+
+/// Framed candidates still awaiting proof. The first six passed both revisions
+/// with the nested-original audit enabled and are now in TRANSLATIONS.
+pub static PENDING_FRAMES: &[crate::Translation] = &[];
 
 /// Complete candidate bodies held outside production dispatch until their
 /// dual-revision differential proofs pass. The opt-in lane harness may register
 /// these explicitly; frontends and Dispatcher::hybrid never consult this list.
 pub static PENDING: &[crate::Translation] = &[
     // W3-W5 TimeAware: awaiting differential proof through HookRegistry::proof.
-    crate::Translation {
-        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
-        function: items::present_try_end_active_powerup,
-    },
     crate::Translation {
         id: ids::EAT_YUMMY_FOOD,
         function: items::eat_yummy_food,
