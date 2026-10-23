@@ -241,7 +241,7 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 
 /// Reviewed bodies/entries not yet eligible for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Original emulated local/argument-slot layout needs the shared call-frame API.
+    // Source-backed frame bodies await two-revision local/slot/callsite proof.
     crate::ids::ALLOCATE_SPRITE_SLOTS,
     crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
     crate::ids::ALLOCATE_SPRITE_SLOT,
@@ -267,6 +267,18 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
         function: queue_update::update_and_queue_entity_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::ALLOCATE_SPRITE_SLOTS,
+        function: slots::allocate_sprite_slots,
+    },
+    crate::Translation {
+        id: crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
+        function: rendering::build_viewport_sprite_links,
+    },
+    crate::Translation {
+        id: crate::ids::ALLOCATE_SPRITE_SLOT,
+        function: slots::allocate_sprite_slot,
     },
 ];
 

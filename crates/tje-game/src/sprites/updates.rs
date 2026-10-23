@@ -1,5 +1,9 @@
 //! RAM-only entity update controllers and their reviewed animation callbacks.
-use crate::{Context, Error, Result, call, function_at, ids};
+use crate::{
+    Context, Error, Result, call, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame},
+    function_at, ids,
+};
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
 /// G/src/sprites/sprite_slots.c:259, FreeEntity. Preserve players and inactive records.
@@ -40,10 +44,33 @@ pub fn free_entity(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
 /// G/src/sprites/entity_depth.c:10, UpdateEntityShadows.
 /// A zero depth deliberately indexes the byte preceding SpriteTileAllocationLookup.
 pub fn update_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    // G c_entity_depth.s:4 saves D2-D4/A2-A3. The AllocateSpriteSlot
+    // call returns at REV02 C04C / REV00 C02C, both offset 0x50.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x0c))?;
+    let result = update_shadows_inner(context, arguments);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let leave = frame.leave(context);
+    match (result, leave) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+fn update_shadows_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let entity = Address::<ObjectState>::new(arguments[0]);
     let table = ram::g_hardware_sprite_table(revision);
     let mut sprite_number = entity.primary_shadow().read(context);
+    let mut register2 = (context.data_register(2) & !0xff) | u32::from(sprite_number as u8);
+    let mut register3 = context.data_register(3);
+    let viewport_high = context.data_register(4) & 0xffff_0000;
+    context.set_address_register(2, entity.address());
+    context.set_address_register(3, table.address());
     for viewport in 0..2 {
         let bit = if viewport == 0 { 2 } else { 4 };
         if entity.draw_flags().read(context) & bit != 0 {
@@ -54,9 +81,17 @@ pub fn update_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> Re
             )? != 0
             {
                 sprite_number = 0;
+                register2 &= !0xff;
             }
             if sprite_number == 0 {
-                sprite_number = call(context, ids::ALLOCATE_SPRITE_SLOT, &[viewport, 0])? as i8;
+                context.set_data_register(2, register2);
+                context.set_data_register(3, register3);
+                context.set_data_register(4, viewport_high | viewport);
+                let site = CallSite::relative(ids::UPDATE_ENTITY_SHADOWS, revision, 0x50);
+                sprite_number =
+                    call_at(context, ids::ALLOCATE_SPRITE_SLOT, &[viewport, 0], site)? as i8;
+                register2 = (context.data_register(2) & !0xff) | u32::from(sprite_number as u8);
+                register3 = context.data_register(3);
                 if sprite_number == 0 {
                     return Ok(None);
                 }
@@ -85,9 +120,11 @@ pub fn update_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> Re
                         (127i32 - i32::from(entity.height().read(context))) as u8
                     };
                     depth &= 0x70;
+                    register3 = u32::from(depth);
                     if depth != old_depth {
                         hardware.size().write(context, depth);
                         depth >>= 4;
+                        register3 = u32::from(depth);
                         hardware
                             .size()
                             .write(context, hardware.size().read(context) | ((depth << 1) & 12));
@@ -98,11 +135,13 @@ pub fn update_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> Re
                         )
                         .wrapping_add(0xe7a0);
                         hardware.tile().write(context, tile);
+                        register2 = u32::from(tile);
                     }
                 }
             }
         }
         sprite_number = entity.secondary_shadow().read(context);
+        register2 = (register2 & !0xff) | u32::from(sprite_number as u8);
     }
     Ok(None)
 }

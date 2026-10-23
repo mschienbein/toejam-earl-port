@@ -1,5 +1,9 @@
 use super::{frame_rendering, lifecycle, links, queue_update, rendering, slots, unpack, updates};
-use crate::{Context, Dispatcher, FunctionId, Result};
+use crate::{
+    Context, Dispatcher, FunctionId, Result,
+    call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments},
+    ids,
+};
 use tje_mem::{Address, AddressSpace, Bus, Platform, Ptr, RenderPiece, Revision, ram, rom};
 
 struct Machine {
@@ -7,6 +11,10 @@ struct Machine {
     data: [u32; 8],
     address: [u32; 7],
     sr: u16,
+    sp: u32,
+    frame: FrameState,
+    dispatcher: Dispatcher,
+    forbidden_read: Option<u32>,
     writes: Vec<(u8, u16)>,
 }
 impl Machine {
@@ -16,6 +24,10 @@ impl Machine {
             data: [0xa5a5_1234; 8],
             address: [0; 7],
             sr: 0x271f,
+            sp: 0xff8000,
+            frame: FrameState::new(0xff8000),
+            dispatcher: Dispatcher::hybrid_with_overrides(super::PENDING_TRANSLATIONS),
+            forbidden_read: None,
             writes: Vec::new(),
         }
     }
@@ -32,6 +44,11 @@ impl Machine {
 }
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
+        assert_ne!(
+            self.forbidden_read,
+            Some(address),
+            "the source does not read this unused slot"
+        );
         self.memory.read_u8(address)
     }
     fn write_u8(&mut self, address: u32, value: u8) {
@@ -82,8 +99,22 @@ impl Context for Machine {
     fn set_status_register(&mut self, value: u16) {
         self.sr = value;
     }
+    fn stack_pointer(&self) -> Result<u32> {
+        Ok(self.sp)
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
+        self.sp = value;
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<FrameState> {
+        Some(self.frame)
+    }
+    fn set_frame_state(&mut self, value: FrameState) -> Result<()> {
+        self.frame = value;
+        Ok(())
+    }
     fn dispatcher(&self) -> Dispatcher {
-        Dispatcher::hybrid()
+        self.dispatcher
     }
     fn call_original(&mut self, function: FunctionId, _: &[u32]) -> Result<u32> {
         Err(crate::Error::Untranslated(function))
@@ -694,4 +725,63 @@ fn int_slot_query_keeps_its_long_index_even_after_a_full_word_of_slots() {
         slots::is_sprite_slot_locked(&mut machine, &[25 + 65536]).unwrap(),
         Some(0)
     );
+}
+
+#[test]
+fn canonical_selector_native_frames_preserve_reused_mutable_and_omitted_slots() {
+    let roots = &[ids::ALLOCATE_SPRITE_SLOTS, ids::ALLOCATE_SPRITE_SLOT];
+    let dispatcher = Dispatcher::native_with(roots, super::PENDING_TRANSLATIONS)
+        .unwrap_or_else(|_| panic!("canonical selector and wrapper have a closed native override"));
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        machine.dispatcher = dispatcher;
+        let output = machine.buffer() + 5000;
+        machine.data[2] = output;
+        let frame = LocalFrame::enter(&mut machine, FrameLayout::link(4, 4, 0)).unwrap();
+        // Synthetic caller intentionally omits slot 3, exposing its saved D2 pointer.
+        let outgoing = OutgoingArguments::push(&mut machine, &[1, 0, 0]).unwrap();
+        for return_pc in [0x1234, 0x123a] {
+            outgoing
+                .call(
+                    &mut machine,
+                    dispatcher,
+                    ids::ALLOCATE_SPRITE_SLOTS,
+                    CallSite::new(return_pc),
+                )
+                .unwrap();
+        }
+        outgoing.release(&mut machine).unwrap();
+        frame.leave(&mut machine).unwrap();
+        assert_eq!(machine.data[2], output + 2);
+        assert_eq!(machine.read_u8(output), 25);
+        assert_eq!(machine.read_u8(output + 1), 26);
+        assert_eq!(machine.sp, 0xff8000);
+        // The canonical one-slot wrapper passes its actual A6-1 byte to the same body.
+        let site = CallSite::relative(ids::UPDATE_ENTITY_SHADOWS, revision, 0x50);
+        let result = dispatcher
+            .call_at(&mut machine, ids::ALLOCATE_SPRITE_SLOT, &[0, 0], site)
+            .unwrap();
+        assert_eq!(result, 27);
+        assert_eq!(machine.sp, 0xff8000);
+    }
+}
+
+#[test]
+fn canonical_selector_failure_does_not_read_the_unused_output_argument_slot() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        for index in 0..54 {
+            ram::g_viewport_sprite_slot_flags(revision)
+                .at(index)
+                .write(&mut machine, 3);
+        }
+        let entry = machine.frame;
+        entry.argument_slot(0).write(&mut machine, 1);
+        entry.argument_slot(1).write(&mut machine, 0);
+        entry.argument_slot(2).write(&mut machine, 0);
+        // Deliberately leave argument 3 untouched and reject even a speculative read.
+        machine.forbidden_read = Some(entry.argument_slot(3).address());
+        let result = slots::allocate_sprite_slots(&mut machine, &[1, 0, 0]).unwrap();
+        assert_eq!(result, Some(1));
+    }
 }

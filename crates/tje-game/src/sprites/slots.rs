@@ -1,6 +1,10 @@
 //! Sprite-pool leaves; every index remains an unchecked emulated-memory offset.
-use crate::{Context, Result};
-use tje_mem::ram;
+use crate::{
+    Context, Result, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame},
+    ids,
+};
+use tje_mem::{Address, ram};
 
 /// G/src/sprites/sprite_slots.c:79, FreeSpriteSlots. The subtraction narrows to char.
 pub fn free_sprite_slots(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
@@ -84,4 +88,127 @@ pub fn reset_entity_runtime_state(
         words = words.wrapping_add(2);
     }
     Ok(None)
+}
+
+/// G/src/sprites/sprite_slots.c:10, AllocateSpriteSlots.
+/// G/build/rev02/asm/c_sprite_slots.s:3-146 establishes LINK #-32,
+/// D2-D6 saves, both unchecked 12-byte locals, and mutable entry-SP+16.
+pub fn allocate_sprite_slots(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(32, 0x7c, 0))?;
+    let mut count = arguments[0] as i16;
+    let mode = arguments[1] as i16;
+    let include_secondary = arguments[2] as i8;
+    let slot = frame.local::<i16>(-2);
+    let free_count = frame.local::<i8>(-3);
+    let secondary_count = frame.local::<i8>(-4);
+    let index = frame.local::<i16>(-6);
+    let limit = frame.local::<i16>(-8);
+    let free_slots = frame.local::<i8>(-20);
+    let secondary_slots = frame.local::<i8>(-32);
+    free_count.write(context, 0);
+    secondary_count.write(context, 0);
+    let mut flags = 1i8;
+    if include_secondary != 0 {
+        flags |= 2;
+    }
+    if mode == 1 {
+        flags |= 4;
+    }
+    let states = ram::g_viewport_sprite_slot_flags(context.revision());
+    limit.write(context, 54);
+    index.write(context, 0);
+    while index.read(context) < limit.read(context) {
+        let current = index.read(context);
+        slot.write(
+            context,
+            if mode == 1 {
+                53i16.wrapping_sub(current)
+            } else {
+                current
+            },
+        );
+        let state = states.at(i32::from(slot.read(context))).read(context);
+        if state & 1 == 0 {
+            let old = free_count.read(context);
+            free_count.write(context, old.wrapping_add(1));
+            free_slots
+                .offset(i32::from(old))
+                .write(context, slot.read(context) as i8);
+        } else if include_secondary != 0
+            && state & 2 == 0
+            && i32::from(secondary_count.read(context))
+                < i32::from(count) - i32::from(free_count.read(context))
+        {
+            let old = secondary_count.read(context);
+            secondary_count.write(context, old.wrapping_add(1));
+            secondary_slots
+                .offset(i32::from(old))
+                .write(context, slot.read(context) as i8);
+        }
+        if i16::from(free_count.read(context)) == count {
+            break;
+        }
+        index.write(context, index.read(context).wrapping_add(1));
+    }
+    let status = if i32::from(count)
+        > i32::from(free_count.read(context)) + i32::from(secondary_count.read(context))
+    {
+        1
+    } else {
+        index.write(context, 0);
+        while index.read(context) < i16::from(free_count.read(context)) {
+            let selected = free_slots
+                .offset(i32::from(index.read(context)))
+                .read(context);
+            states.at(i32::from(selected)).write(context, flags);
+            let output = frame.argument_slot(3).read(context);
+            frame
+                .argument_slot(3)
+                .write(context, output.wrapping_add(1));
+            Address::<i8>::new(output).write(context, selected.wrapping_add(25));
+            index.write(context, index.read(context).wrapping_add(1));
+        }
+        if i16::from(free_count.read(context)) < count {
+            count = count.wrapping_sub(i16::from(free_count.read(context)));
+            index.write(context, 0);
+            while index.read(context) < count {
+                let selected = secondary_slots
+                    .offset(i32::from(index.read(context)))
+                    .read(context);
+                states.at(i32::from(selected)).write(context, flags);
+                let output = frame.argument_slot(3).read(context);
+                frame
+                    .argument_slot(3)
+                    .write(context, output.wrapping_add(1));
+                Address::<i8>::new(output).write(context, selected.wrapping_add(25));
+                index.write(context, index.read(context).wrapping_add(1));
+            }
+        }
+        0
+    };
+    frame.leave(context)?;
+    Ok(Some(status))
+}
+
+/// G/src/sprites/sprite_slots.c:66, AllocateSpriteSlot.
+/// LINK #-4 leaves the output byte at A6-1 uninitialized until the selector writes it.
+/// The matching JSR returns at REV02 D5A6 / REV00 D586 (function offset 0x20).
+pub fn allocate_sprite_slot(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::link(4, 0, 0))?;
+    let output = frame.local::<i8>(-1);
+    let site = CallSite::relative(ids::ALLOCATE_SPRITE_SLOT, context.revision(), 0x20);
+    let status = call_at(
+        context,
+        ids::ALLOCATE_SPRITE_SLOTS,
+        &[
+            1,
+            arguments[0] as i16 as i32 as u32,
+            arguments[1],
+            output.address(),
+        ],
+        site,
+    )?;
+    let result = if status != 0 { 0 } else { output.read(context) };
+    frame.leave(context)?;
+    Ok(Some(result as i32 as u32))
 }

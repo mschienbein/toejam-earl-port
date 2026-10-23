@@ -7,6 +7,7 @@ use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 
 mod check_callers;
 mod check_dma;
+mod check_frames;
 mod check_updates;
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
@@ -315,6 +316,7 @@ fn fixture_coverage(host: &mut Host) {
     check_callers::fixtures(host);
     check_updates::fixtures(host);
     check_dma::fixtures(host);
+    check_frames::fixtures(host);
 }
 
 fn seed_registers(host: &mut Host) {

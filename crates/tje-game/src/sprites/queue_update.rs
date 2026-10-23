@@ -1,5 +1,10 @@
 //! Main-thread sprite preparation; waits retain real accepted-interrupt progress.
-use crate::{Context, Result, call, execution::WaitRequest, ids};
+use crate::{
+    Context, Result, call, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame},
+    execution::WaitRequest,
+    ids,
+};
 use tje_mem::{Address, ObjectState, ram};
 
 /// The guarded byte pre-decrement in G/src/sprites/entity_sprite_rendering.c:526.
@@ -22,9 +27,30 @@ pub fn update_and_queue_entity_sprites(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
+    // G c_entity_sprite_rendering.s:1149: save D2-D4/A2-A4 before any wait.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x1c))?;
+    let result = update_queue_inner(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let leave = frame.leave(context);
+    match (result, leave) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
     let pending = ram::g_sprite_graphics_upload_pending(revision);
     let mut tile_total = 0u16;
+    let mut d2 = context.data_register(2);
+    let d3_high = context.data_register(3) & 0xffff_0000;
+    let mut last_frame = context.address_register(3);
+    context.set_address_register(4, ram::g_player_inventory_open(revision).address());
     call(context, ids::INVENTORY_SET_CAMERA_SUSPENSION, &[1])?;
     while pending.read(context) != 0 {
         context.wait_until(WaitRequest::interrupt())?;
@@ -36,6 +62,11 @@ pub fn update_and_queue_entity_sprites(
         26
     } else {
         0
+    };
+    let d4_high = if first == 26 {
+        0
+    } else {
+        context.data_register(4) & 0xffff_0000
     };
     for number in first..40 {
         let entity = ram::g_player_info(revision).at(number);
@@ -104,6 +135,7 @@ pub fn update_and_queue_entity_sprites(
                 .target()
                 .offset(i32::from(frame_number))
                 .read(context);
+            last_frame = frame_pointer.address();
             let frame = frame_pointer.target();
             let mut reuse_tiles = false;
             let mut already_uploaded = false;
@@ -111,6 +143,11 @@ pub fn update_and_queue_entity_sprites(
                 reuse_tiles = true;
                 already_uploaded = true;
             }
+            d2 = if already_uploaded {
+                1
+            } else {
+                d2 & 0xffff_0000
+            };
             entity.current_frame().write(context, frame_pointer);
             if entity.draw_flags().read(context) & 2 != 0 {
                 call(
@@ -152,7 +189,14 @@ pub fn update_and_queue_entity_sprites(
         call(context, ids::POSITION_ENTITY_SPRITES, &[head])?;
         call(context, ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0])?;
     }
-    call(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[])?;
+    context.set_data_register(2, d2);
+    context.set_data_register(3, d3_high | u32::from(tile_total));
+    context.set_data_register(4, d4_high | 40);
+    context.set_address_register(2, ram::g_player_info(revision).at(40).address());
+    context.set_address_register(3, last_frame);
+    // REV02 CE74 / REV00 CE54, offset 0x1f2: actual zero-argument JSR return.
+    let site = CallSite::relative(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, revision, 0x1f2);
+    call_at(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[], site)?;
     pending.write(context, 1);
     Ok(None)
 }

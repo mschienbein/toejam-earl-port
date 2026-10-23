@@ -1,5 +1,8 @@
 //! Leaf rendering operations retaining the compiler's signed condition codes.
-use crate::{Context, Result};
+use crate::{
+    Context, Result,
+    call_frame::{FrameLayout, LocalFrame},
+};
 use tje_mem::{Address, ObjectState, Ptr, RenderPiece, arithmetic::lsl_u32, ram, rom};
 
 /// G/src/sprites/entity_visibility.c:12, IsEntityVisibleInViewport.
@@ -265,5 +268,139 @@ pub fn set_ram_indexes(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
             .entity_index()
             .write(context, index as i8);
     }
+    Ok(None)
+}
+
+fn append_link_index(context: &mut dyn Context, slots: Address<i16>, count: &mut i16, value: i16) {
+    // G's ADD.W doubles the short array index before sign-extended addressing.
+    let destination = slots.byte_offset(i32::from(count.wrapping_shl(1)));
+    *count = count.wrapping_add(1);
+    destination.write(context, value);
+}
+
+fn sprite_link(table: u32, number: i16) -> Address<u8> {
+    // The short sprite number is ASL.W #3, not a host/full-long product.
+    Address::new(
+        table
+            .wrapping_add(number.wrapping_shl(3) as i32 as u32)
+            .wrapping_add(3),
+    )
+}
+
+/// G/src/sprites/entity_sprite_rendering.c:134, BuildViewportSpriteLinks.
+/// Matching c_entity_sprite_rendering.s:348-526 uses LINK #-216 and saves
+/// D2-D5/A2-A3; both 54-word arrays remain unchecked emulated local storage.
+pub fn build_viewport_sprite_links(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let frame = LocalFrame::enter(context, FrameLayout::link(216, 0x3c, 0x0c))?;
+    let primary = frame.local::<i16>(-108);
+    let secondary = frame.local::<i16>(-216);
+    let mut primary_count = 0i16;
+    let mut secondary_count = 0i16;
+    let mut pointer = ram::g_entity_draw_list_head(revision)
+        .read(context)
+        .address();
+    while pointer != 0 {
+        let entity = Address::<ObjectState>::new(pointer);
+        if entity.sprite_ready().read(context) != 0 {
+            let count = i16::from(
+                entity
+                    .current_frame()
+                    .read(context)
+                    .target()
+                    .piece_count()
+                    .read(context),
+            );
+            if entity.draw_flags().read(context) & 2 != 0 {
+                for piece in 0..count {
+                    let handle = entity.primary_sprites().at(i32::from(piece)).read(context);
+                    append_link_index(context, primary, &mut primary_count, i16::from(handle));
+                }
+            }
+            if entity.draw_flags().read(context) & 4 != 0 {
+                for piece in 0..count {
+                    let handle = entity
+                        .secondary_sprites()
+                        .at(i32::from(piece))
+                        .read(context);
+                    append_link_index(context, secondary, &mut secondary_count, i16::from(handle));
+                }
+            }
+        }
+        pointer = entity.next().read(context).address();
+    }
+    pointer = ram::g_entity_draw_list_head(revision)
+        .read(context)
+        .address();
+    while pointer != 0 {
+        let entity = Address::<ObjectState>::new(pointer);
+        if entity.sprite_ready().read(context) != 0 && entity.draw_flags().read(context) & 0x40 != 0
+        {
+            if entity.primary_shadow().read(context) != 0 {
+                let handle = entity.primary_shadow().read(context);
+                append_link_index(context, primary, &mut primary_count, i16::from(handle));
+            }
+            if entity.secondary_shadow().read(context) != 0 {
+                let handle = entity.secondary_shadow().read(context);
+                append_link_index(context, secondary, &mut secondary_count, i16::from(handle));
+            }
+        }
+        pointer = entity.next().read(context).address();
+    }
+    pointer = ram::g_inventory_draw_list_head(revision)
+        .read(context)
+        .address();
+    while pointer != 0 {
+        let entity = Address::<ObjectState>::new(pointer);
+        if entity.draw_flags().read(context) & 1 != 0 && entity.sprite_ready().read(context) != 0 {
+            let count = i16::from(
+                entity
+                    .current_frame()
+                    .read(context)
+                    .target()
+                    .piece_count()
+                    .read(context),
+            );
+            if entity.draw_flags().read(context) & 2 != 0 {
+                for piece in 0..count {
+                    let handle = entity.primary_sprites().at(i32::from(piece)).read(context);
+                    append_link_index(context, primary, &mut primary_count, i16::from(handle));
+                }
+            }
+            if entity.draw_flags().read(context) & 4 != 0 {
+                for piece in 0..count {
+                    let handle = entity
+                        .secondary_sprites()
+                        .at(i32::from(piece))
+                        .read(context);
+                    append_link_index(context, secondary, &mut secondary_count, i16::from(handle));
+                }
+            }
+        }
+        pointer = entity.next().read(context).address();
+    }
+    let table = ram::g_hardware_sprite_table(revision).address();
+    sprite_link(table, 23).write(context, 79);
+    let mut previous = 23;
+    for piece in 0..primary_count {
+        let number = primary
+            .byte_offset(i32::from(piece.wrapping_shl(1)))
+            .read(context);
+        sprite_link(table, number).write(context, 79);
+        sprite_link(table, previous).write(context, number as u8);
+        previous = number;
+    }
+    sprite_link(table, 24).write(context, 79);
+    sprite_link(table, previous).write(context, 24);
+    previous = 24;
+    for piece in 0..secondary_count {
+        let number = secondary
+            .byte_offset(i32::from(piece.wrapping_shl(1)))
+            .read(context);
+        sprite_link(table, number).write(context, 79);
+        sprite_link(table, previous).write(context, number as u8);
+        previous = number;
+    }
+    frame.leave(context)?;
     Ok(None)
 }
