@@ -127,7 +127,7 @@ pub fn elevator_prepare_ride_dialogue(
     args: &[u32],
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
-    let result = prepare_dialogue_body(context, args[0], &frame);
+    let result = prepare_dialogue_body(context, args[0]);
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -140,11 +140,7 @@ pub fn elevator_prepare_ride_dialogue(
     Ok(None)
 }
 
-fn prepare_dialogue_body(
-    context: &mut dyn Context,
-    entity_address: u32,
-    frame: &LocalFrame,
-) -> Result<()> {
+fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Result<()> {
     let revision = context.revision();
     let entity = tje_mem::Address::<ObjectState>::new(entity_address);
     let lines = ram::g_elevator_ride_speech_entities(revision);
@@ -212,7 +208,9 @@ fn prepare_dialogue_body(
                     &[speaker as u32, text, 0],
                     CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x134),
                 )? as i16;
-                frame.local::<i16>(-2).write(context, reply_first);
+                let reply_slot =
+                    tje_mem::Address::<i16>::new(context.address_register(6).wrapping_sub(2));
+                reply_slot.write(context, reply_first);
                 let mut reply_second = 0_i16;
                 if descriptor.reply_second_line().read(context).address() != 0 {
                     let text = descriptor.reply_second_line().read(context).address();
@@ -234,12 +232,16 @@ fn prepare_dialogue_body(
                     CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x170),
                 )?;
                 for index in 0..4 {
-                    // Read the local at its original use point, after the
-                    // preceding line's byte and sprite-ready stores.
+                    // Resolve the live A6 at the original use point: Queue's
+                    // Build callee can overwrite its saved caller A6 at 55/56
+                    // links. A cached LocalFrame base would hide that bug.
                     let line = match index {
                         0 => first,
                         1 => second,
-                        2 => frame.local::<i16>(-2).read(context),
+                        2 => tje_mem::Address::<i16>::new(
+                            context.address_register(6).wrapping_sub(2),
+                        )
+                        .read(context),
                         _ => reply_second,
                     };
                     lines.at(index).write(context, line as u8);
@@ -527,7 +529,7 @@ pub fn elevator_advance_riders_to_next_level(
     args: &[u32],
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x0c))?;
-    let result = advance_riders_body(context, args[0] as i8, &frame);
+    let result = advance_riders_body(context, args[0] as i8);
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -540,11 +542,7 @@ pub fn elevator_advance_riders_to_next_level(
     Ok(None)
 }
 
-fn advance_riders_body(
-    context: &mut dyn Context,
-    mut handle: i8,
-    frame: &LocalFrame,
-) -> Result<()> {
+fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> {
     let revision = context.revision();
     let dispatcher = context.dispatcher();
     let caller = ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL;
@@ -688,12 +686,16 @@ fn advance_riders_body(
     let destination_y = elevator.y().read(context).wrapping_add(5);
     set_low_word(context, 6, destination_y);
     let destination_x = elevator.x().read(context);
-    frame.local::<i16>(-2).write(context, destination_x);
+    let destination_slot =
+        tje_mem::Address::<i16>::new(context.address_register(6).wrapping_sub(2));
+    destination_slot.write(context, destination_x);
     for player in [1, 0] {
         if rides[player as usize] {
             let entity = ram::g_player_info(revision).at(player);
             entity.y().write(context, destination_y);
-            let destination_x = frame.local::<i16>(-2).read(context);
+            let destination_x =
+                tje_mem::Address::<i16>::new(context.address_register(6).wrapping_sub(2))
+                    .read(context);
             entity.x().write(context, destination_x);
             call_at(
                 context,
