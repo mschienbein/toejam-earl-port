@@ -68,9 +68,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
-      - name: Install Linux development libraries
+      - name: Install Linux development and AppImage inspection packages
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libudev-dev
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libudev-dev squashfs-tools
       - name: Install Windows GNU cross-toolchain
         if: matrix.platform == 'windows'
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64
