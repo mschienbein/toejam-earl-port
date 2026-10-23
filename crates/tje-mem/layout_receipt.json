@@ -1,0 +1,7000 @@
+{
+  "compiler": "Microtec MCC68K 3.3K, default profile + /STRINTEXT",
+  "header_sha256": {
+    "assets_audio.h": "0856a14e833e32d777e31317e87ec6ec1bb728026f8a88a13063eb9afe47a7de",
+    "assets_cutscene.h": "8934eeaa6ca61d0014c35ee655dca05501edf5c3374bd6adf65db3b2cc332002",
+    "assets_earthlings.h": "da899e35c22090bbbfac38c52a1ddce549d2d1d097faf339b83e0c78f1d0f2a1",
+    "assets_intro.h": "90d173583f6cc8bb5184b569f93481f2d2459285633800346656ea31e369fe6c",
+    "assets_jam.h": "4fcd2874c97a9efe233f31ef7709340962f207ec3caf1a03cf2c963f37c979aa",
+    "assets_map.h": "ad64ffee6b57e101961e73aaab2064b5acff5b3a523bf4fd377dbbb4ad39f397",
+    "assets_palettes.h": "91499330cb72c8fb428a185d1354ac3ca72bed0a7cfa3566397af7e2947f8842",
+    "assets_presents.h": "36d8f0a207332fa193f3e01a40774001947e2f86ca5afd3be87cf36722831de4",
+    "assets_scenes.h": "ffc59118f7d809b5dede962daed9f3ab2939180c05da5ab512a549a828178d4a",
+    "assets_sprites.h": "a828413b6fa00e6137f8b9665a1c3ce6e84217bb2f7890d0d73b7f2e3619c431",
+    "assets_ui.h": "035c679991117a8fe3dfee152c58275e98b82cad7530a8d73a0a53c99458c01c",
+    "audio_calls.h": "ce6fa478f5d61733f1cdb90b3457f3d52ca1a35056bc333e3356f86fc1ae28c2",
+    "collision_calls.h": "c8b790ca479100159d146e9dd6278f17f9b5780381f779cc3ef093eec4a94b0d",
+    "core_calls.h": "6fdefa8bcee86f4aa435946c1d059b29a8496cb41624ce07f2e5ad2f242b595b",
+    "cutscene_calls.h": "f7a07d9ae53eadba57b26b8b9678196776e573e00134ef1c51368f64acd9e1e1",
+    "cutscene_text_calls.h": "b3df18556ab1ff7fcb8ed0c31ada16511c21170be4d90a34f0bee202f6354cbe",
+    "dialogue_ids.h": "bcea22a0922b7157dbe1ec6811766904ab879938046751bdf1d086edad17e68e",
+    "earthling_calls.h": "cdf00cd86757da3cb17cedcd2b9caaafae16069c8ecabae0b714dd2d36937451",
+    "earthling_types.h": "72d4bf55380f0421740712c61f63af25c554867a6b23e8c146b2b87ce1e02d11",
+    "earthlings.h": "a66ee27aafa9928fe498a0b38d81cac5dca5939cde0fd1c885a3dd6207d25514",
+    "elevator.h": "0c455384de3bdb50ae8609079e0ff2878b911f9422b2cbbe6fd65dafda665075",
+    "elevator_calls.h": "570bf41b06fea9fd5e0417c647a6ac45a751235bed9cfd66217df2e067ff1c31",
+    "elevator_states.h": "7f27058789a999b034f11061687a8178a9cb5cb2c8ee0974e7637fa1e86caee9",
+    "engine_calls.h": "c0346c27f489a6ea8e09dc5e8829d74bfc1ac75af213c77eb5f8984ee12efaf0",
+    "entities.h": "77794ae57846b7913f7dbd1039887273ffc26406e5845eed81debb7b021d30f2",
+    "fm_effects.h": "b9066050b2ef8c857152be262be2f5f64e1636baf963dbe786ff4169d2a75bb6",
+    "graphics_calls.h": "741220779ddb23ee67b4ccf7c028551cd2768730bd50aa94fd40efab2e512822",
+    "hardware.h": "4e6c37979f44e604021d4ee55e451455470b068046aefb333aeb0360ec9f4c4e",
+    "hardware_calls.h": "bcb45e305539a58b7c4edcf606dbda128513480748b4f09b4f94bde2ee29c784",
+    "intro_calls.h": "1a4887467e6e2c3dddcd225304887c19cd652d622464b0a7e89571972ac7bc67",
+    "intro_object_calls.h": "1f5679158fc19bf2b5c18646ef2822435ef93de652e89e2cb02644e1fde98067",
+    "jam_calls.h": "8bf1353bfb19da7fb85991d8320abf9577c434c47d01e3c3c0a2661eff5b5def",
+    "map.h": "9684027745609ad60dd6d5c2a81850a80ecb3ac54eb1d7b92ed37159c4aa88d8",
+    "map_calls.h": "cd152b611a0717f7a54e2e0d74b243a2bf1e614c1ea73ed2af73040678b9864c",
+    "menu_calls.h": "a832b91ed9bb029de3407bd8c07800a1a6e5b40a6beebe9dc57b0ecfba420b5c",
+    "music_ids.h": "76c280ded8000535e6f8a3a5d7e29990ce599428fa6787022348c76cb3b60b06",
+    "player.h": "522fc7732850dd4c8695efda33321925e309e5be3aee748dbc05d5cc36192b70",
+    "player_animation.h": "c9e7aa2c5666ab2c4554faeb1de0117675868d249349943ed33290fd3fbb3ca5",
+    "player_animation_groups.h": "7ebccd36b4309ec4573304c3871f7816b6e7c6f3fbfefe6f7baa7f4353aeca2d",
+    "present_calls.h": "2a740b8d98b7203195ca7977a3e3f4a1fb8b4d85b7e080f1b4b00e1c52b091d9",
+    "present_types.h": "91662824c0d5774b9a45e196a51df8d2f56df4c047c672a84f73f39b3325be91",
+    "presents.h": "66987ec89df1c70fea00516040f6daac2b5d48d5d15799c0efa0c02081101751",
+    "psg_effects.h": "4fead62daea7225b71a0ad74559229e45044feca995f16c44dedf84a6a4bc8f2",
+    "ram_camera.h": "5ca67dbc0a95265317e2105b0b4471467bee3ce3e8aae7f1d40633058a452184",
+    "ram_cutscene.h": "37bfa3eab242fedaabbef98ebe01f5f7424a2541edd01291d53e419186b04d3b",
+    "ram_earthlings.h": "f52a02a34ba66ff10544bfbbe269597808bd73a7432280571a7bf76176ed7db4",
+    "ram_effects.h": "a5722b8d9dbe591d5ee2a61a4c2bf55a7fb9e44302c2145e7b1d719f15f219f1",
+    "ram_elevator.h": "96129538c2b698ae50f5d39551e5c9d8bfde7aec194ebf93e12dc7034a2ce13b",
+    "ram_intro.h": "7001ca3f40557f5221ce400ee049d449cd25cac5aee13619dcf24b7287228c9f",
+    "ram_jam.h": "e9150d02eab66050bd612cf59060767596ff4df74ab7c4d5f0251f0e6c64b0f6",
+    "ram_map.h": "06b8699deabf8ad67fde73a18a3fb6338d98f5ad438c5c82d2572659005fd314",
+    "ram_player.h": "124f40d0baa05dd32f466e1a3c5366069e49e3caa44030889d44f9d4a84c75cc",
+    "ram_presents.h": "f9e1ea79828fb99edf342c8aaaa18e56c5153cdf38ffc9743e88c3eebdd20868",
+    "ram_ship.h": "df938f91949f4976855df51e6af9b2db95333d1710d9783588bcab01c49b3780",
+    "ram_sound.h": "08010623fa9bf3decd57f169bce11680190a693b07f9a1dd4c555dcbc16b1dcb",
+    "ram_speech.h": "3257c4e3ec4946d90f783dc6726036fc7f1527b5f0ac4e64da25eba7ada3d29e",
+    "ram_sprites.h": "b518deac8577b4844c0d1dba05695800c5a443f1192dbc7052044ee8f75b0035",
+    "ram_system.h": "bdd9ce94338e3e9381f4be33653c70b20d4037a2f4494142320987de9e127e91",
+    "ram_ui.h": "c1e04ad8f4936feae77249f575c60d9d38772f0b376f1f05cd8bac3794577e10",
+    "random.h": "fe4637cf906d15bdf98cd5604a735f1124b55cb0ec06aed328c3f5a23c642965",
+    "reset_calls.h": "932e577210cae4f5fb2036f42f685ed09881de82f7eda648c69e1a37202127c3",
+    "ship.h": "8a7e591d6cd8e0056f3ef545fcc123452969b80f5bdc7fec9a6d4ced3c7b7e0e",
+    "sound_types.h": "7fe9c01f81d39bae50966a74e636bad9fb6935af07123bf8b07b33ec9ef9ddfc",
+    "speech.h": "7c267a8cfee00224cc00aaea19cf02ddac0a19c8174e0915db400dc144a0d98c",
+    "sprite_calls.h": "9e123a6624a440ce4679d0998f430fd3b0c603036255c66a8655769ad63b4b06",
+    "sprite_frame_views.h": "2ac385cc0a4002545c95d2d0fe75c95063b2dea43dd34fe7e40b5b304cb9ffb0",
+    "sprites.h": "fd777f62b84615a06b4fd9ab1e971ba1073681c4f080f5c6c33735da4de95c67",
+    "terrain.h": "9c55bd9ac7cea842233014b79325f301be80143e6f9a520fe2b5223a77f46250",
+    "title_calls.h": "8579b322829f8355c486b593d0da4444b5080ccca181421c653deca2c140a9dd",
+    "ui.h": "ffb5a71722afc004a992543b70879f2bcd9859e792a2a2c5608990b2c35d685a",
+    "ui_calls.h": "18cf3165a644a8407889a1d83ff725cf4cac9d3e3bb04da30ffdca5dca373897"
+  },
+  "layouts": {
+    "animation_descriptor": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "sequence",
+          "offset": 0,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "frames",
+          "offset": 4,
+          "size": 4,
+          "type": "struct render_frame * *"
+        }
+      ],
+      "size": 8,
+      "source": "include/sprites.h"
+    },
+    "dialogue_descriptor": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "first_speaker",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "reply_speaker",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "first_line",
+          "offset": 2,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "delay",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "reply",
+          "offset": 8,
+          "size": 4,
+          "type": "char *"
+        }
+      ],
+      "size": 12,
+      "source": "include/ui.h"
+    },
+    "earthling_definition": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "states",
+          "offset": 0,
+          "size": 4,
+          "type": "struct timed_animation *"
+        },
+        {
+          "name": "update",
+          "offset": 4,
+          "size": 4,
+          "type": "function *"
+        },
+        {
+          "name": "ability",
+          "offset": 8,
+          "size": 4,
+          "type": "function *"
+        },
+        {
+          "name": "touch",
+          "offset": 12,
+          "size": 4,
+          "type": "function *"
+        },
+        {
+          "name": "movement_mode",
+          "offset": 16,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "width",
+          "offset": 17,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "height_pixels",
+          "offset": 18,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "tile_count",
+          "offset": 19,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "sprite_count",
+          "offset": 20,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "target_chance",
+          "offset": 21,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "target_distance",
+          "offset": 22,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "turn_chance",
+          "offset": 23,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "behavior_flags",
+          "offset": 24,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "radius",
+          "offset": 25,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "contact_distance_x",
+          "offset": 26,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "contact_distance_y",
+          "offset": 27,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "damage",
+          "offset": 28,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "target_time_min",
+          "offset": 29,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "target_time_max",
+          "offset": 30,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "turn_time_min",
+          "offset": 31,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "turn_time_max",
+          "offset": 32,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "move_time_min",
+          "offset": 33,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "move_time_max",
+          "offset": 34,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "state_delay",
+          "offset": 35,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "health",
+          "offset": 36,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused",
+          "offset": 37,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 38,
+      "source": "include/earthlings.h"
+    },
+    "earthling_state": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "kind",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "object",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "level",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "state",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "timer",
+          "offset": 4,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "x",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 8,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "saved_x_or_status",
+          "offset": 10,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "saved_y",
+          "offset": 12,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "state_delay",
+          "offset": 14,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "second_object",
+          "offset": 15,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "health_visibility",
+          "offset": 16,
+          "size": 2,
+          "type": "char[2]"
+        }
+      ],
+      "size": 18,
+      "source": "include/earthlings.h"
+    },
+    "elevator_position": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "y",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 2,
+      "source": "include/elevator.h"
+    },
+    "elevator_record": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 2,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "level",
+          "offset": 4,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "state",
+          "offset": 5,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "entity",
+          "offset": 6,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "timer",
+          "offset": 7,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 8,
+      "source": "include/elevator.h"
+    },
+    "hardware_sprite": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "y",
+          "offset": 0,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "size",
+          "offset": 2,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "link",
+          "offset": 3,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "tile",
+          "offset": 4,
+          "size": 2,
+          "type": "unsigned short"
+        },
+        {
+          "name": "x",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 8,
+      "source": "include/sprites.h"
+    },
+    "held_frame2": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "frame",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "hold",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 2,
+      "source": "include/sprites.h"
+    },
+    "item_position": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 2,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 4,
+      "source": "include/presents.h"
+    },
+    "level_item": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "kind",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "level",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "object",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "x",
+          "offset": 4,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 8,
+      "source": "include/presents.h"
+    },
+    "map_generation_tables": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "tiles",
+          "offset": 0,
+          "size": 16,
+          "type": "unsigned char[16]"
+        },
+        {
+          "name": "edge_plain",
+          "offset": 16,
+          "size": 20,
+          "type": "unsigned char[20]"
+        },
+        {
+          "name": "edge_alternate",
+          "offset": 36,
+          "size": 20,
+          "type": "unsigned char[20]"
+        },
+        {
+          "name": "filled_plain",
+          "offset": 56,
+          "size": 32,
+          "type": "unsigned char[32]"
+        },
+        {
+          "name": "filled_alternate",
+          "offset": 88,
+          "size": 32,
+          "type": "unsigned char[32]"
+        },
+        {
+          "name": "direction_choices",
+          "offset": 120,
+          "size": 12,
+          "type": "unsigned char[12]"
+        },
+        {
+          "name": "present_terrain",
+          "offset": 132,
+          "size": 23,
+          "type": "char[23]"
+        },
+        {
+          "name": "unused",
+          "offset": 155,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "input_directions",
+          "offset": 156,
+          "size": 40,
+          "type": "unsigned char[4][10]"
+        }
+      ],
+      "size": 196,
+      "source": "include/map.h"
+    },
+    "map_transition_descriptor": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "bank",
+          "offset": 0,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "chain_flags",
+          "offset": 1,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "shapes",
+          "offset": 2,
+          "size": 4,
+          "type": "unsigned char *"
+        },
+        {
+          "name": "alternatives",
+          "offset": 6,
+          "size": 4,
+          "type": "unsigned char *"
+        }
+      ],
+      "size": 10,
+      "source": "include/map.h"
+    },
+    "menu_item": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "y",
+          "offset": 1,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "text",
+          "offset": 2,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "selection",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 8,
+      "source": "include/ui.h"
+    },
+    "music_channel_reset": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "restart_stream_bytes",
+          "offset": 0,
+          "size": 4,
+          "type": "char[4]"
+        },
+        {
+          "name": "current_stream",
+          "offset": 4,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "callback_and_channel_bytes",
+          "offset": 8,
+          "size": 30,
+          "type": "char[30]"
+        }
+      ],
+      "size": 38,
+      "source": "include/sound_types.h"
+    },
+    "object_state": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 2,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "height",
+          "offset": 4,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "velocity_x",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "velocity_y",
+          "offset": 8,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "velocity_height",
+          "offset": 10,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "acceleration_x",
+          "offset": 12,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "acceleration_y",
+          "offset": 14,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "acceleration_height",
+          "offset": 16,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "fraction_x",
+          "offset": 18,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "fraction_y",
+          "offset": 19,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "fraction_height",
+          "offset": 20,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "animation_motion_axes",
+          "offset": 21,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "process",
+          "offset": 22,
+          "size": 4,
+          "type": "function *"
+        },
+        {
+          "name": "sequence",
+          "offset": 26,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "frames",
+          "offset": 30,
+          "size": 4,
+          "type": "struct render_frame * *"
+        },
+        {
+          "name": "current_frame",
+          "offset": 34,
+          "size": 4,
+          "type": "struct render_frame *"
+        },
+        {
+          "name": "frame",
+          "offset": 38,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "frame_phase",
+          "offset": 39,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "frame_duration",
+          "offset": 40,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "width",
+          "offset": 41,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "height_pixels",
+          "offset": 42,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "tile_count",
+          "offset": 43,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "tile",
+          "offset": 44,
+          "size": 2,
+          "type": "unsigned short"
+        },
+        {
+          "name": "sprite_count",
+          "offset": 46,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "draw_flags",
+          "offset": 47,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "primary_sprites",
+          "offset": 48,
+          "size": 12,
+          "type": "char[12]"
+        },
+        {
+          "name": "secondary_sprites",
+          "offset": 60,
+          "size": 12,
+          "type": "char[12]"
+        },
+        {
+          "name": "primary_shadow",
+          "offset": 72,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "secondary_shadow",
+          "offset": 73,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "sprite_ready",
+          "offset": 74,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "sprite_state",
+          "offset": 75,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "level",
+          "offset": 76,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "behavior_flags",
+          "offset": 77,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "earthling",
+          "offset": 78,
+          "size": 4,
+          "type": "struct earthling_state *"
+        },
+        {
+          "name": "animation_group_mask",
+          "offset": 82,
+          "size": 4,
+          "type": "unsigned long"
+        },
+        {
+          "name": "owner",
+          "offset": 86,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "attachment_x_or_latch",
+          "offset": 87,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "attachment_y_or_latch",
+          "offset": 88,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "attachment_height",
+          "offset": 89,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "next",
+          "offset": 90,
+          "size": 4,
+          "type": "struct object_state *"
+        },
+        {
+          "name": "entity_index",
+          "offset": 94,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused_tail",
+          "offset": 95,
+          "size": 33,
+          "type": "char[33]"
+        }
+      ],
+      "size": 128,
+      "source": "include/entities.h"
+    },
+    "present_info": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "appearance",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "identified",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 2,
+      "source": "include/presents.h"
+    },
+    "render_frame": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "piece_count",
+          "offset": 0,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "motion_x",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "motion_y",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "reuse_tiles",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 4,
+      "source": "include/sprites.h"
+    },
+    "render_frame_four_piece_view": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "header",
+          "offset": 0,
+          "size": 4,
+          "type": "struct render_frame"
+        },
+        {
+          "name": "pieces",
+          "offset": 4,
+          "size": 40,
+          "type": "struct render_piece[4]"
+        }
+      ],
+      "size": 44,
+      "source": "include/sprite_frame_views.h"
+    },
+    "render_frame_piece_view": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "header",
+          "offset": 0,
+          "size": 4,
+          "type": "struct render_frame"
+        },
+        {
+          "name": "pieces",
+          "offset": 4,
+          "size": 120,
+          "type": "struct render_piece[12]"
+        }
+      ],
+      "size": 124,
+      "source": "include/sprite_frame_views.h"
+    },
+    "render_piece": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "width",
+          "offset": 0,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "height",
+          "offset": 1,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "x",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "y",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "flipped_x",
+          "offset": 4,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "tile_format",
+          "offset": 5,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "tile_data",
+          "offset": 6,
+          "size": 4,
+          "type": "char *"
+        }
+      ],
+      "size": 10,
+      "source": "include/sprites.h"
+    },
+    "ride_speech": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "first_line",
+          "offset": 0,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "second_line",
+          "offset": 4,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "reply_first_line",
+          "offset": 8,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "reply_second_line",
+          "offset": 12,
+          "size": 4,
+          "type": "char *"
+        }
+      ],
+      "size": 16,
+      "source": "include/ui.h"
+    },
+    "scene_descriptor": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "frames",
+          "offset": 0,
+          "size": 4,
+          "type": "struct render_frame * *"
+        },
+        {
+          "name": "idle_sequence",
+          "offset": 4,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "interaction_sequence",
+          "offset": 8,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "frame_phase",
+          "offset": 12,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "width",
+          "offset": 13,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "height",
+          "offset": 14,
+          "size": 1,
+          "type": "unsigned char"
+        },
+        {
+          "name": "tile_count",
+          "offset": 15,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "sprite_count",
+          "offset": 16,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused",
+          "offset": 17,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 18,
+      "source": "include/sprites.h"
+    },
+    "scene_placement": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "x",
+          "offset": 0,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 2,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "interaction",
+          "offset": 4,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 6,
+      "source": "include/sprites.h"
+    },
+    "ship_screen_state": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "background_frame",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused_01",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "background_timer",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused_03",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "pending_piece_notice_level",
+          "offset": 4,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused_05",
+          "offset": 5,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "indicator_entity",
+          "offset": 6,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused_tail",
+          "offset": 7,
+          "size": 3,
+          "type": "char[3]"
+        }
+      ],
+      "size": 10,
+      "source": "include/ram_ship.h"
+    },
+    "special_earthling_state": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "mode",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "level",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "timer",
+          "offset": 2,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "contact",
+          "offset": 4,
+          "size": 2,
+          "type": "char[2]"
+        }
+      ],
+      "size": 6,
+      "source": "include/earthlings.h"
+    },
+    "telephone_state": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "unused_kind",
+          "offset": 0,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "level",
+          "offset": 1,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "object",
+          "offset": 2,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "unused",
+          "offset": 3,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "x",
+          "offset": 4,
+          "size": 2,
+          "type": "short"
+        },
+        {
+          "name": "y",
+          "offset": 6,
+          "size": 2,
+          "type": "short"
+        }
+      ],
+      "size": 8,
+      "source": "include/presents.h"
+    },
+    "timed_animation": {
+      "alignment": 2,
+      "fields": [
+        {
+          "name": "sequence",
+          "offset": 0,
+          "size": 4,
+          "type": "char *"
+        },
+        {
+          "name": "frames",
+          "offset": 4,
+          "size": 4,
+          "type": "struct render_frame * *"
+        },
+        {
+          "name": "period",
+          "offset": 8,
+          "size": 1,
+          "type": "char"
+        },
+        {
+          "name": "y_offset",
+          "offset": 9,
+          "size": 1,
+          "type": "char"
+        }
+      ],
+      "size": 10,
+      "source": "include/sprites.h"
+    }
+  },
+  "ram_maps": {
+    "rev00": {
+      "existing_map_sha256": "d8f348c3be441800ef0f9d80c9800804532e472fab02a4a9c5843e1ae8548b8f",
+      "existing_map_symbols_checked": 378,
+      "existing_map_unused_aliases": 60,
+      "forced_reference_link_symbols_checked": 438
+    },
+    "rev02": {
+      "existing_map_sha256": "d17872cc0ddb4dae536a3a3a48267c993d2b05c933184c2c3bc812acdba6d5a0",
+      "existing_map_symbols_checked": 378,
+      "existing_map_unused_aliases": 60,
+      "forced_reference_link_symbols_checked": 438
+    }
+  },
+  "ram_type_coverage": {
+    "declared": 368,
+    "opaque_byte": [
+      "gWorkRamStart",
+      "TOEJAM_ANIMATION_SPRITE",
+      "NEXT_SPRITE",
+      "gPlayer2TomatoRainThrottle",
+      "gVdpDmaCommand",
+      "gVdpDmaCommandLowWord",
+      "gMusicFmChannel1Owner",
+      "gMusicFmChannel2Owner",
+      "gMusicFmChannel3Owner",
+      "gMusicFmChannel4OwnerByte1",
+      "gMusicFmChannel5Owner",
+      "gFmChannelKeyMasks",
+      "gMusicChannelScanCountMinusOne",
+      "gFmEffectChannels",
+      "gFmEffectChannel1CurrentStream",
+      "gFmEffectChannel2CurrentStream",
+      "gFmEffectChannel3CurrentStream"
+    ],
+    "structural_alias": 53
+  },
+  "rom_data_unit_counts": {
+    "rev00": 4163,
+    "rev02": 4163
+  },
+  "semantic_constants": [
+    1,
+    2,
+    4,
+    4,
+    4,
+    4,
+    8,
+    4294967295,
+    2147483648,
+    4294967294,
+    4294967295,
+    4294967294,
+    65536,
+    4294967295,
+    1,
+    1,
+    1,
+    0
+  ],
+  "semantic_probe_sha256": "390fc84aaea1ba709793e24c459653af65120aa1f344a147d32ec8e179dcd612",
+  "source_config_sha256": {
+    "config/rev00/data_units.json": "92b81e60378884aa423c4c7e09ab17ea5761948408f41239508c6e295e4c70d5",
+    "config/rev00/names.json": "a3339f1257a4efa583f28d8da27e054a4154853935108343987d30ebe91b620e",
+    "config/rev02/data_units.json": "0a6bd5d6ac2f0b321ba03dc5458fef7286dde0e319075f7e496f5fbe970b5462",
+    "config/rev02/names.json": "72e8b82f6f78eba95c781371720c6338059429a003927c00e1671a15f44c09cd"
+  },
+  "survey": {
+    "assembly_original_bug_markers": [
+      {
+        "line": 142,
+        "source": "src/z80/sound_driver.s"
+      }
+    ],
+    "c_files": 109,
+    "explicit_multi_meaning_fields": [
+      {
+        "field": "saved_x_or_status",
+        "record": "earthling_state"
+      },
+      {
+        "field": "attachment_x_or_latch",
+        "record": "object_state"
+      },
+      {
+        "field": "attachment_y_or_latch",
+        "record": "object_state"
+      }
+    ],
+    "original_bug_comments": [
+      {
+        "comment": "ORIGINAL BUG: the matching source reads an uninitialized frame count. * The ROM has no explicit initialization of this local. Its allocated * D2 register last held gFrameCounter << 16, whose low word is zero. * [INFERENCE] The original source relied on an uninitialized frame count; * MATCHING QUALIFICATION: adding an initializer changes the bytes; * the observed source model is compiler-specific, not portable C.",
+        "line": 609,
+        "source": "src/core/startup_and_main_loop.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: parent is uninitialized if its allocation failed * but an attached object's allocation succeeds.",
+        "line": 57,
+        "source": "src/cutscenes/collision_scene_entities.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 13,
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 22,
+        "source": "src/cutscenes/ending.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: the ROM increments this stack word without ever * initializing it; its initial movement phase is indeterminate.",
+        "line": 505,
+        "source": "src/cutscenes/ending.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 12,
+        "source": "src/cutscenes/ending_player_entities.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: the mask only produces 0/1, leaving * the 2/3 variants and their alternate frame table unreachable.",
+        "line": 103,
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: current_frame receives the frame-table address, * not its first frame; dereferencing the table does not match.",
+        "line": 85,
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 27,
+        "source": "src/earthlings/mole_santa.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared unsigned char declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 35,
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared char declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 40,
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared unsigned short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 45,
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: an exhausted scan leaves earthling one past this bank; * the original tests that record before looking for an inactive slot.",
+        "line": 512,
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: exhaustion of the second scan is not checked either.",
+        "line": 521,
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared unsigned char declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 15,
+        "source": "src/earthlings/terrain_movement.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: an out-of-range ordinary level returns without a value.",
+        "line": 103,
+        "source": "src/elevator/elevator_scene.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: if no pending or adjacent direction supplies an edge, * shape is read uninitialized here.",
+        "line": 195,
+        "source": "src/map/land_processing.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: these unused arguments are uninitialized on the first * call. EntityReserveLandPathAnimations reads but does not use either coordinate.",
+        "line": 460,
+        "source": "src/map/land_processing.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: after a second failure, the stronger recovery is not * followed by another allocation; first_tile remains zero below.",
+        "line": 309,
+        "source": "src/map/map_drawing_and_controller.c"
+      },
+      {
+        "comment": "Normalize the seed and return the preceding generator state. * ORIGINAL BUG: negating the minimum 32-bit seed leaves it negative on * the 68000, so that input is not normalized into the positive range.",
+        "line": 25,
+        "source": "src/map/random_regions_and_cleanup.c"
+      },
+      {
+        "comment": "Read the high terrain nibble at a world position. Zero or an upper-bound * overflow returns water on levels 1/26, void elsewhere. * ORIGINAL BUG: negative map coordinates are not rejected before indexing. * Whether an original caller can supply them is unknown [INFERENCE].",
+        "line": 13,
+        "source": "src/map/terrain_at_position.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: If the exhaustive scan finds no valid position, its last * output coordinates are still used. The random loop also does not count * marked metatiles, so an entirely marked map never reaches the scan.",
+        "line": 157,
+        "source": "src/map/terrain_placement.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: map_number is unset if neither loaded map has * the object's level. The original code makes no fallback choice.",
+        "line": 302,
+        "source": "src/player/earthling_damage_reactions.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: These branches do not cap the compared player's * health to PlayerGetMaximumHealth's result ([INFERENCE] its health limit).",
+        "line": 81,
+        "source": "src/player/edge_hop_and_clap.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: An excessive x speed skips the y-speed clamp.",
+        "line": 158,
+        "source": "src/player/rocket_motion.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: MapFindItemPlacementPosition reads a fourth short argument, but * this call passes only the two coordinate pointers and the level.",
+        "line": 76,
+        "source": "src/presents/item_updates.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: The full-health path still removes * the item because collected remains set.",
+        "line": 205,
+        "source": "src/presents/item_updates.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared unsigned char declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 26,
+        "source": "src/presents/level_item_setup.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: rejected marked tiles do not consume an attempt.",
+        "line": 181,
+        "source": "src/presents/level_item_setup.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this path passes the object pointer where other * speech calls pass the player number.",
+        "line": 383,
+        "source": "src/presents/present_effects.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared unsigned char declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 37,
+        "source": "src/presents/projectile_effects.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this consumer retains the observed int result view. * MATCHING QUALIFICATION: both the shared short declaration and ordinary integral promotion * fail the complete-file match; historical missing declarations are [INFERENCE].",
+        "line": 42,
+        "source": "src/presents/projectile_effects.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: page never reaches four inside this loop, so this * conditional exit cannot run; row is not initialized until below.",
+        "line": 266,
+        "source": "src/ship/ship_screen_and_collection.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: an out-of-range piece leaves piece_name uninitialized.",
+        "line": 314,
+        "source": "src/ship/ship_screen_and_collection.c"
+      },
+      {
+        "comment": "Start at a random byte and cycle until an uncollected piece is found. * ORIGINAL BUG: this loop has no exit if all ten entries are zero.",
+        "line": 650,
+        "source": "src/ship/ship_screen_and_collection.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: These dialogue calls omit their speaker argument.",
+        "line": 298,
+        "source": "src/speech/speech_and_dialogue.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: The observed bound visits only the first player.",
+        "line": 308,
+        "source": "src/speech/speech_and_dialogue.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: this path adds the count only when it is already over 112.",
+        "line": 484,
+        "source": "src/sprites/entity_sprite_rendering.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: With behavior_flags bit 2 set and no viewport * active, a selector failure reads tile without assigning it.",
+        "line": 188,
+        "source": "src/sprites/sprite_slots.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: no rank-eight stop. Its zero threshold makes this loop * endless when points are at least the rank-seven threshold (880).",
+        "line": 669,
+        "source": "src/ui/hud.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: the modulo-three service counter is not initialized.",
+        "line": 493,
+        "source": "src/ui/inventory.c"
+      },
+      {
+        "comment": "ORIGINAL BUG: negating -32768 narrows back to a negative short.",
+        "line": 716,
+        "source": "src/ui/inventory.c"
+      },
+      {
+        "comment": "Select players, then run auxiliary menus until a world is selected. * ORIGINAL BUG: FurtherInitialisation passes no argument, but this incoming * short slot is read at entry before being overwritten by the first menu. * MATCHING QUALIFICATION: a no-argument definition removes the observed * four-byte stack load; the missing-argument interface remains nonportable.",
+        "line": 26,
+        "source": "src/ui/main_menu.c"
+      }
+    ],
+    "record_array_index_sites": [
+      {
+        "line": 107,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 108,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 108,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 109,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 110,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 110,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 111,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 111,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 113,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 114,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 114,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 115,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 117,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 117,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 119,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 120,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 120,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 121,
+        "source": "src/camera/camera_follow.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 17,
+        "source": "src/camera/split_screen_wipe.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/camera/split_screen_wipe.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/camera/split_screen_wipe.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 21,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 22,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 23,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 24,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 25,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 28,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 32,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 32,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 37,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 37,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 65,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 71,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 77,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 83,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 86,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 87,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 88,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 89,
+        "source": "src/camera/split_views.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 302,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 350,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 393,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 393,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 394,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 394,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 395,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 396,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 399,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 399,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 400,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 400,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 401,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 402,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 420,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 420,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 421,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 423,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 425,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 425,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 426,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 426,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 427,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 427,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 428,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 430,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 430,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 431,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 431,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 432,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 466,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 494,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 494,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 496,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 496,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 499,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 499,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 502,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 502,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 503,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 503,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 504,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 505,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 505,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 506,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 506,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 507,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 524,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 524,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 531,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 531,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 533,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 533,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 536,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 536,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 539,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 539,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 540,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 540,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 541,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 542,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 542,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 543,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 543,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 544,
+        "source": "src/core/startup_and_main_loop.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 16,
+        "source": "src/cutscenes/collision_scene_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 25,
+        "source": "src/cutscenes/collision_scene_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 34,
+        "source": "src/cutscenes/collision_scene_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 52,
+        "source": "src/cutscenes/collision_scene_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 24,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 38,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 48,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 64,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 69,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 90,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 99,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 114,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 135,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 160,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 180,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 212,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 225,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 258,
+        "source": "src/cutscenes/composite_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 146,
+        "source": "src/cutscenes/cutscene_text.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 176,
+        "source": "src/cutscenes/cutscene_text.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 207,
+        "source": "src/cutscenes/cutscene_text.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/cutscenes/drifting_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 42,
+        "source": "src/cutscenes/drifting_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 76,
+        "source": "src/cutscenes/drifting_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 101,
+        "source": "src/cutscenes/drifting_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 29,
+        "source": "src/cutscenes/ending_player_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 51,
+        "source": "src/cutscenes/ending_player_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/cutscenes/ending_player_release.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 28,
+        "source": "src/cutscenes/ending_player_release.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 22,
+        "source": "src/cutscenes/flying_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 28,
+        "source": "src/cutscenes/flying_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 33,
+        "source": "src/cutscenes/flying_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 60,
+        "source": "src/cutscenes/flying_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 80,
+        "source": "src/cutscenes/flying_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 24,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 25,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronSceneDescriptors"
+      },
+      {
+        "line": 35,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 36,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 60,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 75,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 77,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 87,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 88,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 89,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 97,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "FunkatronScenePlacements"
+      },
+      {
+        "line": 98,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 99,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 21,
+        "source": "src/cutscenes/impact_and_planet_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 52,
+        "source": "src/cutscenes/impact_and_planet_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 61,
+        "source": "src/cutscenes/impact_and_planet_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 83,
+        "source": "src/cutscenes/impact_and_planet_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 94,
+        "source": "src/cutscenes/impact_and_planet_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 563,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 577,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 580,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 586,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 591,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 597,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 602,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 608,
+        "source": "src/cutscenes/intro.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 27,
+        "source": "src/cutscenes/intro_frame_entities.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 42,
+        "source": "src/cutscenes/intro_frame_entities.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 14,
+        "source": "src/cutscenes/intro_frame_reveal.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 68,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 75,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "IntroLargePlayerPartHeldFrameStreams"
+      },
+      {
+        "line": 92,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 107,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 153,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 192,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 202,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "IntroDrivingPartHeldFrameStreams"
+      },
+      {
+        "line": 219,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 234,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 246,
+        "source": "src/cutscenes/large_player_parts.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 15,
+        "source": "src/cutscenes/rocketship_allocate.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 21,
+        "source": "src/cutscenes/rocketship_allocate.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 27,
+        "source": "src/cutscenes/rocketship_allocate.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 16,
+        "source": "src/cutscenes/rocketship_foreground.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 23,
+        "source": "src/cutscenes/rocketship_foreground.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 27,
+        "source": "src/cutscenes/rocketship_foreground.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 12,
+        "source": "src/cutscenes/rocketship_move.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 16,
+        "source": "src/cutscenes/rocketship_move.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 15,
+        "source": "src/cutscenes/rocketship_pose.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 21,
+        "source": "src/cutscenes/rocketship_pose.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 25,
+        "source": "src/cutscenes/rocketship_pose.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 130,
+        "source": "src/cutscenes/sega_logo.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 139,
+        "source": "src/cutscenes/sega_logo.c",
+        "symbol": "IntroHeldFrameStreams"
+      },
+      {
+        "line": 26,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 99,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 141,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 171,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 172,
+        "source": "src/earthlings/animation_behaviours.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 21,
+        "source": "src/earthlings/bank_expiry.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 23,
+        "source": "src/earthlings/bank_expiry.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 26,
+        "source": "src/earthlings/bank_expiry.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 28,
+        "source": "src/earthlings/bank_expiry.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 30,
+        "source": "src/earthlings/bank_expiry.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 79,
+        "source": "src/earthlings/generic_enemy.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 82,
+        "source": "src/earthlings/generic_enemy.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 14,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 15,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 16,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 17,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 30,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 33,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 35,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 36,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 37,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 41,
+        "source": "src/earthlings/mailbox_earthling.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 48,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 57,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "MoleEffectAnimations"
+      },
+      {
+        "line": 74,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 81,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 97,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 98,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 99,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 157,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 158,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 216,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 217,
+        "source": "src/earthlings/mole_santa.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 19,
+        "source": "src/earthlings/movement_decision.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 44,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 45,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 73,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 75,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 76,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 117,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 120,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gMailboxLevelStates"
+      },
+      {
+        "line": 121,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 122,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 184,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 185,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 198,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 198,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 256,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 257,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 269,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 269,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 306,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 307,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 320,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 320,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 339,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 360,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 397,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 408,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "PlayerAnimationDescriptors"
+      },
+      {
+        "line": 410,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "Player2AnimationDescriptors"
+      },
+      {
+        "line": 434,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 444,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 472,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 64,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 66,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 88,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 119,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 251,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 252,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 253,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 254,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 255,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 257,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 258,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 260,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 262,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 263,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 263,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 264,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 266,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 278,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 279,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBank2Records"
+      },
+      {
+        "line": 302,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 304,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 368,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 370,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 397,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 436,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 508,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 515,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 536,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 537,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 538,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 539,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 568,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 588,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 591,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 612,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 616,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 617,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 621,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 652,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 659,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 682,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 685,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "SleepAnimationDescriptors"
+      },
+      {
+        "line": 686,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "SleepAnimationDescriptors"
+      },
+      {
+        "line": 712,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 732,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 735,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 737,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 769,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 814,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 837,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 840,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 859,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 863,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 865,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 876,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 38,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 55,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 73,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 75,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 88,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 90,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 114,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 116,
+        "source": "src/earthlings/targeting.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 37,
+        "source": "src/earthlings/terrain_animation.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 71,
+        "source": "src/earthlings/terrain_animation.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 101,
+        "source": "src/earthlings/terrain_animation.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 102,
+        "source": "src/earthlings/terrain_animation.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 14,
+        "source": "src/elevator/elevator_query.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 52,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 53,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "ElevatorPrimaryAnimations"
+      },
+      {
+        "line": 63,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "ElevatorSecondaryAnimations"
+      },
+      {
+        "line": 89,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 90,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 91,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 92,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 107,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 108,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 113,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 113,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 114,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 114,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 115,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 115,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 126,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 127,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 140,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 141,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 152,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 153,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 154,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 155,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 156,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 157,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 167,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 169,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 173,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 212,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 248,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 252,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 295,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 317,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 365,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 366,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 370,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 371,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 383,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 401,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 402,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 403,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 404,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 412,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 413,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 414,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 415,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 426,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 427,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 428,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 428,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 429,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 429,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 502,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 503,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 504,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 506,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 507,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 508,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "SpeechStringPointers"
+      },
+      {
+        "line": 512,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 514,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 516,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 518,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 536,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 539,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 541,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 546,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 549,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 552,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 554,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 586,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 660,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 661,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 662,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 666,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 667,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 668,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 675,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 679,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 680,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 681,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 684,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 685,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 686,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 698,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 702,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 703,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 710,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 711,
+        "source": "src/elevator/elevator_scene.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 31,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 58,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 82,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 91,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 92,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 92,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 99,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 102,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 104,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 110,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 113,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 122,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 123,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 141,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 142,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 142,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 153,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 153,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 155,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 155,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 162,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 164,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 177,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 201,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 207,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 211,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 212,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 213,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 215,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 216,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 217,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 229,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 232,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 245,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 258,
+        "source": "src/elevator/elevator_transitions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 314,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 330,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 426,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 432,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 433,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 452,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 480,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 530,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 542,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 554,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 566,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 581,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 599,
+        "source": "src/jamout/jamout.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 20,
+        "source": "src/map/elevator_icon.c",
+        "symbol": "gElevatorRecords"
+      },
+      {
+        "line": 66,
+        "source": "src/map/land_processing.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 68,
+        "source": "src/map/land_processing.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 74,
+        "source": "src/map/land_processing.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 76,
+        "source": "src/map/land_processing.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 80,
+        "source": "src/map/land_processing.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 81,
+        "source": "src/map/land_processing.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 83,
+        "source": "src/map/land_processing.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 317,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 421,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 455,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 456,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 485,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 504,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 532,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 533,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 534,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 535,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 540,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 542,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 552,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 553,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 554,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 555,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 561,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 563,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 567,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 576,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 578,
+        "source": "src/map/land_processing.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 310,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "MapTransitionDescriptors"
+      },
+      {
+        "line": 311,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "MapTransitionDescriptors"
+      },
+      {
+        "line": 312,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "MapTransitionDescriptors"
+      },
+      {
+        "line": 440,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 441,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 456,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 458,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 461,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 461,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 462,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 462,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 487,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 487,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 488,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 488,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 489,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 489,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 490,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 490,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 494,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 496,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 498,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 502,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 506,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 508,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 511,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 515,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 517,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 517,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 621,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 621,
+        "source": "src/map/level_generation_and_changes.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 357,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 385,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 387,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 391,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 392,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gEarthlingBanks"
+      },
+      {
+        "line": 536,
+        "source": "src/map/map_drawing_and_controller.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 18,
+        "source": "src/map/map_population.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 18,
+        "source": "src/map/map_population.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 73,
+        "source": "src/map/map_population.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 73,
+        "source": "src/map/map_population.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 253,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 253,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 254,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 254,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 256,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 256,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 257,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 257,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 259,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 259,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 260,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 260,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 652,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 653,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 654,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 655,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 656,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 657,
+        "source": "src/map/random_regions_and_cleanup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 74,
+        "source": "src/map/terrain_at_position.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 97,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 100,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 161,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 162,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 165,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 166,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 168,
+        "source": "src/map/terrain_placement.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 16,
+        "source": "src/map/transition_paths.c",
+        "symbol": "MapTransitionDescriptors"
+      },
+      {
+        "line": 30,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 30,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 31,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 31,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 32,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 32,
+        "source": "src/map/transition_paths.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 67,
+        "source": "src/player/ability_helpers.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 69,
+        "source": "src/player/ability_helpers.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 81,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 266,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 268,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 417,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 434,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 435,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 436,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 437,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 440,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 441,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 442,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 443,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 448,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 448,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 453,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 462,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 462,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 463,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 463,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 465,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 468,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 474,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 474,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 475,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 475,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 477,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 624,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 818,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 850,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 853,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 878,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 879,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 880,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 881,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 883,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 884,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 885,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 886,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 930,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 980,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 47,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 57,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 105,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 108,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 158,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 170,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "EarthlingDefinitions"
+      },
+      {
+        "line": 185,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 190,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 236,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 258,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 272,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 289,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 323,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 421,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 424,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 443,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 476,
+        "source": "src/player/earthling_damage_reactions.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 65,
+        "source": "src/player/edge_hop_and_clap.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 40,
+        "source": "src/player/effect_slots.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 67,
+        "source": "src/player/effect_slots.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 89,
+        "source": "src/player/entity_motion_terrain.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 129,
+        "source": "src/player/entity_motion_terrain.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 131,
+        "source": "src/player/entity_motion_terrain.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 137,
+        "source": "src/player/entity_motion_terrain.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 26,
+        "source": "src/player/hottub_ability.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 38,
+        "source": "src/player/hottub_ability.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 44,
+        "source": "src/player/hottub_ability.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 88,
+        "source": "src/player/hottub_ability.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 49,
+        "source": "src/player/mole.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 65,
+        "source": "src/player/mole.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 83,
+        "source": "src/player/mole.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 99,
+        "source": "src/player/mole.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 43,
+        "source": "src/player/projectiles.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 19,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 24,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 25,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 26,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 27,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 28,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 31,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 32,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 33,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 35,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 37,
+        "source": "src/player/setup_player.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 38,
+        "source": "src/player/setup_player.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 40,
+        "source": "src/player/setup_player.c",
+        "symbol": "PlayerAnimationDescriptors"
+      },
+      {
+        "line": 41,
+        "source": "src/player/setup_player.c",
+        "symbol": "PlayerAnimationDescriptors"
+      },
+      {
+        "line": 51,
+        "source": "src/player/setup_player.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 53,
+        "source": "src/player/setup_player.c",
+        "symbol": "Player2AnimationDescriptors"
+      },
+      {
+        "line": 54,
+        "source": "src/player/setup_player.c",
+        "symbol": "Player2AnimationDescriptors"
+      },
+      {
+        "line": 64,
+        "source": "src/player/setup_player.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 54,
+        "source": "src/player/sleep.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 66,
+        "source": "src/player/sleep.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 76,
+        "source": "src/player/sleep.c",
+        "symbol": "PlayerWakeEffectAnimations"
+      },
+      {
+        "line": 46,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 48,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 168,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 239,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 266,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 311,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 312,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 314,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 315,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 333,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 335,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 350,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 353,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 360,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 373,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 375,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 381,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 382,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 383,
+        "source": "src/presents/item_updates.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 37,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 38,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 40,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 41,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 42,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 45,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 47,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 62,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 63,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 64,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gItemBank2Records"
+      },
+      {
+        "line": 102,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 103,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 106,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 125,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 126,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 266,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 267,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gLevelAnchorPositions"
+      },
+      {
+        "line": 359,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "Level1PresentLocations"
+      },
+      {
+        "line": 360,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "Level1PresentLocations"
+      },
+      {
+        "line": 381,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 382,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 383,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 384,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 386,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 391,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 393,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gObjectTable"
+      },
+      {
+        "line": 420,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 428,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 462,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 463,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 464,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 465,
+        "source": "src/presents/level_item_setup.c",
+        "symbol": "gDroppedPresentTable"
+      },
+      {
+        "line": 47,
+        "source": "src/presents/present_dispatch.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 50,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 82,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 83,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 94,
+        "source": "src/presents/present_effects.c",
+        "symbol": "PlayerDecoyAnimations"
+      },
+      {
+        "line": 114,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 149,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 151,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 173,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 174,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 191,
+        "source": "src/presents/present_effects.c",
+        "symbol": "DoorwayAnimations"
+      },
+      {
+        "line": 215,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 270,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 279,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 289,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 300,
+        "source": "src/presents/present_effects.c",
+        "symbol": "DoorwayAnimations"
+      },
+      {
+        "line": 313,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 334,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 335,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 385,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 405,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 456,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 475,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 476,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 509,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 510,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 563,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 564,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 593,
+        "source": "src/presents/present_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 88,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 149,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 195,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 250,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 251,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 306,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 350,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 378,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 379,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 426,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 446,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 494,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 527,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 547,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 592,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 601,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 606,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 647,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 648,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 648,
+        "source": "src/presents/projectile_effects.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 32,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 62,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 63,
+        "source": "src/presents/telephone.c",
+        "symbol": "TelephoneAnimations"
+      },
+      {
+        "line": 80,
+        "source": "src/presents/telephone.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 99,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 119,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 120,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 138,
+        "source": "src/presents/telephone.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 13,
+        "source": "src/presents/telephone_clear.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 17,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 19,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 22,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 23,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 25,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 46,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 47,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 49,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 57,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gTelephoneStates"
+      },
+      {
+        "line": 62,
+        "source": "src/presents/telephone_open.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 342,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 351,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 362,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 594,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 622,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 630,
+        "source": "src/ship/ship_screen_and_collection.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 79,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 87,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 110,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 181,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 215,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "DialogueDescriptors"
+      },
+      {
+        "line": 272,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 285,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 294,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 294,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 295,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 295,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 296,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 296,
+        "source": "src/speech/speech_and_dialogue.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 37,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 38,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 40,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 48,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 50,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 51,
+        "source": "src/sprites/entity_depth.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 13,
+        "source": "src/sprites/entity_indexes.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 14,
+        "source": "src/sprites/entity_indexes.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 15,
+        "source": "src/sprites/entity_indexes.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 25,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 72,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 76,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 78,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 80,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 82,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 87,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 88,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 93,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 104,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 108,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 110,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 112,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 114,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 119,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 120,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 125,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 171,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 175,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 176,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 179,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 180,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 184,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 185,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 403,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 404,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 407,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 408,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 519,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 51,
+        "source": "src/sprites/entity_visibility.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 15,
+        "source": "src/sprites/hide_player_sprites.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 14,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 16,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 18,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 24,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 26,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 27,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 28,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 35,
+        "source": "src/sprites/link_player_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 19,
+        "source": "src/sprites/load_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 20,
+        "source": "src/sprites/load_sprites.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 250,
+        "source": "src/sprites/sprite_slots.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 251,
+        "source": "src/sprites/sprite_slots.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 266,
+        "source": "src/sprites/sprite_slots.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 45,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 46,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 51,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 52,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 85,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 86,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 92,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 93,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 94,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 96,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 97,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 99,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 127,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 128,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 172,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 173,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 223,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 224,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 225,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 226,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 313,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 314,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 315,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 316,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 333,
+        "source": "src/ui/hud.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 334,
+        "source": "src/ui/hud.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 410,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 411,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 504,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 505,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 625,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 628,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 631,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 634,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 637,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 640,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 645,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 648,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 651,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 654,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 657,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 660,
+        "source": "src/ui/hud.c",
+        "symbol": "gHardwareSpriteTable"
+      },
+      {
+        "line": 207,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 303,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 412,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 557,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 629,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 630,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 841,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 851,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 870,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 874,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 897,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 909,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 949,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 958,
+        "source": "src/ui/inventory.c",
+        "symbol": "gPresentInfo"
+      },
+      {
+        "line": 41,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 44,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 51,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 54,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 66,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 69,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 299,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 327,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 340,
+        "source": "src/ui/main_menu.c",
+        "symbol": "gPlayerInfo"
+      },
+      {
+        "line": 79,
+        "source": "src/ui/pause.c",
+        "symbol": "gPlayerInfo"
+      }
+    ],
+    "record_pointer_step_sites": [
+      {
+        "line": 18,
+        "source": "src/camera/split_screen_wipe.c",
+        "variable": "entity"
+      },
+      {
+        "line": 62,
+        "source": "src/cutscenes/funkotron_scene.c",
+        "variable": "descriptor"
+      },
+      {
+        "line": 17,
+        "source": "src/cutscenes/rocketship_move.c",
+        "variable": "object"
+      },
+      {
+        "line": 239,
+        "source": "src/cutscenes/title_and_transition.c",
+        "variable": "object"
+      },
+      {
+        "line": 39,
+        "source": "src/earthlings/animation_behaviours.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 59,
+        "source": "src/earthlings/animation_behaviours.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 178,
+        "source": "src/earthlings/animation_behaviours.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 202,
+        "source": "src/earthlings/animation_behaviours.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 41,
+        "source": "src/earthlings/generic_enemy.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 88,
+        "source": "src/earthlings/generic_enemy.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 110,
+        "source": "src/earthlings/generic_enemy.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 145,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "variable": "mailbox"
+      },
+      {
+        "line": 155,
+        "source": "src/earthlings/nice_earthling_touch.c",
+        "variable": "mailbox"
+      },
+      {
+        "line": 89,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 311,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "object"
+      },
+      {
+        "line": 509,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 516,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 713,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 786,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 815,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 860,
+        "source": "src/earthlings/spawning_and_banks.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 109,
+        "source": "src/earthlings/terrain_animation.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 135,
+        "source": "src/earthlings/terrain_animation.c",
+        "variable": "earthling"
+      },
+      {
+        "line": 296,
+        "source": "src/elevator/elevator_scene.c",
+        "variable": "elevator"
+      },
+      {
+        "line": 318,
+        "source": "src/elevator/elevator_scene.c",
+        "variable": "elevator"
+      },
+      {
+        "line": 375,
+        "source": "src/elevator/elevator_scene.c",
+        "variable": "player"
+      },
+      {
+        "line": 384,
+        "source": "src/elevator/elevator_scene.c",
+        "variable": "elevator"
+      },
+      {
+        "line": 424,
+        "source": "src/jamout/jamout.c",
+        "variable": "object"
+      },
+      {
+        "line": 398,
+        "source": "src/map/map_drawing_and_controller.c",
+        "variable": "piece"
+      },
+      {
+        "line": 401,
+        "source": "src/map/map_drawing_and_controller.c",
+        "variable": "sprites"
+      },
+      {
+        "line": 27,
+        "source": "src/player/ability_helpers.c",
+        "variable": "item"
+      },
+      {
+        "line": 32,
+        "source": "src/player/ability_helpers.c",
+        "variable": "item"
+      },
+      {
+        "line": 426,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "variable": "player"
+      },
+      {
+        "line": 608,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "variable": "player"
+      },
+      {
+        "line": 831,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "variable": "player"
+      },
+      {
+        "line": 1061,
+        "source": "src/player/active_present_falling_and_respawn.c",
+        "variable": "player"
+      },
+      {
+        "line": 378,
+        "source": "src/player/earthling_damage_reactions.c",
+        "variable": "player"
+      },
+      {
+        "line": 74,
+        "source": "src/player/edge_hop_and_clap.c",
+        "variable": "toejam"
+      },
+      {
+        "line": 257,
+        "source": "src/player/entity_motion_terrain.c",
+        "variable": "destination"
+      },
+      {
+        "line": 260,
+        "source": "src/player/entity_motion_terrain.c",
+        "variable": "destination"
+      },
+      {
+        "line": 264,
+        "source": "src/player/entity_motion_terrain.c",
+        "variable": "destination"
+      },
+      {
+        "line": 267,
+        "source": "src/player/entity_motion_terrain.c",
+        "variable": "destination"
+      },
+      {
+        "line": 116,
+        "source": "src/player/projectiles.c",
+        "variable": "player"
+      },
+      {
+        "line": 122,
+        "source": "src/player/projectiles.c",
+        "variable": "player"
+      },
+      {
+        "line": 122,
+        "source": "src/presents/item_updates.c",
+        "variable": "item"
+      },
+      {
+        "line": 351,
+        "source": "src/presents/item_updates.c",
+        "variable": "item"
+      },
+      {
+        "line": 358,
+        "source": "src/presents/item_updates.c",
+        "variable": "item"
+      },
+      {
+        "line": 346,
+        "source": "src/presents/projectile_effects.c",
+        "variable": "target"
+      },
+      {
+        "line": 622,
+        "source": "src/presents/projectile_effects.c",
+        "variable": "object"
+      },
+      {
+        "line": 643,
+        "source": "src/presents/projectile_effects.c",
+        "variable": "object"
+      },
+      {
+        "line": 111,
+        "source": "src/presents/telephone.c",
+        "variable": "player"
+      },
+      {
+        "line": 153,
+        "source": "src/presents/telephone.c",
+        "variable": "player"
+      },
+      {
+        "line": 66,
+        "source": "src/presents/telephone_open.c",
+        "variable": "telephone"
+      },
+      {
+        "line": 78,
+        "source": "src/sprites/entity_depth.c",
+        "variable": "entity"
+      },
+      {
+        "line": 21,
+        "source": "src/sprites/entity_indexes.c",
+        "variable": "entity"
+      },
+      {
+        "line": 203,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "variable": "entity"
+      },
+      {
+        "line": 457,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "variable": "entity"
+      },
+      {
+        "line": 520,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "variable": "entity"
+      },
+      {
+        "line": 526,
+        "source": "src/sprites/entity_sprite_rendering.c",
+        "variable": "entity"
+      },
+      {
+        "line": 114,
+        "source": "src/ui/inventory.c",
+        "variable": "object"
+      },
+      {
+        "line": 843,
+        "source": "src/ui/inventory.c",
+        "variable": "object"
+      },
+      {
+        "line": 893,
+        "source": "src/ui/inventory.c",
+        "variable": "object"
+      },
+      {
+        "line": 947,
+        "source": "src/ui/inventory.c",
+        "variable": "object"
+      },
+      {
+        "line": 288,
+        "source": "src/ui/main_menu.c",
+        "variable": "item"
+      }
+    ],
+    "rom_symbol_to_pointer_field_assignments": [
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroCollision",
+        "source": "src/cutscenes/collision_scene_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroCollision",
+        "source": "src/cutscenes/collision_scene_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroCollision",
+        "source": "src/cutscenes/collision_scene_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroCollision",
+        "source": "src/cutscenes/collision_scene_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "EndingPoseCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "EndingPoseCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "EndingSixPieceCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "EndingSixPieceCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "EndingRightOffsetCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "EndingRightOffsetCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroRocketshipFalling",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroRocketshipFalling",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "EndingElevatedCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "EndingElevatedCompositeFrames",
+        "source": "src/cutscenes/composite_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "CutsceneDriftingEntityFrames",
+        "source": "src/cutscenes/drifting_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "EndingPlayer1PairedAnimation",
+        "source": "src/cutscenes/ending_player_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "EndingPlayer1SoloAnimation",
+        "source": "src/cutscenes/ending_player_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "EndingPlayer2PairedAnimation",
+        "source": "src/cutscenes/ending_player_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "EndingFrameIndexStreams",
+        "source": "src/cutscenes/ending_player_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFlyingSceneFourAnimation",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFlyingForwardFramesAnimation",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFlyingFlippedFramesAnimation",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFlyingFlippedFramesAnimation",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingAlternateEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFlyingForwardFramesAnimation",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "IntroFlyingAlternateEntityFrames",
+        "source": "src/cutscenes/flying_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroRocketshipImpact",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroRocketshipImpact",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroFrameIndexLists",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_Planet",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "EndingStationaryCompositeFrames",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "EndingStationaryCompositeFrames",
+        "source": "src/cutscenes/impact_and_planet_entities.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_TitleBigPlayers",
+        "source": "src/cutscenes/large_player_parts.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroEarlDriving",
+        "source": "src/cutscenes/large_player_parts.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroAsteroid",
+        "source": "src/cutscenes/large_player_parts.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroAsteroid",
+        "source": "src/cutscenes/large_player_parts.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroAsteroidLoopAnimation",
+        "source": "src/cutscenes/large_player_parts.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_IntroRocketshipDodging",
+        "source": "src/cutscenes/rocketship_allocate.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_IntroRocketshipDodging",
+        "source": "src/cutscenes/rocketship_allocate.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_RocketshipExhaust",
+        "source": "src/cutscenes/rocketship_allocate.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroAnimationPointers",
+        "source": "src/cutscenes/rocketship_allocate.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_RocketshipExhaust",
+        "source": "src/cutscenes/rocketship_allocate.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "IntroAnimationPointers",
+        "source": "src/cutscenes/rocketship_pose.c"
+      },
+      {
+        "field": "current_frame",
+        "rom_symbol": "Spr_Trademark",
+        "source": "src/cutscenes/sega_logo.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_Trademark",
+        "source": "src/cutscenes/sega_logo.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SleepAnimationDescriptors",
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "SleepAnimationDescriptors",
+        "source": "src/earthlings/spawning_and_banks.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleLoopSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleTransitionSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleLoopSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleTransitionSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_JamoutToejam",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleLoopSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_JamoutEarl",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "JamLeadIdleLoopSequence",
+        "source": "src/jamout/jamout.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SingleFrameHoldAnimation",
+        "source": "src/player/mole.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "PlayerAnimationDescriptors",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "PlayerAnimationDescriptors",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "Player2AnimationDescriptors",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Player2AnimationDescriptors",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_PresentSelector",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SingleFrameHoldAnimation",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "PresentSpriteTable",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SingleFrameHoldAnimation",
+        "source": "src/player/setup_player.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "WakeWhisperAnimationStreams",
+        "source": "src/player/sleep.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SingleFrameHoldAnimation",
+        "source": "src/presents/item_updates.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "SingleFrameHoldAnimation",
+        "source": "src/presents/telephone.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "TelephoneAnimations",
+        "source": "src/presents/telephone.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "MenuCursorAnimation",
+        "source": "src/ui/main_menu.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_MenuCursor",
+        "source": "src/ui/main_menu.c"
+      },
+      {
+        "field": "sequence",
+        "rom_symbol": "MenuHeaderAnimations",
+        "source": "src/ui/main_menu.c"
+      },
+      {
+        "field": "frames",
+        "rom_symbol": "Spr_MenuHeader",
+        "source": "src/ui/main_menu.c"
+      }
+    ],
+    "variable_frame_prefix": {
+      "bounded_access_views": [
+        "render_frame_piece_view",
+        "render_frame_four_piece_view"
+      ],
+      "bytes": 4,
+      "piece_stride": 10
+    }
+  }
+}
