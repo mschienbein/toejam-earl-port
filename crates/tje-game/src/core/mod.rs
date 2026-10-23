@@ -4,7 +4,9 @@ use crate::execution::ExecutionClass;
 use crate::{Context, Result};
 use tje_mem::ram;
 
+mod control;
 mod input;
+mod main_loop;
 mod remaining;
 mod vblank;
 mod views;
@@ -66,6 +68,14 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::HANDLE_H_BLANK,
         function: remaining::handle_hblank,
+    },
+    crate::Translation {
+        id: crate::ids::ERROR_TRAP,
+        function: control::error_trap,
+    },
+    crate::Translation {
+        id: crate::ids::VDP_INITIALISATION,
+        function: control::vdp_initialisation,
     },
 ];
 
@@ -142,9 +152,9 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     ),
 ];
 
-// Non-RTS entries above remain unregistered until their real terminal/call/main
-// loop checkpoints are proven. They never gain a fabricated return sentinel;
-// persistent frames and residual D2/idle-RNG/IRQ obligations remain observable.
+// FurtherInitialisation retains its original twenty-byte frame across modal
+// call transfers and Begin/Idle continuations; its complete staged body remains
+// unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
     // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
@@ -160,6 +170,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     crate::ids::CHECK_START_BUTTON,
     crate::ids::PROCESS_INPUT,
     crate::ids::HANDLE_V_BLANK,
+    // Source-backed non-RTS initialization and all continuation bodies await
+    // prepared-entry/stage proof, never an invented RTS or fixed RNG policy.
+    crate::ids::FURTHER_INITIALISATION,
 ];
 
 /// Unregistered bodies retained for explicit proof harnesses.
@@ -200,7 +213,15 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::HANDLE_V_BLANK,
         function: vblank::handle_vblank,
     },
+    crate::Translation {
+        id: crate::ids::FURTHER_INITIALISATION,
+        function: main_loop::further_initialisation,
+    },
 ];
+
+/// Source-backed native frame continuations; only the scheduler consumes the
+/// typed stages. This bundle is not a production function registration.
+pub static MAIN_LOOP_BODIES: crate::exits::MainLoopBodies = main_loop::BODIES;
 
 /// G/src/core/startup_and_main_loop.c:142 (`WaitForNextVBlank`, REV 02 0x000578).
 /// TimeAware: suspend until the actual IRQ-updated counter changes. This wait

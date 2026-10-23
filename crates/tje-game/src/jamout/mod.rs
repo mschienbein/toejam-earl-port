@@ -118,9 +118,8 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
 
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[FunctionId] = &[
-    // Complete TimeAware callers await both-revision proof. StartJamOut also
-    // retains the original creation call's uninitialized-local failure path
-    // until a call-frame ABI is available.
+    // Complete TimeAware callers await both-revision proof and any required
+    // source-backed caller-frame migration or IRQ timing decision.
     ids::JAM_OUT_V_BLANK,
     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
     ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
@@ -128,6 +127,8 @@ pub static PENDING: &[FunctionId] = &[
     ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
     ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
     ids::START_JAM_OUT,
+    // Exact LINK/MOVEM, caller residue, and true return-PC body awaits proof.
+    ids::JAM_OUT_CREATE_CHARACTER_COPIES,
 ];
 
 /// Unregistered bodies retained for explicit proof harnesses.
@@ -160,13 +161,11 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         id: ids::START_JAM_OUT,
         function: lifecycle::start_jam_out,
     },
+    Translation {
+        id: ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+        function: entities::create_character_copies,
+    },
 ];
-
-// JamOutCreateCharacterCopies (G/src/jamout/jamout.c:442) has no Rust body yet:
-// MCC68K's -2(A6) lead-tile spill and residual D3 parent byte are read if a
-// nonlead allocation succeeds after slot zero failed. Faithful failure paths,
-// including AllocateEntityViewportSprites' uninitialized tile, require the
-// reviewed call-frame API. Do not initialize those values or repair the layout.
 
 // MCC68K lowers every Jam Out handle-to-object index with ASL.W #7 / ADDA.W.
 // Keep the word-sized byte displacement even for out-of-range signed handles.

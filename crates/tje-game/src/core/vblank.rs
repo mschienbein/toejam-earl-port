@@ -1,4 +1,5 @@
-use crate::{Context, Error, Result, call, function_at, ids};
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
+use crate::{Context, Error, Result, call, call_at, function_at, ids};
 use tje_mem::ram;
 
 fn increment_frame(context: &mut dyn Context) {
@@ -11,13 +12,19 @@ fn increment_frame(context: &mut dyn Context) {
 /// The installed callback owns its counter; otherwise preserve graphics-service
 /// precedence, the priority-update jump over audio, and the final frame increment.
 /// IRQ6 device publication time remains the explicit TimeAware proof obligation.
-pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let callback = ram::g_v_blank_func(revision).read(context).address();
     if callback != 0 {
         let id = function_at(revision, callback)
             .ok_or_else(|| Error::Platform(format!("unmapped VBlank callback {callback:08x}")))?;
-        call(context, id, &[])?;
+        context.set_address_register(0, callback);
+        call_at(
+            context,
+            id,
+            &[],
+            CallSite::relative(ids::HANDLE_V_BLANK, revision, 0x26),
+        )?;
         return Ok(None);
     }
     if ram::g_v_blank_graphics_enabled(revision).read(context) != 0 {
@@ -102,7 +109,12 @@ pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>
         {
             let selection =
                 i32::from(ram::g_requested_music_selection(revision).read(context)) as u32;
-            call(context, ids::MUSIC_SELECT_SONG_TEMPLATE_BANK, &[selection])?;
+            call_at(
+                context,
+                ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
+                &[selection],
+                CallSite::relative(ids::HANDLE_V_BLANK, revision, 0x228),
+            )?;
             let selection = ram::g_requested_music_selection(revision).read(context);
             ram::g_current_music_selection(revision).write(context, selection);
         } else {
@@ -118,4 +130,27 @@ pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>
     }
     increment_frame(context);
     Ok(None)
+}
+
+/// G/src/core/startup_and_main_loop.c:175 (`HandleVBlank`), matching
+/// MOVEM A2-A4. Dynamic callbacks and the mutable-slot music selector enter
+/// through their real JSR frames, with the compiled caller's pointer registers.
+pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x1c))?;
+    context.set_address_register(2, ram::g_player_inventory_open(revision).address());
+    context.set_address_register(3, ram::g_camera1_committed_x(revision).address());
+    context.set_address_register(4, ram::g_camera1_committed_y(revision).address());
+    let result = handle_vblank_inner(context, &[]);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let cleanup = frame.leave(context);
+    match (result, cleanup) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
 }

@@ -1,11 +1,16 @@
-use crate::{Context, Result, call, ids};
+use super::entities::set_data_word;
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
+use crate::{Context, Result, call, call_at, ids};
 use tje_mem::{Ptr, ram, rom, rom_symbol};
 
 fn pads(context: &mut dyn Context) -> Result<u32> {
     // MCC68K evaluates the right operand of the source bitwise OR first.
     let second = call(context, ids::GET_CTRL2_INPUT, &[])?;
+    context.set_data_register(2, second);
     let first = call(context, ids::GET_CTRL1_INPUT, &[])?;
-    Ok(first | second)
+    let combined = first | second;
+    context.set_data_register(2, combined);
+    Ok(combined)
 }
 
 fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()> {
@@ -65,9 +70,19 @@ fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()>
 /// Preserve controller-release waiting, source-ordered resource setup, callback
 /// ownership, six independent random draws, 51 consecutive Start updates, input
 /// consumption order, and every exit-side teardown store/call. Text stays in ROM.
-pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+fn start_jam_out_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let mut song = arguments[0] as i16;
+    context.set_address_register(
+        2,
+        ram::g_jam_player1_pending_animation_input(revision).address(),
+    );
+    context.set_address_register(
+        3,
+        ram::g_jam_player2_pending_animation_input(revision).address(),
+    );
+    context.set_address_register(4, ids::GET_RANDOM_NUMBER.metadata().address(revision));
+    set_data_word(context, 3, song);
     while pads(context)? != 0 {
         call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     }
@@ -87,33 +102,51 @@ pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
     ram::g_music_alternate_template_bank_enabled(revision).write(context, 1);
     context.write_vdp_command(0x46600001);
     let length = (i32::from(rom::crash_screen_size(revision).read(context)) as u32) << 4;
-    call(
+    context.set_data_register(2, length);
+    // The original retains all three outgoing pairs until one LEA 24(SP),SP.
+    // In particular the palette-one index leaves the word later reused by the
+    // creator's uninitialized -2(A6) local; never erase or invent that residue.
+    let dispatcher = context.dispatcher();
+    let image = OutgoingArguments::push(context, &[rom::crash_screen(revision).address(), length])?;
+    image.call(
         context,
+        dispatcher,
         ids::MOVE_DATA_TO_VRAM,
-        &[rom::crash_screen(revision).address(), length],
+        CallSite::relative(ids::START_JAM_OUT, revision, 0xaa),
     )?;
-    call(
+    let first_palette = OutgoingArguments::push(
         context,
-        ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    call(
+    first_palette.call(
         context,
+        dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
-        &[rom::palette_game_line4(revision).address(), 3],
+        CallSite::relative(ids::START_JAM_OUT, revision, 0xba),
     )?;
+    let last_palette =
+        OutgoingArguments::push(context, &[rom::palette_game_line4(revision).address(), 3])?;
+    last_palette.call(
+        context,
+        dispatcher,
+        ids::COPY_PALETTE_TO_CRAM_SLOT,
+        CallSite::relative(ids::START_JAM_OUT, revision, 0xca),
+    )?;
+    last_palette.release(context)?;
+    first_palette.release(context)?;
+    image.release(context)?;
     ram::g_shared_tile_sprite_copies_enabled(revision).write(context, 1);
-    // The compiled caller keeps song in D3.W. JamOutCreateCharacterCopies
-    // can consume that entry byte as its uninitialized parent_number.
-    let saved_d3 = context.data_register(3);
-    context.set_data_register(3, (saved_d3 & 0xffff0000) | u32::from(song as u16));
-    let creation = call(context, ids::JAM_OUT_CREATE_CHARACTER_COPIES, &[]);
-    context.set_data_register(3, saved_d3);
-    creation?;
+    call_at(
+        context,
+        ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+        &[],
+        CallSite::relative(ids::START_JAM_OUT, revision, 0xda),
+    )?;
     context.write_vdp_control(0x8c89);
     ram::g_camera_tile_attributes(revision).write(context, 0);
     call(context, ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL, &[1])?;
     let mut start_hold = 0_i16;
+    set_data_word(context, 4, start_hold);
     if song == 7 {
         for index in [
             ram::g_jam_audio_route1_button_a_sample_index(revision),
@@ -124,7 +157,9 @@ pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
             ram::g_jam_audio_route2_button_c_sample_index(revision),
         ] {
             let value = call(context, ids::GET_RANDOM_NUMBER, &[])? as i32;
-            index.write(context, (value % 42) as u16);
+            let remainder = value % 42;
+            context.set_data_register(2, remainder as u32);
+            index.write(context, remainder as u16);
         }
         ram::g_v_blank_func(revision).write(
             context,
@@ -137,6 +172,7 @@ pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
     }
     if song != 0 {
         song = song.wrapping_sub(1);
+        set_data_word(context, 3, song);
         call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
         ram::g_current_music_selection(revision).write(context, i8::from(song == 0));
         ram::g_requested_music_selection(revision).write(context, song as i8);
@@ -161,6 +197,7 @@ pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
         } else {
             start_hold = 0;
         }
+        set_data_word(context, 4, start_hold);
         consume_animation_input(context, 0)?;
         consume_animation_input(context, 1)?;
     }
@@ -181,4 +218,23 @@ pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Opt
     ram::g_shared_tile_sprite_copies_enabled(revision).write(context, 0);
     call(context, ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE, &[])?;
     Ok(None)
+}
+
+/// G/src/jamout/jamout.c:30 (`StartJamOut`) and matching prologue:
+/// MOVEM D2-D4/A2-A4, no LINK. Keep the actual caller frame/outgoing residue
+/// needed by the character constructor and restore it on the normal RTS path.
+pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x1c))?;
+    let result = start_jam_out_inner(context, arguments);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let cleanup = frame.leave(context);
+    match (result, cleanup) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
 }

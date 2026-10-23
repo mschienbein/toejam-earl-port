@@ -1,13 +1,19 @@
-use crate::{Context, Result, call, ids};
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
+use crate::{Context, FunctionId, Result, call, call_at, ids};
 use tje_mem::{Address, ram, rom};
 
-fn update_music(context: &mut dyn Context) -> Result<()> {
+fn update_music(context: &mut dyn Context, caller: FunctionId) -> Result<()> {
     let revision = context.revision();
     if ram::g_current_music_selection(revision).read(context)
         != ram::g_requested_music_selection(revision).read(context)
     {
         let requested = i32::from(ram::g_requested_music_selection(revision).read(context)) as u32;
-        call(context, ids::MUSIC_SELECT_SONG_TEMPLATE_BANK, &[requested])?;
+        call_at(
+            context,
+            ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
+            &[requested],
+            CallSite::relative(caller, revision, 0x36),
+        )?;
         let requested = ram::g_requested_music_selection(revision).read(context);
         ram::g_current_music_selection(revision).write(context, requested);
     } else {
@@ -80,9 +86,9 @@ fn play(context: &mut dyn Context, sample: u32) -> Result<()> {
 /// G/src/jamout/jamout.c:149 (`JamOutVBlank`, REV 02 0x03AC1C).
 /// Keep music before counter/input service, full-byte change detection, route
 /// swapping, source-ordered effect requests, and the final counter correction.
-pub fn vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+fn vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    update_music(context)?;
+    update_music(context, ids::JAM_OUT_V_BLANK)?;
     let counter = ram::g_frame_counter(revision);
     let next = counter.read(context).wrapping_add(1);
     counter.write(context, next);
@@ -173,9 +179,9 @@ fn reroll(context: &mut dyn Context, indices: [Address<u16>; 3]) -> Result<()> {
 /// G/src/jamout/jamout.c:223 (`JamOutRandomSampleVBlank`, REV 02 0x03AEC2).
 /// Poll both pads, preserve postincrement versus preincrement song/template
 /// actions, request the selected samples before rerolling, and retain route order.
-pub fn random_sample_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+fn random_sample_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    update_music(context)?;
+    update_music(context, ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK)?;
     let counter = ram::g_frame_counter(revision);
     let next = counter.read(context).wrapping_add(1);
     counter.write(context, next);
@@ -289,4 +295,48 @@ pub fn random_sample_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Opti
     }
     restore_solo_earl_counter(context);
     Ok(None)
+}
+
+/// G/src/jamout/jamout.c:149 (`JamOutVBlank`), matching MOVEM A2-A4.
+/// Preserve the real caller frame for the music selector's mutable stack slot.
+pub fn vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x1c))?;
+    context.set_address_register(2, ram::g_jam_audio_route1_pending_input(revision).address());
+    context.set_address_register(3, ram::g_jam_audio_route2_pending_input(revision).address());
+    context.set_address_register(4, ram::g_player_processed_input(revision).address());
+    let result = vblank_inner(context, &[]);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let cleanup = frame.leave(context);
+    match (result, cleanup) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+/// G/src/jamout/jamout.c:223 (`JamOutRandomSampleVBlank`), matching MOVEM A2-A4.
+/// The selector's source-backed JSR return is entry+0x36 in both callbacks.
+pub fn random_sample_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x1c))?;
+    context.set_address_register(2, ram::g_jam_audio_route1_pending_input(revision).address());
+    context.set_address_register(3, ram::g_jam_audio_route2_pending_input(revision).address());
+    context.set_address_register(4, ram::g_player_processed_input(revision).address());
+    let result = random_sample_vblank_inner(context, &[]);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    let cleanup = frame.leave(context);
+    match (result, cleanup) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
 }
