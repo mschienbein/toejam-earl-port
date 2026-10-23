@@ -1,3 +1,18 @@
+// MapDrawFixedBackgroundDecorations is deferred: its nine VDP data writes
+// necessarily exceed the four-entry frozen FIFO and wait for hardware clocks.
+mod generation;
+mod paths;
+mod regions;
+#[cfg(test)]
+#[path = "tests.rs"]
+mod regression_tests;
+mod screen;
+
+pub use generation::*;
+pub use paths::*;
+pub use regions::*;
+pub use screen::*;
+
 use crate::{Context, Result, call, ids};
 use tje_mem::ram;
 
@@ -72,6 +87,86 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::PRE_GENERATE_RANDOMS,
         function: pre_generate_randoms,
     },
+    crate::Translation {
+        id: ids::MAP_REFINE_FILLED_SHAPE_MASKS,
+        function: map_refine_filled_shape_masks,
+    },
+    crate::Translation {
+        id: ids::MAP_BUILD_DIRECTIONAL_PATH_SHAPES,
+        function: map_build_directional_path_shapes,
+    },
+    crate::Translation {
+        id: ids::MAP_SWAP_PLAYER_BANKS,
+        function: map_swap_player_banks,
+    },
+    crate::Translation {
+        id: ids::COPY_LEVEL_BETWEEN_PLAYERS,
+        function: copy_level_between_players,
+    },
+    crate::Translation {
+        id: ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
+        function: map_swap_player_with_saved_bank,
+    },
+    crate::Translation {
+        id: ids::LOAD_FINAL_LEVEL,
+        function: load_final_level,
+    },
+    crate::Translation {
+        id: ids::MAP_FIND_INTERIOR_GROWTH_ORIGIN,
+        function: map_find_interior_growth_origin,
+    },
+    crate::Translation {
+        id: ids::MAP_FILL_RECTANGLE_AND_MERGE_REGIONS,
+        function: map_fill_rectangle_and_merge_regions,
+    },
+    crate::Translation {
+        id: ids::MAP_WIDEN_HORIZONTAL_REGION_EDGES,
+        function: map_widen_horizontal_region_edges,
+    },
+    crate::Translation {
+        id: ids::MAP_WIDEN_VERTICAL_REGION_EDGES,
+        function: map_widen_vertical_region_edges,
+    },
+    crate::Translation {
+        id: ids::MAP_TRANSITION_CONTAINS_METATILE,
+        function: map_transition_contains_metatile,
+    },
+    crate::Translation {
+        id: ids::MAP_FIND_ROUTE_TO_SECOND_ANCHOR,
+        function: map_find_route_to_second_anchor,
+    },
+    crate::Translation {
+        id: ids::MAP_COVER_BLOCK_CONTAINS_TERRAIN,
+        function: map_cover_block_contains_terrain,
+    },
+    crate::Translation {
+        id: ids::LOAD_LEVEL1_TILES,
+        function: load_level1_tiles,
+    },
+    crate::Translation {
+        id: ids::MAP_APPEND_COVER_BLOCK_SPRITES,
+        function: map_append_cover_block_sprites,
+    },
+    crate::Translation {
+        id: ids::PLAYER_HAS_ODD_ELEVATOR_STATE,
+        function: player_has_odd_elevator_state,
+    },
+    crate::Translation {
+        id: ids::MAP_REVERSE_PATH_DIRECTION,
+        function: map_reverse_path_direction,
+    },
+    crate::Translation {
+        id: ids::MAP_FIND_PATH_SHAPE_FOR_METATILE,
+        function: map_find_path_shape_for_metatile,
+    },
+    crate::Translation {
+        id: ids::MAP_GET_BANK_PATH_DIRECTIONS,
+        function: map_get_bank_path_directions,
+    },
+    crate::Translation {
+        id: ids::PLAYER_IS_NEAR_TERRAIN_EDGE,
+        function: player_is_near_terrain_edge,
+    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
@@ -79,6 +174,27 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::GET_RANDOM_NUMBER,
     crate::ids::STACK_BASED_RANDOM,
     crate::ids::PRE_GENERATE_RANDOMS,
+    // Source-reviewed RAM/ROM-only leaves; the route search recurses only into itself.
+    ids::MAP_REFINE_FILLED_SHAPE_MASKS,
+    ids::MAP_BUILD_DIRECTIONAL_PATH_SHAPES,
+    ids::MAP_SWAP_PLAYER_BANKS,
+    ids::COPY_LEVEL_BETWEEN_PLAYERS,
+    ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
+    ids::LOAD_FINAL_LEVEL,
+    ids::MAP_FIND_INTERIOR_GROWTH_ORIGIN,
+    ids::MAP_FILL_RECTANGLE_AND_MERGE_REGIONS,
+    ids::MAP_WIDEN_HORIZONTAL_REGION_EDGES,
+    ids::MAP_WIDEN_VERTICAL_REGION_EDGES,
+    ids::MAP_TRANSITION_CONTAINS_METATILE,
+    ids::MAP_FIND_ROUTE_TO_SECOND_ANCHOR,
+    ids::MAP_COVER_BLOCK_CONTAINS_TERRAIN,
+    ids::LOAD_LEVEL1_TILES,
+    ids::MAP_APPEND_COVER_BLOCK_SPRITES,
+    ids::PLAYER_HAS_ODD_ELEVATOR_STATE,
+    ids::MAP_REVERSE_PATH_DIRECTION,
+    ids::MAP_FIND_PATH_SHAPE_FOR_METATILE,
+    ids::MAP_GET_BANK_PATH_DIRECTIONS,
+    ids::PLAYER_IS_NEAR_TERRAIN_EDGE,
 ];
 #[cfg(test)]
 mod tests {
