@@ -570,10 +570,17 @@ fn capture(path: &Path, frame: VideoFrame<'_>) -> Result<()> {
         frame.width,
         frame.height,
     );
-    encoder.set_color(png::ColorType::Rgba);
+    // The frame's fourth byte is not opacity (the presentation shader ignores it), so
+    // captures are written as opaque RGB.
+    encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
+    let rgb: Vec<u8> = frame
+        .rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
     let mut writer = encoder.write_header()?;
-    writer.write_image_data(frame.rgba)?;
+    writer.write_image_data(&rgb)?;
     writer.finish()?;
     Ok(())
 }
