@@ -36,6 +36,9 @@ enum Command {
         mode: Mode,
         #[arg(long)]
         report: PathBuf,
+        /// Collect checked failures and finish inputs; any counted failure still makes the exit unsuccessful.
+        #[arg(long)]
+        continue_after_mismatch: bool,
     },
     /// Compare full video frames or completed logic ticks; report first divergence.
     Compare {
@@ -88,11 +91,23 @@ fn main() -> Result<()> {
             session,
             mode,
             report,
+            continue_after_mismatch,
         } => {
+            ensure!(
+                !continue_after_mismatch || mode == Mode::Check,
+                "--continue-after-mismatch requires --mode check"
+            );
             let bytes = fs::read(rom)?;
             let mut sessions = Vec::with_capacity(session.len());
             for path in &session {
-                sessions.push(runner::replay(&bytes, path, mode, &report, &sessions)?);
+                sessions.push(runner::replay(
+                    &bytes,
+                    path,
+                    mode,
+                    &report,
+                    &sessions,
+                    continue_after_mismatch,
+                )?);
             }
             for session in &sessions {
                 println!(
@@ -112,6 +127,11 @@ fn main() -> Result<()> {
             let report_data = runner::Report::from_sessions(sessions);
             println!("union={}/648", report_data.union_entries_hit);
             runner::save_json(&report, &report_data)?;
+            ensure!(
+                report_data.status == runner::ReportStatus::Complete,
+                "check replay completed with counted mismatches; report {}",
+                report.display()
+            );
         }
         Command::Compare {
             rom,
@@ -149,6 +169,11 @@ fn main() -> Result<()> {
                 report.union_entries_hit
             );
             runner::save_json(&out, &report)?;
+            ensure!(
+                report.status == runner::ReportStatus::Complete,
+                "union retains counted check failures; report {}",
+                out.display()
+            );
         }
         Command::Bot {
             rom,
@@ -210,4 +235,44 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counted_continuation_requires_an_explicit_cli_flag() {
+        let common = [
+            "tje-session",
+            "replay",
+            "--rom",
+            "authored.bin",
+            "--session",
+            "authored.tje.json",
+            "--mode",
+            "check",
+            "--report",
+            "authored.json",
+        ];
+        let ordinary = Args::try_parse_from(common).unwrap();
+        assert!(matches!(
+            ordinary.command,
+            Command::Replay {
+                mode: Mode::Check,
+                continue_after_mismatch: false,
+                ..
+            }
+        ));
+        let continued =
+            Args::try_parse_from(common.into_iter().chain(["--continue-after-mismatch"])).unwrap();
+        assert!(matches!(
+            continued.command,
+            Command::Replay {
+                mode: Mode::Check,
+                continue_after_mismatch: true,
+                ..
+            }
+        ));
+    }
 }

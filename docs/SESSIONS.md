@@ -83,6 +83,21 @@ warnings suppressed. Coverage should be taken from **reference** (or check, whos
 live CPU still executes the original), never presented as reference coverage when
 measured in replacement mode.
 
+For an explicitly counted corpus investigation, `--mode check
+--continue-after-mismatch` selects the host's `ContinueOriginal` policy. Each
+failed root hook is disabled only for the remaining session; the unchanged live
+original continues within the same frame, not by retrying or replaying a partial
+frame. All failures remain counted. The runner emits a structured `check_failure`
+JSON line to stderr after the frame and writes bounded evidence under
+`<report>.failures/session-NNNN/`, with the session/frame, trace index, exact detail,
+VDP diagnostics, registered per-function counters and wait/IRQ summaries.
+Final reports retain `checks.failures`, `checks.failure_policy` and
+`disabled_functions`. Any counted failure yields `status: "failed"` and a
+nonzero exit **after** the report is saved, even if every input frame completed.
+`union` preserves that failed status and exits nonzero as well. This flag is
+rejected outside check mode; default check behavior remains fail-fast. It is a
+diagnostic collection mode, never a passing equivalence result.
+
 The denominator is exactly `tje_game::functions()`'s **648 inventory entries**,
 including its three fragments, in each revision. Every JSON report lists each
 inventory ID/name with an executable-PC entry count, including zero counts.

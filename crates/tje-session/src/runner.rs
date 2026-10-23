@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 use tje_game::FunctionMetadata;
 use tje_host::{
-    FrameSnapshot, Host, Mode,
+    CheckFailure, CheckFailurePolicy, FrameSnapshot, Host, Mode,
     execution::WaitInputPoller,
     hooks::HookRegistry,
     session_trace::{EntryObservation, FrameObservations, LogicTick},
@@ -834,6 +834,8 @@ pub struct ReplayReport {
     /// Full production registration and per-function checks, including zero hits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checks: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled_functions: Vec<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissedEntry {
@@ -845,9 +847,19 @@ pub struct MissedEntry {
     pub disposition: String,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportStatus {
+    #[default]
+    Complete,
+    Failed,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Report {
     pub tool: String,
+    #[serde(default)]
+    pub status: ReportStatus,
     pub sessions: Vec<ReplayReport>,
     pub union_entries_hit: usize,
     pub union_entry_counts: BTreeMap<String, u64>,
@@ -867,6 +879,9 @@ impl Report {
             ..Self::default()
         };
         for session in &report.sessions {
+            if session.mismatches != 0 {
+                report.status = ReportStatus::Failed;
+            }
             for (name, count) in &session.entry_counts {
                 *report.union_entry_counts.entry(name.clone()).or_default() += count;
                 *report
@@ -959,6 +974,12 @@ pub fn replay_report(
             .map(|count| count.calls_replaced)
             .sum(),
         mismatches: host.checks.mismatches,
+        disabled_functions: host
+            .checks
+            .failures
+            .iter()
+            .map(|failure| failure.function.clone())
+            .collect(),
         entries_hit: entry_counts.values().filter(|&&count| count > 0).count(),
         inventory_entries: entry_counts.len(),
         entry_counts,
@@ -1008,13 +1029,74 @@ fn record_replay_failure(
     }
 }
 
+#[derive(Serialize)]
+struct ContinuedFailureEvidence<'a> {
+    status: &'static str,
+    session: &'a Path,
+    input_frame: u64,
+    failure: &'a CheckFailure,
+    by_function: &'a tje_host::FunctionCoverageTable,
+    time_aware: &'a BTreeMap<String, tje_host::check_projection::TimeAwareCheckSummary>,
+    nested_original_calls: u64,
+    original_wait_frames: u64,
+    rust_wait_frames: u64,
+}
+
+fn persist_continued_failure(
+    directory: &Path,
+    session: &Path,
+    frame: u64,
+    index: usize,
+    failure: &CheckFailure,
+    host: &Host,
+) -> Result<()> {
+    if index == 0 {
+        fs::create_dir_all(directory)?;
+    }
+    let evidence_path = directory.join(format!("failure-{index:04}-frame-{}.json", failure.frame));
+    save_json(
+        &evidence_path,
+        &ContinuedFailureEvidence {
+            status: "failed",
+            session,
+            input_frame: frame,
+            failure,
+            by_function: &host.checks.by_function,
+            time_aware: &host.checks.time_aware,
+            nested_original_calls: host.checks.nested_original_calls,
+            original_wait_frames: host.measurements.check_original_wait_frames,
+            rust_wait_frames: host.measurements.check_rust_wait_frames,
+        },
+    )
+    .with_context(|| {
+        format!(
+            "preserving check failure {} at frame {}: {}",
+            failure.function, failure.frame, failure.detail
+        )
+    })?;
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "event":"check_failure","session":session,"frame":failure.frame,
+            "function":failure.function,"trace_index":failure.trace_index,
+            "detail":failure.detail,"evidence_path":evidence_path,
+        })
+    );
+    Ok(())
+}
+
 pub fn replay(
     bytes: &[u8],
     path: &Path,
     mode: Mode,
     report: &Path,
     completed: &[ReplayReport],
+    continue_after_mismatch: bool,
 ) -> Result<ReplayReport> {
+    ensure!(
+        !continue_after_mismatch || mode == Mode::Check,
+        "--continue-after-mismatch requires --mode check"
+    );
     let session = Arc::new(Session::from_json(&fs::read_to_string(path)?)?);
     let revision = Revision::from(session.revision);
     ensure!(
@@ -1022,8 +1104,19 @@ pub fn replay(
         "ROM revision does not match session"
     );
     let mut host = host(bytes, mode, revision, false)?;
+    if continue_after_mismatch {
+        host.set_check_failure_policy(CheckFailurePolicy::ContinueOriginal)?;
+    }
     host.set_wait_input_poller(Arc::new(SessionInputs::new(Arc::clone(&session))));
     let mut coverage = Coverage::new();
+    let mut reported_failures = 0;
+    let evidence_dir = if continue_after_mismatch {
+        let mut directory = report.as_os_str().to_os_string();
+        directory.push(".failures");
+        Some(PathBuf::from(directory).join(format!("session-{:04}", completed.len())))
+    } else {
+        None
+    };
     for (frame, pads) in session.inputs().enumerate() {
         // A suspended replacement may already have consumed these frames and
         // applied their recipes through the wait timeline. Never replay them twice.
@@ -1063,6 +1156,18 @@ pub fn replay(
         };
         let observations = host.take_session_observations();
         coverage.observe(&host, &snapshot, &observations, revision);
+        if let Some(directory) = &evidence_dir {
+            for (index, failure) in host
+                .checks
+                .failures
+                .iter()
+                .enumerate()
+                .skip(reported_failures)
+            {
+                persist_continued_failure(directory, path, frame as u64, index, failure, &host)?;
+            }
+            reported_failures = host.checks.failures.len();
+        }
     }
     replay_report(path, &session, &host, coverage.content)
 }
@@ -1564,5 +1669,63 @@ mod tests {
         assert!(chain.contains("original check mismatch"));
         assert!(chain.contains("failed to write diagnostics"));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn continued_failures_remain_failed_when_reports_are_merged() {
+        let session = ReplayReport {
+            session: "authored.tje.json".into(),
+            revision: "rev02".into(),
+            mode: "check".into(),
+            frames: 100,
+            logic_ticks: 10,
+            lag_frames: Vec::new(),
+            idle_random_draws: 0,
+            checked_calls: 1,
+            replaced_calls: 0,
+            mismatches: 1,
+            entries_hit: 0,
+            inventory_entries: 648,
+            entry_counts: BTreeMap::new(),
+            content: Content::new(),
+            disabled_functions: vec!["AuthoredFailed".into()],
+            checks: Some(serde_json::json!({"by_function":{
+                "AuthoredFailed":{"calls_checked":1,"mismatches":1},
+                "AuthoredUntouched":{"calls_checked":0,"mismatches":0}
+            }})),
+        };
+        let report = Report::from_sessions(vec![session]);
+        assert_eq!(report.status, ReportStatus::Failed);
+        let value = serde_json::to_value(&report).unwrap();
+        assert_eq!(value["status"], "failed");
+        assert_eq!(
+            value["sessions"][0]["checks"]["by_function"]["AuthoredUntouched"]["calls_checked"],
+            0
+        );
+        assert_eq!(
+            value["sessions"][0]["disabled_functions"][0],
+            "AuthoredFailed"
+        );
+        let decoded: Report = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            Report::from_sessions(decoded.sessions).status,
+            ReportStatus::Failed
+        );
+    }
+
+    #[test]
+    fn continuation_is_rejected_outside_check_mode_before_any_input_is_read() {
+        for mode in [Mode::Reference, Mode::Replace] {
+            let error = replay(
+                &[],
+                Path::new("must-not-be-read.tje.json"),
+                mode,
+                Path::new("must-not-be-written.json"),
+                &[],
+                true,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("requires --mode check"));
+        }
     }
 }
