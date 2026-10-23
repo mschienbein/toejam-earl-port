@@ -1,0 +1,78 @@
+name: Web release and Pages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/scratch/release-target
+  CARGO_INCREMENTAL: '0'
+  RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.sha) }}
+
+jobs:
+  build:
+    name: Build ROM-free browser artifact
+    # Dispatches on lane branches are skipped, just like the native workflow.
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Audit tracked public inputs and full history without ROMs
+        run: python3 tools/audit_public.py --history --no-rom
+      - name: Test packaging allowlists, metadata, icons and checksums
+        run: python3 -m unittest discover -s tools -p 'test_release.py' -v
+      - name: Install the repository-pinned Rust toolchain
+        run: rustup show
+      - name: Install version-matched wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked --root "$RUNNER_TEMP/wasm-bindgen" --target-dir "$RUNNER_TEMP/bindgen-target"
+      - name: Build browser app and stage only public runtime files
+        env:
+          WASM_BINDGEN: ${{ runner.temp }}/wasm-bindgen/bin/wasm-bindgen
+        run: |
+          bash web/build.sh
+          python3 tools/release.py web --version "$RELEASE_VERSION" \
+            --out scratch/release/dist --site scratch/release/site
+          python3 tools/release.py checksums --out scratch/release/dist
+      - name: Upload downloadable web ZIP and checksum manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-${{ env.RELEASE_VERSION }}
+          path: |
+            scratch/release/dist/*.zip
+            scratch/release/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload the same static tree for Pages
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: scratch/release/site
+
+  deploy:
+    name: Deploy browser app to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy staged public files
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

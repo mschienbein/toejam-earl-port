@@ -1,0 +1,142 @@
+name: Native release artifacts
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/scratch/release-target
+  CARGO_INCREMENTAL: '0'
+  RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.sha) }}
+
+jobs:
+  public-source:
+    name: Validate public release source
+    # A manual run may select only the default branch or a v* tag, never a lane.
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Audit tracked public inputs and all history without ROMs
+        run: python3 tools/audit_public.py --history --no-rom
+      - name: Test packaging allowlists, metadata, icons and checksums
+        run: python3 -m unittest discover -s tools -p 'test_release.py' -v
+
+  native:
+    name: Package ${{ matrix.platform }}
+    needs: public-source
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-22.04
+          - platform: windows
+            runner: ubuntu-24.04
+          - platform: macos
+            runner: macos-14
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install Linux development libraries
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libudev-dev
+      - name: Install Windows GNU cross-toolchain
+        if: matrix.platform == 'windows'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64
+      - name: Install the repository-pinned Rust toolchain
+        run: rustup show
+      - name: Build and package Linux tarball
+        if: matrix.platform == 'linux'
+        run: |
+          cargo build --locked --release --package tje-native --bin toejam-earl
+          python3 tools/release.py native --platform linux \
+            --binary "$CARGO_TARGET_DIR/release/toejam-earl" \
+            --version "$RELEASE_VERSION" --out scratch/release/dist
+      - name: Build and package Windows GNU executable with text-logo icon
+        if: matrix.platform == 'windows'
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc-posix
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc-posix
+          AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          python3 tools/release.py icons --out "$RUNNER_TEMP/tje-icons"
+          (
+            cd "$RUNNER_TEMP/tje-icons"
+            x86_64-w64-mingw32-windres \
+              --preprocessor x86_64-w64-mingw32-gcc-posix \
+              --preprocessor-arg=-E --preprocessor-arg=-xc --preprocessor-arg=-DRC_INVOKED \
+              --input toejam-earl.rc --output icon.o --output-format coff
+          )
+          cargo rustc --locked --release --package tje-native --bin toejam-earl \
+            --target x86_64-pc-windows-gnu -- -C "link-arg=$RUNNER_TEMP/tje-icons/icon.o"
+          python3 tools/release.py native --platform windows \
+            --binary "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/toejam-earl.exe" \
+            --version "$RELEASE_VERSION" --out scratch/release/dist
+      - name: Build universal macOS app bundle
+        if: matrix.platform == 'macos'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --locked --release --package tje-native --bin toejam-earl --target x86_64-apple-darwin
+          cargo build --locked --release --package tje-native --bin toejam-earl --target aarch64-apple-darwin
+          mkdir -p scratch/release
+          lipo -create \
+            "$CARGO_TARGET_DIR/x86_64-apple-darwin/release/toejam-earl" \
+            "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/toejam-earl" \
+            -output scratch/release/toejam-earl
+          python3 tools/release.py native --platform macos \
+            --binary scratch/release/toejam-earl \
+            --version "$RELEASE_VERSION" --out scratch/release/dist
+      - name: Build Linux AppImage without FUSE
+        if: matrix.platform == 'linux'
+        env:
+          ARCH: x86_64
+        run: |
+          curl -fL --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool"
+          curl -fL --retry 3 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 -o "$RUNNER_TEMP/runtime-x86_64"
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool" | sha256sum --check
+          echo "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  $RUNNER_TEMP/runtime-x86_64" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          "$RUNNER_TEMP/appimagetool" --appimage-extract-and-run --no-appstream \
+            --runtime-file "$RUNNER_TEMP/runtime-x86_64" \
+            "scratch/release/dist/toejam-earl-$RELEASE_VERSION-linux-x86_64.AppDir" \
+            "scratch/release/dist/toejam-earl-$RELEASE_VERSION-linux-x86_64.AppImage"
+      - name: Hash final release artifacts
+        run: python3 tools/release.py checksums --out scratch/release/dist
+      - name: Upload only archives, AppImages and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.platform }}-${{ env.RELEASE_VERSION }}
+          path: |
+            scratch/release/dist/*.zip
+            scratch/release/dist/*.tar.gz
+            scratch/release/dist/*.AppImage
+            scratch/release/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
