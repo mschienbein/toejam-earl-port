@@ -7,12 +7,13 @@ use crate::{Error, Result};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
-    io::{Read, Write},
+    io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
 const MAGIC: &[u8; 8] = b"TJENAT\0\x01";
 const MAX_CACHE_BYTES: u64 = 1 << 30;
+const WRITE_BUFFER_BYTES: usize = 64 * 1024;
 pub(crate) const CODE_ALIGNMENT: usize = 16;
 
 /// Bump this when changing lowering semantics, the callback ABI, or cache format.
@@ -170,7 +171,7 @@ pub(crate) fn store(path: &Path, identity: &Identity, artifact: &Artifact) -> Re
     let mut hash = Sha256::new();
     {
         let mut output = HashedWriter {
-            file: &mut file,
+            file: BufWriter::with_capacity(WRITE_BUFFER_BYTES, &mut file),
             hash: &mut hash,
         };
         output.write_all(MAGIC)?;
@@ -188,6 +189,9 @@ pub(crate) fn store(path: &Path, identity: &Identity, artifact: &Artifact) -> Re
             output.write_all(&entry.length.to_le_bytes())?;
         }
         output.write_all(&artifact.code)?;
+        // Do not rely on BufWriter's drop: a failed payload flush must prevent
+        // the checksum and atomic publication, rather than silently losing data.
+        output.flush()?;
     }
     file.write_all(&hash.finalize())?;
     file.as_file().sync_all()?;
@@ -204,7 +208,7 @@ fn write_string(writer: &mut impl Write, text: &str) -> Result<()> {
 }
 
 struct HashedWriter<'a> {
-    file: &'a mut tempfile::NamedTempFile,
+    file: BufWriter<&'a mut tempfile::NamedTempFile>,
     hash: &'a mut Sha256,
 }
 
@@ -326,5 +330,44 @@ mod tests {
         assert!(malformed.validate([0x100, 0x102].into_iter()).is_err());
         assert!(artifact.validate([0x102].into_iter()).is_err());
         assert!(artifact.validate([0x100, 0x102].into_iter()).is_err());
+    }
+
+    #[test]
+    fn cold_store_and_warm_load_large_packed_artifact() {
+        // Authored metadata and poison bytes, never executable or ROM-derived.
+        // The entry count deliberately exceeds the retail-sized metadata table.
+        const ENTRIES: usize = 65_536;
+        const STRIDE: usize = 256;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("packed-cache");
+        let artifact = Artifact {
+            entries: (0..ENTRIES)
+                .map(|index| Entry {
+                    pc: 0x100 + index as u32 * 2,
+                    offset: (index * STRIDE) as u32,
+                    length: STRIDE as u32,
+                })
+                .collect(),
+            code: vec![0xA5; ENTRIES * STRIDE],
+        };
+        let expected = identity();
+        let started = std::time::Instant::now();
+        let bytes = store(&path, &expected, &artifact).unwrap();
+        let store_seconds = started.elapsed().as_secs_f64();
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert_eq!(fs::metadata(&path).unwrap().len(), bytes);
+
+        let started = std::time::Instant::now();
+        let loaded = load(&path, &expected).unwrap();
+        let load_seconds = started.elapsed().as_secs_f64();
+        loaded
+            .validate((0..ENTRIES).map(|index| 0x100 + index as u32 * 2))
+            .unwrap();
+        assert_eq!(loaded.entries, artifact.entries);
+        assert_eq!(loaded.code, artifact.code);
+        println!(
+            "packed-cache-io entries={ENTRIES} bytes={bytes} store_seconds={store_seconds:.9} load_seconds={load_seconds:.9} path={}",
+            path.display()
+        );
     }
 }

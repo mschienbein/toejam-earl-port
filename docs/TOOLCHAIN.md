@@ -462,6 +462,15 @@ code is copied into anonymous writable memory and changed to read/execute before
 use, never executed from the mutable cache file. Checksums detect corruption, not
 an attacker able to replace the current user's application data.
 
+Each native cache is one packed file: identity, continuation records, code and
+checksum. Publication batches metadata through a 64 KiB writer into a temporary
+file in the destination directory; it explicitly flushes the payload before
+writing the checksum, synchronizes the complete file, then atomically renames
+it. The on-disk format and verification are unchanged. The large synthetic
+`cache::tests::cold_store_and_warm_load_large_packed_artifact` regression exercises
+cold publication plus verified warm loading and prints separate I/O timings
+with `--nocapture`; Windows acceptance measurements use a native C: temp path.
+
 Changing page permissions is not instruction-cache synchronization. After the
 RW-to-RX transition, publication calls the matching Wasmtime cache-coherence
 helper's `clear_cache` and then `pipeline_flush_mt`, before any entry pointer can
