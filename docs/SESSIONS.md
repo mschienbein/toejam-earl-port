@@ -184,8 +184,8 @@ blindly across the final water/space gap. Live doorway entities contribute the
 original conditional 4-by-3 ground footprint, and centered upward input opens a
 closed doorway. Campaign planning carries real mobility presents for disconnected
 terrain instead of spending them on unrelated encounter targets.
-Ship collection targets a reachable ground cell inside the cartridge's actual
-contact rectangle, not an unwalkable sprite-center tile. Mobility demand is
+Ship collection targets the nearest reachable boundary of the cartridge's actual
+contact rectangle, not a solid or unwalkable sprite-center tile. Mobility demand is
 recomputed after level changes. Ordinary walking never silently becomes swimming;
 a real active innertube explicitly enables water routing.
 Macro-map connectivity includes hidden roads. Before spending mobility to escape
@@ -212,7 +212,8 @@ reported to its caller, which must explicitly choose swimming or use a real
 mobility present. This prevents inaccessible item goals from becoming drowning
 instructions while preserving explicit `game-over` and travel goals.
 
-`campaign` prioritizes uncollected ship-piece records;
+`campaign` prioritizes uncollected ship-piece records; `campaign-two` runs the
+same feedback policy with both players and pads, without an all-pieces shortcut.
 `explore` also seeks missing presents and friendly interactions; `coop` separates
 and rejoins the players before riding together; `game-over` deliberately drowns
 the player through the last-life sequence. `jam-all` selects all eight original

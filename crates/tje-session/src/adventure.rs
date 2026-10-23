@@ -284,7 +284,9 @@ impl Adventure {
                 .read(memory);
             let position = (view.x().read(memory), view.y().read(memory));
             if self.goals[player].is_none() || frame - self.goal_since[player] > 7200 {
-                if let Some(goal) = self.goals[player] {
+                if let Some(goal) = self.goals[player]
+                    && !self.blocked.contains(&(level, goal))
+                {
                     self.blocked.push((level, goal));
                 }
                 self.goals[player] =
@@ -309,7 +311,9 @@ impl Adventure {
                         }
                         let kind = earthling.kind().read(memory);
                         if matches!(goal, Goal::Earthling { .. }) && friendly_done(content, kind) {
-                            self.blocked.push((level, goal));
+                            if !self.blocked.contains(&(level, goal)) {
+                                self.blocked.push((level, goal));
+                            }
                             self.goals[player] = None;
                             continue;
                         }
@@ -447,7 +451,9 @@ impl Adventure {
                                     .is_some_and(Option::is_some)
                                 && !matches!(earthling.kind().read(memory), 0 | 9..=11 | 17 | 23..=24)
                             {
-                                self.blocked.push((level, goal));
+                                if !self.blocked.contains(&(level, goal)) {
+                                    self.blocked.push((level, goal));
+                                }
                                 self.goals[player] = None;
                             }
                         } else if let Some(input) = self.navigation[player]
@@ -459,7 +465,9 @@ impl Adventure {
                             }
                         } else {
                             self.mobility_needed[player] |= matches!(goal, Goal::Ship { .. });
-                            self.blocked.push((level, goal));
+                            if !self.blocked.contains(&(level, goal)) {
+                                self.blocked.push((level, goal));
+                            }
                             self.goals[player] = None;
                         }
                     }
@@ -475,7 +483,9 @@ impl Adventure {
                         {
                             *pad |= input;
                         } else {
-                            self.blocked.push((level, goal));
+                            if !self.blocked.contains(&(level, goal)) {
+                                self.blocked.push((level, goal));
+                            }
                             self.goals[player] = None;
                         }
                     }

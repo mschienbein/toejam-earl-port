@@ -208,7 +208,7 @@ impl Navigator {
         start: (i16, i16),
         desired: (i16, i16),
     ) -> Option<(i16, i16)> {
-        self.reachable_land_in_range(start, desired, (i16::MAX, i16::MAX))
+        self.reachable_land_choose(start, desired, |_, _| true)
     }
 
     pub fn reachable_land_in_range(
@@ -217,7 +217,9 @@ impl Navigator {
         desired: (i16, i16),
         exclusive_range: (i16, i16),
     ) -> Option<(i16, i16)> {
-        self.reachable_land_choose(start, desired, |cell, _| {
+        // Enter the interaction rectangle from its nearest reachable boundary;
+        // the sprite center can itself be inside a solid collision body.
+        self.reachable_land_choose(start, start, |cell, _| {
             let point = cell_position(cell);
             (i32::from(point.0) - i32::from(desired.0)).abs() < i32::from(exclusive_range.0)
                 && (i32::from(point.1) - i32::from(desired.1)).abs() < i32::from(exclusive_range.1)
@@ -789,6 +791,14 @@ mod tests {
         assert_eq!(
             navigator.reachable_land_in_range((164, 84), (212, 84), (12, 8)),
             None
+        );
+        assert_eq!(
+            navigator.reachable_land_in_range((164, 84), (196, 84), (40, 8)),
+            Some((164, 84))
+        );
+        assert_eq!(
+            navigator.reachable_land_near((164, 84), (196, 84)),
+            Some((188, 84))
         );
     }
 

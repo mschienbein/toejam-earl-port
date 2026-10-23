@@ -19,6 +19,7 @@ pub enum Scenario {
     TwoPlayer,
     JamOut,
     Campaign,
+    CampaignTwo,
     Explore,
     Coop,
     LevelZero,
@@ -34,7 +35,12 @@ pub enum Scenario {
 impl Scenario {
     fn players(self) -> usize {
         match self {
-            Self::TwoPlayer | Self::Coop | Self::JamOut | Self::JamAll | Self::ContentTwo => 2,
+            Self::TwoPlayer
+            | Self::Coop
+            | Self::JamOut
+            | Self::JamAll
+            | Self::ContentTwo
+            | Self::CampaignTwo => 2,
             _ => 1,
         }
     }
@@ -73,7 +79,9 @@ impl Planner {
             content_bot: matches!(scenario, Scenario::ContentOne | Scenario::ContentTwo)
                 .then(|| ContentBot::new(scenario.players())),
             adventure: match scenario {
-                Scenario::Campaign => Some(Adventure::new(Objective::Campaign)),
+                Scenario::Campaign | Scenario::CampaignTwo => {
+                    Some(Adventure::new(Objective::Campaign))
+                }
                 Scenario::SecretEnding => Some(Adventure::new(Objective::Campaign)),
                 Scenario::Explore => Some(Adventure::new(Objective::Explore)),
                 Scenario::Coop => Some(Adventure::new(Objective::Coop)),
@@ -571,13 +579,15 @@ pub fn generate(
         }) {
             break;
         }
-        if matches!(scenario, Scenario::Campaign | Scenario::SecretEnding)
-            && (scenario == Scenario::SecretEnding
-                || coverage
-                    .content
-                    .ship_pieces_collected
-                    .values()
-                    .all(Option::is_some))
+        if matches!(
+            scenario,
+            Scenario::Campaign | Scenario::CampaignTwo | Scenario::SecretEnding
+        ) && (scenario == Scenario::SecretEnding
+            || coverage
+                .content
+                .ship_pieces_collected
+                .values()
+                .all(Option::is_some))
             && planner.adventure.as_ref().is_some_and(|adventure| {
                 adventure.campaign_complete(&Ram(&previous.as_ref().unwrap().ram), revision, frame)
             })
@@ -624,4 +634,18 @@ pub fn generate(
         &host,
         coverage.content,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn natural_two_player_campaign_uses_both_pads_and_the_real_adventure_policy() {
+        let planner = Planner::new(Scenario::CampaignTwo);
+        assert_eq!(planner.scenario.players(), 2);
+        assert!(planner.adventure.is_some());
+        assert!(planner.content_bot.is_none());
+        assert!(planner.navigators.is_none());
+    }
 }
