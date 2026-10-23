@@ -22,6 +22,7 @@ enum Goal {
     Earthling { bank: i32, index: i32 },
     Elevator { bank: i32 },
     Present { slot: usize, kind: i8 },
+    Path { target: (i16, i16) },
     Fall,
     Drown,
     Doorway,
@@ -411,8 +412,13 @@ impl Adventure {
                                     self.mobility_needed[player] = false;
                                     target = point;
                                 } else {
-                                    self.mobility_needed[player] = true;
-                                    self.goals[player] = None;
+                                    let approach = self.navigation[player].marked_path_approach(
+                                        memory, revision, player, position, center,
+                                    );
+                                    self.mobility_needed[player] = approach.is_none();
+                                    self.goals[player] =
+                                        approach.map(|target| Goal::Path { target });
+                                    self.goal_since[player] = frame;
                                     continue;
                                 }
                             }
@@ -495,8 +501,37 @@ impl Adventure {
                         {
                             *pad |= input;
                         } else {
-                            self.mobility_needed[player] = true;
+                            let approach = self.navigation[player]
+                                .marked_path_approach(memory, revision, player, position, target);
+                            self.mobility_needed[player] = approach.is_none();
+                            self.goals[player] = approach.map(|target| Goal::Path { target });
+                            self.goal_since[player] = frame;
+                        }
+                    }
+                    Goal::Path { target } => {
+                        let map = if player == 1
+                            && ram::g_player_lives(revision).at(0).read(memory) >= 0
+                            && ram::g_split_screen_enabled(revision).read(memory) != 0
+                        {
+                            ram::g_player2_level_map(revision)
+                        } else {
+                            ram::g_player1_level_map(revision)
+                        };
+                        let cell = map
+                            .at(i32::from((target.1 >> 6) - 1))
+                            .at(i32::from((target.0 >> 7) - 1))
+                            .read(memory);
+                        if cell & 0x4000 == 0 {
                             self.goals[player] = None;
+                        } else if let Some(input) = self.navigation[player].toward(
+                            memory,
+                            rom,
+                            revision,
+                            player,
+                            (target, Travel::Land),
+                            frame,
+                        ) {
+                            *pad |= input;
                         }
                     }
                     Goal::Doorway => {

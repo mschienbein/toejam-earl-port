@@ -188,6 +188,11 @@ Ship collection targets a reachable ground cell inside the cartridge's actual
 contact rectangle, not an unwalkable sprite-center tile. Mobility demand is
 recomputed after level changes. Ordinary walking never silently becomes swimming;
 a real active innertube explicitly enables water routing.
+Macro-map connectivity includes hidden roads. Before spending mobility to escape
+a disconnected component, the campaign targets reachable ground inside a live
+`0x4000` marked metatile with an adjacent terrain class at least `0x50`. This is
+the original grounded `ProcessLand` trigger; only the game's ensuing path animation
+changes terrain, and the planner then replans. No invisible road is fabricated.
 Blocking map-screen exits use the controller that requested the map, including
 P2's telephone map; P1's C button cannot dismiss a P2-owned map wait.
 No map, route, present table, or decoded resource is embedded in the crate or

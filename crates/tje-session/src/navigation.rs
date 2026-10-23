@@ -217,6 +217,58 @@ impl Navigator {
         desired: (i16, i16),
         exclusive_range: (i16, i16),
     ) -> Option<(i16, i16)> {
+        self.reachable_land_choose(start, desired, |cell, _| {
+            let point = cell_position(cell);
+            (i32::from(point.0) - i32::from(desired.0)).abs() < i32::from(exclusive_range.0)
+                && (i32::from(point.1) - i32::from(desired.1)).abs() < i32::from(exclusive_range.1)
+        })
+    }
+
+    /// ProcessLand reveals marked roads only when a grounded player reaches
+    /// a marked metatile's edge. Select a real reachable trigger, never a
+    /// speculative road over the current water/void.
+    pub fn marked_path_approach(
+        &mut self,
+        memory: &Ram<'_>,
+        revision: Revision,
+        player: usize,
+        start: (i16, i16),
+        desired: (i16, i16),
+    ) -> Option<(i16, i16)> {
+        if self.level <= 1 {
+            return None;
+        }
+        let bank = if player == 1
+            && ram::g_player_lives(revision).at(0).read(memory) >= 0
+            && ram::g_split_screen_enabled(revision).read(memory) != 0
+        {
+            ram::g_player2_level_map(revision)
+        } else {
+            ram::g_player1_level_map(revision)
+        };
+        self.reachable_land_choose(start, desired, |cell, terrain| {
+            let x = cell % WIDTH;
+            let y = cell / WIDTH;
+            (16..320).contains(&x)
+                && (8..216).contains(&y)
+                && bank
+                    .at((y / 8 - 1) as i32)
+                    .at((x / 16 - 1) as i32)
+                    .read(memory)
+                    & 0x4000
+                    != 0
+                && [cell - WIDTH, cell - 1, cell + 1, cell + WIDTH]
+                    .into_iter()
+                    .any(|neighbor| terrain[neighbor] >= 0x50)
+        })
+    }
+
+    fn reachable_land_choose(
+        &mut self,
+        start: (i16, i16),
+        desired: (i16, i16),
+        accept: impl Fn(usize, &[u8]) -> bool,
+    ) -> Option<(i16, i16)> {
         let start = position_cell(start)?;
         self.parents.fill(usize::MAX);
         self.frontier.clear();
@@ -225,10 +277,7 @@ impl Navigator {
         let mut best = None;
         while let Some(Reverse((_, _, cell))) = self.frontier.pop() {
             if self.terrain[cell] <= 0x50
-                && (i32::from(cell_position(cell).0) - i32::from(desired.0)).abs()
-                    < i32::from(exclusive_range.0)
-                && (i32::from(cell_position(cell).1) - i32::from(desired.1)).abs()
-                    < i32::from(exclusive_range.1)
+                && accept(cell, &self.terrain)
                 && best.is_none_or(|old| {
                     manhattan(cell_position(cell), desired) < manhattan(cell_position(old), desired)
                 })
@@ -768,6 +817,51 @@ mod tests {
                 navigator
                     .steer(&Ram(memory.ram()), &[], revision, 0, (180, 84), 101)
                     .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn hidden_paths_require_a_real_reachable_marked_cell_and_adjacent_edge() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut navigator = Navigator::new();
+            navigator.level = 5;
+            for row in 8..16 {
+                for column in 16..32 {
+                    navigator.terrain[row * WIDTH + column] = 0x10;
+                }
+            }
+            assert_eq!(
+                navigator.marked_path_approach(
+                    &Ram(memory.ram()),
+                    revision,
+                    0,
+                    (164, 84),
+                    (164, 300)
+                ),
+                None
+            );
+            ram::g_player1_level_map(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 0x4000);
+            let target = navigator
+                .marked_path_approach(&Ram(memory.ram()), revision, 0, (164, 84), (164, 300))
+                .unwrap();
+            assert_eq!(target.1, 124);
+            assert_eq!(navigator.terrain[position_cell(target).unwrap()], 0x10);
+            assert!(target.0 >= 128 && target.0 < 256);
+            navigator.level = 1;
+            assert_eq!(
+                navigator.marked_path_approach(
+                    &Ram(memory.ram()),
+                    revision,
+                    0,
+                    (164, 84),
+                    (164, 300)
+                ),
+                None
             );
         }
     }
