@@ -1,5 +1,54 @@
 # Status (current entry first)
 
+## 2026-10-23 (night): whole-corpus gate; 482 of 648 functions proven
+
+Branch `integrate/p0`.
+
+Every production translation was checked against the whole committed corpus: all 50
+sessions, in both revisions, including cross-revision replays. 25 functions that had
+passed their fixture proofs failed on longer content sessions and are back in pending
+with an exact blocker each. No failure was masked or waived.
+
+| Cause | Functions |
+| --- | ---: |
+| An interrupt fires inside the original call; the zero-time Rust body misses it | 18 |
+| Z80 progress differs when the function reads sound-driver RAM | 2 |
+| Controller sampling shifts across an input edge (`WaitForNextVBlank`) | 1 |
+| A finite search runs past the 1,000,000-instruction per-call cap | 3 |
+| The original stalls on the VDP after its last port write | 1 |
+
+The three searches are level-transition chains and Earthling spawn placement. Each
+takes 1.2 to 1.7 million instructions over 78 to 136 frames, while the VBlank and
+HBlank handlers keep running. They wait on reviewed per-function operational ceilings:
+twice the measured maximum, failing closed, never treated as a bound.
+
+Translation now stands at 482 proven, 160 held and 6 not yet written. A function now
+enters production only after passing the whole corpus in both revisions; 16 candidates
+wait for the next pass.
+
+Since the last entry:
+
+- Check mode has an open-bus operand-source contract for partially driven MMIO reads.
+- The browser build runs the engine generated from the user's ROM and contains no 68000
+  emulation. It replays 24,000 frames byte-exact in Chromium and holds 60 fps on the
+  WebGL2 fallback. The ROM and the verified engine are remembered across reloads;
+  Forget clears both.
+- The native engine cache is written as one buffered file: a 20 ms cold store on Windows,
+  where the first launch had timed out after 180 s.
+- Audio initialisation uses pure-Rust maths throughout, so macOS ARM64 no longer
+  depends on the platform maths library. The four audio goldens are unchanged on Linux,
+  Windows and Chrome; confirmation on macOS CI is pending.
+- The release and audit tool tests pass on Windows.
+
+Next:
+
+- the interrupt commutation rule and engine-timed Rust bodies (most held functions);
+- the operational ceilings;
+- the native frontend switching to the engine;
+- the whole-corpus engine campaigns (native and browser);
+- the six audio mailbox routines;
+- a natural all-ten-pieces campaign.
+
 ## 2026-10-23 (evening): engine integrated; 507 of 648 functions proven
 
 Branch `integrate/p0`.
