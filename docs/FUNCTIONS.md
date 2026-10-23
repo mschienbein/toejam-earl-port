@@ -45,7 +45,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [earthlings](#earthlings) | 60 | 53 | 7 | 0 | 51 | 0 | 9 | 0 |
 | [elevator](#elevator) | 27 | 20 | 7 | 0 | 16 | 3 | 8 | 0 |
 | [jamout](#jamout) | 18 | 11 | 7 | 0 | 10 | 1 | 7 | 0 |
-| [map](#map) | 68 | 61 | 7 | 0 | 48 | 7 | 13 | 0 |
+| [map](#map) | 68 | 60 | 8 | 0 | 48 | 7 | 13 | 0 |
 | [platform](#platform) | 19 | 17 | 2 | 0 | 4 | 10 | 5 | 0 |
 | [player](#player) | 65 | 42 | 23 | 0 | 43 | 1 | 21 | 0 |
 | [presents](#presents) | 65 | 64 | 1 | 0 | 47 | 0 | 18 | 0 |
@@ -54,7 +54,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [speech](#speech) | 8 | 5 | 3 | 0 | 4 | 1 | 3 | 0 |
 | [sprites](#sprites) | 42 | 38 | 4 | 0 | 39 | 2 | 1 | 0 |
 | [ui](#ui) | 76 | 48 | 28 | 0 | 26 | 19 | 31 | 0 |
-| **Total** | **648** | **498** | **144** | **6** | **390** | **72** | **186** | **0** |
+| **Total** | **648** | **497** | **145** | **6** | **390** | **72** | **186** | **0** |
 
 Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; collision query: **5**.
 
@@ -419,7 +419,7 @@ Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; col
 | `MapBuildRegionEdgeShapes` | compiled C | [`src/map/random_regions_and_cleanup.c:674`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/random_regions_and_cleanup.c#L674) | `0x00671C` | `0x00671C` | Atomic | [`map::generation_stages::map_build_region_edge_shapes`](../crates/tje-game/src/map/generation_stages.rs#L164) | production |
 | `MapTransitionContainsMetatile` | compiled C | [`src/map/transition_paths.c:10`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/transition_paths.c#L10) | `0x006B22` | `0x006B22` | Atomic | [`map::paths::map_transition_contains_metatile`](../crates/tje-game/src/map/paths.rs#L6) | production |
 | `MapTraceTransitionChain` | compiled C | [`src/map/transition_paths.c:26`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/transition_paths.c#L26) | `0x006B74` | `0x006B74` | Atomic | [`map::pipeline::map_trace_transition_chain`](../crates/tje-game/src/map/pipeline.rs#L172) | production |
-| `MapAssignTransitionChain` | compiled C | [`src/map/transition_paths.c:128`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/transition_paths.c#L128) | `0x0071E8` | `0x0071E8` | Atomic | [`map::random_generation::map_assign_transition_chain`](../crates/tje-game/src/map/random_generation.rs#L297) | production |
+| `MapAssignTransitionChain` | compiled C | [`src/map/transition_paths.c:128`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/transition_paths.c#L128) | `0x0071E8` | `0x0071E8` | Atomic | [`map::random_generation::map_assign_transition_chain`](../crates/tje-game/src/map/random_generation.rs#L297) | pending — Corpus REV00 frame9287: original exceeds Atomic call bound at PC006B66. RAM/ROM-only classification is retained; this is not a hardware-wait waiver. Opt-in proof hooks only; production never registers this table. Keeping body references here also exercises the ordinary library target. |
 | `MapFindRouteToSecondAnchor` | compiled C | [`src/map/map_population.c:12`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_population.c#L12) | `0x0072F0` | `0x0072F0` | Atomic | [`map::paths::map_find_route_to_second_anchor`](../crates/tje-game/src/map/paths.rs#L27) | production |
 | `MapIsAnchorConnectionMissing` | compiled C | [`src/map/map_population.c:71`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_population.c#L71) | `0x0077AE` | `0x0077AE` | Atomic | [`map::pipeline::map_is_anchor_connection_missing`](../crates/tje-game/src/map/pipeline.rs#L161) | production |
 | `MapChooseBackgroundTileBucket` | compiled C | [`src/map/map_drawing_and_controller.c:21`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L21) | `0x0077D8` | `0x0077D8` | Atomic | [`map::random_generation::map_choose_background_tile_bucket`](../crates/tje-game/src/map/random_generation.rs#L50) | production |

@@ -250,10 +250,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: generate_level_seeds,
     },
     crate::Translation {
-        id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
-        function: map_assign_transition_chain,
-    },
-    crate::Translation {
         id: ids::MAP_CHOOSE_BACKGROUND_TILE_BUCKET,
         function: map_choose_background_tile_bucket,
     },
@@ -378,6 +374,9 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// Bodies excluded from production until dual-revision check proof is complete.
 /// Their execution classes remain declared for faithful original fallback.
 pub static PENDING: &[crate::FunctionId] = &[
+    // Corpus REV00 frame9287: original exceeds Atomic call bound at PC006B66.
+    // RAM/ROM-only classification is retained; this is not a hardware-wait waiver.
+    ids::MAP_ASSIGN_TRANSITION_CHAIN,
     // Clock contract: settled original performs one additional VBlank/ISR.
     ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
     // Clock contract: marked-path branch observes two additional original ISR ticks.
@@ -396,6 +395,10 @@ pub static PENDING: &[crate::FunctionId] = &[
 /// Opt-in proof hooks only; production never registers this table.
 /// Keeping body references here also exercises the ordinary library target.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
+        function: map_assign_transition_chain,
+    },
     crate::Translation {
         id: ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
         function: map_animate_metatile_path_change,
