@@ -1,5 +1,6 @@
 //! Core translation ownership; see docs/PORTING.md.
 
+use crate::execution::ExecutionClass;
 use crate::{Context, Result};
 use tje_mem::ram;
 
@@ -55,12 +56,64 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     crate::ids::DRAW_LEVEL_GRAPHICS,
     crate::ids::PLAYERS_REQUIRE_SEPARATE_VIEWS,
     crate::ids::DELAY_ITERATIONS,
+    // src/core/startup_and_main_loop.c:157: one of three bounded sprite-chain
+    // writers (at most two data words), no polling or interrupt-dependent path.
+    crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+    // ibid.:282: two RAM records and ReadMappedPlayerInput, no device accesses.
+    crate::ids::GET_PLAYER_INPUT,
+    // ibid.:572: fixed Z80 reset/bus/RAM writes and six finite DelayIterations
+    // calls. No BUSACK/mailbox polling and no clock-dependent return condition.
+    crate::ids::INITIALISE_THE_Z80,
 ];
 
-// ErrorTrap (src/core/error_trap.c:5) never returns. WaitForNextVBlank
-// (src/core/startup_and_main_loop.c:142) needs interrupt-driven frame changes.
-// DrawStarfieldPlane (ibid.:88) writes 2048 data words, requiring FIFO progress.
-// None can execute through the frozen-clock atomic bridge.
+/// Reviewed original non-atomic execution contracts, including untranslated
+/// entries. These are logic classifications, not raster/cycle equivalence claims.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // src/core/startup_and_main_loop.c:88: 2048 ordered VDP data writes, no
+    // status/HV reads, unstable source, interrupt wait, or concurrent observation.
+    (crate::ids::DRAW_STARFIELD_PLANE, ExecutionClass::Functional),
+    // ibid.:142: waits for an IRQ-driven RAM frame-counter change.
+    (crate::ids::WAIT_FOR_NEXT_V_BLANK, ExecutionClass::TimeAware),
+    // ibid.:175: installed callbacks and music/controller service include Z80
+    // mailbox/BUSY waits; IRQ execution must retain real device progress.
+    (crate::ids::HANDLE_V_BLANK, ExecutionClass::TimeAware),
+    // ibid.:258: at most six data writes including the selected sprite-chain
+    // callee. No raster/status read; precise IRQ4 publication remains a separate
+    // scheduler obligation documented in docs/TIMING.md.
+    (crate::ids::HANDLE_H_BLANK, ExecutionClass::Functional),
+    // ibid.:307: GamePaused can wait for controller/frame changes.
+    (crate::ids::CHECK_START_BUTTON, ExecutionClass::TimeAware),
+    // ibid.:321: pause, inventory, and map callees have interactive frame waits.
+    (crate::ids::PROCESS_INPUT, ExecutionClass::TimeAware),
+    // ibid.:368: SetCameraPosition -> SetCameraViewOrigin -> bounded RAM row
+    // building and VDP uploads; stable per-row source and no hardware reads/waits.
+    (
+        crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+        ExecutionClass::Functional,
+    ),
+    // ibid.:376: waits on the IRQ-cleared sprite-upload byte and optional wipes.
+    (crate::ids::ENTER_SPLIT_SCREEN, ExecutionClass::TimeAware),
+    // ibid.:415: WaitForVBlankWithGraphicsPaused plus ordered camera/HUD uploads.
+    (crate::ids::ENTER_SHARED_SCREEN, ExecutionClass::TimeAware),
+    // ibid.:460: WaitForVBlankWithGraphicsPaused when display is enabled.
+    (
+        crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
+        ExecutionClass::TimeAware,
+    ),
+    // ibid.:514: invokes the split/shared/centering waits above.
+    (
+        crate::ids::UPDATE_SCREEN_SPLIT_MODE,
+        ExecutionClass::TimeAware,
+    ),
+];
+
+// Unclassified, deliberately fail-closed as ordinary RTS hooks:
+// ErrorTrap (src/core/error_trap.c:5) is a nonreturning platform terminal.
+// FurtherInitialisation (src/core/startup_and_main_loop.c:607) never returns:
+// initialization enters the persistent alternating main loop, with residual D2
+// and recorded idle-RNG/IRQ continuation requirements. VDPInitialisation
+// (ibid.:58) enters it after ResetVDP. Neither can be checked to a return sentinel
+// without a real main-loop/terminal continuation contract; no fake RTS is added.
 
 /// G/src/core/startup_and_main_loop.c:33 (`ResetVDP`, REV 02 0x00035C).
 /// Twenty ordered register writes; there is no DMA start, status read, or wait.

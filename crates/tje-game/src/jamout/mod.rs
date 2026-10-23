@@ -1,5 +1,6 @@
 //! Jam Out leaf translations; see docs/PORTING.md.
 
+use crate::execution::ExecutionClass;
 use crate::{Context, FunctionId, Result, Translation, ids};
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
@@ -39,8 +40,8 @@ pub static TRANSLATIONS: &[Translation] = &[
     },
 ];
 
-/// Each entry only reads/writes ROM/RAM, has bounded loops, and calls no original
-/// functions. None requires device clocks, interrupts, DMA, or FIFO progress.
+/// Reviewed RAM-only originals: bounded loops and callees confined to sprite
+/// allocation/release RAM. No clocks, interrupts, DMA, or FIFO progress.
 pub static ATOMIC_CAPABLE: &[FunctionId] = &[
     ids::JAM_OUT_UPDATE_LEAD_ANIMATIONS,
     ids::JAM_OUT_SYNCHRONIZE_ENTITY_COPIES,
@@ -50,10 +51,56 @@ pub static ATOMIC_CAPABLE: &[FunctionId] = &[
     ids::JAM_OUT_HIDE_EARL_COPY,
     ids::JAM_OUT_SET_TOEJAM_SEQUENCE,
     ids::JAM_OUT_SET_EARL_SEQUENCE,
+    // src/jamout/jamout.c:442: two nine-entry allocation loops. AllocateEntity
+    // and AllocateEntityViewportSprites only touch RAM. Original uninitialized
+    // lead/allocator failure state still needs a call-frame ABI, not a clock.
+    ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+    // ibid.:509: bounded handle loop; FreeEntity/viewport release only touch RAM.
+    ids::JAM_OUT_RELEASE_CHARACTER_COPIES,
 ];
 
-// JamOutDrawPackedBackgroundBlock (src/jamout/jamout.c:635) writes 280 VDP data
-// words. Its implicit FIFO stalls require clocks, so it is not an atomic hook.
+/// Reviewed original contracts, including untranslated entries.
+pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
+    // src/jamout/jamout.c:30: controller-release and 51-update exit loops,
+    // explicit VBlank waits, per-frame music, and IRQ-updated animation inputs.
+    (ids::START_JAM_OUT, ExecutionClass::TimeAware),
+    // ibid.:149: music sequencing can retry Z80 mailboxes / wait on YM BUSY;
+    // controller reads coordinate with the continuously running Z80 driver.
+    (ids::JAM_OUT_V_BLANK, ExecutionClass::TimeAware),
+    // ibid.:223: same music/controller clocks, plus ordered PCM requests.
+    (
+        ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
+        ExecutionClass::TimeAware,
+    ),
+    // ibid.:352: selected layouts call the time-aware helpers below; the
+    // no-transition path remains the same class, not a branch-dependent waiver.
+    (
+        ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
+        ExecutionClass::TimeAware,
+    ),
+    // ibid.:609: InitializeTitleTransitionTilemap -> animation VBlank wait and
+    // ClearUpperVramTilemap -> WaitForNextVBlank before their uploads.
+    (
+        ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
+        ExecutionClass::TimeAware,
+    ),
+    // ibid.:635: 280 ordered ROM-to-VDP data writes; no status/HV reads, timing
+    // observer, mutable DMA source, controller service, or interrupt wait.
+    (
+        ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+        ExecutionClass::Functional,
+    ),
+    // ibid.:654: ClearUpperVramTilemap waits for VBlank before four uploads.
+    (
+        ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
+        ExecutionClass::TimeAware,
+    ),
+    // ibid.:677: both tilemap helpers explicitly wait for VBlank.
+    (
+        ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
+        ExecutionClass::TimeAware,
+    ),
+];
 
 // MCC68K lowers every Jam Out handle-to-object index with ASL.W #7 / ADDA.W.
 // Keep the word-sized byte displacement even for out-of-range signed handles.
