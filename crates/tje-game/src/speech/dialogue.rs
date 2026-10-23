@@ -1,3 +1,4 @@
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
 use crate::{Context, Result, execution::WaitRequest, ids};
 use tje_mem::{Address, DialogueDescriptor, ObjectState, Ptr, Revision, ram, rom};
 
@@ -264,113 +265,142 @@ pub fn update_speech_and_dialogue(
     context: &mut dyn Context,
     _arguments: &[u32],
 ) -> Result<Option<u32>> {
-    let revision = context.revision();
-    let omitted_speaker = context.data_register(2);
-    let entities = ram::g_speech_bubble_entities(revision);
-    let lifetimes = ram::g_speech_bubble_lifetimes(revision);
-    for slot in 0..4 {
-        let number = i16::from(entities.at(slot).read(context));
-        if number != 0 {
-            let bubble = object(revision, number);
-            let (lifetime, expired) = decrement_bubble_lifetime(lifetimes.at(slot).read(context));
-            lifetimes.at(slot).write(context, lifetime);
-            if expired || bubble.draw_flags().read(context) & 6 == 0 {
-                crate::call(context, ids::FREE_ENTITY, &[i32::from(number) as u32])?;
-                entities.at(slot).write(context, 0);
-            }
-        }
-    }
-    let timers = ram::g_delayed_speech_reply_timers(revision);
-    for slot in 0..2 {
-        if timers.at(slot).read(context) != 0 {
-            let next = timers.at(slot).read(context).wrapping_sub(1);
-            timers.at(slot).write(context, next);
-            if next == 0 {
-                let text = ram::g_delayed_speech_reply_texts(revision)
-                    .at(slot)
-                    .read(context)
-                    .address();
-                let speaker = i32::from(
-                    ram::g_delayed_speech_reply_speakers(revision)
-                        .at(slot)
-                        .read(context),
-                );
-                crate::call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 1])?;
-            }
-        }
-    }
-    if crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 0x1fff == 1 {
-        let player = (crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 1) as i8;
-        let mask = u32::from(
-            object(revision, i16::from(player))
-                .draw_flags()
-                .read(context)
-                & 6,
-        );
-        if crate::call(
-            context,
-            ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK,
-            &[mask],
-        )? != 0
-        {
-            let slot =
-                crate::call(context, ids::START_DIALOGUE, &[0, i32::from(player) as u32])? as i16;
-            if slot != -1 {
-                crate::call(
-                    context,
-                    ids::PLAY_SOUND_EFFECT,
-                    &[rom::sfx_achoo(revision).address(), 50, 0],
-                )?;
-                if ram::g_split_screen_enabled(revision).read(context) != 0 {
-                    timers.at(i32::from(slot)).write(context, 0);
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x1c))?;
+    let result: Result<Option<u32>> = (|| {
+        let revision = context.revision();
+        context.set_address_register(2, ids::START_DIALOGUE.metadata().address(revision));
+        context.set_address_register(3, ram::g_player_info(revision).address());
+        context.set_address_register(4, ids::GET_RANDOM_NUMBER.metadata().address(revision));
+        let entities = ram::g_speech_bubble_entities(revision);
+        let lifetimes = ram::g_speech_bubble_lifetimes(revision);
+        for slot in 0..4 {
+            let number = i16::from(entities.at(slot).read(context));
+            if number != 0 {
+                let bubble = object(revision, number);
+                let (lifetime, expired) =
+                    decrement_bubble_lifetime(lifetimes.at(slot).read(context));
+                lifetimes.at(slot).write(context, lifetime);
+                if expired || bubble.draw_flags().read(context) & 6 == 0 {
+                    crate::call(context, ids::FREE_ENTITY, &[i32::from(number) as u32])?;
+                    entities.at(slot).write(context, 0);
                 }
             }
         }
-    }
-    let first = object(revision, 0);
-    let second = object(revision, 1);
-    if first.level().read(context) == second.level().read(context) {
-        let dx = i32::from(first.x().read(context)) - i32::from(second.x().read(context));
-        let distance_x = crate::call(context, ids::ABS, &[dx as u32])? as i16;
-        let dy = i32::from(first.y().read(context)) - i32::from(second.y().read(context));
-        let distance_y = crate::call(context, ids::ABS, &[dy as u32])? as i16;
-        if ram::g_reunion_dialogue_pending(revision).read(context) != 0
-            && ram::g_split_screen_enabled(revision).read(context) == 0
-            && distance_x < 260
-            && distance_y < 174
-        {
-            let dialogue = if crate::call(context, ids::PLAYER_HAS_ODD_ELEVATOR_STATE, &[0])? != 0
-                && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 3 == 0
+        let timers = ram::g_delayed_speech_reply_timers(revision);
+        for slot in 0..2 {
+            if timers.at(slot).read(context) != 0 {
+                let next = timers.at(slot).read(context).wrapping_sub(1);
+                timers.at(slot).write(context, next);
+                if next == 0 {
+                    let text = ram::g_delayed_speech_reply_texts(revision)
+                        .at(slot)
+                        .read(context)
+                        .address();
+                    let speaker = i32::from(
+                        ram::g_delayed_speech_reply_speakers(revision)
+                            .at(slot)
+                            .read(context),
+                    );
+                    crate::call(context, ids::GENERATE_SPEECH, &[speaker as u32, text, 1])?;
+                }
+            }
+        }
+        if crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 0x1fff == 1 {
+            let player = (crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 1) as i8;
+            let mask = u32::from(
+                object(revision, i16::from(player))
+                    .draw_flags()
+                    .read(context)
+                    & 6,
+            );
+            if crate::call(
+                context,
+                ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK,
+                &[mask],
+            )? != 0
             {
-                3
-            } else if crate::call(context, ids::PLAYER_HAS_ODD_ELEVATOR_STATE, &[1])? != 0
-                && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 3 == 0
+                let slot =
+                    crate::call(context, ids::START_DIALOGUE, &[0, i32::from(player) as u32])?
+                        as i16;
+                if slot != -1 {
+                    crate::call(
+                        context,
+                        ids::PLAY_SOUND_EFFECT,
+                        &[rom::sfx_achoo(revision).address(), 50, 0],
+                    )?;
+                    if ram::g_split_screen_enabled(revision).read(context) != 0 {
+                        timers.at(i32::from(slot)).write(context, 0);
+                    }
+                }
+            }
+        }
+        let first = object(revision, 0);
+        let second = object(revision, 1);
+        if first.level().read(context) == second.level().read(context) {
+            let dx = i32::from(first.x().read(context)) - i32::from(second.x().read(context));
+            let distance_x = crate::call(context, ids::ABS, &[dx as u32])? as i16;
+            let dy = i32::from(first.y().read(context)) - i32::from(second.y().read(context));
+            let distance_y = crate::call(context, ids::ABS, &[dy as u32])? as i16;
+            if ram::g_reunion_dialogue_pending(revision).read(context) != 0
+                && ram::g_split_screen_enabled(revision).read(context) == 0
+                && distance_x < 260
+                && distance_y < 174
             {
-                4
-            } else {
-                1
-            };
-            crate::call(context, ids::START_DIALOGUE, &[dialogue, omitted_speaker])?;
-            ram::g_reunion_dialogue_pending(revision).write(context, 0);
-        } else if distance_x > 640 || distance_y > 448 {
+                let dialogue = if crate::call(context, ids::PLAYER_HAS_ODD_ELEVATOR_STATE, &[0])?
+                    != 0
+                    && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 3 == 0
+                {
+                    3
+                } else if crate::call(context, ids::PLAYER_HAS_ODD_ELEVATOR_STATE, &[1])? != 0
+                    && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 3 == 0
+                {
+                    4
+                } else {
+                    1
+                };
+                crate::call_at(
+                    context,
+                    ids::START_DIALOGUE,
+                    &[dialogue],
+                    CallSite::relative(ids::UPDATE_SPEECH_AND_DIALOGUE, revision, 0x1de),
+                )?;
+                ram::g_reunion_dialogue_pending(revision).write(context, 0);
+            } else if distance_x > 640 || distance_y > 448 {
+                ram::g_reunion_dialogue_pending(revision).write(context, 1);
+            }
+            // ORIGINAL BUG: the bound visits only player zero; the dead else arm's
+            // alternate dialogue is never substituted for this one.
+            if ram::g_player_control_remap_entities(revision)
+                .at(0)
+                .read(context)
+                != 0
+                && distance_x < 30
+                && distance_y < 20
+                && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 0xff == 2
+            {
+                crate::call_at(
+                    context,
+                    ids::START_DIALOGUE,
+                    &[22],
+                    CallSite::relative(ids::UPDATE_SPEECH_AND_DIALOGUE, revision, 0x238),
+                )?;
+            }
+        } else {
             ram::g_reunion_dialogue_pending(revision).write(context, 1);
         }
-        // ORIGINAL BUG: the bound visits only player zero; the dead else arm's
-        // alternate dialogue is never substituted for this one.
-        if ram::g_player_control_remap_entities(revision)
-            .at(0)
-            .read(context)
-            != 0
-            && distance_x < 30
-            && distance_y < 20
-            && crate::call(context, ids::GET_RANDOM_NUMBER, &[])? & 0xff == 2
-        {
-            crate::call(context, ids::START_DIALOGUE, &[22, omitted_speaker])?;
-        }
-    } else {
-        ram::g_reunion_dialogue_pending(revision).write(context, 1);
+        Ok(None)
+    })();
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
     }
-    Ok(None)
+    let leave = frame.leave(context);
+    match (result, leave) {
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
 }
 
 #[cfg(test)]

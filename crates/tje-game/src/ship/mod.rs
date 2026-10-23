@@ -2,6 +2,7 @@
 
 mod background;
 mod collection;
+mod screen;
 pub use background::{
     animate_ship_screen_background, animate_transition_background,
     initialize_ship_screen_tilemap_and_palettes, restore_gameplay_graphics,
@@ -11,6 +12,7 @@ pub use collection::{
     play_ship_completion_sequence, ship_piece_ability, ship_update_pending_piece_indicator,
     show_random_uncollected_ship_piece,
 };
+pub use screen::{animate_ship_screen_palette, show_ship_pieces};
 
 use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{ram, rom};
@@ -74,6 +76,14 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
         function: show_random_uncollected_ship_piece,
     },
+    crate::Translation {
+        id: ids::ANIMATE_SHIP_SCREEN_PALETTE,
+        function: animate_ship_screen_palette,
+    },
+    crate::Translation {
+        id: ids::SHOW_SHIP_PIECES,
+        function: show_ship_pieces,
+    },
 ];
 
 pub static PENDING: &[crate::FunctionId] = &[
@@ -87,15 +97,15 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::SHOW_SHIP_PIECE_NAME,
     // The same timed bound expires before the 240-frame acknowledgement timeout.
     ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
-    // No body: palette[16] escapes through a callee pointer; requires a frame.
+    // Frame-backed palette array and retained outgoing slots; timed proof pending.
     ids::ANIMATE_SHIP_SCREEN_PALETTE,
-    // No body: sprites[50] plus residual stack tail are read by a 640-byte DMA.
+    // dependent residual: awaiting dependent-equivalence proof
     ids::SHOW_SHIP_PIECES,
     // PlayEndingSequence transitively reads EndingPlayBouncingRocketshipScene's
     // uninitialized movement_frame stack word; residual call-frame API required.
     ids::PLAY_SHIP_COMPLETION_SEQUENCE,
-    // ShowShipPieces passes a partly initialized stack-local sprite array to
-    // a 640-byte DMA; neither that frame nor its residual tail is yet modeled.
+    // Source-backed ShowShipPieces callers retain their original stack layout;
+    // the callee's residual DMA and scene timing remain unapproved.
     ids::SHIP_PIECE_ABILITY,
     ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
 ];

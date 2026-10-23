@@ -336,6 +336,64 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                 check(host, &[1])?;
             }
         }
+        ids::ANIMATE_SHIP_SCREEN_PALETTE => {
+            // Explicit disabled-display/IRQ-masked boundary first: all local
+            // palette bytes and retained call slots are still real RAM.
+            prepare_fixture_irqs(host);
+            let mut c = host.context();
+            ram::g_mode2_reg_softcopy(revision).write(&mut c, 0x20);
+            let sr = c.status_register() | 0x0700;
+            c.set_status_register(sr);
+            c.write_vdp_control(0x8124);
+            ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+            ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
+            drop(c);
+            check(host, &[])?;
+            // Do not shorten the real enabled-display sequence to fit a bound.
+            prepare_fixture_irqs(host);
+            check(host, &[])?;
+        }
+        ids::SHOW_SHIP_PIECES => {
+            // A real repeating pad-A timeline lets the original acknowledgement
+            // press/release loop exit, without poking its timer or readiness.
+            let start = host.frame_count();
+            let mut timeline = InputScript::default();
+            for pulse in 0..30 {
+                timeline.holds.push(tje_host::input::InputHold {
+                    start: start + pulse * 6,
+                    end: start + pulse * 6 + 3,
+                    p1: vec![tje_host::input::Button::A],
+                    p2: vec![],
+                });
+            }
+            host.set_wait_input_poller(Arc::new(timeline));
+            let mut c = host.context();
+            let mode = ram::g_mode2_reg_softcopy(revision).read(&c) | 0x60;
+            ram::g_mode2_reg_softcopy(revision).write(&mut c, mode);
+            ram::g_v_blank_func(revision).write(&mut c, Ptr::new(0));
+            ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
+            ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
+            ram::g_v_blank_graphics_paused(revision).write(&mut c, 0);
+            ram::g_v_blank_audio_input_override(revision).write(&mut c, 0);
+            let sr = c.status_register() & !0x0700;
+            c.set_status_register(sr);
+            c.write_vdp_control(0x8104 | u16::from(mode));
+            ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+            ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
+            ram::g_player_inventory_open(revision)
+                .at(0)
+                .write(&mut c, 0);
+            ram::g_player_inventory_open(revision)
+                .at(1)
+                .write(&mut c, 0);
+            for piece in 0..10 {
+                ram::g_ship_piece_level_assignments(revision)
+                    .at(piece)
+                    .write(&mut c, 2);
+            }
+            drop(c);
+            check(host, &[u32::MAX, 2])?;
+        }
         ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES => {
             prepare_fixture_irqs(host);
             // Initialization is called with the display blanked by ShowShipPieces.
