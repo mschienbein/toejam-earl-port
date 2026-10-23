@@ -111,6 +111,14 @@ Content evidence is deliberately stricter than a function merely being available
   are never mistaken for collected pieces.
 - Jam Out: `StartJamOut` entry. Ending-start and scrolling credits are separate
   milestones; neither is a claim that the entire ending has completed.
+- Friendly services: wizard/opera require their paid active RAM states; wiseman
+  identification requires the actual identify-call entry and a two-buck decrease,
+  not merely opening its menu. Santa requires the drop ability, a valid Santa
+  record in dropping state and a changed dropped-present insertion index. Telephone
+  answering requires map entry with the source's reveal mode set, not just ringing.
+  Hula/hot-tub/clap use their actual player poses; lemonade uses its granted-reward
+  state. A life request needs accepted consent plus revival and the donor's original
+  counter effect. Failed prompts, declines and idle handler calls do not count.
 
 First-observed frame values in a union are evidence from one contributing session,
 not a shared timeline. Use the per-session records to identify that timeline.
@@ -178,7 +186,14 @@ The goal-directed planner minimizes edge exposure, accounts for active elevator
 collision geometry and moving Earthlings, approaches the original doorway strip
 before pressing Up, exits arrival elevators, chooses inventory slots through the
 real cursor and holds actions through both controller-poll parities. It never
-grants presents or health. `campaign` prioritizes uncollected ship-piece records;
+grants presents or health.
+
+Land routes never silently retry as swimming routes: an unreachable land goal is
+reported to its caller, which must explicitly choose swimming or use a real
+mobility present. This prevents inaccessible item goals from becoming drowning
+instructions while preserving explicit `game-over` and travel goals.
+
+`campaign` prioritizes uncollected ship-piece records;
 `explore` also seeks missing presents and friendly interactions; `coop` separates
 and rejoins the players before riding together; `game-over` deliberately drowns
 the player through the last-life sequence. `jam-all` selects all eight original

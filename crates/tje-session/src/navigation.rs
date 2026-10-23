@@ -124,9 +124,6 @@ impl Navigator {
             || (self.path_index >= self.path.len() && self.reachable)
         {
             self.plan(memory, revision, player, position, goal);
-            if !self.reachable && goal.1 == Travel::Land {
-                self.plan(memory, revision, player, position, (goal.0, Travel::Swim));
-            }
             self.target = Some(goal);
             self.last_plan = frame;
             if frame.saturating_sub(self.last_motion) > 60 {
@@ -551,5 +548,32 @@ mod tests {
             ((212, 84), Travel::Land),
         );
         assert!(navigator.reachable);
+    }
+
+    #[test]
+    fn land_failure_does_not_silently_become_a_drowning_route() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 1);
+        player.x().write(&mut memory, 164);
+        player.y().write(&mut memory, 84);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        navigator.terrain[10 * WIDTH + 20] = 0x10;
+        navigator.terrain[10 * WIDTH + 21] = 0x80;
+        navigator.terrain[10 * WIDTH + 22] = 0x10;
+        navigator.terrain[10 * WIDTH + 23] = 0x10;
+        let memory = Ram(memory.ram());
+        assert!(
+            navigator
+                .toward(&memory, &[], revision, 0, ((188, 84), Travel::Land), 10)
+                .is_none()
+        );
+        assert!(
+            navigator
+                .toward(&memory, &[], revision, 0, ((188, 84), Travel::Swim), 11)
+                .is_some()
+        );
     }
 }

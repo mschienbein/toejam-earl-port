@@ -80,6 +80,18 @@ fn sample_addresses(revision: Revision) -> Vec<u32> {
         ram::g_player_bucks(revision).address(),
         ram::g_player_bucks(revision).address() + 1,
     ]);
+    samples.extend([
+        ram::g_map_reveal_mode(revision).address(),
+        ram::g_map_reveal_mode(revision).address() + 1,
+        ram::g_player_lives(revision).address(),
+        ram::g_player_lives(revision).address() + 1,
+        ram::g_dropped_present_table_idx(revision).address(),
+        ram::g_player_interaction_responses(revision).address(),
+        ram::g_player_interaction_responses(revision).address() + 1,
+        ram::g_life_request_pending(revision).address(),
+        ram::g_life_request_pending(revision).address() + 1,
+        ram::g_player_selection(revision).address(),
+    ]);
     samples
 }
 
@@ -128,6 +140,8 @@ pub fn host(bytes: &[u8], mode: Mode, revision: Revision, capture_ticks: bool) -
                     | "IntroVideo"
                     | "PlayerFinalizeLastLifeExit"
                     | "GameProgram"
+                    | "DropPresentsAbility"
+                    | "PlayerProcessLifeRequest"
             )
         })
         .map(|function| function.address(revision))
@@ -254,6 +268,7 @@ impl Content {
                 "controller_options",
                 "promotion",
                 "last_life_exit",
+                "present_identified",
             ]
             .into_iter()
             .map(|name| (name.into(), None))
@@ -269,6 +284,11 @@ impl Content {
                 "mail_order_purchase",
                 "lemonade_reward",
                 "hottub_bath",
+                "santa_gifts",
+                "hula_dance",
+                "telephone_answered",
+                "health_clap",
+                "life_request",
             ]
             .into_iter()
             .map(|name| (name.into(), None))
@@ -325,6 +345,9 @@ pub struct Coverage {
     previous_ranks: [i8; 2],
     ever_split: bool,
     mail_purchase: Option<(usize, i8, u64)>,
+    identification: Option<(usize, i8, u64)>,
+    santa_drop: Option<(u32, u8, u64)>,
+    life_request: Option<(usize, i8, bool, u64)>,
 }
 impl Coverage {
     pub fn new() -> Self {
@@ -338,6 +361,9 @@ impl Coverage {
             previous_ranks: [-1; 2],
             ever_split: false,
             mail_purchase: None,
+            identification: None,
+            santa_drop: None,
+            life_request: None,
         }
     }
     pub fn observe(
@@ -361,6 +387,7 @@ impl Coverage {
             return;
         }
         let memory = Ram(&snapshot.ram);
+        self.observe_transactions(&memory, revision, frame);
         let ship = std::array::from_fn(|index| {
             ram::g_ship_piece_level_assignments(revision)
                 .at(index as i32)
@@ -491,6 +518,7 @@ impl Coverage {
                         == 2,
                 ),
                 ("hottub_bath", view.sprite_state().read(&memory) == 119),
+                ("hula_dance", view.sprite_state().read(&memory) == 89),
             ] {
                 if state {
                     self.content
@@ -565,6 +593,85 @@ impl Coverage {
             }
         }
     }
+    fn observe_transactions(&mut self, memory: &Ram<'_>, revision: Revision, frame: u64) {
+        if let Some((player, before, started)) = self.identification {
+            if frame <= started + 2
+                && ram::g_player_bucks(revision).at(player as i32).read(memory) == before - 2
+            {
+                self.content
+                    .friendly_interactions
+                    .entry("wiseman_identification".into())
+                    .or_default()
+                    .get_or_insert(frame);
+                self.content.mark("present_identified", frame);
+                self.identification = None;
+            } else if frame > started + 2 {
+                self.identification = None;
+            }
+        }
+        if let Some((address, before, started)) = self.santa_drop {
+            let base = ram::g_earthling_banks(revision).address();
+            // Two banks of twenty 18-byte records, as declared in ram_earthlings.h.
+            let valid =
+                address >= base && address < base + 720 && (address - base).is_multiple_of(18);
+            if valid && frame <= started + 8 {
+                let santa = tje_mem::Address::<tje_mem::EarthlingState>::new(address);
+                if santa.kind().read(memory) == 20
+                    && santa.state().read(memory) == 3
+                    && ram::g_dropped_present_table_idx(revision).read(memory) as u8 != before
+                {
+                    self.content
+                        .friendly_interactions
+                        .entry("santa_gifts".into())
+                        .or_default()
+                        .get_or_insert(frame);
+                    self.santa_drop = None;
+                }
+            } else {
+                self.santa_drop = None;
+            }
+        }
+        if let Some((receiver, donor_before, was_two, started)) = self.life_request {
+            if frame <= started + 180
+                && ram::g_player_lives(revision)
+                    .at(receiver as i32)
+                    .read(memory)
+                    >= 0
+                && ram::g_player_lives(revision)
+                    .at((receiver ^ 1) as i32)
+                    .read(memory)
+                    == donor_before - i8::from(was_two)
+            {
+                self.content
+                    .friendly_interactions
+                    .entry("life_request".into())
+                    .or_default()
+                    .get_or_insert(frame);
+                self.life_request = None;
+            } else if frame > started + 180 {
+                self.life_request = None;
+            }
+        }
+        if ram::g_player_selection(revision).read(memory) == 2
+            && (0..2).all(|player| {
+                ram::g_player_lives(revision).at(player).read(memory) >= 0
+                    && matches!(
+                        ram::g_player_info(revision)
+                            .at(player)
+                            .sprite_state()
+                            .read(memory),
+                        90 | 91
+                    )
+            })
+        {
+            self.content
+                .friendly_interactions
+                .entry("health_clap".into())
+                .or_default()
+                .get_or_insert(frame);
+        }
+    }
+
     fn entry(&mut self, event: &EntryObservation, revision: Revision) {
         let frame = event.frame;
         match entry_name(revision, event.address) {
@@ -576,6 +683,9 @@ impl Coverage {
                 self.collecting_ship = false;
                 self.mail_purchase = None;
                 self.ever_split = false;
+                self.identification = None;
+                self.santa_drop = None;
+                self.life_request = None;
             }
             "OpenPresent" => {
                 let player = event.stack_slots[0] as u16 as usize;
@@ -621,7 +731,16 @@ impl Coverage {
                     .unwrap()
                     .get_or_insert(frame);
             }
-            "DrawGameMap" => self.content.mark("map_screen", frame),
+            "DrawGameMap" => {
+                self.content.mark("map_screen", frame);
+                if event.ram_samples.get(40..42) == Some(&[0, 1][..]) {
+                    self.content
+                        .friendly_interactions
+                        .entry("telephone_answered".into())
+                        .or_default()
+                        .get_or_insert(frame);
+                }
+            }
             "ElevatorBeginRideScene" => self.content.mark("elevator_ride", frame),
             "ShipPieceAbility" => self.collecting_ship = true,
             "StartJamOut" => {
@@ -642,12 +761,17 @@ impl Coverage {
             "PlayerFinalizeLastLifeExit" => self.content.mark("last_life_exit", frame),
             "InventoryOpenMailOrderMenu" => self.content.mark("inventory_mail_order", frame),
             "InventoryOpenIdentificationMenu" => {
-                self.content.mark("inventory_identification", frame);
-                self.content
-                    .friendly_interactions
-                    .entry("wiseman_identification".into())
-                    .or_default()
-                    .get_or_insert(frame);
+                self.content.mark("inventory_identification", frame)
+            }
+            "InventoryIdentifySelectedPresent" => {
+                let player = event.stack_slots[0] as u16 as usize;
+                if player < 2
+                    && event.ram_samples.len() >= 40
+                    && (event.ram_samples[38 + player] as i8) >= 2
+                {
+                    self.identification =
+                        Some((player, event.ram_samples[38 + player] as i8, frame));
+                }
             }
             "InventoryDropSelectedPresent" => self.content.mark("inventory_drop", frame),
             "MenuControllerOptionsHandler" => self.content.mark("controller_options", frame),
@@ -657,6 +781,33 @@ impl Coverage {
                 if player < 2 && event.ram_samples.len() >= 40 {
                     self.mail_purchase =
                         Some((player, event.ram_samples[38 + player] as i8, event.frame));
+                }
+            }
+            "DropPresentsAbility" => {
+                if event.ram_samples.len() >= 45 && event.ram_samples[44] < 32 {
+                    self.santa_drop = Some((
+                        event.stack_slots[1] & 0xFFFFFF,
+                        event.ram_samples[44],
+                        frame,
+                    ));
+                }
+            }
+            "PlayerProcessLifeRequest" => {
+                let receiver = event.stack_slots[0] as u16 as usize;
+                let samples = &event.ram_samples;
+                if receiver < 2
+                    && samples.len() >= 50
+                    && (samples[42 + receiver] as i8) < 0
+                    && (samples[42 + (receiver ^ 1)] as i8) > 0
+                    && samples[45 + (receiver ^ 1)] == 2
+                    && samples[47..49] != [0, 0]
+                {
+                    self.life_request = Some((
+                        receiver,
+                        samples[42 + (receiver ^ 1)] as i8,
+                        samples[49] == 2,
+                        frame,
+                    ));
                 }
             }
             _ => {}
@@ -1090,5 +1241,144 @@ mod tests {
         assert_eq!(memory.read_u16(0xff8000), 0);
         timeline.before_frame(2, &mut memory).unwrap();
         assert_eq!(memory.read_u16(0xff8000), 0x1234);
+    }
+
+    fn observed_entry(
+        name: &str,
+        frame: u64,
+        stack_slots: [u32; 4],
+        ram_samples: Vec<u8>,
+    ) -> EntryObservation {
+        let address = tje_game::functions()
+            .find(|function| function.name == name)
+            .unwrap()
+            .address(Revision::Rev02);
+        EntryObservation {
+            address,
+            frame,
+            stack_slots,
+            ram_samples,
+        }
+    }
+
+    #[test]
+    fn identification_requires_the_actual_two_buck_transaction() {
+        let revision = Revision::Rev02;
+        let mut coverage = Coverage::new();
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        coverage.entry(
+            &observed_entry("InventoryOpenIdentificationMenu", 10, [0; 4], vec![0; 50]),
+            revision,
+        );
+        assert_eq!(
+            coverage.content.milestones["inventory_identification"],
+            Some(10)
+        );
+        assert_eq!(
+            coverage.content.friendly_interactions["wiseman_identification"],
+            None
+        );
+        let mut samples = vec![0; 50];
+        samples[38] = 3;
+        ram::g_player_bucks(revision).at(0).write(&mut memory, 3);
+        coverage.entry(
+            &observed_entry("InventoryIdentifySelectedPresent", 11, [0; 4], samples),
+            revision,
+        );
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 11);
+        assert_eq!(
+            coverage.content.friendly_interactions["wiseman_identification"],
+            None
+        );
+        ram::g_player_bucks(revision).at(0).write(&mut memory, 1);
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 12);
+        assert_eq!(
+            coverage.content.friendly_interactions["wiseman_identification"],
+            Some(12)
+        );
+    }
+
+    #[test]
+    fn telephone_answer_is_reveal_map_entry_not_merely_a_map_or_ring() {
+        let revision = Revision::Rev02;
+        let mut coverage = Coverage::new();
+        let mut samples = vec![0; 50];
+        coverage.entry(
+            &observed_entry("DrawGameMap", 10, [0; 4], samples.clone()),
+            revision,
+        );
+        assert_eq!(
+            coverage.content.friendly_interactions["telephone_answered"],
+            None
+        );
+        samples[41] = 1;
+        coverage.entry(
+            &observed_entry("DrawGameMap", 11, [0; 4], samples),
+            revision,
+        );
+        assert_eq!(
+            coverage.content.friendly_interactions["telephone_answered"],
+            Some(11)
+        );
+    }
+
+    #[test]
+    fn santa_requires_a_valid_record_and_a_real_new_dropped_present() {
+        let revision = Revision::Rev02;
+        let mut coverage = Coverage::new();
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let santa = ram::g_earthling_banks(revision).at(0).at(2);
+        santa.kind().write(&mut memory, 20);
+        santa.state().write(&mut memory, 3);
+        ram::g_dropped_present_table_idx(revision).write(&mut memory, 5);
+        let mut samples = vec![0; 50];
+        samples[44] = 5;
+        coverage.entry(
+            &observed_entry(
+                "DropPresentsAbility",
+                10,
+                [0, santa.address(), 0, 0],
+                samples,
+            ),
+            revision,
+        );
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 10);
+        assert_eq!(coverage.content.friendly_interactions["santa_gifts"], None);
+        ram::g_dropped_present_table_idx(revision).write(&mut memory, 6);
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 11);
+        assert_eq!(
+            coverage.content.friendly_interactions["santa_gifts"],
+            Some(11)
+        );
+    }
+
+    #[test]
+    fn life_request_requires_acceptance_and_both_counter_effects() {
+        let revision = Revision::Rev02;
+        let mut coverage = Coverage::new();
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        ram::g_player_lives(revision).at(0).write(&mut memory, 3);
+        ram::g_player_lives(revision).at(1).write(&mut memory, -1);
+        let mut samples = vec![0; 50];
+        samples[42] = 3;
+        samples[43] = 255;
+        samples[45] = 2;
+        samples[48] = 1;
+        samples[49] = 2;
+        coverage.entry(
+            &observed_entry("PlayerProcessLifeRequest", 10, [1, 0, 0, 0], samples),
+            revision,
+        );
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 10);
+        assert_eq!(coverage.content.friendly_interactions["life_request"], None);
+        ram::g_player_lives(revision).at(1).write(&mut memory, 0);
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 11);
+        assert_eq!(coverage.content.friendly_interactions["life_request"], None);
+        ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+        coverage.observe_transactions(&Ram(memory.ram()), revision, 12);
+        assert_eq!(
+            coverage.content.friendly_interactions["life_request"],
+            Some(12)
+        );
     }
 }
