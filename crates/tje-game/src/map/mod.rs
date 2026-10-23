@@ -1,5 +1,6 @@
-// MapDrawFixedBackgroundDecorations is deferred: its nine VDP data writes
-// necessarily exceed the four-entry frozen FIFO and wait for hardware clocks.
+// Original execution classes include untranslated routines; see contracts.rs.
+mod contracts;
+pub use contracts::EXECUTION_CONTRACTS;
 mod generation;
 mod paths;
 mod regions;
@@ -195,6 +196,49 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::MAP_FIND_PATH_SHAPE_FOR_METATILE,
     ids::MAP_GET_BANK_PATH_DIRECTIONS,
     ids::PLAYER_IS_NEAR_TERRAIN_EDGE,
+    // G/src/map/level_generation_and_changes.c:86,208,292,418,435,482:
+    // RAM/ROM generation and RNG only; no device/frame observations or waits.
+    ids::MAP_BUILD_FILLED_TERRAIN_SHAPES,
+    ids::MAP_SCATTER_TERRAIN_FEATURES,
+    ids::MAP_CHOOSE_METATILE_ALTERNATIVES,
+    ids::GENERATE_LEVEL_SEEDS,
+    ids::MAP_GENERATE_SEPARATED_ANCHORS,
+    ids::MAP_CONNECT_ANCHOR_POSITIONS,
+    // G/src/map/random_regions_and_cleanup.c:60,89,182,293,433,609,630,674:
+    // RAM scans, RNG, and RAM-only original callees. Original stack references in
+    // growth are a translation/frame concern, not a clock-progress requirement.
+    ids::MAP_GET_RANDOM_GENERATION_PARAMETER,
+    ids::MAP_CARVE_DIRECTIONAL_PATH,
+    ids::MAP_FIND_REGION_GROWTH_ORIGIN,
+    ids::MAP_GROW_TERRAIN_REGION,
+    ids::MAP_EXPAND_REGIONS_BESIDE_PATHS,
+    ids::MAP_STABILIZE_REGION_CONNECTIONS,
+    ids::MAP_SEED_FILLED_TERRAIN_REGIONS,
+    ids::MAP_BUILD_REGION_EDGE_SHAPES,
+    // G/src/map/transition_paths.c:26,128 and map_population.c:71:
+    // recursive RAM/ROM connectivity and transition searches; no clock observer.
+    ids::MAP_TRACE_TRANSITION_CHAIN,
+    ids::MAP_ASSIGN_TRANSITION_CHAIN,
+    ids::MAP_IS_ANCHOR_CONNECTION_MISSING,
+    // G/src/map/map_drawing_and_controller.c:21: RNG-only bucket selection.
+    ids::MAP_CHOOSE_BACKGROUND_TILE_BUCKET,
+    // G/src/map/terrain_at_position.c:17,54: ROM terrain lookup, doorway RAM
+    // query (present_effects.c:205), and RAM cache writes; no hardware waits.
+    ids::GET_MAP_TERRAIN_AT_WORLD_POSITION,
+    ids::UPDATE_LAND_AROUND_PLAYER,
+    // G/src/map/terrain_placement.c:13,80: RNG/ROM search and RAM coordinates;
+    // ElevatorContainsPosition is RAM/abs only. Local output addresses and
+    // unsuccessful-search residuals are frame concerns, not time dependencies.
+    ids::TERRAIN_VALIDATION,
+    ids::SET_POSITION_ON_NEW_LEVEL,
+    // G/src/map/land_processing.c:43,91: allocation/eviction is RAM-only.
+    // AllocateEntity/FreeEntity (sprite_slots.c:238/259) and shared tomato
+    // release (projectile_effects.c:274) never wait or access a device.
+    ids::ALLOCATE_ENTITY_WITH_EVICTION,
+    ids::ENTITY_RELEASE_ONE_BY_PRIORITY,
+    // Same file:146: RNG/ROM shape selection and RAM-only direction updates.
+    // The original uninitialized shape path is not reclassified as a time wait.
+    ids::MAP_CONSUME_PATH_CELL_DIRECTIONS,
 ];
 #[cfg(test)]
 mod tests {
