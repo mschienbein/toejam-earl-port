@@ -423,7 +423,8 @@ fn main() -> Result<()> {
         "fixed scanline must lie in active NTSC display"
     );
     let rom = Rom::import(&fs::read(&args.rom)?)?;
-    let revision = match rom.revision() {
+    let rom_revision = rom.revision();
+    let revision = match rom_revision {
         tje_rom::Revision::Rev02 => "rev02",
         tje_rom::Revision::Rev00 => "rev00",
     };
@@ -446,11 +447,11 @@ fn main() -> Result<()> {
         frames: args.frames,
         ..Summary::default()
     };
-    // Source-relative offsets are measured original loop labels, not ABI metadata.
-    let further = symbols.address("FurtherInitialisation")?;
-    let main_loop = further + (catalogue::MAIN_LOOP - 0x1286);
-    let main_wait = further + (catalogue::MAIN_WAIT - 0x1286);
-    let idle_return = further + (catalogue::IDLE_RANDOM_RETURN - 0x1286);
+    // Loop labels inside FurtherInitialisation, resolved per revision by the host catalogue.
+    let loop_labels = catalogue::RevisionSymbols::for_revision(rom_revision);
+    let main_loop = loop_labels.main_loop;
+    let main_wait = loop_labels.main_wait;
+    let idle_return = loop_labels.idle_random_return;
     let random = symbols.address("GetRandomNumber")?;
     let hint = symbols.address("Level4Isr")?;
     let mut audio = Sink::default();
