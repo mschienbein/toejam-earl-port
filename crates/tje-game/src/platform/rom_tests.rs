@@ -91,7 +91,17 @@ fn platform_10000_frames_and_labeled_live_fixtures_both_revisions() {
         (Revision::Rev00, "TJE_REV00_ROM"),
     ] {
         let bytes = fs::read(std::env::var_os(key).expect("private cartridge path")).unwrap();
-        let registry = HookRegistry::filtered(revision, &["platform"], &[]).unwrap();
+        let registry = HookRegistry::filtered(
+            revision,
+            &[],
+            &[
+                ids::DISABLE_ALL_INTERRUPTS,
+                ids::ENABLE_ALL_INTERRUPTS,
+                ids::GET_CTRL1_INPUT,
+                ids::GET_CTRL2_INPUT,
+            ],
+        )
+        .unwrap();
         let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
         for frame in 0..10_000 {

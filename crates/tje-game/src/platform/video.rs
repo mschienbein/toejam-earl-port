@@ -1,5 +1,8 @@
 //! Ordered Functional VDP transactions; no clock/readiness shortcuts in game code.
-use crate::{Context, Result};
+use crate::{
+    Context, Result,
+    call_frame::{FrameLayout, LocalFrame},
+};
 use tje_mem::ram;
 
 fn count_words(value: u32) -> u32 {
@@ -171,6 +174,9 @@ pub fn copy_palette_to_cram_slot(
 /// G/src/asm/dma.s:15 (`DmaCopyWordsToVram`): ordered count/source register writes,
 /// RAM command publication, split command words, preserved D2–D4, exact D0/D1/CCR.
 pub fn dma_copy_words_to_vram(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    // dma.s:16,74: these bytes are live DMA input when a zero-length transfer
+    // spans RAM, so a value-only register save is not equivalent.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0))?;
     let source = arguments[0];
     let destination = arguments[1];
     let count = arguments[2];
@@ -197,5 +203,6 @@ pub fn dma_copy_words_to_vram(context: &mut dyn Context, arguments: &[u32]) -> R
     context.set_data_register(1, low_command);
     // Packed ADD.L cannot carry; the final MOVE.W is in the range 0x0080..0x0083.
     move_ccr(context, u32::from(low), 0x8000, false);
+    frame.leave(context)?;
     Ok(None)
 }

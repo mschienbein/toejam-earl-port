@@ -1,18 +1,31 @@
-//! Opt-in proof target: published platform leaves plus explicitly pending DMA.
+//! Opt-in regression for the four Atomic and ten Functional platform leaves.
 use std::{fs, path::PathBuf};
-use tje_game::{Context, FunctionId, ids, platform};
+use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram, rom};
 
 fn registry(revision: Revision) -> HookRegistry {
-    let mut registry = HookRegistry::proof(revision, platform::PENDING_TRANSLATIONS).unwrap();
-    for &entry in platform::TRANSLATIONS {
-        let class = tje_game::execution_class(entry.id).unwrap();
-        registry
-            .register_translation_with_execution(entry, class)
-            .unwrap();
-    }
-    registry
+    HookRegistry::filtered(
+        revision,
+        &[],
+        &[
+            ids::DISABLE_ALL_INTERRUPTS,
+            ids::ENABLE_ALL_INTERRUPTS,
+            ids::GET_CTRL1_INPUT,
+            ids::GET_CTRL2_INPUT,
+            ids::DMA_COPY_WORDS_TO_VRAM,
+            ids::CLEAR_VIDEO_RAM,
+            ids::CLEAR_VERTICAL_SCROLL_RAM,
+            ids::CLEAR_COLOUR_RAM,
+            ids::COPY_LONGWORD_RUN_TO_VRAM_TILE,
+            ids::FILL_VDP_DATA_WORDS,
+            ids::FILL_VDP_DATA_BYTES,
+            ids::MOVE_DATA_TO_VRAM,
+            ids::UPLOAD_VRAM_WORD_RECTANGLE,
+            ids::COPY_PALETTE_TO_CRAM_SLOT,
+        ],
+    )
+    .unwrap()
 }
 
 fn save(host: &Host, natural: &serde_json::Value) {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::call_frame::FrameState;
 use crate::{Dispatcher, FunctionId, Platform};
 use tje_mem::{AddressSpace, Bus, Revision};
 
@@ -15,6 +16,8 @@ struct TestContext {
     data: [u32; 8],
     addresses: [u32; 8],
     sr: u16,
+    sp: u32,
+    frame: FrameState,
     pad_data: [u8; 2],
     pad_low: u8,
     pad_high: u8,
@@ -48,6 +51,8 @@ impl TestContext {
                 0x789a_bcde,
             ],
             sr: 0x271f,
+            sp: 0xff7000,
+            frame: FrameState::new(0xff7000),
             pad_data: [0x40; 2],
             pad_low: 0,
             pad_high: 0,
@@ -145,6 +150,20 @@ impl Context for TestContext {
     }
     fn set_status_register(&mut self, value: u16) {
         self.sr = value;
+    }
+    fn stack_pointer(&self) -> Result<u32> {
+        Ok(self.sp)
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
+        self.sp = value;
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<FrameState> {
+        Some(self.frame)
+    }
+    fn set_frame_state(&mut self, value: FrameState) -> Result<()> {
+        self.frame = value;
+        Ok(())
     }
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid()
@@ -262,6 +281,7 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
     let roots: Vec<_> = TRANSLATIONS.iter().map(|entry| entry.id).collect();
     assert!(Dispatcher::native(&roots).is_ok());
     for id in [
+        crate::ids::DMA_COPY_WORDS_TO_VRAM,
         crate::ids::CLEAR_VIDEO_RAM,
         crate::ids::CLEAR_VERTICAL_SCROLL_RAM,
         crate::ids::CLEAR_COLOUR_RAM,
@@ -276,11 +296,6 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
         assert!(Dispatcher::hybrid().translation(id).is_some());
         assert!(EXECUTION_CONTRACTS.contains(&(id, ExecutionClass::Functional)));
     }
-    let dma = crate::ids::DMA_COPY_WORDS_TO_VRAM;
-    assert!(PENDING.contains(&dma));
-    assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == dma));
-    assert!(Dispatcher::hybrid().translation(dma).is_none());
-    assert!(!crate::is_atomic_capable(dma));
 }
 
 #[test]
@@ -423,14 +438,28 @@ fn dma_publishes_ram_command_before_split_port_writes_and_preserves_saved_regist
         let data = context.data;
         let addresses = context.addresses;
         let command_address = ram::g_vdp_dma_command(revision).address();
+        let entry_sp = context.sp;
         video::dma_copy_words_to_vram(&mut context, &[0xff1234, 0xc002, 0x1234]).unwrap();
         assert_eq!(context.data[0], 0x4002_0083);
         assert_eq!(context.data[1], 0x4002_0080);
         assert_eq!(context.data[2..], data[2..]);
         assert_eq!(context.addresses, addresses);
         assert_eq!(context.sr, 0x2700);
+        assert_eq!(context.sp, entry_sp);
+        let mut saved_sp = entry_sp;
+        let mut trace_index = 0;
+        for &value in data[2..5].iter().rev() {
+            saved_sp -= 4;
+            for (offset, byte) in value.to_be_bytes().into_iter().enumerate() {
+                assert_eq!(
+                    context.trace[trace_index],
+                    Access::RamByte(saved_sp + offset as u32, byte)
+                );
+                trace_index += 1;
+            }
+        }
         assert_eq!(
-            context.trace,
+            context.trace[12..],
             [
                 Access::WriteWord(0xc00004, 0x8174),
                 Access::WriteWord(0xc00004, 0x9334),
