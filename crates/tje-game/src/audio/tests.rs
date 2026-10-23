@@ -331,7 +331,7 @@ fn play_sound_effect_keeps_sample_bits_priority_and_one_way_blocking_latch() {
 }
 
 #[test]
-fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
+fn delivered_audio_roots_have_native_closures_and_pending_bodies_fail_closed() {
     // ATOMIC_CAPABLE also classifies untranslated originals; the native closure
     // obligation applies to the translated roots.
     let roots: Vec<_> = TRANSLATIONS
@@ -339,17 +339,23 @@ fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
         .map(|translation| translation.id)
         .collect();
     let dispatcher = Dispatcher::native(&roots).unwrap();
-    for translation in TRANSLATIONS {
-        for callee in translation.id.metadata().callees {
-            assert!(crate::is_atomic_capable(*callee));
+    for id in roots {
+        if crate::is_atomic_capable(id) {
+            for callee in id.metadata().callees {
+                assert!(crate::is_atomic_capable(*callee));
+            }
         }
-        assert!(crate::is_atomic_capable(translation.id));
-        assert!(dispatcher.translation(translation.id).is_some());
+        assert!(dispatcher.translation(id).is_some());
+    }
+    for translation in TRANSLATIONS {
+        assert!(
+            crate::is_atomic_capable(translation.id)
+                || EXECUTION_CONTRACTS
+                    .iter()
+                    .any(|(id, _)| *id == translation.id)
+        );
     }
     for id in [
-        ids::SETUP_YM2612,
-        ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
-        ids::YM2612_UPDATE_FREQUENCY,
         ids::LOAD_SOUND_DRIVER_TO_Z80,
         ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
         ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
@@ -364,5 +370,8 @@ fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
             dispatcher.call(&mut context, id, &[]),
             Err(Error::Untranslated(id))
         );
+    }
+    for id in PENDING {
+        assert!(crate::translations().all(|entry| entry.id != *id));
     }
 }

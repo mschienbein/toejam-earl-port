@@ -19,6 +19,10 @@
 use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{Ptr, ram, rom};
 
+mod channels;
+mod hardware;
+pub mod templates;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -49,7 +53,39 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PLAY_SOUND_EFFECT,
         function: play_sound_effect,
     },
+    crate::Translation {
+        id: ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
+        function: hardware::audio_write_fm_channel_release_mask,
+    },
+    crate::Translation {
+        id: ids::YM2612_UPDATE_FREQUENCY,
+        function: hardware::ym2612_update_frequency,
+    },
+    crate::Translation {
+        id: ids::SETUP_YM2612,
+        function: hardware::setup_ym2612,
+    },
+    crate::Translation {
+        id: ids::AUDIO_RELEASE_ALL_FM_CHANNELS,
+        function: channels::audio_release_all_fm_channels,
+    },
+    crate::Translation {
+        id: ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
+        function: channels::audio_load_pending_channel_template_effect,
+    },
+    crate::Translation {
+        id: ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
+        function: templates::music_load_song_channel_templates,
+    },
 ];
+
+/// Reviewed bodies withheld from production while their proof is incomplete.
+/// The API-dependent Z80 upload is kept outside this compiled batch until the
+/// tagged open-bus prerequisite lands; its original Functional fallback remains.
+pub static PENDING: &[crate::FunctionId] = &[];
+
+/// Pending bodies never enter the production dispatcher.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 /// The six W0 leaves have no callees; the copy/clear loops have fixed bounds.
