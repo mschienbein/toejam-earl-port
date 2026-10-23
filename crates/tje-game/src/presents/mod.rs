@@ -3,6 +3,12 @@
 use crate::{Context, Result, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
+mod effects;
+mod items;
+mod placement;
+mod projectiles;
+mod telephone;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -28,6 +34,178 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::NO_OP,
         function: no_op,
+    },
+    crate::Translation {
+        id: ids::ELEVATOR_ALLOWS_WORLD_PLACEMENT,
+        function: placement::elevator_allows_world_placement,
+    },
+    crate::Translation {
+        id: ids::ENTITY_FIND_PROJECTILE_TARGET_HIT,
+        function: projectiles::entity_find_projectile_target_hit,
+    },
+    crate::Translation {
+        id: ids::CHECK_TOMATO_RAIN_TIMER,
+        function: projectiles::check_tomato_rain_timer,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_LAUNCH_AIMED_PROJECTILE,
+        function: projectiles::earthling_launch_aimed_projectile,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_LAUNCH_CONTROL_REMAP_PROJECTILE,
+        function: projectiles::earthling_launch_control_remap_projectile,
+    },
+    crate::Translation {
+        id: ids::PRESENT_CREATE_TEMPORARY_TERRAIN_EFFECT,
+        function: projectiles::present_create_temporary_terrain_effect,
+    },
+    crate::Translation {
+        id: ids::PRESENT_START_TRANSIENT_EFFECT,
+        function: effects::present_start_transient_effect,
+    },
+    crate::Translation {
+        id: ids::SELECT_RANDOM_PRESENT,
+        function: placement::select_random_present,
+    },
+    crate::Translation {
+        id: ids::SET_TOMATO_RAIN_TOMATOES,
+        function: projectiles::set_tomato_rain_tomatoes,
+    },
+    crate::Translation {
+        id: ids::SETUP_PRESENT_IDENTITIES,
+        function: placement::setup_present_identities,
+    },
+    crate::Translation {
+        id: ids::TELEPHONE_START_RING,
+        function: telephone::telephone_start_ring,
+    },
+    crate::Translation {
+        id: ids::DROP_PRESENT,
+        function: placement::drop_present,
+    },
+    crate::Translation {
+        id: ids::MAP_RELEASE_LEVEL_ITEM_BANK,
+        function: placement::map_release_level_item_bank,
+    },
+    crate::Translation {
+        id: ids::OPEN_TELEPHONE,
+        function: telephone::open_telephone,
+    },
+    crate::Translation {
+        id: ids::PLAYER_UPDATE_CONTROL_REMAP_EFFECT,
+        function: projectiles::player_update_control_remap_effect,
+    },
+    crate::Translation {
+        id: ids::PRESENT_RELEASE_DROPPED_ENTITIES,
+        function: items::present_release_dropped_entities,
+    },
+    crate::Translation {
+        id: ids::PRESENT_RELEASE_FIRST_SHARED_TOMATO,
+        function: projectiles::present_release_first_shared_tomato,
+    },
+    crate::Translation {
+        id: ids::PRESENT_RETIRE_TERRAIN_EFFECT,
+        function: projectiles::present_retire_terrain_effect,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_RAIN_CLOUD,
+        function: effects::present_update_rain_cloud,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
+        function: effects::present_update_transient_effect,
+    },
+    crate::Translation {
+        id: ids::TELEPHONE_CLEAR_ALL,
+        function: telephone::telephone_clear_all,
+    },
+];
+
+/// Complete candidate bodies held outside production dispatch until their
+/// dual-revision differential proofs pass. The opt-in lane harness may register
+/// these explicitly; frontends and Dispatcher::hybrid never consult this list.
+pub static PENDING: &[crate::Translation] = &[
+    // W3-W5 TimeAware: awaiting shared production execution-class wiring and proof.
+    crate::Translation {
+        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        function: items::present_try_end_active_powerup,
+    },
+    crate::Translation {
+        id: ids::EAT_YUMMY_FOOD,
+        function: items::eat_yummy_food,
+    },
+    crate::Translation {
+        id: ids::EAT_YUCKY_FOOD,
+        function: items::eat_yucky_food,
+    },
+    crate::Translation {
+        id: ids::REDUCE_PRESENT_TIMER,
+        function: items::reduce_present_timer,
+    },
+    crate::Translation {
+        id: ids::EAT_FUDGE_SUNDAE,
+        function: items::eat_fudge_sundae,
+    },
+    crate::Translation {
+        id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
+        function: items::player_collect_nearby_items,
+    },
+    crate::Translation {
+        id: ids::PERFORM_PROMOTION,
+        function: effects::perform_promotion,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_BURPS,
+        function: effects::present_update_burps,
+    },
+    // W4-W5 Atomic: awaiting their wave's live-state fixtures in both revisions.
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
+        function: projectiles::earthling_update_control_remap_attack,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
+        function: projectiles::earthling_update_aimed_projectile_attack,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_DECOY,
+        function: effects::present_update_decoy,
+    },
+    crate::Translation {
+        id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+        function: items::entity_update_level_item_visibility,
+    },
+    crate::Translation {
+        id: ids::OPEN_BOOM_BOX,
+        function: effects::open_boom_box,
+    },
+    crate::Translation {
+        id: ids::OPEN_DECOY,
+        function: effects::open_decoy,
+    },
+    crate::Translation {
+        id: ids::PRESENT_IS_DOORWAY,
+        function: effects::present_is_doorway,
+    },
+    crate::Translation {
+        id: ids::PRESENT_IS_RAIN_CLOUD,
+        function: effects::present_is_rain_cloud,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_BOOM_BOX,
+        function: effects::present_update_boom_box,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
+        function: projectiles::player_apply_control_remap_effect,
+    },
+    crate::Translation {
+        id: ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
+        function: projectiles::present_create_active_terrain_effect,
+    },
+    crate::Translation {
+        id: ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
+        function: telephone::telephone_create_display_entity,
     },
 ];
 
