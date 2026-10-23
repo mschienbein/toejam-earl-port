@@ -81,10 +81,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
         function: views::reload_active_camera_views,
     },
-    crate::Translation {
-        id: crate::ids::CHECK_START_BUTTON,
-        function: input::check_start_button,
-    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
@@ -172,6 +168,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     // Full corpus: cooperation frame 943/971 changes real HBlank/VBlank
     // publication order versus main-thread stores. No timing waiver applies.
     crate::ids::PROCESS_INPUT,
+    // Full corpus: cooperation pause paths at frames 1640/2180 change real
+    // HBlank/VDP ordering. Held/no-new-press proof does not approve these paths.
+    crate::ids::CHECK_START_BUTTON,
     // Real display-on paths observe different IRQ placement/frame counts
     // with zero-time translated work; quiet finite fixtures are not a waiver.
     crate::ids::ENTER_SPLIT_SCREEN,
@@ -195,6 +194,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::PROCESS_INPUT,
         function: input::process_input,
+    },
+    crate::Translation {
+        id: crate::ids::CHECK_START_BUTTON,
+        function: input::check_start_button,
     },
     crate::Translation {
         id: crate::ids::ENTER_SPLIT_SCREEN,
