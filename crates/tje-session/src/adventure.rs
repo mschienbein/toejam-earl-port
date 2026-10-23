@@ -45,6 +45,7 @@ pub struct Adventure {
     blocked: Vec<(i8, Goal)>,
     scene: Scene,
     scene_since: u64,
+    scene_player: usize,
     last_inventory_action: [u64; 2],
     last_inventory_kind: [i8; 2],
     inventory_since: [u64; 2],
@@ -73,6 +74,7 @@ impl Adventure {
             blocked: Vec::new(),
             scene: Scene::Game,
             scene_since: 0,
+            scene_player: 0,
             last_inventory_action: [0; 2],
             inventory_since: [0; 2],
             inventory_kinds: [0; 2],
@@ -100,6 +102,7 @@ impl Adventure {
                 "DrawGameMap" => {
                     self.scene = Scene::Map;
                     self.scene_since = event.frame;
+                    self.scene_player = usize::from(event.stack_slots[0] as u16).min(1);
                 }
                 "PlayEndingSequence" => {
                     self.scene = Scene::Ending;
@@ -147,7 +150,7 @@ impl Adventure {
             }
             Scene::Map => {
                 if frame - self.scene_since > 100 && (frame - self.scene_since) % 48 < 12 {
-                    pads[0] |= C;
+                    pads[self.scene_player] |= C;
                 }
                 return;
             }
@@ -323,10 +326,23 @@ impl Adventure {
                             target.1 = earthling.y().read(memory) + 12;
                         }
                         if matches!(goal, Goal::Earthling { .. }) && kind == 24 {
-                            target = (
-                                earthling.x().read(memory) - 48,
-                                earthling.y().read(memory) - 4,
-                            );
+                            let x = earthling.x().read(memory);
+                            let y = earthling.y().read(memory);
+                            target = (x - 48, y - 4);
+                            // Leave the lemonade contact zone horizontally before
+                            // walking up; otherwise Drink re-enters indefinitely.
+                            if (position.0 - x).abs() < 160 && (position.1 - y).abs() < 80 {
+                                *pad |= if position.1 > y + 12 && position.0 > x + 64 {
+                                    LEFT
+                                } else if (position.1 - (y - 4)).abs() > 3 {
+                                    if position.1 < y - 4 { DOWN } else { UP }
+                                } else if position.0 < x {
+                                    RIGHT
+                                } else {
+                                    LEFT
+                                };
+                                continue;
+                            }
                         }
                         if matches!(goal, Goal::Earthling { .. }) && kind == 23 {
                             let x = earthling.x().read(memory);
@@ -545,115 +561,15 @@ impl Adventure {
                         .read(memory),
                 )
             });
+            let inventories: [[i8; 16]; 2] = std::array::from_fn(|player| {
+                let inventory = ram::g_player_inventory(revision).at(player as i32);
+                std::array::from_fn(|slot| inventory.at(slot as i32).read(memory))
+            });
             eprintln!(
-                "goals frame={frame} players={stats:?} targets={:?} blocked={}",
+                "goals frame={frame} player(level,x,y,hp,lives,elevator)={stats:?} inventory={inventories:?} targets={:?} blocked={}",
                 self.goals,
                 self.blocked.len()
             );
-            let details: [[i32; 12]; 2] = std::array::from_fn(|player| {
-                let index = player as i32;
-                let view = ram::g_player_info(revision).at(index);
-                [
-                    i32::from(
-                        ram::g_player_inventory_open(revision)
-                            .at(index)
-                            .read(memory),
-                    ),
-                    i32::from(
-                        ram::g_player_interaction_choice_active(revision)
-                            .at(index)
-                            .read(memory),
-                    ),
-                    i32::from(
-                        ram::g_player_interaction_responses(revision)
-                            .at(index)
-                            .read(memory),
-                    ),
-                    i32::from(view.sprite_state().read(memory)),
-                    i32::from(view.draw_flags().read(memory)),
-                    i32::from(view.behavior_flags().read(memory)),
-                    i32::from(ram::g_player_fall_states(revision).at(index).read(memory)),
-                    i32::from(ram::g_player_powerups(revision).at(index).read(memory)),
-                    i32::from(ram::g_player_rank(revision).at(index).read(memory)),
-                    i32::from(ram::g_player_points(revision).at(index).read(memory)),
-                    i32::from(
-                        ram::g_player_processed_input(revision)
-                            .at(index)
-                            .read(memory),
-                    ),
-                    i32::from(
-                        ram::g_player_previous_processed_input(revision)
-                            .at(index)
-                            .read(memory),
-                    ),
-                ]
-            });
-            eprintln!(
-                "state inv/choice/response/sprite/draw/behavior/fall/power/rank/points/input/previous={details:?}"
-            );
-            let elevators: [[i16; 4]; 4] = std::array::from_fn(|index| {
-                let elevator = ram::g_elevator_records(revision)
-                    .at((index / 2) as i32)
-                    .at((index % 2) as i32);
-                [
-                    i16::from(elevator.level().read(memory)),
-                    i16::from(elevator.state().read(memory)),
-                    elevator.x().read(memory),
-                    elevator.y().read(memory),
-                ]
-            });
-            eprintln!("elevators level/state/x/y={elevators:?}");
-            let terrain: [u8; 5] = [7, 11, 12, 13, 17].map(|index| {
-                ram::g_player1_nearby_terrain(revision)
-                    .at(index / 5)
-                    .at(index % 5)
-                    .read(memory)
-            });
-            eprintln!("terrain up/left/center/right/down={terrain:?}");
-            for bank in 0..2 {
-                for index in 0..20 {
-                    let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
-                    let kind = earthling.kind().read(memory);
-                    if matches!(kind,9..=11|17|23..=24)
-                        && earthling.level().read(memory) == stats[0].0
-                    {
-                        let handle = earthling.object().read(memory);
-                        let object = ram::g_player_info(revision).at(i32::from(handle));
-                        let unit = tje_mem::rom_data_units(revision)
-                            .iter()
-                            .find(|unit| unit.name == "EARTHLING_DATA")
-                            .unwrap();
-                        let definition =
-                            tje_mem::Address::<tje_mem::EarthlingDefinition>::new(unit.address)
-                                .offset(i32::from(kind));
-                        eprintln!(
-                            "friendly kind={kind} handle={handle} pos={:?} size={:?} contact={:?} sprite={}",
-                            (object.x().read(memory), object.y().read(memory)),
-                            (
-                                object.width().read(memory),
-                                object.height_pixels().read(memory)
-                            ),
-                            (
-                                rom[definition.contact_distance_x().address() as usize],
-                                rom[definition.contact_distance_y().address() as usize]
-                            ),
-                            object.sprite_state().read(memory)
-                        );
-                    }
-                }
-            }
-            if let Some(Goal::Elevator { bank }) =
-                self.select_goal(memory, rom, revision, content, 0, stats[0].3)
-            {
-                let view = ram::g_elevator_records(revision).at(bank).at(0);
-                let target = (view.x().read(memory), view.y().read(memory) + 22);
-                let position = (stats[0].1, stats[0].2);
-                let nearest = self.navigation[0].reachable_land_near(position, target);
-                eprintln!(
-                    "route target={target:?} terrain={} reachable-nearest={nearest:?}",
-                    self.navigation[0].terrain_at(target)
-                );
-            }
         }
     }
 
@@ -1160,5 +1076,53 @@ mod tests {
                 Some(Goal::Present { slot: 0, kind: 0 })
             ));
         }
+    }
+
+    #[test]
+    fn tub_approach_leaves_the_drink_contact_zone_before_walking_up() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 0);
+            player.x().write(&mut memory, 1534);
+            player.y().write(&mut memory, 1034);
+            let tub = ram::g_earthling_banks(revision).at(0).at(0);
+            tub.kind().write(&mut memory, 24);
+            tub.level().write(&mut memory, 0);
+            tub.x().write(&mut memory, 1398);
+            tub.y().write(&mut memory, 980);
+            let mut planner = Adventure::new(Objective::LevelZero);
+            planner.levels[0] = 0;
+            planner.goals[0] = Some(Goal::Earthling { bank: 0, index: 0 });
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &[],
+                revision,
+                &Content::new(),
+                100,
+                &mut pads,
+            );
+            assert_eq!(pads[0], CONNECTED | LEFT);
+        }
+    }
+
+    #[test]
+    fn map_exit_press_belongs_to_the_requesting_controller() {
+        let revision = Revision::Rev02;
+        let memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let mut planner = Adventure::new(Objective::Coop);
+        planner.scene = Scene::Map;
+        planner.scene_player = 1;
+        let mut pads = [CONNECTED, CONNECTED];
+        planner.choose(
+            &Ram(memory.ram()),
+            &[],
+            revision,
+            &Content::new(),
+            144,
+            &mut pads,
+        );
+        assert_eq!(pads, [CONNECTED, CONNECTED | C]);
     }
 }

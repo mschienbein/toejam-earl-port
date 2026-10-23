@@ -184,6 +184,8 @@ blindly across the final water/space gap. Live doorway entities contribute the
 original conditional 4-by-3 ground footprint, and centered upward input opens a
 closed doorway. Campaign planning carries real mobility presents for disconnected
 terrain instead of spending them on unrelated encounter targets.
+Blocking map-screen exits use the controller that requested the map, including
+P2's telephone map; P1's C button cannot dismiss a P2-owned map wait.
 No map, route, present table, or decoded resource is embedded in the crate or
 recording. It prefers ship-piece targets, then matching-level departure elevators.
 P2 initially stays behind to exercise split-screen, then joins the elevator target.
