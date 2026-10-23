@@ -76,6 +76,10 @@ fn sample_addresses(revision: Revision) -> Vec<u32> {
     ] {
         samples.extend([base, base + 1]);
     }
+    samples.extend([
+        ram::g_player_bucks(revision).address(),
+        ram::g_player_bucks(revision).address() + 1,
+    ]);
     samples
 }
 
@@ -110,6 +114,20 @@ pub fn host(bytes: &[u8], mode: Mode, revision: Revision, capture_ticks: bool) -
                     | "PlayEndingSequence"
                     | "EndingPlayScrollingCredits"
                     | "TitleScreenVideo"
+                    | "WaitForShipScreenAcknowledgement"
+                    | "MapEnterFinalLevel"
+                    | "ShowGameOverAndReset"
+                    | "PlayerTeleportThroughDoorway"
+                    | "ProcessInput"
+                    | "InventoryBuySelectedMailOrderPresent"
+                    | "InventoryIdentifySelectedPresent"
+                    | "InventoryDropSelectedPresent"
+                    | "InventoryOpenMailOrderMenu"
+                    | "InventoryOpenIdentificationMenu"
+                    | "GamePaused"
+                    | "IntroVideo"
+                    | "PlayerFinalizeLastLifeExit"
+                    | "GameProgram"
             )
         })
         .map(|function| function.address(revision))
@@ -192,6 +210,12 @@ pub struct Content {
     pub earthlings_encountered: BTreeMap<u8, Option<u64>>,
     pub ship_pieces_collected: BTreeMap<u8, Option<u64>>,
     pub levels_visited: BTreeSet<i8>,
+    #[serde(default)]
+    pub friendly_interactions: BTreeMap<String, Option<u64>>,
+    #[serde(default)]
+    pub ranks_reached: BTreeSet<i8>,
+    #[serde(default)]
+    pub jam_modes: BTreeMap<u8, Option<u64>>,
 }
 impl Default for Content {
     fn default() -> Self {
@@ -214,6 +238,22 @@ impl Content {
                 "jam_out",
                 "ending_started",
                 "ending_credits",
+                "ending_complete",
+                "final_level",
+                "level_zero",
+                "last_life",
+                "game_over",
+                "fall_to_lower_level",
+                "split_rejoined",
+                "elevator_departure",
+                "elevator_arrival",
+                "inventory_mail_order",
+                "inventory_identification",
+                "inventory_drop",
+                "pause",
+                "controller_options",
+                "promotion",
+                "last_life_exit",
             ]
             .into_iter()
             .map(|name| (name.into(), None))
@@ -222,6 +262,19 @@ impl Content {
             earthlings_encountered: (0..25).map(|kind| (kind, None)).collect(),
             ship_pieces_collected: (0..10).map(|kind| (kind, None)).collect(),
             levels_visited: BTreeSet::new(),
+            friendly_interactions: [
+                "wizard_paid",
+                "wiseman_identification",
+                "opera_paid",
+                "mail_order_purchase",
+                "lemonade_reward",
+                "hottub_bath",
+            ]
+            .into_iter()
+            .map(|name| (name.into(), None))
+            .collect(),
+            ranks_reached: BTreeSet::new(),
+            jam_modes: (0..8).map(|mode| (mode, None)).collect(),
         }
     }
     pub fn mark(&mut self, name: &str, frame: u64) {
@@ -253,15 +306,25 @@ impl Content {
             &other.ship_pieces_collected,
         );
         self.levels_visited.extend(&other.levels_visited);
+        merge_map(
+            &mut self.friendly_interactions,
+            &other.friendly_interactions,
+        );
+        merge_map(&mut self.jam_modes, &other.jam_modes);
+        self.ranks_reached.extend(&other.ranks_reached);
     }
 }
 
 pub struct Coverage {
     pub content: Content,
-    pending_present: [Option<i8>; 2],
+    pending_present: [Option<(i8, u64)>; 2],
     previous_ship: Option<[i8; 10]>,
     collecting_ship: bool,
     initial_positions: [Option<(i16, i16)>; 2],
+    previous_levels: [i8; 2],
+    previous_ranks: [i8; 2],
+    ever_split: bool,
+    mail_purchase: Option<(usize, i8, u64)>,
 }
 impl Coverage {
     pub fn new() -> Self {
@@ -271,6 +334,10 @@ impl Coverage {
             previous_ship: None,
             collecting_ship: false,
             initial_positions: [None; 2],
+            previous_levels: [-1; 2],
+            previous_ranks: [-1; 2],
+            ever_split: false,
+            mail_purchase: None,
         }
     }
     pub fn observe(
@@ -294,64 +361,6 @@ impl Coverage {
             return;
         }
         let memory = Ram(&snapshot.ram);
-        if ram::g_world_type(revision).read(&memory) != 0 {
-            self.content.mark("fixed_world", frame);
-        }
-        if ram::g_player_selection(revision).read(&memory) != 2 {
-            self.content.mark("one_player", frame);
-        }
-        if ram::g_player_selection(revision).read(&memory) == 2
-            && ram::g_split_screen_enabled(revision).read(&memory) != 0
-        {
-            self.content.mark("two_player_split_screen", frame);
-        }
-        for player in 0..2 {
-            if ram::g_player_lives(revision)
-                .at(player as i32)
-                .read(&memory)
-                < 0
-            {
-                continue;
-            }
-            let view = ram::g_player_info(revision).at(player as i32);
-            self.content
-                .levels_visited
-                .insert(view.level().read(&memory));
-            let position = (view.x().read(&memory), view.y().read(&memory));
-            if let Some(initial) = self.initial_positions[player] {
-                if (i32::from(initial.0) - i32::from(position.0)).abs()
-                    + (i32::from(initial.1) - i32::from(position.1)).abs()
-                    > 24
-                {
-                    self.content.mark("walking", frame);
-                }
-            } else {
-                self.initial_positions[player] = Some(position);
-            }
-            if ram::g_player_inventory_open(revision)
-                .at(player as i32)
-                .read(&memory)
-                != 0
-            {
-                self.content.mark("inventory", frame);
-            }
-        }
-        for bank in 0..2 {
-            for index in 0..20 {
-                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
-                let kind = earthling.kind().read(&memory);
-                if (0..25).contains(&kind)
-                    && earthling.object().read(&memory) != 0
-                    && earthling.health_visibility().at(1).read(&memory) & 6 != 0
-                {
-                    self.content
-                        .earthlings_encountered
-                        .get_mut(&(kind as u8))
-                        .unwrap()
-                        .get_or_insert(frame);
-                }
-            }
-        }
         let ship = std::array::from_fn(|index| {
             ram::g_ship_piece_level_assignments(revision)
                 .at(index as i32)
@@ -371,13 +380,206 @@ impl Coverage {
             }
         }
         self.previous_ship = Some(ship);
+        if ram::g_v_blank_graphics_enabled(revision).read(&memory) == 0
+            || !(0..2).any(|player| {
+                ram::g_player_lives(revision).at(player).read(&memory) >= 0
+                    && ram::g_player_info(revision)
+                        .at(player)
+                        .draw_flags()
+                        .read(&memory)
+                        & 1
+                        != 0
+            })
+        {
+            return;
+        }
+        if ram::g_world_type(revision).read(&memory) != 0 {
+            self.content.mark("fixed_world", frame);
+        }
+        if ram::g_player_selection(revision).read(&memory) != 2 {
+            self.content.mark("one_player", frame);
+        }
+        if ram::g_player_selection(revision).read(&memory) == 2
+            && ram::g_split_screen_enabled(revision).read(&memory) != 0
+        {
+            self.content.mark("two_player_split_screen", frame);
+            self.ever_split = true;
+        }
+        if self.ever_split
+            && ram::g_split_screen_enabled(revision).read(&memory) == 0
+            && ram::g_player_lives(revision).at(0).read(&memory) >= 0
+            && ram::g_player_lives(revision).at(1).read(&memory) >= 0
+        {
+            self.content.mark("split_rejoined", frame);
+        }
+        for player in 0..2 {
+            if ram::g_player_lives(revision)
+                .at(player as i32)
+                .read(&memory)
+                < 0
+            {
+                continue;
+            }
+            let view = ram::g_player_info(revision).at(player as i32);
+            self.content
+                .levels_visited
+                .insert(view.level().read(&memory));
+            let level = view.level().read(&memory);
+            if level == 0 {
+                self.content.mark("level_zero", frame);
+            }
+            if level == 26 {
+                self.content.mark("final_level", frame);
+            }
+            if (0..26).contains(&self.previous_levels[player])
+                && level < self.previous_levels[player]
+                && (0..26).contains(&level)
+                && ram::g_player_fall_states(revision)
+                    .at(player as i32)
+                    .read(&memory)
+                    == 2
+            {
+                self.content.mark("fall_to_lower_level", frame);
+            }
+            self.previous_levels[player] = level;
+            let rank = ram::g_player_rank(revision).at(player as i32).read(&memory);
+            self.content.ranks_reached.insert(rank);
+            if self.previous_ranks[player] >= 0 && rank > self.previous_ranks[player] && rank <= 8 {
+                self.content.mark("promotion", frame);
+            }
+            self.previous_ranks[player] = rank;
+            if ram::g_player_lives(revision)
+                .at(player as i32)
+                .read(&memory)
+                == 0
+            {
+                self.content.mark("last_life", frame);
+            }
+            let elevator = ram::g_player_elevator_flags(revision)
+                .at(player as i32)
+                .read(&memory);
+            if elevator != 0 {
+                self.content.mark(
+                    if elevator & 1 == 0 {
+                        "elevator_arrival"
+                    } else {
+                        "elevator_departure"
+                    },
+                    frame,
+                );
+            }
+            for (name, state) in [
+                (
+                    "wizard_paid",
+                    ram::g_player_wizard_interaction_states(revision)
+                        .at(player as i32)
+                        .read(&memory)
+                        == 3,
+                ),
+                (
+                    "opera_paid",
+                    ram::g_player_opera_singer_interaction_states(revision)
+                        .at(player as i32)
+                        .read(&memory)
+                        == 3,
+                ),
+                (
+                    "lemonade_reward",
+                    ram::g_player_lemonade_reward_states(revision)
+                        .at(player as i32)
+                        .read(&memory)
+                        == 2,
+                ),
+                ("hottub_bath", view.sprite_state().read(&memory) == 119),
+            ] {
+                if state {
+                    self.content
+                        .friendly_interactions
+                        .entry(name.into())
+                        .or_default()
+                        .get_or_insert(frame);
+                }
+            }
+            if let Some((customer, bucks, started)) = self.mail_purchase
+                && customer == player
+                && frame <= started + 2
+                && ram::g_player_bucks(revision)
+                    .at(player as i32)
+                    .read(&memory)
+                    < bucks
+            {
+                self.content
+                    .friendly_interactions
+                    .entry("mail_order_purchase".into())
+                    .or_default()
+                    .get_or_insert(frame);
+                self.mail_purchase = None;
+            }
+            if self
+                .mail_purchase
+                .is_some_and(|(_, _, started)| frame > started + 2)
+            {
+                self.mail_purchase = None;
+            }
+            let position = (view.x().read(&memory), view.y().read(&memory));
+            if let Some(initial) = self.initial_positions[player] {
+                if (i32::from(initial.0) - i32::from(position.0)).abs()
+                    + (i32::from(initial.1) - i32::from(position.1)).abs()
+                    > 24
+                {
+                    self.content.mark("walking", frame);
+                }
+            } else {
+                self.initial_positions[player] = Some(position);
+            }
+            if ram::g_player_inventory_open(revision)
+                .at(player as i32)
+                .read(&memory)
+                != 0
+            {
+                self.content.mark("inventory", frame);
+                match ram::g_player_inventory_open(revision)
+                    .at(player as i32)
+                    .read(&memory)
+                {
+                    2 => self.content.mark("inventory_mail_order", frame),
+                    3 => self.content.mark("inventory_identification", frame),
+                    _ => {}
+                }
+            }
+        }
+        for bank in 0..2 {
+            for index in 0..20 {
+                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                let kind = earthling.kind().read(&memory);
+                if (0..25).contains(&kind)
+                    && earthling.object().read(&memory) != 0
+                    && earthling.health_visibility().at(1).read(&memory) & 6 != 0
+                {
+                    self.content
+                        .earthlings_encountered
+                        .get_mut(&(kind as u8))
+                        .unwrap()
+                        .get_or_insert(frame);
+                }
+            }
+        }
     }
     fn entry(&mut self, event: &EntryObservation, revision: Revision) {
         let frame = event.frame;
         match entry_name(revision, event.address) {
+            "GameProgram" => {
+                self.previous_levels = [-1; 2];
+                self.previous_ranks = [-1; 2];
+                self.initial_positions = [None; 2];
+                self.previous_ship = None;
+                self.collecting_ship = false;
+                self.mail_purchase = None;
+                self.ever_split = false;
+            }
             "OpenPresent" => {
                 let player = event.stack_slots[0] as u16 as usize;
-                if player < 2 && event.ram_samples.len() == 38 {
+                if player < 2 && event.ram_samples.len() >= 38 {
                     let samples = &event.ram_samples;
                     let slot =
                         (usize::from(samples[32 + player]) + usize::from(samples[34 + player])) * 2
@@ -385,7 +587,7 @@ impl Coverage {
                     self.pending_present[player] = samples
                         .get(player * 16 + slot)
                         .copied()
-                        .map(|value| value as i8);
+                        .map(|value| (value as i8, frame));
                 }
             }
             "SetupSelectedPresent" => {
@@ -399,8 +601,11 @@ impl Coverage {
                         .get_or_insert(frame);
                 }
                 if player < 2
-                    && let Some(original) = self.pending_present[player].take()
+                    && let Some((original, opened)) = self.pending_present[player].take()
                     && (0..28).contains(&original)
+                    && frame <= opened + 8
+                    && (original == 26
+                        || kind == u16::from(if original == 27 { 7_u8 } else { original as u8 }))
                 {
                     self.content
                         .presents_opened
@@ -419,9 +624,41 @@ impl Coverage {
             "DrawGameMap" => self.content.mark("map_screen", frame),
             "ElevatorBeginRideScene" => self.content.mark("elevator_ride", frame),
             "ShipPieceAbility" => self.collecting_ship = true,
-            "StartJamOut" => self.content.mark("jam_out", frame),
+            "StartJamOut" => {
+                self.content.mark("jam_out", frame);
+                let mode = event.stack_slots[0] as u16;
+                if mode < 8 {
+                    self.content
+                        .jam_modes
+                        .entry(mode as u8)
+                        .or_default()
+                        .get_or_insert(frame);
+                }
+            }
             "PlayEndingSequence" => self.content.mark("ending_started", frame),
             "EndingPlayScrollingCredits" => self.content.mark("ending_credits", frame),
+            "MapEnterFinalLevel" => self.content.mark("ending_complete", frame),
+            "ShowGameOverAndReset" => self.content.mark("game_over", frame),
+            "PlayerFinalizeLastLifeExit" => self.content.mark("last_life_exit", frame),
+            "InventoryOpenMailOrderMenu" => self.content.mark("inventory_mail_order", frame),
+            "InventoryOpenIdentificationMenu" => {
+                self.content.mark("inventory_identification", frame);
+                self.content
+                    .friendly_interactions
+                    .entry("wiseman_identification".into())
+                    .or_default()
+                    .get_or_insert(frame);
+            }
+            "InventoryDropSelectedPresent" => self.content.mark("inventory_drop", frame),
+            "MenuControllerOptionsHandler" => self.content.mark("controller_options", frame),
+            "GamePaused" => self.content.mark("pause", frame),
+            "InventoryBuySelectedMailOrderPresent" => {
+                let player = event.stack_slots[0] as u16 as usize;
+                if player < 2 && event.ram_samples.len() >= 40 {
+                    self.mail_purchase =
+                        Some((player, event.ram_samples[38 + player] as i8, event.frame));
+                }
+            }
             _ => {}
         }
     }
@@ -444,6 +681,16 @@ pub struct ReplayReport {
     pub entry_counts: BTreeMap<String, u64>,
     pub content: Content,
 }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MissedEntry {
+    pub inventory_id: String,
+    pub name: String,
+    pub subsystem: String,
+    pub source: String,
+    pub source_line: u32,
+    pub disposition: String,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Report {
     pub tool: String,
@@ -455,6 +702,8 @@ pub struct Report {
     pub entry_counts_by_revision: BTreeMap<String, BTreeMap<String, u64>>,
     #[serde(default)]
     pub entries_hit_by_revision: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub missed_entries_by_revision: BTreeMap<String, Vec<MissedEntry>>,
 }
 impl Report {
     pub fn from_sessions(sessions: Vec<ReplayReport>) -> Self {
@@ -494,6 +743,22 @@ impl Report {
                 )
             })
             .collect();
+        report.missed_entries_by_revision = report.entry_counts_by_revision.iter().map(|(revision, counts)| {
+            let missed = functions().into_iter().filter(|function| {
+                counts.get(&format!("{} {}",function.inventory_id,function.name)).copied().unwrap_or(0) == 0
+            }).map(|function| MissedEntry {
+                inventory_id: function.inventory_id.into(), name: function.name.into(), subsystem: function.subsystem.into(),
+                source: function.source.into(), source_line: function.source_line,
+                disposition: match function.name {
+                    "ReloadActiveCameraViews" | "ShowRandomUncollectedShipPiece" | "NoOp"
+                        | "CopyLongwordRunToVramTile" | "FillVdpDataBytes" =>
+                        "No callers, vectors, typed function-pointer references or external roots in the complete paired source inventory; see docs/SESSIONS.md",
+                    "ErrorTrap" => "Exception-vector terminal loop; normal play does not intentionally enter it",
+                    _ => "Uncovered; no unreachability claim",
+                }.into(),
+            }).collect();
+            (revision.clone(),missed)
+        }).collect();
         report
     }
 }

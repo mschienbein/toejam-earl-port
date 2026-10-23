@@ -1,0 +1,555 @@
+//! Feedback navigation over live RAM maps and runtime cartridge terrain.
+use crate::runner::Ram;
+use std::{cmp::Reverse, collections::BinaryHeap};
+use tje_mem::{Revision, ram};
+use tje_session::{DOWN, LEFT, RIGHT, UP};
+
+const WIDTH: usize = 336;
+const HEIGHT: usize = 224;
+const CELLS: usize = WIDTH * HEIGHT;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Travel {
+    Land,
+    Swim,
+    Fall,
+    Fly,
+}
+
+pub struct Navigator {
+    level: i8,
+    map: Vec<u16>,
+    terrain: Vec<u8>,
+    cost: Vec<u16>,
+    dynamic_cost: Vec<u16>,
+    parents: Vec<usize>,
+    distance: Vec<u32>,
+    frontier: BinaryHeap<Reverse<(u32, u32, usize)>>,
+    path: Vec<usize>,
+    path_index: usize,
+    target: Option<((i16, i16), Travel)>,
+    last_plan: u64,
+    previous: (i16, i16),
+    last_motion: u64,
+    reachable: bool,
+}
+impl Navigator {
+    pub fn new() -> Self {
+        Self {
+            level: -1,
+            map: vec![0; 26 * 19],
+            terrain: vec![0x90; CELLS],
+            cost: vec![0; CELLS],
+            dynamic_cost: vec![0; CELLS],
+            parents: vec![usize::MAX; CELLS],
+            distance: vec![u32::MAX; CELLS],
+            frontier: BinaryHeap::new(),
+            path: Vec::new(),
+            path_index: 0,
+            target: None,
+            last_plan: 0,
+            previous: (0, 0),
+            last_motion: 0,
+            reachable: false,
+        }
+    }
+
+    pub fn steer(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        player: usize,
+        target: (i16, i16),
+        frame: u64,
+    ) -> Option<u16> {
+        let travel = if ram::g_player_powerups(revision)
+            .at(player as i32)
+            .read(memory)
+            == 0
+        {
+            Travel::Fly
+        } else {
+            Travel::Land
+        };
+        self.toward(memory, rom, revision, player, (target, travel), frame)
+    }
+
+    pub fn toward(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        player: usize,
+        goal: ((i16, i16), Travel),
+        frame: u64,
+    ) -> Option<u16> {
+        let view = ram::g_player_info(revision).at(player as i32);
+        let position = (view.x().read(memory), view.y().read(memory));
+        let level = view.level().read(memory);
+        let bank = if player == 1
+            && ram::g_player_lives(revision).at(0).read(memory) >= 0
+            && ram::g_split_screen_enabled(revision).read(memory) != 0
+        {
+            ram::g_player2_level_map(revision)
+        } else {
+            ram::g_player1_level_map(revision)
+        };
+        let changed = self.level != level
+            || (0..26).any(|row| {
+                (0..19).any(|col| {
+                    self.map[(row * 19 + col) as usize] != bank.at(row).at(col).read(memory)
+                })
+            });
+        if changed {
+            self.level = level;
+            for row in 0..26 {
+                for col in 0..19 {
+                    self.map[(row * 19 + col) as usize] = bank.at(row).at(col).read(memory);
+                }
+            }
+            self.decode(rom, revision);
+            self.target = None;
+        }
+        if manhattan(position, self.previous) > 64 {
+            self.target = None;
+        }
+        if position != self.previous {
+            self.last_motion = frame;
+            self.previous = position;
+        }
+        if self.target != Some(goal)
+            || frame.saturating_sub(self.last_plan) > 120
+            || frame.saturating_sub(self.last_motion) > 60
+            || (self.path_index >= self.path.len() && self.reachable)
+        {
+            self.plan(memory, revision, player, position, goal);
+            if !self.reachable && goal.1 == Travel::Land {
+                self.plan(memory, revision, player, position, (goal.0, Travel::Swim));
+            }
+            self.target = Some(goal);
+            self.last_plan = frame;
+            if frame.saturating_sub(self.last_motion) > 60 {
+                self.last_motion = frame;
+            }
+        }
+        if !self.reachable {
+            return None;
+        }
+        while let Some(&cell) = self.path.get(self.path_index) {
+            let point = cell_position(cell);
+            if (position.0 - point.0).abs() <= 3 && (position.1 - point.1).abs() <= 3 {
+                self.path_index += 1;
+                continue;
+            }
+            let dx = point.0 - position.0;
+            let dy = point.1 - position.1;
+            return Some(heading(dx, dy));
+        }
+        let dx = goal.0.0 - position.0;
+        let dy = goal.0.1 - position.1;
+        if dx.abs() <= 3 && dy.abs() <= 3 {
+            return Some(0);
+        }
+        Some(heading(dx, dy))
+    }
+
+    pub fn terrain_at(&self, position: (i16, i16)) -> u8 {
+        position_cell(position).map_or(0x90, |cell| self.terrain[cell])
+    }
+
+    pub fn nearest_terrain(&self, position: (i16, i16), terrain: u8) -> Option<(i16, i16)> {
+        self.terrain
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| **value == terrain)
+            .min_by_key(|(cell, _)| manhattan(cell_position(*cell), position))
+            .map(|(cell, _)| cell_position(cell))
+    }
+
+    pub fn reachable_land_near(
+        &mut self,
+        start: (i16, i16),
+        desired: (i16, i16),
+    ) -> Option<(i16, i16)> {
+        let start = position_cell(start)?;
+        self.parents.fill(usize::MAX);
+        self.frontier.clear();
+        self.parents[start] = start;
+        self.frontier.push(Reverse((0, 0, start)));
+        let mut best = None;
+        while let Some(Reverse((_, _, cell))) = self.frontier.pop() {
+            if self.terrain[cell] <= 0x50
+                && best.is_none_or(|old| {
+                    manhattan(cell_position(cell), desired) < manhattan(cell_position(old), desired)
+                })
+            {
+                best = Some(cell);
+            }
+            for next in neighbors(cell).into_iter().flatten() {
+                if self.parents[next] == usize::MAX && self.terrain[next] <= 0x50 {
+                    self.parents[next] = cell;
+                    self.frontier.push(Reverse((0, 0, next)));
+                }
+            }
+        }
+        best.map(cell_position)
+    }
+
+    fn decode(&mut self, rom: &[u8], revision: Revision) {
+        let resource = |name: &str| {
+            tje_mem::rom_data_units(revision)
+                .iter()
+                .find(|unit| unit.name == name)
+                .unwrap()
+        };
+        let base = resource("LevelMetatileMaps");
+        let overlays = resource("OverlayMetatileMaps");
+        let properties = resource("PlayerTilePropertyLookup");
+        let word = |address: usize| u16::from_be_bytes([rom[address], rom[address + 1]]);
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let index = y * WIDTH + x;
+                if !(16..320).contains(&x) || !(8..216).contains(&y) {
+                    self.terrain[index] = if self.level == 1 || self.level == 26 {
+                        0x80
+                    } else {
+                        0x90
+                    };
+                    continue;
+                }
+                let map = self.map[(y / 8 - 1) * 19 + x / 16 - 1];
+                let mut tile = 0;
+                let overlay = usize::from((map & 0x1F00) >> 8);
+                if overlay & 15 != 0 {
+                    let col = if overlay & 16 != 0 {
+                        15 - x % 16
+                    } else {
+                        x % 16
+                    };
+                    tile = word(
+                        overlays.address as usize
+                            + (((overlay & 15) - 1) * 128 + y % 8 * 16 + col) * 2,
+                    );
+                }
+                if tile == 0 {
+                    let kind = usize::from(map as u8);
+                    let col = if kind & 128 != 0 { 15 - x % 16 } else { x % 16 };
+                    let offset = ((kind & 127) * 128 + y % 8 * 16 + col) * 2;
+                    tile = word(base.address as usize + offset);
+                }
+                let property = usize::from(tile & 0x7FF);
+                // Match UpdateLandAroundPlayer's unchecked cartridge indexing,
+                // including any access past a named resource's declared extent.
+                self.terrain[index] = rom[properties.address as usize + property] & 0xF0;
+            }
+        }
+        for cell in 0..CELLS {
+            let x = cell % WIDTH;
+            let y = cell / WIDTH;
+            let mut cost = 10;
+            for dy in -2_i32..=2 {
+                for dx in -2_i32..=2 {
+                    let xx = x as i32 + dx;
+                    let yy = y as i32 + dy;
+                    if xx < 0
+                        || yy < 0
+                        || xx >= WIDTH as i32
+                        || yy >= HEIGHT as i32
+                        || self.terrain[yy as usize * WIDTH + xx as usize] > 0x50
+                    {
+                        cost += if dx.abs() <= 1 && dy.abs() <= 1 {
+                            24
+                        } else {
+                            4
+                        };
+                    }
+                }
+            }
+            self.cost[cell] = cost;
+        }
+    }
+
+    fn plan(
+        &mut self,
+        memory: &Ram<'_>,
+        revision: Revision,
+        player: usize,
+        start: (i16, i16),
+        goal: ((i16, i16), Travel),
+    ) {
+        self.path.clear();
+        self.path_index = 0;
+        self.reachable = false;
+        let Some(start_cell) = position_cell(start) else {
+            return;
+        };
+        let Some(goal_cell) = position_cell(goal.0) else {
+            return;
+        };
+        let heuristic = |cell: usize| {
+            let point = cell_position(cell);
+            (i32::from(point.0) - i32::from(goal.0.0))
+                .unsigned_abs()
+                .max((i32::from(point.1) - i32::from(goal.0.1)).unsigned_abs())
+        };
+        self.parents.fill(usize::MAX);
+        self.distance.fill(u32::MAX);
+        self.frontier.clear();
+        self.parents[start_cell] = start_cell;
+        self.distance[start_cell] = 0;
+        self.frontier
+            .push(Reverse((heuristic(start_cell), 0, start_cell)));
+        let partner = ram::g_player_info(revision).at((player ^ 1) as i32);
+        let partner_position = (partner.x().read(memory), partner.y().read(memory));
+        let avoid_partner = ram::g_player_lives(revision)
+            .at((player ^ 1) as i32)
+            .read(memory)
+            >= 0
+            && partner.level().read(memory) == self.level
+            && ram::g_player_elevator_flags(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
+            && ram::g_player_elevator_flags(revision)
+                .at((player ^ 1) as i32)
+                .read(memory)
+                == 0;
+        self.dynamic_cost.fill(0);
+        if avoid_partner {
+            self.obstacle(partner_position, (20, 10), 500);
+        }
+        for bank in 0..2 {
+            for index in 0..20 {
+                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                let kind = earthling.kind().read(memory);
+                if earthling.level().read(memory) == self.level
+                    && matches!(kind, 1..=8 | 12..=16 | 18..=19 | 21..=22)
+                {
+                    self.obstacle(
+                        (earthling.x().read(memory), earthling.y().read(memory)),
+                        (48, 24),
+                        150,
+                    );
+                }
+            }
+        }
+        let query = ram::g_player_info(revision).at(player as i32);
+        for index in 6..26 {
+            let object = ram::g_player_info(revision).at(index);
+            if object.draw_flags().read(memory) & 1 != 0
+                && object.behavior_flags().read(memory) & 1 != 0
+                && object.level().read(memory) == self.level
+                && (object.height().read(memory) - query.height().read(memory)).abs() <= 10
+            {
+                let radius =
+                    i16::from(object.width().read(memory) / 2 + query.width().read(memory) / 2)
+                        .saturating_sub(6);
+                // The original only rejects a *new* narrow collision. An
+                // already-overlapping entity (a decoy or arriving elevator)
+                // must not imprison the player inside an artificial route wall.
+                if (query.x().read(memory) - object.x().read(memory)).abs() < radius
+                    && (query.y().read(memory) - object.y().read(memory)).abs() < 12
+                {
+                    continue;
+                }
+                self.obstacle(
+                    (object.x().read(memory), object.y().read(memory)),
+                    (radius, 10),
+                    u16::MAX,
+                );
+            }
+        }
+        for bank in 0..2 {
+            for kind in 0..2 {
+                let elevator = ram::g_elevator_records(revision).at(bank).at(kind);
+                if elevator.level().read(memory) == self.level
+                    && !matches!(elevator.state().read(memory), 11 | 13)
+                {
+                    let position = (elevator.x().read(memory), elevator.y().read(memory) + 5);
+                    if (query.x().read(memory) - position.0).abs() >= 24
+                        || (query.y().read(memory) - position.1).abs() >= 10
+                    {
+                        self.obstacle(position, (24, 10), u16::MAX);
+                    }
+                }
+            }
+        }
+        let mut end = None;
+        while let Some(Reverse((_, cost, cell))) = self.frontier.pop() {
+            if cost != self.distance[cell] {
+                continue;
+            }
+            if cell == goal_cell
+                || (goal.1 == Travel::Land && manhattan(cell_position(cell), goal.0) <= 12)
+            {
+                end = Some(cell);
+                break;
+            }
+            for next in neighbors(cell).into_iter().flatten() {
+                let terrain = self.terrain[next];
+                let permitted = goal.1 == Travel::Fly
+                    || terrain <= 0x50
+                    || (goal.1 == Travel::Swim && terrain == 0x80)
+                    || (goal.1 == Travel::Fall
+                        && (next == goal_cell
+                            || cell == goal_cell
+                            || (self.level == 1 && terrain == 0x80)));
+                let point = cell_position(next);
+                if !permitted || point.0 < 32 || point.0 > 2648 || point.1 < 52 || point.1 > 1732 {
+                    continue;
+                }
+                if goal.1 != Travel::Fly && self.dynamic_cost[next] == u16::MAX && next != goal_cell
+                {
+                    continue;
+                }
+                let mut penalty = if goal.1 == Travel::Fly {
+                    10
+                } else {
+                    u32::from(self.cost[next]) + u32::from(self.dynamic_cost[next])
+                };
+                if terrain == 0x80 {
+                    penalty += 16;
+                }
+                let next_cost = cost + penalty;
+                if next_cost < self.distance[next] {
+                    self.distance[next] = next_cost;
+                    self.parents[next] = cell;
+                    self.frontier
+                        .push(Reverse((next_cost + heuristic(next), next_cost, next)));
+                }
+            }
+        }
+        let Some(mut cell) = end else {
+            return;
+        };
+        while cell != start_cell {
+            self.path.push(cell);
+            cell = self.parents[cell];
+        }
+        self.path.reverse();
+        self.reachable = true;
+    }
+
+    fn obstacle(&mut self, position: (i16, i16), radius: (i16, i16), cost: u16) {
+        let left = (i32::from(position.0 - radius.0) / 8).clamp(0, WIDTH as i32 - 1) as usize;
+        let right = (i32::from(position.0 + radius.0) / 8).clamp(0, WIDTH as i32 - 1) as usize;
+        let top = (i32::from(position.1 - radius.1) / 8).clamp(0, HEIGHT as i32 - 1) as usize;
+        let bottom = (i32::from(position.1 + radius.1) / 8).clamp(0, HEIGHT as i32 - 1) as usize;
+        for y in top..=bottom {
+            for x in left..=right {
+                self.dynamic_cost[y * WIDTH + x] =
+                    self.dynamic_cost[y * WIDTH + x].saturating_add(cost);
+            }
+        }
+    }
+}
+fn neighbors(cell: usize) -> [Option<usize>; 8] {
+    let x = cell % WIDTH;
+    let y = cell / WIDTH;
+    [
+        (y > 0).then(|| cell - WIDTH),
+        (y + 1 < HEIGHT).then_some(cell + WIDTH),
+        (x > 0).then(|| cell - 1),
+        (x + 1 < WIDTH).then_some(cell + 1),
+        (y > 0 && x > 0).then(|| cell - WIDTH - 1),
+        (y > 0 && x + 1 < WIDTH).then(|| cell - WIDTH + 1),
+        (y + 1 < HEIGHT && x > 0).then(|| cell + WIDTH - 1),
+        (y + 1 < HEIGHT && x + 1 < WIDTH).then_some(cell + WIDTH + 1),
+    ]
+}
+
+fn heading(dx: i16, dy: i16) -> u16 {
+    let horizontal = if dx.abs() <= 3 {
+        0
+    } else if dx < 0 {
+        LEFT
+    } else {
+        RIGHT
+    };
+    let vertical = if dy.abs() <= 3 {
+        0
+    } else if dy < 0 {
+        UP
+    } else {
+        DOWN
+    };
+    horizontal | vertical
+}
+fn position_cell(position: (i16, i16)) -> Option<usize> {
+    if position.0 < 0 || position.1 < 0 {
+        return None;
+    }
+    let x = position.0 as usize / 8;
+    let y = position.1 as usize / 8;
+    (x < WIDTH && y < HEIGHT).then_some(y * WIDTH + x)
+}
+fn cell_position(cell: usize) -> (i16, i16) {
+    (
+        ((cell % WIDTH) * 8 + 4) as i16,
+        ((cell / WIDTH) * 8 + 4) as i16,
+    )
+}
+fn manhattan(a: (i16, i16), b: (i16, i16)) -> i32 {
+    (i32::from(a.0) - i32::from(b.0)).abs() + (i32::from(a.1) - i32::from(b.1)).abs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagonal_land_contacts_are_valid_original_pad_routes() {
+        let revision = Revision::Rev02;
+        let memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        let start = 10 * WIDTH + 20;
+        let goal = 11 * WIDTH + 21;
+        navigator.terrain[start] = 0x10;
+        navigator.terrain[goal] = 0x10;
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(goal), Travel::Land),
+        );
+        assert!(navigator.reachable);
+        assert_eq!(heading(8, 8), RIGHT | DOWN);
+        assert_eq!(neighbors(0).into_iter().flatten().count(), 3);
+        assert_eq!(neighbors(CELLS - 1).into_iter().flatten().count(), 3);
+    }
+
+    #[test]
+    fn current_overlap_does_not_create_a_fake_collision_prison() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let start = (164, 84);
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 1);
+        player.x().write(&mut memory, start.0);
+        player.y().write(&mut memory, start.1);
+        player.width().write(&mut memory, 24);
+        let obstacle = ram::g_player_info(revision).at(6);
+        obstacle.level().write(&mut memory, 1);
+        obstacle.x().write(&mut memory, start.0);
+        obstacle.y().write(&mut memory, start.1);
+        obstacle.width().write(&mut memory, 40);
+        obstacle.draw_flags().write(&mut memory, 1);
+        obstacle.behavior_flags().write(&mut memory, 1);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        for x in 20..=26 {
+            navigator.terrain[10 * WIDTH + x] = 0x10;
+        }
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            start,
+            ((212, 84), Travel::Land),
+        );
+        assert!(navigator.reachable);
+    }
+}

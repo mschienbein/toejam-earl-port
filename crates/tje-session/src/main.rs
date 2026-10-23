@@ -1,4 +1,6 @@
+mod adventure;
 mod bot;
+mod navigation;
 mod runner;
 
 use anyhow::{Result, bail, ensure};
@@ -62,6 +64,9 @@ enum Command {
         scenario: bot::Scenario,
         #[arg(long, default_value_t = 12000)]
         frames: u64,
+        /// Replay this input-only prefix from power-on before choosing new inputs.
+        #[arg(long)]
+        prefix: Option<PathBuf>,
         #[arg(long)]
         out: PathBuf,
         #[arg(long)]
@@ -148,14 +153,15 @@ fn main() -> Result<()> {
             rom,
             scenario,
             frames,
+            prefix,
             out,
             report,
         } => {
-            let result = bot::generate(&fs::read(rom)?, scenario, frames, &out)?;
+            let result = bot::generate(&fs::read(rom)?, scenario, frames, &out, prefix.as_deref())?;
             println!(
                 "{} frames={} entries={}/648 content={}",
                 out.display(),
-                frames,
+                result.frames,
                 result.entries_hit,
                 serde_json::to_string(&result.content)?
             );

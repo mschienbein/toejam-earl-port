@@ -1,9 +1,13 @@
 //! A bounded deterministic input planner. It observes named RAM views and the
 //! user's runtime ROM terrain resources; it never edits RAM or saves resources.
 use crate::runner::{self, Coverage, Ram, ReplayReport};
+use crate::{
+    adventure::{Adventure, Objective},
+    navigation::Navigator,
+};
 use anyhow::{Result, ensure};
 use clap::ValueEnum;
-use std::{collections::VecDeque, fs, path::Path};
+use std::{fs, path::Path};
 use tje_host::{FrameSnapshot, Host, Mode, session_trace::FrameObservations};
 use tje_mem::{Revision, ram};
 use tje_session::{A, B, C, CONNECTED, DOWN, LEFT, RIGHT, START, Session, UP};
@@ -13,6 +17,15 @@ pub enum Scenario {
     OnePlayer,
     TwoPlayer,
     JamOut,
+    Campaign,
+    Explore,
+    Coop,
+    LevelZero,
+    GameOver,
+    JamAll,
+    Intro,
+    Menus,
+    SecretEnding,
 }
 
 struct Planner {
@@ -23,6 +36,11 @@ struct Planner {
     jam_frame: Option<u64>,
     jam_round: u32,
     navigators: [Navigator; 2],
+    adventure: Option<Adventure>,
+    controller_visits: u32,
+    intro_seen: bool,
+    intro_complete: bool,
+    menu_active: bool,
 }
 impl Planner {
     fn new(scenario: Scenario) -> Self {
@@ -33,10 +51,27 @@ impl Planner {
             game_frame: None,
             jam_frame: None,
             jam_round: 0,
+            controller_visits: 0,
+            intro_seen: false,
+            intro_complete: false,
+            menu_active: true,
             navigators: std::array::from_fn(|_| Navigator::new()),
+            adventure: match scenario {
+                Scenario::Campaign => Some(Adventure::new(Objective::Campaign)),
+                Scenario::SecretEnding => Some(Adventure::new(Objective::Campaign)),
+                Scenario::Explore => Some(Adventure::new(Objective::Explore)),
+                Scenario::Coop => Some(Adventure::new(Objective::Coop)),
+                Scenario::LevelZero => Some(Adventure::new(Objective::LevelZero)),
+                Scenario::GameOver => Some(Adventure::new(Objective::GameOver)),
+                Scenario::Menus => Some(Adventure::new(Objective::Campaign)),
+                _ => None,
+            },
         }
     }
     fn observe(&mut self, observations: &FrameObservations, revision: Revision) {
+        if let Some(adventure) = &mut self.adventure {
+            adventure.observe(observations, revision);
+        }
         for entry in &observations.entries {
             let name = runner::entry_name(revision, entry.address);
             if matches!(
@@ -48,12 +83,36 @@ impl Planner {
             ) {
                 self.menu = name;
                 self.menu_frame = entry.frame;
+                self.menu_active = true;
+                if name == "MenuWhoHandler" {
+                    self.game_frame = None;
+                }
+                if name == "MenuControllerOptionsHandler" {
+                    self.controller_visits += 1;
+                }
+                if name == "MenuWhoHandler" && self.intro_seen {
+                    self.intro_complete = true;
+                }
                 if name == "MenuWhoHandler" && self.jam_frame.take().is_some() {
                     self.jam_round += 1;
                 }
             } else if name == "StartJamOut" {
                 self.jam_frame = Some(entry.frame);
                 self.menu = "";
+            } else if name == "GameProgram" {
+                self.menu_active = true;
+                self.menu = "";
+                self.game_frame = None;
+                self.jam_frame = None;
+            } else if name == "IntroVideo"
+                && self.scenario == Scenario::Intro
+                && self.menu == "MenuWhatHandler"
+            {
+                self.intro_seen = true;
+                self.menu = "IntroVideo";
+                self.menu_frame = entry.frame;
+            } else if name == "ProcessInput" {
+                self.menu_active = false;
             }
         }
     }
@@ -64,18 +123,28 @@ impl Planner {
         host: &Host,
         rom: &[u8],
         revision: Revision,
+        content: &runner::Content,
     ) -> [u16; 2] {
         let mut pads = [
             CONNECTED,
-            if self.scenario == Scenario::OnePlayer {
-                0
-            } else {
+            if matches!(
+                self.scenario,
+                Scenario::TwoPlayer | Scenario::Coop | Scenario::JamOut | Scenario::JamAll
+            ) {
                 CONNECTED
+            } else {
+                0
             },
         ];
         if let Some(start) = self.jam_frame {
             let age = frame - start;
-            if age >= 2000 {
+            if age
+                >= if self.scenario == Scenario::JamAll {
+                    2400
+                } else {
+                    2000
+                }
+            {
                 pads[0] |= START;
             } else if age > 90 {
                 let pulse = (age / 16) % 8;
@@ -86,24 +155,37 @@ impl Planner {
             }
             return pads;
         }
-        if host.measurements.game_frame.is_none() {
+        if host.measurements.game_frame.is_none() || self.menu_active {
+            if self.menu == "IntroVideo" {
+                return pads;
+            }
             let age = frame.saturating_sub(self.menu_frame);
             let down_count = match self.menu {
-                "MenuWhoHandler" => u64::from(self.scenario == Scenario::OnePlayer),
+                "MenuWhoHandler" => u64::from(!matches!(
+                    self.scenario,
+                    Scenario::TwoPlayer | Scenario::Coop | Scenario::JamOut | Scenario::JamAll
+                )),
                 "MenuWhatHandler" => {
-                    if self.scenario == Scenario::JamOut {
+                    if matches!(self.scenario, Scenario::JamOut | Scenario::JamAll) {
                         1
+                    } else if self.scenario == Scenario::Intro {
+                        2
+                    } else if self.scenario == Scenario::Menus && self.controller_visits < 2 {
+                        3
                     } else {
                         4
                     }
                 }
                 "MenuJamOutHandler" => {
-                    if self.jam_round == 0 {
+                    if self.scenario == Scenario::JamAll {
+                        u64::from(self.jam_round % 8)
+                    } else if self.jam_round == 0 {
                         1
                     } else {
                         7
                     }
                 }
+                "MenuControllerOptionsHandler" => u64::from(self.controller_visits == 1),
                 _ => 0,
             };
             if !self.menu.is_empty() {
@@ -129,6 +211,45 @@ impl Planner {
             return pads;
         };
         let memory = Ram(&snapshot.ram);
+        if self.scenario == Scenario::Menus && age < 1200 {
+            for (start, button) in [
+                (100, START),
+                (180, START),
+                (260, C),
+                (400, C),
+                (520, B),
+                (600, C),
+                (680, A),
+                (760, B),
+            ] {
+                if (start..start + 12).contains(&age) {
+                    pads[0] |= button;
+                }
+            }
+            return pads;
+        }
+        if self.scenario == Scenario::SecretEnding && age < 700 {
+            // Original reachable pause sequence, not a RAM intervention. It
+            // removes nine assignments; coverage must not count them collected.
+            for (start, button) in [
+                (80, START),
+                (180, UP | A | B | C),
+                (260, RIGHT | A),
+                (340, DOWN | B),
+                (420, LEFT | C),
+                (500, START),
+            ] {
+                if (start..start + 16).contains(&age) {
+                    pads[0] |= button;
+                }
+            }
+            return pads;
+        }
+        if let Some(adventure) = &mut self.adventure {
+            adventure.choose(&memory, rom, revision, content, frame, &mut pads);
+            logical_controls(&mut pads, &memory, rom, revision, frame);
+            return pads;
+        }
         // Four initial inventory attempts exercise the real selector/open path.
         // They are controller actions, not fabricated grants or forced effects.
         for round in 0..4 {
@@ -220,14 +341,9 @@ impl Planner {
                         *pad |= UP;
                     }
                 } else {
-                    *pad |= self.navigators[player].steer(
-                        &memory,
-                        rom,
-                        revision,
-                        player,
-                        (x, y),
-                        frame,
-                    );
+                    *pad |= self.navigators[player]
+                        .steer(&memory, rom, revision, player, (x, y), frame)
+                        .unwrap_or(0);
                 }
             }
         }
@@ -235,199 +351,109 @@ impl Planner {
     }
 }
 
-const WIDTH: usize = 320;
-const HEIGHT: usize = 216;
-const CELLS: usize = WIDTH * HEIGHT;
-struct Navigator {
-    level: i8,
-    map: Vec<u16>,
-    terrain: Vec<u8>,
-    parents: Vec<usize>,
-    queue: VecDeque<usize>,
-    path: Vec<usize>,
-    path_index: usize,
-    target: Option<(i16, i16)>,
-    last_plan: u64,
-    previous: (i16, i16),
-    stuck: u64,
-}
-impl Navigator {
-    fn new() -> Self {
-        Self {
-            level: -1,
-            map: vec![0; 26 * 19],
-            terrain: vec![0x90; CELLS],
-            parents: vec![usize::MAX; CELLS],
-            queue: VecDeque::with_capacity(CELLS),
-            path: Vec::new(),
-            path_index: 0,
-            target: None,
-            last_plan: 0,
-            previous: (0, 0),
-            stuck: 0,
+fn logical_controls(
+    pads: &mut [u16; 2],
+    memory: &Ram<'_>,
+    rom: &[u8],
+    revision: Revision,
+    frame: u64,
+) {
+    for (player, pad) in pads.iter_mut().enumerate() {
+        if *pad == 0 {
+            continue;
         }
-    }
-    fn steer(
-        &mut self,
-        memory: &Ram<'_>,
-        rom: &[u8],
-        revision: Revision,
-        player: usize,
-        target: (i16, i16),
-        frame: u64,
-    ) -> u16 {
-        let view = ram::g_player_info(revision).at(player as i32);
-        let level = view.level().read(memory);
-        let position = (view.x().read(memory), view.y().read(memory));
-        let map_view = if player == 1 && ram::g_split_screen_enabled(revision).read(memory) != 0 {
-            ram::g_player2_level_map(revision)
-        } else {
-            ram::g_player1_level_map(revision)
-        };
-        let changed = self.level != level
-            || (0..26).any(|row| {
-                (0..19).any(|col| {
-                    self.map[(row * 19 + col) as usize] != map_view.at(row).at(col).read(memory)
+        if *pad & 15 != 0
+            && ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
+            && ram::g_player_inventory_open(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
+            && ram::g_player_interaction_choice_active(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
+        {
+            let view = ram::g_player_info(revision).at(player as i32);
+            let near_elevator = (0..2).any(|bank| {
+                let elevator = ram::g_elevator_records(revision).at(bank).at(0);
+                elevator.level().read(memory) == view.level().read(memory)
+                    && (elevator.x().read(memory) - view.x().read(memory)).abs() < 24
+                    && (elevator.y().read(memory) - view.y().read(memory)).abs() < 48
+            });
+            let near_pickup = (0..2).any(|bank| {
+                (0..28).any(|index| {
+                    let item = ram::g_object_table(revision).at(bank).at(index);
+                    item.kind().read(memory) >= 0
+                        && item.level().read(memory) == view.level().read(memory)
+                        && (item.x().read(memory) - view.x().read(memory)).abs() < 20
+                        && (item.y().read(memory) - view.y().read(memory)).abs() < 16
                 })
             });
-        if changed {
-            self.level = level;
-            for row in 0..26 {
-                for col in 0..19 {
-                    self.map[(row * 19 + col) as usize] = map_view.at(row).at(col).read(memory);
+            let near_service = (0..2).any(|bank| {
+                (0..20).any(|index| {
+                    let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                    matches!(earthling.kind().read(memory),0 | 9..=11 | 17 | 23..=24)
+                        && earthling.level().read(memory) == view.level().read(memory)
+                        && (earthling.x().read(memory) - view.x().read(memory)).abs() < 40
+                        && (earthling.y().read(memory) - view.y().read(memory)).abs() < 24
+                })
+            });
+            if !near_elevator && !near_pickup && !near_service && frame % 24 < 12 {
+                if !(60..64).contains(&view.sprite_state().read(memory)) {
+                    *pad &= !15;
                 }
+                *pad |= A;
             }
-            self.decode_terrain(rom, revision);
-            self.path.clear();
         }
-        if position == self.previous {
-            self.stuck += 1;
-        } else {
-            self.stuck = 0;
-        }
-        self.previous = position;
-        if self.path_index >= self.path.len()
-            || self.target != Some(target)
-            || self.stuck > 90
-            || frame - self.last_plan > 360
+        let direction = *pad & 15;
+        if direction != 0
+            && ram::g_player_control_remap_entities(revision)
+                .at(player as i32)
+                .read(memory)
+                != 0
+            && ram::g_player_inventory_open(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
+            && ram::g_player_interaction_choice_active(revision)
+                .at(player as i32)
+                .read(memory)
+                == 0
         {
-            self.plan(position, target);
-            self.target = Some(target);
-            self.last_plan = frame;
-            self.stuck = 0;
-        }
-        while let Some(&cell) = self.path.get(self.path_index) {
-            let point = (
-                ((cell % WIDTH) * 8 + 4) as i16,
-                ((cell / WIDTH) * 8 + 4) as i16,
-            );
-            if (position.0 - point.0).abs() < 5 && (position.1 - point.1).abs() < 5 {
-                self.path_index += 1;
-                continue;
-            }
-            let dx = point.0 - position.0;
-            let dy = point.1 - position.1;
-            return if dx.abs() >= dy.abs() {
-                if dx < 0 { LEFT } else { RIGHT }
-            } else if dy < 0 {
-                UP
-            } else {
-                DOWN
-            };
-        }
-        // If the goal itself occupies a special collision cell, approach from
-        // the nearest walkable endpoint then let the real elevator gate decide.
-        if (position.0 - target.0).abs() > 4 {
-            if position.0 < target.0 { RIGHT } else { LEFT }
-        } else if position.1 < target.1 {
-            DOWN
-        } else {
-            UP
-        }
-    }
-    fn decode_terrain(&mut self, rom: &[u8], revision: Revision) {
-        let resource = |name: &str| {
-            tje_mem::rom_data_units(revision)
+            let resource = tje_mem::rom_data_units(revision)
                 .iter()
-                .find(|unit| unit.name == name)
-                .unwrap()
-                .address as usize
-        };
-        let base = resource("LevelMetatileMaps");
-        let overlay = resource("OverlayMetatileMaps");
-        let lookup = resource("PlayerTilePropertyLookup");
-        let word = |address: usize| u16::from_be_bytes([rom[address], rom[address + 1]]);
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let cell = y * WIDTH + x;
-                if x < 16 || y < 8 {
-                    self.terrain[cell] = 0x90;
-                    continue;
-                }
-                let map = self.map[(y / 8 - 1) * 19 + x / 16 - 1];
-                let mut tile = 0;
-                let over = usize::from((map & 0x1F00) >> 8);
-                if over & 15 != 0 {
-                    let col = if over & 16 != 0 { 15 - x % 16 } else { x % 16 };
-                    tile = word(overlay + (((over & 15) - 1) * 128 + (y % 8) * 16 + col) * 2);
-                }
-                if tile == 0 {
-                    let kind = usize::from(map as u8);
-                    let col = if kind & 128 != 0 { 15 - x % 16 } else { x % 16 };
-                    tile = word(base + ((kind & 127) * 128 + (y % 8) * 16 + col) * 2);
-                }
-                self.terrain[cell] = rom[lookup + usize::from(tile & 0x7FF)] & 0xF0;
-            }
-        }
-    }
-    fn plan(&mut self, start: (i16, i16), goal: (i16, i16)) {
-        self.path.clear();
-        self.path_index = 0;
-        if start.0 < 0 || start.1 < 0 {
-            return;
-        }
-        let start = (start.1 as usize / 8) * WIDTH + start.0 as usize / 8;
-        if start >= CELLS {
-            return;
-        }
-        self.parents.fill(usize::MAX);
-        self.queue.clear();
-        self.queue.push_back(start);
-        self.parents[start] = start;
-        let mut best = start;
-        let distance = |cell: usize| {
-            ((cell % WIDTH) as i32 * 8 + 4 - i32::from(goal.0)).abs()
-                + ((cell / WIDTH) as i32 * 8 + 4 - i32::from(goal.1)).abs()
-        };
-        while let Some(cell) = self.queue.pop_front() {
-            if distance(cell) < distance(best) {
-                best = cell;
-            }
-            if distance(cell) <= 8 {
-                best = cell;
-                break;
-            }
-            for next in [
-                cell.checked_sub(WIDTH),
-                cell.checked_add(WIDTH).filter(|&next| next < CELLS),
-                (cell % WIDTH > 0).then(|| cell - 1),
-                (cell % WIDTH + 1 < WIDTH).then_some(cell + 1),
+                .find(|unit| unit.name == "MapGenerationLookupTables")
+                .unwrap();
+            let mapping = tje_mem::Address::<tje_mem::MapGenerationTables>::new(resource.address)
+                .input_directions()
+                .at(i32::from(
+                    ram::g_player_control_remap_indices(revision)
+                        .at(player as i32)
+                        .read(memory),
+                ));
+            if let Some(physical) = [
+                UP,
+                DOWN,
+                LEFT,
+                RIGHT,
+                UP | LEFT,
+                UP | RIGHT,
+                DOWN | LEFT,
+                DOWN | RIGHT,
             ]
             .into_iter()
-            .flatten()
-            {
-                if self.parents[next] == usize::MAX && self.terrain[next] <= 0x50 {
-                    self.parents[next] = cell;
-                    self.queue.push_back(next);
-                }
+            .find(|physical| {
+                u16::from(rom[mapping.at(i32::from(*physical) - 1).address() as usize]) == direction
+            }) {
+                *pad = (*pad & !15) | physical;
             }
         }
-        let mut cell = best;
-        while cell != start {
-            self.path.push(cell);
-            cell = self.parents[cell];
+        if ram::g_controller_buttons_ac_swapped(revision).read(memory) != 0 {
+            *pad = (*pad & !(A | C)) | ((*pad & A) << 2) | ((*pad & C) >> 2);
         }
-        self.path.reverse();
     }
 }
 
@@ -436,17 +462,43 @@ pub fn generate(
     scenario: Scenario,
     frames: u64,
     path: &Path,
+    prefix: Option<&Path>,
 ) -> Result<ReplayReport> {
     ensure!(frames > 0, "bot needs at least one frame");
     let rom = tje_rom::Rom::import(bytes)?;
     let revision = rom.revision();
+    let prefix = prefix
+        .map(fs::read_to_string)
+        .transpose()?
+        .map(|json| Session::from_json(&json))
+        .transpose()?;
+    if let Some(prefix) = &prefix {
+        ensure!(
+            Revision::from(prefix.revision) == revision,
+            "prefix cartridge revision differs"
+        );
+        ensure!(
+            matches!(prefix.start, tje_session::Start::PowerOn),
+            "bot prefixes must be input-only power-on sessions"
+        );
+        ensure!(
+            prefix.frames <= frames,
+            "frame limit is shorter than the prefix"
+        );
+    }
+    let mut prefix_inputs = prefix.as_ref().map(Session::inputs);
     let mut host = runner::host(rom.bytes(), Mode::Reference, revision, false)?;
     let mut planner = Planner::new(scenario);
     let mut coverage = Coverage::new();
-    let mode = if scenario == Scenario::JamOut {
-        "ordinary and random-sample Jam Out"
-    } else {
-        "Fixed World gameplay"
+    let mode = match scenario {
+        Scenario::JamOut => "ordinary and random-sample Jam Out",
+        Scenario::JamAll => "all eight Jam Out modes",
+        Scenario::Intro => "full natural intro selected from the menu",
+        Scenario::Menus => "controller options, pause, map and inventory",
+        Scenario::SecretEnding => {
+            "original hidden pause sequence clears nine assignments; not a ten-piece campaign"
+        }
+        _ => "Fixed World gameplay",
     };
     let mut session = Session::new(
         revision,
@@ -454,7 +506,19 @@ pub fn generate(
     );
     let mut previous = None;
     for frame in 0..frames {
-        let pads = planner.choose(frame, previous.as_ref(), &host, rom.bytes(), revision);
+        let pads = prefix_inputs
+            .as_mut()
+            .and_then(Iterator::next)
+            .unwrap_or_else(|| {
+                planner.choose(
+                    frame,
+                    previous.as_ref(),
+                    &host,
+                    rom.bytes(),
+                    revision,
+                    &coverage.content,
+                )
+            });
         session.record(pads)?;
         let snapshot = host.run_frame(runner::inputs(pads))?;
         let observations = host.take_session_observations();
@@ -476,6 +540,51 @@ pub fn generate(
             );
         }
         previous = Some(snapshot);
+        if matches!(scenario, Scenario::Campaign | Scenario::SecretEnding)
+            && (scenario == Scenario::SecretEnding
+                || coverage
+                    .content
+                    .ship_pieces_collected
+                    .values()
+                    .all(Option::is_some))
+            && planner.adventure.as_ref().is_some_and(|adventure| {
+                adventure.campaign_complete(&Ram(&previous.as_ref().unwrap().ram), revision, frame)
+            })
+            && prefix.as_ref().is_none_or(|prefix| frame >= prefix.frames)
+        {
+            break;
+        }
+        if (scenario == Scenario::JamAll && planner.jam_round >= 8)
+            || (scenario == Scenario::Intro && planner.intro_complete)
+            || (scenario == Scenario::Menus
+                && planner
+                    .game_frame
+                    .is_some_and(|start| frame - start >= 1200))
+            || (scenario == Scenario::GameOver
+                && coverage
+                    .content
+                    .milestones
+                    .get("game_over")
+                    .and_then(|frame| *frame)
+                    .is_some_and(|start| frame >= start + 300)
+                && planner.menu_active
+                && planner.menu == "MenuWhoHandler")
+            || (scenario == Scenario::Coop
+                && planner.adventure.as_ref().is_some_and(|adventure| {
+                    adventure.coop_complete(&Ram(&previous.as_ref().unwrap().ram), revision, frame)
+                }))
+            || (scenario == Scenario::LevelZero
+                && planner.adventure.as_ref().is_some_and(|adventure| {
+                    adventure.hidden_level_complete(
+                        &Ram(&previous.as_ref().unwrap().ram),
+                        revision,
+                        &coverage.content,
+                        frame,
+                    )
+                }))
+        {
+            break;
+        }
     }
     fs::write(path, session.to_json()?)?;
     Ok(runner::replay_report(

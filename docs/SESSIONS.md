@@ -13,7 +13,7 @@ A `.tje.json` session has these fields:
 - `revision`: `rev02` or `rev00`; a mismatching cartridge is rejected.
 - `start`: `{ "kind": "power_on" }` for every initial committed session.
 - `frames`: exact total completed video frames, not the resettable `gFrameCounter`.
-- `tool`: version of the writer, currently `tje-session/0.1.0`.
+- `tool`: writer version (`tje-session/0.2.0`; initial recordings used `0.1.0`).
 - `description`: human-readable provenance/purpose.
 - `runs`: `{ "frames": duration, "pads": [pad1, pad2] }` records, in order from power-on frame zero.
 
@@ -157,7 +157,7 @@ per frame in the replay report, not guessed from the seed or normalized away.
 ```sh
 "$SESSION_TOOL" bot --rom roms/rev02.bin --scenario one-player --frames 12000 \
   --out sessions/rev02-one-player.tje.json --report scratch/rev02-one-player.json
-# Also: --scenario two-player, --scenario jam-out; use each revision's cartridge.
+# Additional goals: campaign, explore, coop, level-zero, game-over, jam-all, intro, menus.
 "$SESSION_TOOL" export-legacy --session sessions/rev02-one-player.tje.json \
   --out scratch/one-player-holds.json
 ```
@@ -166,7 +166,7 @@ The bot runs the reference and records the actual pad decisions, so later replay
 does not run the bot or depend on planner changes. Menu function entries determine
 selection timing. Gameplay reads `tje-mem` views for active players, inventory,
 map banks, elevators and Earthling records. It attempts real inventory opens,
-opens/closes the map with C, and uses breadth-first paths on the live RAM map,
+opens/closes the map with C, and uses weighted shortest paths on the live RAM map,
 with walkability decoded from runtime user-ROM metatile/overlay/property resources.
 No map, route, present table, or decoded resource is embedded in the crate or
 recording. It prefers ship-piece targets, then matching-level departure elevators.
@@ -174,15 +174,38 @@ P2 initially stays behind to exercise split-screen, then joins the elevator targ
 Jam Out plays both pads, exits through held Start, then selects random-sample mode.
 Legacy export refuses recipes or connectivity changes it cannot represent.
 
-The bot is intentionally a bounded deterministic planner, not an assertion that
-all generated sessions finish the game. Its observations and the replay report
-state exactly what was reached. Remaining coverage needs a goal-directed planner:
-replan around moving Earthlings and collision gates, target loose presents by RAM
-item banks, retain per-level goals for missing kinds/ship pieces, and track
-successful collection before choosing an elevator. Fixed World keeps level routes
-reproducible; live RNG/AI still require feedback. The ending should be reached by
-collecting all ten pieces through real interactions and then taking the real final
-transition, not by writing completion flags or storing a late-game snapshot.
+The goal-directed planner minimizes edge exposure, accounts for active elevator
+collision geometry and moving Earthlings, approaches the original doorway strip
+before pressing Up, exits arrival elevators, chooses inventory slots through the
+real cursor and holds actions through both controller-poll parities. It never
+grants presents or health. `campaign` prioritizes uncollected ship-piece records;
+`explore` also seeks missing presents and friendly interactions; `coop` separates
+and rejoins the players before riding together; `game-over` deliberately drowns
+the player through the last-life sequence. `jam-all` selects all eight original
+Jam Out choices; `intro` watches the full natural intro; `menus` exercises controller
+options, pause, the map and the real inventory drop path.
+
+`--prefix PATH` replays a previous **input-only** power-on session, then chooses
+new inputs from its resulting live state. It never loads a snapshot. Prefixes
+must match the cartridge revision, cannot contain recipe writes and cannot exceed
+the total `--frames` limit. This makes route refinement reproduce the exact history
+that acquired an item or reached a later level. Every resulting recording still
+contains the complete input stream from power-on.
+
+The planner observes actual success rather than treating a target as completed:
+ship collection needs the original ability plus an assignment-byte transition,
+friendly services require payment/service RAM evidence, and the campaign stops
+only after all ten pieces and the real ending/final-level transition. Fixed World
+keeps geometry reproducible; dynamic RNG/AI still require feedback. A missing route
+is not permission to teleport, set completion flags or fabricate a late-game state.
+
+`secret-ending` is a separate, explicitly labelled original-input route: it enters
+the hidden `GamePaused` sequence (`src/ui/pause.c:129-160`), which clears nine ship
+assignments, collects the remaining actual piece, and watches the real ending.
+It contains no RAM writes but **is not a ten-piece campaign**. The coverage
+detector does not count the nine mass-cleared assignments as collected pieces.
+This supplemental path covers the reachable secret and permits ending/credits
+translation checks without misrepresenting full-campaign collection evidence.
 
 ## Initial recorded coverage (2026-10-23)
 
@@ -227,3 +250,29 @@ unchanged when their wire records gained explicit `frames`/`pads` field names;
 the final parser rejects old unlabelled tuples rather than keeping a compatibility
 format. Function checking and replacement are separate modes, not a claim that
 untimed replacements already match the original's whole-game timing.
+
+## Unreachable and exceptional entries
+
+The report keeps the full **648** denominator and lists every zero-count entry
+with its source location and a disposition. A zero count alone is **not** evidence
+of dead code. The complete paired inventory and a source/header reference search
+show these five entries have no callers, interrupt vectors, typed function-pointer
+data references, code-pointer assignments, music callbacks or external entry roots:
+
+| Entry | REV 02 | REV 00 | Definition |
+| --- | --- | --- | --- |
+| `ReloadActiveCameraViews` | `000BE2` | `000BE2` | `src/core/startup_and_main_loop.c:368` |
+| `ShowRandomUncollectedShipPiece` | `020E2A` | `020DB2` | `src/ship/ship_screen_and_collection.c:652` |
+| `NoOp` | `023428` | `0233B0` | `src/presents/noop.c:4` |
+| `CopyLongwordRunToVramTile` | `026F98` | `026F20` | `src/asm/vdp.s:58` |
+| `FillVdpDataBytes` | `026FD8` | `026F60` | `src/asm/vdp.s:90` |
+
+`ErrorTrap` is different: exception vectors point to its terminal loop. It is not
+dead, but deliberately provoking a machine exception is not successful normal
+play. No ordinary uncovered function is relabelled unreachable to improve a score.
+
+The original elevators also have no downward ride transaction: departure processing
+calls `ElevatorAdvanceRidersToNextLevel`, which increments rider levels; arrival
+processing only opens, closes and retires the arrival record. Coverage therefore
+distinguishes departure, arrival and real falls to lower levels, rather than
+inventing a downward elevator mode absent from the original.
