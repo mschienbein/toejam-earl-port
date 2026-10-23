@@ -13,14 +13,14 @@
   <main>
     <header>
       <h1>ToeJam &amp; Earl</h1>
-      <p>Faithful hybrid port · Rust + WebAssembly · original-ROM playback through the replacement-mode host</p>
+      <p>Faithful port in progress · Rust + WebAssembly · translated functions run as Rust, the rest as original code on an emulated 68000</p>
     </header>
     <section id="drop-zone" aria-label="Local cartridge import">
       <label for="rom">Choose your own ROM, or drop it here</label>
       <input id="rom" type="file" accept=".bin,.md,.gen,.smd,.zip" disabled>
       <p id="cartridge">No cartridge loaded.</p>
       <p class="small">REV 02 / REV 00 identification, including ZIP and SMD imports. No ROM is supplied.
-        This host build plays REV 02. Choose a file smaller than 16 MiB.
+        Both revisions play. Choose a file smaller than 16 MiB.
         Accepted files stay in this browser’s IndexedDB; they are never uploaded.</p>
       <button id="forget" type="button" disabled>Forget stored ROM</button>
     </section>

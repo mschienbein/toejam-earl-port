@@ -38,7 +38,7 @@ pub struct HybridBackend {
 
 impl HybridBackend {
     pub fn new(rom: &Rom, sample_rate: u32) -> Result<Self> {
-        let hooks = HookRegistry::default();
+        let hooks = HookRegistry::translated(rom.revision())?;
         println!(
             "BACKEND hybrid mode=replace revision={} translated_functions={}",
             rom.revision(),
@@ -119,7 +119,13 @@ impl GameBackend for HybridBackend {
             title_frame: measurements.title_frame,
             menu_frame: measurements.menu_frame,
             gameplay_frame: measurements.game_frame,
-            translated_calls: self.host.checks.by_function.values().sum(),
+            translated_calls: self
+                .host
+                .checks
+                .by_function
+                .values()
+                .map(|coverage| coverage.calls_replaced)
+                .sum(),
             players,
         }
     }

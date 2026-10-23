@@ -8,10 +8,14 @@ fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
-/// Original-ROM playback with the replacement dispatcher enabled. Keeping host
+/// Replacement-mode playback with every translated function registered. Keeping host
 /// construction here makes the hook-registry policy independent of the web UI.
 fn create_playback(rom: &Rom, sample_rate: u32) -> tje_host::Result<Host> {
-    let mut host = Host::new(rom.bytes(), Mode::Replace, HookRegistry::default())?;
+    let mut host = Host::new(
+        rom.bytes(),
+        Mode::Replace,
+        HookRegistry::translated(rom.revision())?,
+    )?;
     host.set_audio_sample_rate(sample_rate)?;
     Ok(host)
 }

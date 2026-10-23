@@ -2649,6 +2649,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-game"
+version = "0.1.0"
+dependencies = [
+ "tje-mem",
+]
+
+[[package]]
 name = "tje-host"
 version = "0.1.0"
 dependencies = [
@@ -2664,6 +2671,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tje-game",
+ "tje-mem",
  "tje-rom",
 ]
 

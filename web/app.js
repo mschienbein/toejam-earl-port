@@ -64,7 +64,7 @@ function snapshot() {
     if (cumulative >= measuredFrames * 0.95) break;
   }
   return {
-    state, mode: 'replace', registry: 'original-rom', revision, source, backend: game?.backend(), adapter: game?.adapter(),
+    state, mode: 'replace', registry: 'translated', revision, source, backend: game?.backend(), adapter: game?.adapter(),
     frames: game?.frames() ?? 0, titleFrame: game?.title_frame() ?? null,
     gameFrame: game?.game_frame() ?? null, logicTicks: game?.logic_ticks() ?? 0,
     targetFps: game?.target_fps() ?? 0, measuredFrames, wallSeconds,
@@ -205,7 +205,7 @@ $('play').addEventListener('click', async () => {
     running = true;
     $('play').textContent = 'Pause';
     canvas.focus();
-    status(`${revision} running through the replacement-mode host (original ROM; no translated hooks).${storageWarning}`, 'running');
+    status(`${revision} running: translated functions as Rust, the rest as original code on the emulated 68000.${storageWarning}`, 'running');
   } catch (error) {
     errorMessage(error);
   } finally {

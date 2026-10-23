@@ -1,6 +1,6 @@
 //! Borrowed realtime output, without the reference runner's state snapshots.
 
-use crate::{Host, HostError, Mode, Result, catalogue, sinks::Inputs};
+use crate::{Host, HostError, Mode, Result, sinks::Inputs};
 use genesis_config::GenesisInputs;
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 
@@ -41,21 +41,16 @@ impl Host {
             if ready {
                 // Bounded milestones remain useful to the frontends without
                 // collecting the reference runner's per-frame diagnostics.
-                match pc {
-                    catalogue::INTRO => {
-                        self.measurements.intro_frame.get_or_insert(self.frame);
-                    }
-                    0x027A10 => {
-                        self.measurements.title_frame.get_or_insert(self.frame);
-                    }
-                    catalogue::NEW_GAME_MENU => {
-                        self.measurements.menu_frame.get_or_insert(self.frame);
-                    }
-                    catalogue::MAIN_LOOP => {
-                        self.measurements.game_frame.get_or_insert(self.frame);
-                        self.measurements.logic_ticks += 1;
-                    }
-                    _ => {}
+                let symbols = self.symbols;
+                if pc == symbols.intro {
+                    self.measurements.intro_frame.get_or_insert(self.frame);
+                } else if pc == symbols.title {
+                    self.measurements.title_frame.get_or_insert(self.frame);
+                } else if pc == symbols.new_game_menu {
+                    self.measurements.menu_frame.get_or_insert(self.frame);
+                } else if pc == symbols.main_loop {
+                    self.measurements.game_frame.get_or_insert(self.frame);
+                    self.measurements.logic_ticks += 1;
                 }
                 if self.mode == Mode::Replace
                     && let Some(hook) = self.registry.at(pc).cloned()

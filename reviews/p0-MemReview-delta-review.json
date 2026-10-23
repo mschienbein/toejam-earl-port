@@ -1,0 +1,83 @@
+{
+  "verdict": "PASS",
+  "reviewer": "MemReview",
+  "subject": "integrate/p0@2efd4908e249545612fd3ad7ab1eab67065e3101 tje-mem successor",
+  "scope": "Delta review of MR-01 through MR-05, plus a bounded regression hunt in their successor changes. MR-06/example relocation is explicitly out of scope and remains GamePilot's assignment.",
+  "worktree": "delta-worktree/",
+  "evidence_root": ".",
+  "checks": [
+    {
+      "name": "Sealed subject and read-only isolation",
+      "status": "PASS",
+      "observed": "Resolved integrate/p0 to 2efd4908e249545612fd3ad7ab1eab67065e3101 and created delta-worktree/ detached at that exact commit. No tracked source edits, existing-branch checkout/reset, nested subagents, or ROM-file access. G remained read-only; all new probe executables, Rust comparison projects and outputs are private scratch. The original FAIL verdict on 74dae34 remains unchanged."
+    },
+    {
+      "name": "Successor generator reproduction",
+      "status": "PASS",
+      "command": "G/.venv/bin/python -B crates/tje-mem/tools/generate.py --decomp G --probe-out scratch/MemReview/delta/reproduction --check",
+      "observed": "Completed successfully: 27 structs, 186 fields, 438 RAM names per revision, 655 declared globals, 4163 ROM data units per revision, 4545 REV02 and 4542 REV00 resolver spellings, and 368 declared/53 structural-alias/17 opaque RAM views. All generated output and the committed layout receipt matched.",
+      "evidence": ["delta/reproduction/"]
+    },
+    {
+      "name": "Successor unit tests, parser tests and wasm32 build",
+      "status": "PASS",
+      "observed": "cargo test -p tje-mem: 20 unit tests passed, zero failed, zero doctests. cargo build -p tje-mem --target wasm32-unknown-unknown succeeded. G Python unittest discovery over crates/tje-mem/tools/test_*.py: seven tests passed.",
+      "evidence": ["artifact://27772", "delta/target/"]
+    },
+    {
+      "name": "MR-01: independent declarator regressions",
+      "status": "PASS",
+      "observed": "The parser now counts stars only in the declarator prefix. Own fixtures covered eight declarations: multiplied and parenthesized multidimensional bounds, arrays of genuine triple pointers, pointer/plain/double-pointer comma declarators, pointer-to-record arrays, incomplete outer arrays, and a function pointer. Four unsupported declarators were explicitly rejected. Seventeen independent MCC68K object/row/element/pointee size facts matched in both revisions. The real multiplication-bound failure is not special-cased.",
+      "evidence": ["delta_parser.py", "delta/parser/include/fixture.h", "delta/parser/results.json", "delta/parser/fixture_rev02.SRC", "delta/parser/fixture_rev00.SRC"]
+    },
+    {
+      "name": "MR-01: all declared globals independently compiler-checked",
+      "status": "PASS",
+      "observed": "Own driver does not import the subject generator. Independently discovered and parsed all 655 header globals, compiled their object, array-row/element and measurable pointer-pointee sizes in both revisions, and compared with the real Rust APIs. Rust bindings require the exact independently derived types, not only equal sizes. Positive and negative array strides and every declared view's base address also matched. Coverage is all 368 declared RAM globals plus all 287 declared ROM globals per revision. gMapPathDirectionBanks now has exact type [[u8;19];52], with total/row/element sizes 988/19/1 in both revisions.",
+      "evidence": ["delta_globals.py", "delta/globals/results.json", "delta/globals/api/src/main.rs", "delta/globals/rust_result.txt", "delta/globals/global_*_rev02.SRC", "delta/globals/global_*_rev00.SRC"]
+    },
+    {
+      "name": "MR-02: expression helpers against independently executed compiler output",
+      "status": "PASS",
+      "observed": "Freshly compiled my own original semcheck.c, assembled G's runtime, and executed both on Unicorn 2.1.4 with explicit M68000 CPU selection. Compared all four actual Rust APIs expr_div_u32/expr_rem_u32/div_u32/rem_u32 against 1303 independently executed operand pairs: 5212 results matched. All 40 original quotient/remainder counterexamples across 20 operand pairs were reproduced and fixed. Matrix includes both native-eligibility guard edges, both sides of native quotient-fit boundaries, zero-divisor vector 5, 512 general random pairs and 512 random high-divisor pairs. It observed 466 nonzero native paths, 821 nonzero runtime/fallback paths, and 407 pairs differing from direct runtime mathematics. Direct raw helpers remain correct, distinct from the expression helpers.",
+      "evidence": ["delta_division.py", "delta/division/independent.SRC", "delta/division/results.json", "delta/division/api/src/main.rs"]
+    },
+    {
+      "name": "Committed execution evidence reproduction",
+      "status": "PASS",
+      "command": "G/.venv/bin/python -B crates/tje-mem/tools/execute_semantics.py --decomp G --out scratch/MemReview/delta/author-execution --cargo-target scratch/MemReview/delta/target --unicorn-path scratch/MemReview/py --check",
+      "observed": "Completed successfully: 840 Rust-versus-executed C/runtime comparisons, 21 operand pairs exhibiting the compiler-expression defect, and aggregate/pointer/narrow-update probes. The committed execution receipt matched. This supplemented, rather than replaced, my independent matrix.",
+      "evidence": ["delta/author-execution/division_matrix.json", "delta/author-execution/execution.SRC", "delta/author-execution/"]
+    },
+    {
+      "name": "MR-03: complete ROM resolver and typed-view APIs",
+      "status": "PASS",
+      "observed": "Independently enumerated G tools/names.py:load and checked exact address, canonical spelling, lookup result and iterator cardinality for all 4545 REV02 and 4542 REV00 spellings, including all 711 original named rom_data symbols per revision. Every one of 287 typed ROM views per revision matched independently parsed header type, actual resolver address, compiler sizes and strides; declared c_type metadata also matched. This includes Player2AnimationDescriptors, TomatoProjectileAnimations, HealthDrainDisplayAnimation, MapBoundaryShapesPlain and ControlRemapDirections. Unknown-name lookups below, within and above table ranges returned None; all entries round-trip across chunks. Symbol metadata correctly has no inferred allocation size and incomplete arrays retain OpenArray.",
+      "evidence": ["delta/globals/results.json", "delta/globals/api/src/main.rs", "delta/globals/rust_result.txt", "delta-worktree/docs/TRANSLATION.md:100-129"]
+    },
+    {
+      "name": "MR-04: aggregate ABI and copy documentation",
+      "status": "PASS",
+      "observed": "Documentation now restricts four-byte slots to promoted scalar integers/pointers and describes the measured eight-byte aggregate, padding and inline stack image. My freshly compiled independent probe confirmed an eight-byte parameter image, persistent record-return scratch reuse/overwrite, and two forward interleaved longword copies including padding. Executed four copy cases, including dst=src+2 overlap, then ran the documented Rust Bus-copy idiom against an access-width-preserving observer: bytes and exact read/write transactions matched C. Other aggregate shapes remain explicitly subject to measured lowering; no current game call is fabricated.",
+      "evidence": ["delta_contract.py", "delta/contracts/results.json", "delta/contracts/api/src/main.rs", "delta/contracts/rust_result.txt", "delta/division/independent.SRC", "delta-worktree/docs/TRANSLATION.md:203-264"]
+    },
+    {
+      "name": "MR-05: pointer comparison, subtraction and update documentation",
+      "status": "PASS",
+      "observed": "Documentation now specifies full unsigned 32-bit numeric pointer comparison independently of physical masking, wrapping SUB.L followed by ASR for the measured short-pointer difference, and alias-sensitive stored-pointer update ordering with the separate RMW read preserved. Own executed comparison/subtraction cases matched, including high-bit addresses, physical aliases and negative/misaligned differences. Both char-pointer and short-pointer alias cases returned the new low value after the pointer store. Ran the documented Rust snippets through an observing Bus and matched the full C read/read/write/read trace, storage widths and final bytes. Signed byte/word post-increment snippets also matched C's saved-old read plus separate narrow RMW and returned-old result.",
+      "evidence": ["delta/contracts/results.json", "delta/contracts/api/src/main.rs", "delta/contracts/rust_result.txt", "delta/division/independent.SRC", "delta-worktree/docs/TRANSLATION.md:357-457"]
+    },
+    {
+      "name": "Bounded successor regression hunt",
+      "status": "PASS",
+      "observed": "Inspected changed declarator/global-probe/ROM-generation paths, ROM chunk partition/binary search and metadata semantics, division guard/quotient-fit logic, and aggregate/pointer guidance. Exhaustive actual-header type/address/stride and resolver-spelling comparisons plus targeted novel parser cases and broad executed arithmetic boundaries found no new in-scope defect. No correction or unresolved finding remains for MR-01 through MR-05."
+    }
+  ],
+  "qualifications": [
+    "This PASS is limited to the sealed 2efd4908e249545612fd3ad7ab1eab67065e3101 successor delta for MR-01 through MR-05; it does not approve later commits or resolve MR-06's separately assigned example tests/relocation.",
+    "Instruction execution uses Unicorn 2.1.4 M68000, not a complete Genesis/reference-ROM replay. No whole-game equivalence, browser execution or hardware timing validation is claimed.",
+    "The changed unsigned expression/runtime paths were executed. The prior review's native signed MIN/-1 emulator SIGFPE limitation was not re-exercised; signed minimum handling is unchanged and outside this delta.",
+    "All generated evidence executables and review drivers are private scratch, not proposed public repository content. No ROM-derived bytes were committed or read."
+  ],
+  "findings": []
+}

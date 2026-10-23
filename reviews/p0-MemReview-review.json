@@ -1,0 +1,113 @@
+{
+  "verdict": "FAIL",
+  "reviewer": "MemReview",
+  "subject": "integrate/p0@74dae34 tje-mem+TRANSLATION.md",
+  "report": "report.md",
+  "report_sha256": "dfaa18aa35c4d73479383bf24db9dc50ea167141514b4e14940c0e4531178af4",
+  "evidence_root": ".",
+  "checks": [
+    {
+      "name": "Read-only subject isolation",
+      "status": "PASS",
+      "observed": "Created detached worktree at 74dae34 in worktree/. No tracked file edits, branch checkout/reset, or ROM-file access; G used read-only. All review artifacts are private scratch."
+    },
+    {
+      "name": "Generator --check",
+      "status": "PASS",
+      "observed": "Documented command completed successfully: 27 structs, 186 fields, 438 RAM names/revision, 4163 ROM data units/revision, 368 declared/53 structural-alias/17 opaque views.",
+      "evidence": ["reproduction.json", "reproduction/"]
+    },
+    {
+      "name": "Cargo tests and wasm32 build",
+      "status": "PASS",
+      "observed": "cargo test -p tje-mem: 17 unit tests passed, zero failed, zero doctests. cargo build -p tje-mem --target wasm32-unknown-unknown succeeded.",
+      "evidence": ["reproduction.json", "artifact://27526"]
+    },
+    {
+      "name": "Independent record layout and RAM address probes",
+      "status": "PASS",
+      "observed": "Hand-selected 10 structs, including object_state, and 45 fields: sizes, alignment and accessor offsets/widths matched independently compiled MCC68K constants in both revisions. Compiled relocations for 26 RAM names per revision matched real G game maps and both generated catalogues/named accessors. No subject generator import used.",
+      "evidence": ["independent/layout_results.json", "independent/rev00_layout_results.json", "independent/api/src/main.rs", "independent/lay0.c", "independent/ramrev02.map", "independent/ramrev00.map"]
+    },
+    {
+      "name": "Independent RAM global type and indexing",
+      "status": "FAIL",
+      "observed": "Both revisions measure gMapPathDirectionBanks as 988 total bytes, 19 bytes/row and 1 byte/element, with stores at symbol+1 and symbol+19. Generated Rust reports 3952, 76 and 4 and indexes different addresses.",
+      "evidence": ["maptype.c", "independent/maptype_rev02.SRC", "independent/maptype_rev00.SRC", "independent/api_gap_results.json"]
+    },
+    {
+      "name": "Independent compiler integer, ABI and control-flow rules",
+      "status": "PASS_WITH_QUALIFICATIONS",
+      "observed": "Measured integer/pointer/float sizes and char signedness; executed promotion, comparison, cast, wrapping, long/word shift count edges, K&R scalar argument promotion, sequencing, switch bounds/fallthrough, narrow compound/post-increment, stored-pointer update, persistent static, aggregate copy/parameter/return and numeric pointer probes. Missing aggregate and pointer guidance is recorded in MR-04/MR-05.",
+      "evidence": ["semcheck.c", "independent/semcheck.SRC", "independent/semantic_constants.json", "independent/execution_results.json", "independent/aggregate_pointer_results.json"]
+    },
+    {
+      "name": "Division runtime and compiler-expression distinction",
+      "status": "FAIL",
+      "observed": "All four direct runtime helpers matched 368 nonzero operand pairs each; eight helper/expression zero checks delivered vector 5. Compiled unsigned expressions produced 20 quotient and 20 remainder counterexamples to documented mathematical semantics. Native signed MIN/-1 expression was excluded after Unicorn host SIGFPE; direct helper MIN/-1 executed and emitted fallback path inspected.",
+      "evidence": ["independent/execution_results.json", "independent/semcheck.SRC:745-791"]
+    },
+    {
+      "name": "Worked examples independently compiled from G",
+      "status": "PASS",
+      "observed": "Both revisions matched 131072 exhaustive leaf inputs, 176 complete attachment RAM snapshots including owner zero/self-parent aliases, and 14 shared VDP/RAM ordered traces. Generated debug harness required a 64-MiB process stack; completed run passed.",
+      "evidence": ["worked.py", "independent/worked/examples.c", "independent/worked/rev02.SRC", "independent/worked/rev00.SRC", "independent/worked/api/src/main.rs", "reproduction.json"]
+    },
+    {
+      "name": "Worked example test mutation sensitivity",
+      "status": "FAIL",
+      "observed": "Unchanged subject tests rejected five mutations, but accepted owner>=0 changed to owner>0 and RAM mirror write moved before hardware writes. Implementations themselves passed independent differential checks.",
+      "evidence": ["independent/mutation_results.json", "independent/mutations/parent_zero_ignored/result.txt", "independent/mutations/mirror_before_hardware/result.txt"]
+    },
+    {
+      "name": "Revision-aware ROM/API completeness",
+      "status": "PASS_WITH_QUALIFICATIONS",
+      "observed": "Flat records, unchecked arrays, stored numeric ROM/RAM pointers, variable render tails and ordered VDP writes are usable. ROM data-unit metadata omits 336/711 named rom_data symbols per revision, including currently declared table aliases. Record copy/aggregate ABI needs documented bus-level implementation. Platform remains a write-only VDP boundary, not the full hardware host.",
+      "evidence": ["independent/api_gap_results.json", "report.md"]
+    }
+  ],
+  "findings": [
+    {
+      "id": "MR-01",
+      "severity": "HIGH",
+      "where": "crates/tje-mem/tools/generate.py:153-158; src/generated/ram_views.rs:70,512,1340",
+      "observed": "declarator.count('*') counts the multiplication operator in [MAP_ROWS * 2] as pointer depth. gMapPathDirectionBanks is emitted as [[Ptr<u8>;19];52], not [[u8;19];52]. Independent MCC68K sizes are 988/19/1 in both revisions; Rust exposes 3952/76/4 and wrong cell/row addresses. Existing address-only global probes and --check pass this corruption.",
+      "fix": "Parse/count only pointer-prefix stars outside array bounds, regenerate both revisions, and compiler-check declared global sizes plus array element/row widths and indexing. Add multiplication-bound and genuine multi-pointer regression cases; do not special-case the symbol."
+    },
+    {
+      "id": "MR-02",
+      "severity": "HIGH",
+      "where": "docs/TRANSLATION.md:183-198; crates/tje-mem/src/arithmetic.rs:33-45; tools/semantics.c:67-75",
+      "observed": "The raw unsigned runtime helpers are correct, but MCC68K dynamic unsigned / and % can route divisors 0xffff8000..ffffffff through low-word DIVU and use its result when quotient fits. Compiled/executed 65535/0xffffffff returns 1, remainder 0; current Rust/helper mathematics returns 0, remainder 65535. Documentation wrongly generalizes full-width runtime semantics to all generated expressions. The independent matrix found 40 counterexamples.",
+      "fix": "Separate direct runtime-entry semantics from compiler-expression lowering. Document/preserve actual native-path selection and quotient-overflow fallback, with expression helpers if appropriate; retain correct raw runtime helpers. Execute generated high-divisor cases in regression evidence instead of checking only helper-call opcode presence or Rust-versus-Rust arithmetic."
+    },
+    {
+      "id": "MR-03",
+      "severity": "MEDIUM",
+      "where": "crates/tje-mem/tools/generate.py:435-439; src/generated/rom_rev00.rs and rom_rev02.rs; docs/TRANSLATION.md ROM guidance",
+      "observed": "Data-unit catalogues omit 336/711 named rom_data symbols per revision. Current C declarations Player2AnimationDescriptors, TomatoProjectileAnimations, HealthDrainDisplayAnimation, MapBoundaryShapesPlain and ControlRemapDirections are absent under source names; translators must manually recover enclosing units/offsets and revision identities. Existing exported unit entries are not shown to be wrong.",
+      "fix": "Generate a separate revision-aware ROM symbol/alias API from G's real names/resolver and declarations, optionally with typed declared-table views. Keep unit/allocation metadata separate; do not invent independent extents for interior aliases or incomplete arrays."
+    },
+    {
+      "id": "MR-04",
+      "severity": "MEDIUM",
+      "where": "docs/TRANSLATION.md:139-155; crates/tje-mem/src/lib.rs:247-286",
+      "observed": "Blanket four-byte-argument wording excludes actual aggregate ABI: own eight-byte padded record is passed as eight inline stack bytes. Record assignment copies padding via two forward longword accesses, with alias-sensitive overlap behavior; record return reuses persistent scratch and returns its address in D0. None of this is documented or represented by a record-copy API. Current source search did not establish an affected aggregate-by-value game call; this is a contract omission, not an observed example mismatch.",
+      "fix": "Restrict four-byte slots to promoted scalar integer/pointer arguments. Document measured aggregate passing/return and bus-copy behavior including padding, access width, direction and overlap. Supply an explicit translation idiom rather than host marker Copy or memmove semantics; reject unmeasured bitfield/declarator constructs."
+    },
+    {
+      "id": "MR-05",
+      "severity": "LOW",
+      "where": "docs/TRANSLATION.md:213-235",
+      "observed": "Pointer ordering probes compare full 32-bit numeric addresses unsigned, without physical masking. Short-pointer subtraction lowers to SUB.L plus ASR.L #1: a byte difference of -1 yields -1 rather than signed division's zero. Stored-pointer post-increment writes the advanced pointer before reading the old pointee. The API can express these operations, but the contract lacks explicit rules for these edges and concrete narrow compound/post-increment sequencing.",
+      "fix": "Document unsigned full-width pointer comparisons separately from 24-bit bus masking; specify observed shift lowering/rounding for power-of-two subtraction and alias-sensitive stored-pointer post-increment order. Add explicit storage-width compound/post-increment patterns; new abstraction is not necessary."
+    },
+    {
+      "id": "MR-06",
+      "severity": "MEDIUM",
+      "where": "crates/tje-mem/src/examples.rs:103-126,158-210",
+      "observed": "Unchanged example tests pass both a mutation dropping owner-zero attachment and a mutation writing the RAM mirror before all VDP writes. The platform-only trace plus final RAM assertion cannot observe hardware/RAM interleaving. Five other signedness/narrowing/truth mutations are correctly rejected, and actual implementations pass independent source differential checks.",
+      "fix": "Add owner-zero/self-parent coverage and a shared bus/platform event observer asserting control-high, control-low, data, then RAM mirror. Preserve existing signedness, wrap and negative truth cases."
+    }
+  ]
+}
