@@ -3,8 +3,8 @@
 //! Sessions run real controller scripts; fixtures are explicitly synthetic inputs
 //! applied to live gameplay state. No ROM-derived state is written publicly.
 
-use std::{collections::BTreeMap, error::Error, fs, path::Path};
-use tje_game::{Dispatcher, FunctionId, ids, ui};
+use std::{collections::BTreeMap, error::Error, fs, path::Path, sync::Arc};
+use tje_game::{Dispatcher, FunctionId, execution::ExecutionClass, ids, ui};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
@@ -24,8 +24,20 @@ fn run_session(
     output: &Path,
 ) -> Result<Host> {
     let script = InputScript::parse(source)?;
-    let registry = HookRegistry::filtered(revision, &["ui"], &[])?;
+    let mut registry = HookRegistry::filtered(revision, &["ui"], &[])?;
+    // This standalone opt-in binary is the only place pending bodies are hooked.
+    // Production frontends see TRANSLATIONS, never PENDING_TRANSLATIONS.
+    for &translation in ui::PENDING_TRANSLATIONS {
+        let class = if ui::ATOMIC_CAPABLE.contains(&translation.id) {
+            ExecutionClass::Atomic
+        } else {
+            ui::EXECUTION_CONTRACTS.iter().find(|(id, _)| *id == translation.id)
+                .map(|(_, class)| *class).ok_or("pending UI entry has no reviewed class")?
+        };
+        registry.register_translation_with_execution(translation, class)?;
+    }
     let mut checked = Host::new(bytes, Mode::Check, registry.clone())?;
+    checked.set_wait_input_poller(Arc::new(InputScript::parse(source)?));
     let mut reference = Host::new(bytes, Mode::Reference, registry)?;
     let mut inventory_frames = [0_u64; 2];
     let mut split_frames = 0_u64;
@@ -273,6 +285,61 @@ fn drive_fixtures(host: &mut Host) -> Result<()> {
     fixture(host, ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED, &[])?;
     fixture(host, ids::PLAYER_GET_MAXIMUM_HEALTH, &[0])?;
     fixture(host, ids::GET_SCORE_FOR_PROMO, &[0])?;
+    for player in [0, 1, 2, 3, u32::MAX] {
+        fixture(host, ids::HUD_HIDE_PLAYER_SPRITES, &[player])?;
+    }
+    for player in [0, 1] {
+        for level in [-128, -1, 0, 9, 10, 25, 127] {
+            let level_address = if player == 0 {
+                ram::g_toejam_level(revision)
+            } else {
+                ram::g_earl_level(revision)
+            };
+            level_address.write(&mut host.context(), level);
+            fixture(host, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[player])?;
+        }
+        for lives in [-1, 0, 1, 4, 5, 8, 9, 127] {
+            ram::g_player_lives(revision)
+                .at(player as i32)
+                .write(&mut host.context(), lives);
+            fixture(host, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[player])?;
+        }
+    }
+    for bank in [0, 1] {
+        for enabled in [0, 1] {
+            for tick in [-128, -1, 0, 1, 127] {
+                for rate in [1, 3, 8, -1] {
+                    let mut context = host.context();
+                    ram::g_text_font_bank(revision).write(&mut context, bank);
+                    ram::g_text_font_animation_enabled(revision).write(&mut context, enabled);
+                    ram::g_text_font_animation_tick(revision).write(&mut context, tick);
+                    fixture(host, ids::TEXT_ANIMATE_FONT_BANKS, &[rate as u32])?;
+                }
+            }
+        }
+    }
+    let scratch = ram::g_text_font_buffers(revision).at(0);
+    for bytes in [&b"Abc 019-!?\0"[..], &[2, 3, 4, 5, 6, 0][..], &[0][..]] {
+        for (offset, &byte) in bytes.iter().enumerate() {
+            scratch
+                .at(offset as i32)
+                .write(&mut host.context(), byte as i8);
+        }
+        fixture(host, ids::TEXT_WRITE_STRING_TILES, &[scratch.address()])?;
+    }
+    fixture(host, ids::DRAW_NESTED_WINDOW_FRAME, &[])?;
+    for drawn in [0, 1] {
+        ram::g_present_display_panel_drawn(revision).write(&mut host.context(), drawn);
+        fixture(host, ids::DRAW_PRESENT_DISPLAY_PANEL, &[])?;
+    }
+    for selection in [-1_i32, 0, 1] {
+        fixture(host, ids::DRAW_PAUSE_CHOICE_PANEL, &[selection as u32])?;
+    }
+    fixture(host, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+    for player in [0, 1] {
+        ram::g_inventory_redraw_phase(revision).write(&mut host.context(), 0);
+        fixture(host, ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT, &[player])?;
+    }
     Ok(())
 }
 
@@ -286,10 +353,14 @@ fn main() -> Result<()> {
     let rom_directory = Path::new(&arguments[0]);
     let output = Path::new(&arguments[1]);
     fs::create_dir_all(output)?;
-    let roots: Vec<_> = ui::TRANSLATIONS.iter().map(|entry| entry.id).collect();
-    if let Err(missing) = Dispatcher::native(&roots) {
-        return Err(format!("native UI closure missing {missing:?}").into());
-    }
+    let roots: Vec<_> = ui::TRANSLATIONS.iter().chain(ui::PENDING_TRANSLATIONS)
+        .map(|entry| entry.id).collect();
+    let native_missing: Vec<_> = Dispatcher::native(&roots)
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| id.metadata().name)
+        .collect();
     for revision in [Revision::Rev02, Revision::Rev00] {
         let rom_name = match revision {
             Revision::Rev02 => "rev02.bin",
@@ -324,21 +395,23 @@ fn main() -> Result<()> {
             .checks
             .by_function
             .iter()
-            .map(|(name, coverage)| (name.clone(), coverage.calls_checked))
+            .map(|(name, coverage)| (name.to_string(), coverage.calls_checked))
             .collect();
         let result = drive_fixtures(&mut host);
         let fixture_calls: BTreeMap<_, _> = host
             .checks
             .by_function
             .iter()
-            .map(|(name, coverage)| (name.clone(), coverage.calls_checked - before[name]))
+            .map(|(name, coverage)| (name.to_string(), coverage.calls_checked - before[name]))
             .collect();
         save(
             &output.join(format!("{}-live-fixtures.json", revision.name())),
             &serde_json::json!({
                 "revision": revision.name(), "coverage_source": "labelled live-state fixtures after 2500-frame two-player session",
                 "error": result.as_ref().err().map(ToString::to_string), "fixture_calls": fixture_calls,
-                "checks_including_two_player_session": host.checks, "native_ui_closure_complete": true,
+                "checks_including_two_player_session": host.checks,
+                "native_ui_closure_complete": native_missing.is_empty(),
+                "native_missing": native_missing,
             }),
         )?;
         result?;
@@ -348,7 +421,9 @@ fn main() -> Result<()> {
         {
             return Err(format!("{revision:?}: incomplete UI fixture evidence").into());
         }
-        println!("{revision:?}: every UI hook exercised, zero mismatches; native closure complete");
+        println!(
+            "{revision:?}: every UI hook exercised, zero mismatches; native missing={native_missing:?}"
+        );
     }
     Ok(())
 }

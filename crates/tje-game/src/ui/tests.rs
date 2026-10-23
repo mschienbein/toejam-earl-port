@@ -360,14 +360,22 @@ fn text_background_color_preserves_command_word_order_and_short_truth() {
 }
 
 #[test]
-fn all_delivered_ui_leaves_have_native_closure() {
+fn ui_leaf_native_closure_and_original_classification_are_complete() {
     let roots: Vec<_> = TRANSLATIONS
         .iter()
+        .filter(|translation| translation.id.metadata().callees.is_empty())
         .map(|translation| translation.id)
         .collect();
     assert!(Dispatcher::native(&roots).is_ok());
-    let deferred = ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT;
-    assert!(!ATOMIC_CAPABLE.contains(&deferred));
-    let deferred = ids::HUD_HIDE_PLAYER_SPRITES;
-    assert!(!ATOMIC_CAPABLE.contains(&deferred));
+    for function in crate::functions().filter(|function| function.subsystem == "ui") {
+        let atomic = ATOMIC_CAPABLE
+            .iter()
+            .filter(|&&id| id == function.id)
+            .count();
+        let non_atomic = EXECUTION_CONTRACTS
+            .iter()
+            .filter(|&&(id, _)| id == function.id)
+            .count();
+        assert_eq!(atomic + non_atomic, 1, "{}", function.name);
+    }
 }

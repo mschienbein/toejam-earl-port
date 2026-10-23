@@ -6,6 +6,8 @@ pub use classification::EXECUTION_CONTRACTS;
 mod hud;
 mod inventory;
 mod main_menu;
+mod rendering;
+mod waiting;
 
 #[cfg(test)]
 mod tests;
@@ -20,8 +22,14 @@ pub use inventory::{
     text_map_character_to_glyph,
 };
 pub use main_menu::{are_both_controllers_connected, position_menu_cursor_entity};
+pub use rendering::{
+    draw_nested_window_frame, draw_pause_choice_panel, draw_present_display_panel,
+    hud_hide_player_sprites, hud_load_level_number_sprites, hud_load_lives_sprite_tiles,
+    text_animate_font_banks, text_write_string_tiles,
+};
+pub use waiting::{inventory_refresh_contents_and_wait, wait_for_vblank_with_graphics_paused};
 
-use crate::{Context, Result};
+use crate::{Context, Result, ids};
 use tje_mem::ram;
 
 /// Available Rust entries owned by this subsystem.
@@ -92,6 +100,66 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
+/// Opt-in differential candidates, deliberately absent from production dispatch.
+/// Blocker: shared Functional/TimeAware production registration and both-revision
+/// evidence must land before moving any entry into TRANSLATIONS.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::HUD_HIDE_PLAYER_SPRITES,
+        function: hud_hide_player_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
+        function: inventory_refresh_contents_and_wait,
+    },
+    crate::Translation {
+        id: crate::ids::DRAW_NESTED_WINDOW_FRAME,
+        function: draw_nested_window_frame,
+    },
+    crate::Translation {
+        id: crate::ids::DRAW_PAUSE_CHOICE_PANEL,
+        function: draw_pause_choice_panel,
+    },
+    crate::Translation {
+        id: crate::ids::DRAW_PRESENT_DISPLAY_PANEL,
+        function: draw_present_display_panel,
+    },
+    crate::Translation {
+        id: crate::ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
+        function: hud_load_level_number_sprites,
+    },
+    crate::Translation {
+        id: crate::ids::HUD_LOAD_LIVES_SPRITE_TILES,
+        function: hud_load_lives_sprite_tiles,
+    },
+    crate::Translation {
+        id: crate::ids::TEXT_ANIMATE_FONT_BANKS,
+        function: text_animate_font_banks,
+    },
+    crate::Translation {
+        id: crate::ids::TEXT_WRITE_STRING_TILES,
+        function: text_write_string_tiles,
+    },
+    crate::Translation {
+        id: ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
+        function: wait_for_vblank_with_graphics_paused,
+    },
+];
+
+/// Unproven W0/W1 bodies awaiting the shared execution-class proof path.
+pub static PENDING: &[crate::FunctionId] = &[
+    crate::ids::HUD_HIDE_PLAYER_SPRITES,
+    crate::ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
+    crate::ids::DRAW_NESTED_WINDOW_FRAME,
+    crate::ids::DRAW_PAUSE_CHOICE_PANEL,
+    crate::ids::DRAW_PRESENT_DISPLAY_PANEL,
+    crate::ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
+    crate::ids::HUD_LOAD_LIVES_SPRITE_TILES,
+    crate::ids::TEXT_ANIMATE_FONT_BANKS,
+    crate::ids::TEXT_WRITE_STRING_TILES,
+    ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
+];
+
 /// Reviewed ORIGINAL atomic entries, translated or still residual.
 /// Classification describes clock/interrupt requirements, not translation readiness:
 /// the sprite allocator's original uninitialized-local bug still needs a call frame.
@@ -127,9 +195,9 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     // inventory.c:611: RAM selection/identification, RAM RNG, atomic PlaySound.
     crate::ids::INVENTORY_IDENTIFY_SELECTED_PRESENT,
     // inventory.c:821: allocation/eviction retries change RAM, not hardware time.
-    crate::ids::INVENTORY_INITIALIZE_DISPLAY_ENTITIES,
+    ids::INVENTORY_INITIALIZE_DISPLAY_ENTITIES,
     // inventory.c:855: seven RAM-only ReleaseEntityViewportSprites calls.
-    crate::ids::INVENTORY_DEACTIVATE_DISPLAY_ENTITIES,
+    ids::INVENTORY_DEACTIVATE_DISPLAY_ENTITIES,
     // window_panels.c:16: FreeEntity, dropped-present and telephone RAM cleanup.
     crate::ids::CLEAR_TRANSIENT_ENTITIES,
     // main_menu.c:295: AllocateEntity/AllocateEntityViewportSprites are RAM-only.
