@@ -272,7 +272,13 @@ fn play_sound_preserves_signed_priority_short_circuits_and_store_order() {
 
 #[test]
 fn atomic_audio_roots_have_a_complete_native_closure_and_waiters_fail_closed() {
-    let dispatcher = Dispatcher::native(ATOMIC_CAPABLE).unwrap();
+    // ATOMIC_CAPABLE also classifies untranslated originals; the native closure
+    // obligation applies to the translated roots.
+    let roots: Vec<_> = TRANSLATIONS
+        .iter()
+        .map(|translation| translation.id)
+        .collect();
+    let dispatcher = Dispatcher::native(&roots).unwrap();
     for translation in TRANSLATIONS {
         assert!(translation.id.metadata().callees.is_empty());
         assert!(crate::is_atomic_capable(translation.id));
