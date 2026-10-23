@@ -552,6 +552,7 @@ pub(crate) fn audit_accesses(accesses: &[(u32, HybridAccess)], entry_sp: u32) ->
         cycles: 0,
         uninitialized_reads: reads,
         writes,
+        stack_reads: None,
     }
 }
 

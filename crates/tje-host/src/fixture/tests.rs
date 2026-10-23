@@ -18,7 +18,7 @@ use tje_game::{
 };
 use tje_mem::{Address, ObjectState, Revision, ram};
 
-fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
+pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
     // Authored reset/vector tables and short programs, never cartridge bytes.
     let mut rom = vec![0; 0x100000];
     rom[..4].copy_from_slice(&catalogue::STACK_TOP.to_be_bytes());

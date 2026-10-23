@@ -53,6 +53,7 @@ pub(crate) struct AtomicRun {
     pub cycles: u64,
     pub uninitialized_reads: BTreeSet<UninitializedStackRead>,
     pub writes: Vec<OrderedWrite>,
+    pub stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
 }
 
 /// CPU bus observer. Reading an old local before writing it is significant even
@@ -64,6 +65,7 @@ struct StackAuditBus<'a> {
     written: &'a mut [u64; 512],
     reads: BTreeSet<UninitializedStackRead>,
     writes: Vec<OrderedWrite>,
+    stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
 }
 
 impl StackAuditBus<'_> {
@@ -118,14 +120,40 @@ impl BusInterface for StackAuditBus<'_> {
         if purpose == ReadPurpose::Semantic {
             self.read(address);
         }
-        self.inner.read_byte_tagged(address, purpose)
+        let value = self.inner.read_byte_tagged(address, purpose);
+        if let Some(reads) = &mut self.stack_reads
+            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
+                self.pc,
+                address,
+                false,
+                purpose,
+                u16::from(value),
+                self.writes.len(),
+            )
+        {
+            reads.push(read);
+        }
+        value
     }
     fn read_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u16 {
         if purpose == ReadPurpose::Semantic {
             self.read(address);
             self.read(address.wrapping_add(1));
         }
-        self.inner.read_word_tagged(address, purpose)
+        let value = self.inner.read_word_tagged(address, purpose);
+        if let Some(reads) = &mut self.stack_reads
+            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
+                self.pc,
+                address,
+                true,
+                purpose,
+                value,
+                self.writes.len(),
+            )
+        {
+            reads.push(read);
+        }
+        value
     }
     fn write_byte(&mut self, address: u32, value: u8) {
         self.write(address, value);
@@ -172,6 +200,7 @@ pub(crate) fn run_original_atomic(
         emulator,
         ReferenceBoundary::returned(return_pc, return_sp),
         observe,
+        false,
     )
 }
 
@@ -179,6 +208,7 @@ pub(crate) fn run_original_atomic_until(
     emulator: &mut GenesisEmulator,
     boundary: ReferenceBoundary,
     observe: bool,
+    capture_reads: bool,
 ) -> Result<AtomicRun> {
     let (cpu, bus) = emulator.hybrid_parts();
     if !observe {
@@ -191,6 +221,7 @@ pub(crate) fn run_original_atomic_until(
     let mut stack = StackAuditState {
         entry_sp: canonical_ram_address(cpu.stack_pointer()),
         written: [0; 512],
+        capture_reads,
     };
     run_original_atomic_scoped(emulator, boundary, &mut stack)
 }
@@ -210,6 +241,7 @@ fn run_original_atomic_scoped(
         written: &mut stack.written,
         reads: BTreeSet::new(),
         writes: Vec::new(),
+        stack_reads: stack.capture_reads.then(Vec::new),
     };
     let mut result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
         audit.pc = cpu.pc();
@@ -219,6 +251,7 @@ fn run_original_atomic_scoped(
     })?;
     result.uninitialized_reads = audit.reads;
     result.writes = audit.writes;
+    result.stack_reads = audit.stack_reads;
     Ok(result)
 }
 
@@ -257,6 +290,7 @@ pub(crate) fn set_sp(cpu: &mut M68000, value: u32) {
 struct StackAuditState {
     entry_sp: u32,
     written: [u64; 512],
+    capture_reads: bool,
 }
 
 /// A Rust translation sees the actual emulated address space and stack arguments.
@@ -267,8 +301,10 @@ pub struct HookContext<'a> {
     revision: Revision,
     dispatcher: Dispatcher,
     pub(crate) writes: Vec<OrderedWrite>,
-    pub(crate) logic_trace: LogicTrace,
+    pub(crate) logic_trace: RefCell<LogicTrace>,
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
+    pub(crate) stack_reads:
+        RefCell<Option<Vec<crate::dependent_equivalence::journal::JournalRead>>>,
     stack_audit: Option<StackAuditState>,
     frame_state: FrameState,
     pub(crate) execution_class: ExecutionClass,
@@ -291,9 +327,10 @@ impl<'a> HookContext<'a> {
             revision,
             dispatcher,
             writes: Vec::new(),
-            logic_trace: LogicTrace::default(),
+            logic_trace: RefCell::new(LogicTrace::default()),
             nested_calls: 0,
             uninitialized_reads: RefCell::new(BTreeSet::new()),
+            stack_reads: RefCell::new(None),
             stack_audit: None,
             frame_state,
             execution_class: ExecutionClass::Atomic,
@@ -323,7 +360,14 @@ impl<'a> HookContext<'a> {
             self.time_frames += run.frames;
             return;
         }
-        self.logic_trace.append(run.logic_trace);
+        self.logic_trace.get_mut().append(run.logic_trace);
+        if let Some(target) = self.stack_reads.get_mut() {
+            crate::dependent_equivalence::journal::append(
+                target,
+                crate::dependent_equivalence::journal::from_clock_accesses(&run.accesses),
+                self.writes.len(),
+            );
+        }
         for (pc, access) in run.accesses {
             let (address, word, value, writing, semantic) = match access {
                 genesis_core::HybridAccess::Read {
@@ -390,7 +434,79 @@ impl<'a> HookContext<'a> {
         self.stack_audit = Some(StackAuditState {
             entry_sp: canonical_ram_address(self.emulator.hybrid_cpu().stack_pointer()),
             written: [0; 512],
+            capture_reads: false,
         });
+    }
+
+    pub(crate) fn enable_dependent_read_journal(&mut self) {
+        self.stack_audit
+            .as_mut()
+            .expect("enabled stack audit")
+            .capture_reads = true;
+        *self.stack_reads.get_mut() = Some(Vec::new());
+    }
+
+    fn record_stack_read(&self, address: u32, word: bool, purpose: ReadPurpose, value: u16) {
+        if self
+            .stack_audit
+            .as_ref()
+            .is_some_and(|audit| audit.capture_reads)
+            && let Some(read) = crate::dependent_equivalence::journal::JournalRead::new(
+                self.emulator.hybrid_cpu().pc(),
+                address,
+                word,
+                purpose,
+                value,
+                self.writes.len(),
+            )
+        {
+            self.stack_reads
+                .borrow_mut()
+                .as_mut()
+                .expect("enabled read journal")
+                .push(read);
+        }
+    }
+
+    fn record_memory_read(&self, address: u32, word: bool, purpose: ReadPurpose, value: u16) {
+        self.record_stack_read(address, word, purpose, value);
+        if address & 0xffffff >= 0xe00000 && self.stack_audit.is_some() && self.timed_execution {
+            self.logic_trace.borrow_mut().access(
+                self.emulator.hybrid_cpu().pc(),
+                self.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                genesis_core::HybridAccess::Read {
+                    address: address & 0xffffff,
+                    word,
+                    value,
+                    purpose,
+                },
+                false,
+            );
+        }
+    }
+
+    fn read_bus_tagged(&mut self, address: u32, word: bool, purpose: ReadPurpose) -> u16 {
+        if purpose == ReadPurpose::Semantic {
+            self.audit_translated_read(address);
+            if word {
+                self.audit_translated_read(address.wrapping_add(1));
+            }
+        }
+        let bus = self.emulator.hybrid_bus_mut();
+        bus.apply_pending_writes();
+        let value = if word {
+            bus.read_word_tagged(address, purpose)
+        } else {
+            u16::from(bus.read_byte_tagged(address, purpose))
+        };
+        self.record_stack_read(address, word, purpose, value);
+        self.record_logic_access(genesis_core::HybridAccess::Read {
+            address: address & 0xffffff,
+            word,
+            value,
+            purpose,
+        });
+        value
     }
 
     fn translated_stack_offset(&self, address: u32) -> Option<usize> {
@@ -428,7 +544,7 @@ impl<'a> HookContext<'a> {
 
     fn record_logic_operand(&mut self, access: genesis_core::HybridAccess, exact_operand: bool) {
         if self.stack_audit.is_some() && self.timed_execution {
-            self.logic_trace.access_with_exact(
+            self.logic_trace.get_mut().access_with_exact(
                 self.emulator.hybrid_cpu().pc(),
                 self.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
                 access,
@@ -440,8 +556,7 @@ impl<'a> HookContext<'a> {
 
     /// Side-effect-free ROM/RAM read. For hardware reads use `bus()` so that
     /// read side effects and open-bus behavior remain explicit.
-    pub fn read_u8(&self, address: u32) -> u8 {
-        self.audit_translated_read(address);
+    fn peek_u8(&self, address: u32) -> u8 {
         let address = address & 0xFF_FFFF;
         let bus = self.emulator.hybrid_bus();
         match address {
@@ -455,8 +570,19 @@ impl<'a> HookContext<'a> {
             _ => panic!("read_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
         }
     }
+    pub fn read_u8(&self, address: u32) -> u8 {
+        let value = self.peek_u8(address);
+        self.audit_translated_read(address);
+        self.record_memory_read(address, false, ReadPurpose::Semantic, u16::from(value));
+        value
+    }
     pub fn read_u16(&self, address: u32) -> u16 {
-        u16::from_be_bytes([self.read_u8(address), self.read_u8(address.wrapping_add(1))])
+        let value =
+            u16::from_be_bytes([self.peek_u8(address), self.peek_u8(address.wrapping_add(1))]);
+        self.audit_translated_read(address);
+        self.audit_translated_read(address.wrapping_add(1));
+        self.record_memory_read(address, true, ReadPurpose::Semantic, value);
+        value
     }
     pub fn read_u32(&self, address: u32) -> u32 {
         (u32::from(self.read_u16(address)) << 16)
@@ -597,6 +723,9 @@ impl<'a> HookContext<'a> {
         } else {
             run_original_atomic(self.emulator, CALL_SENTINEL, cleanup_sp, false)?
         };
+        if let (Some(target), Some(reads)) = (self.stack_reads.get_mut(), audit.stack_reads) {
+            crate::dependent_equivalence::journal::append(target, reads, self.writes.len());
+        }
         self.writes.extend(audit.writes);
         self.uninitialized_reads
             .get_mut()
@@ -650,6 +779,9 @@ impl<'a> HookContext<'a> {
         } else {
             run_original_atomic(self.emulator, return_pc, return_sp, false)?
         };
+        if let (Some(target), Some(reads)) = (self.stack_reads.get_mut(), audit.stack_reads) {
+            crate::dependent_equivalence::journal::append(target, reads, self.writes.len());
+        }
         self.writes.extend(audit.writes);
         self.uninitialized_reads
             .get_mut()
@@ -692,10 +824,16 @@ impl BusInterface for HardwareBus<'_, '_> {
     where
         Self: 'a;
     fn read_byte(&mut self, address: u32) -> u8 {
-        tje_game::Platform::read_device_u8(self.context, address)
+        self.read_byte_tagged(address, ReadPurpose::Semantic)
     }
     fn read_word(&mut self, address: u32) -> u16 {
-        tje_game::Platform::read_device_u16(self.context, address)
+        self.read_word_tagged(address, ReadPurpose::Semantic)
+    }
+    fn read_byte_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u8 {
+        self.context.read_bus_tagged(address, false, purpose) as u8
+    }
+    fn read_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u16 {
+        self.context.read_bus_tagged(address, true, purpose)
     }
     fn write_byte(&mut self, address: u32, value: u8) {
         let physical = address & 0xFFFFFF;
@@ -733,6 +871,12 @@ impl BusInterface for HardwareBus<'_, '_> {
 impl tje_mem::Bus for HookContext<'_> {
     fn read_u8(&self, address: u32) -> u8 {
         HookContext::read_u8(self, address)
+    }
+    fn read_u16(&self, address: u32) -> u16 {
+        HookContext::read_u16(self, address)
+    }
+    fn read_u32(&self, address: u32) -> u32 {
+        HookContext::read_u32(self, address)
     }
     fn write_u8(&mut self, address: u32, value: u8) {
         HookContext::write_u8(self, address, value);
@@ -787,31 +931,10 @@ impl tje_game::Platform for HookContext<'_> {
     }
 
     fn read_device_u8(&mut self, address: u32) -> u8 {
-        self.audit_translated_read(address);
-        let bus = self.emulator.hybrid_bus_mut();
-        bus.apply_pending_writes();
-        let value = bus.read_byte(address);
-        self.record_logic_access(genesis_core::HybridAccess::Read {
-            address: address & 0xffffff,
-            word: false,
-            value: u16::from(value),
-            purpose: ReadPurpose::Semantic,
-        });
-        value
+        self.read_bus_tagged(address, false, ReadPurpose::Semantic) as u8
     }
     fn read_device_u16(&mut self, address: u32) -> u16 {
-        self.audit_translated_read(address);
-        self.audit_translated_read(address.wrapping_add(1));
-        let bus = self.emulator.hybrid_bus_mut();
-        bus.apply_pending_writes();
-        let value = bus.read_word(address);
-        self.record_logic_access(genesis_core::HybridAccess::Read {
-            address: address & 0xffffff,
-            word: true,
-            value,
-            purpose: ReadPurpose::Semantic,
-        });
-        value
+        self.read_bus_tagged(address, true, ReadPurpose::Semantic)
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
         self.audit_translated_write(address);
@@ -962,6 +1085,7 @@ mod tests {
             written: &mut written,
             reads: BTreeSet::new(),
             writes: Vec::new(),
+            stack_reads: None,
         };
         audit.read_word(0xFF7FEC);
         assert_eq!(audit.reads.len(), 2);

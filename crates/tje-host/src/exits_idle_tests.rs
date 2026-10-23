@@ -38,7 +38,7 @@ fn a_recurrent_idle_checkpoint_requires_one_comparison_and_one_draw_not_a_whole_
         let before = emulator.hybrid_cpu().data_registers()[0];
         let mut boundary = ReferenceBoundary::returned(CODE, STACK);
         boundary.min_instructions = 1;
-        let audit = run_original_atomic_until(&mut emulator, boundary, true).unwrap();
+        let audit = run_original_atomic_until(&mut emulator, boundary, true, false).unwrap();
         assert_eq!(audit.instructions, 6);
         assert!(audit.uninitialized_reads.is_empty());
         assert_eq!(emulator.hybrid_cpu().pc(), CODE);
@@ -54,7 +54,7 @@ fn changed_counter_leaves_idle_without_drawing_a_random_number() {
         let before = emulator.hybrid_cpu().data_registers()[0];
         let mut boundary = ReferenceBoundary::returned(BEGIN, STACK);
         boundary.min_instructions = 1;
-        let audit = run_original_atomic_until(&mut emulator, boundary, true).unwrap();
+        let audit = run_original_atomic_until(&mut emulator, boundary, true, false).unwrap();
         assert_eq!(audit.instructions, 2);
         assert_eq!(emulator.hybrid_cpu().pc(), BEGIN);
         assert_eq!(emulator.hybrid_cpu().data_registers()[0], before);

@@ -81,7 +81,7 @@ fn run_pair(
         outcome
     };
     let boundary = reference_boundary(hook, outcome, entry, revision).unwrap();
-    let audit = run_original_atomic_until(original, boundary, true).unwrap();
+    let audit = run_original_atomic_until(original, boundary, true, false).unwrap();
     (translated, audit, outcome)
 }
 

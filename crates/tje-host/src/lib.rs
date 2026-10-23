@@ -12,6 +12,7 @@ pub mod catalogue;
 pub mod check_projection;
 mod coverage;
 pub use coverage::FunctionCoverageTable;
+pub mod dependent_equivalence;
 pub mod execution;
 mod exits;
 pub mod fixture;
@@ -181,6 +182,9 @@ pub struct CheckReport {
     pub nondependent_stack_reads: BTreeSet<StackReadSite>,
     /// Additional side executions, not checked calls or gameplay wait frames.
     pub stack_dependency_reruns: u64,
+    /// Explicit, source-reviewed genuine dependencies, never informational reads.
+    pub dependent_stack_reads: BTreeSet<StackReadSite>,
+    pub dependent_equivalence: BTreeMap<String, dependent_equivalence::DependentEvidence>,
     pub time_aware: BTreeMap<String, check_projection::TimeAwareCheckSummary>,
     /// Private raw observations; never export cartridge-derived runtime traces.
     #[serde(skip)]
@@ -505,24 +509,37 @@ impl Host {
                     raw_writes_differ,
                 );
         }
-        // Each side must be independent of its own read-before-write bytes.
-        // Agreement with the other side alone cannot prove safe composition.
-        let original_independent =
-            self.check_stack_dependencies(&mut original, &original_run, hook, original_side);
-        let rust_independent =
-            self.check_stack_dependencies(&mut translated, &translated_run, hook, CheckSide::Rust);
-        let comparison = original_independent.and(rust_independent).and_then(|()| {
-            let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
-            compare_check_runs(
+        let comparison = if hook.dependent_proof.is_some() {
+            self.check_dependent_equivalence(
                 &mut original,
                 &mut translated,
                 &original_run,
                 &translated_run,
                 hook,
-                entry_ram,
-                sp,
             )
-        });
+        } else {
+            // Unmarked entries still prove independence on each side separately.
+            let original_independent =
+                self.check_stack_dependencies(&mut original, &original_run, hook, original_side);
+            let rust_independent = self.check_stack_dependencies(
+                &mut translated,
+                &translated_run,
+                hook,
+                CheckSide::Rust,
+            );
+            original_independent.and(rust_independent).and_then(|()| {
+                let (entry_ram, _) = self.emulator.hybrid_bus_mut().memory.debug_ram_view();
+                compare_check_runs(
+                    &mut original,
+                    &mut translated,
+                    &original_run,
+                    &translated_run,
+                    hook,
+                    entry_ram,
+                    sp,
+                )
+            })
+        };
         if hook.execution_class == ExecutionClass::TimeAware {
             self.checks.last_time_aware = Some(check_projection::TimeAwareObservation {
                 function: hook.symbol.name.to_owned(),

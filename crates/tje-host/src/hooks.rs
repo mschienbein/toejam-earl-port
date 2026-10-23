@@ -39,11 +39,17 @@ pub struct Hook {
     pub symbol: HookSymbol,
     pub execution_class: ExecutionClass,
     pub exit_contract: ExitContract,
+    pub(crate) dependent_proof: Option<crate::dependent_equivalence::ProofSetting>,
     pub(crate) coverage_index: usize,
     body: Body,
     frame_state: Option<(tje_game::call_frame::FrameState, u32)>,
 }
 impl Hook {
+    pub(crate) fn dependent_frame_sp(&self, current_sp: u32) -> u32 {
+        self.frame_state
+            .map_or(current_sp, |(frame, _)| frame.entry_sp)
+    }
+
     pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
         if let Some((frame, expected_sp)) = self.frame_state {
             let sp = context.stack_pointer()?;
@@ -124,6 +130,29 @@ impl Default for HookRegistry {
     }
 }
 impl HookRegistry {
+    pub(crate) fn set_dependent_proof(
+        &mut self,
+        id: FunctionId,
+        setting: crate::dependent_equivalence::ProofSetting,
+    ) {
+        self.hooks
+            .get_mut(&id.metadata().address(self.revision))
+            .expect("validated dependent root")
+            .dependent_proof = Some(setting);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_authored_dependent_proof(
+        &mut self,
+        address: u32,
+        setting: crate::dependent_equivalence::ProofSetting,
+    ) {
+        self.hooks
+            .get_mut(&address)
+            .expect("authored hook")
+            .dependent_proof = Some(setting);
+    }
+
     pub fn empty(revision: Revision) -> Self {
         Self {
             hooks: BTreeMap::new(),
@@ -346,6 +375,7 @@ impl HookRegistry {
                 coverage_index,
                 body,
                 frame_state: None,
+                dependent_proof: None,
             },
         );
         Ok(())

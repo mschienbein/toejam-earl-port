@@ -516,6 +516,77 @@ correct stores pass with original/Rust callees, omitted stores and
 read-before-later-write fail in Atomic/TimeAware roots, and genuinely unused
 eager argument loads remain informational rather than false dependencies.
 
+### Opt-in equivalence for genuinely dependent residuals
+
+A source-backed frame does not by itself discharge a real dependence. Such a
+function may use the separate, reviewed dependent-equivalence mode:
+
+```rust,ignore
+use tje_host::dependent_equivalence::DependentProofConfig;
+registry.enable_dependent_equivalence(
+    &[tje_game::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET],
+    DependentProofConfig { seed: 1234, seeded_probes: 16 },
+)?;
+```
+
+Every named root must already be registered and have a descriptor in
+`dependent_equivalence::REVIEWED_CONTRACTS`: its FunctionId, cited FrameLayout,
+bounded entry-SP-relative residual ranges, and compiled producer/caller frames.
+Empty roots enable nothing. Fewer than 16 seeded probes are rejected before
+execution. Continuation hooks preserve the same descriptor/configuration.
+This marker neither registers an unproven translation nor authorizes another ID,
+address, branch, producer or missing frame.
+
+The mode requires the original and Rust to perform the same residual reads,
+through actual emulated stack RAM: exact ordered raw 24-bit **and** canonical
+addresses, bus width, ReadPurpose and value. A long read is two ordered words,
+not four artificial byte accesses. An opt-in journal records physical-stack
+reads and their preceding-write counts; each side replays its own writes to
+identify bytes read before initialization. Nested originals and real waits
+append to the same root journal. The write-count indices are not compared across
+languages. Discarded/prefetch-only reads do not establish dependence, but their
+accesses to a genuinely dependent byte retain their actual purpose in the
+compared trace. Extra semantic residual bytes expand the probe union, and any
+byte outside the reviewed ranges fails closed.
+
+Fresh coupled original/Rust forks receive at least 16 deterministic seeded
+assignments and, separately, `00`, `ff`, `7f` and `80` for **each** dependent byte.
+The entire expanded union is reprobed if another path exposes more bytes. Each
+pair must match standard check-mode outputs and ordered device/RAM-at-device
+obligations, the full RAM write/value **multiset including dead stack**, and
+full SR/CCR even for compiler C. This is a write/value footprint contract, **not**
+literal ordered all-RAM bus writes: low-word-first predecrement/MOVEM bus order
+belongs to the cycle-exact engine. It is not silently normalized into a stronger
+readable-layer timing claim.
+
+The original's actual machine outputs must change under at least one completed
+probe, and Rust must track every result exactly. A Rust-declared original exit
+boundary is not an original return-value observation; actual D0/ABI registers,
+SR, RAM and writes provide that evidence. Merely changing the perturbed input
+bytes themselves is not output sensitivity. No zeroing, cached value, constant
+or original/Rust agreement on just the baseline can substitute for this proof.
+
+Successful genuine reads are recorded separately in `dependent_stack_reads`
+and `dependent_equivalence`; they never become informational
+`nondependent_stack_reads`. Evidence counts actual completed seeded/byte probe
+pairs and side executions, matched pairs and original-sensitive pairs, including
+partial work on a rejection. A marked call with no residual reads earns no
+genuine-dependence claim. Unmarked hooks retain the independent two-mask checks
+above, unchanged.
+
+The nearest-target regression executes the real original `SetEarthlingState`
+producer at an authored same-SP caller frame, then checks the complete pending
+`EarthlingSteerTowardNearestTarget` body in both revisions. Its no-candidate path
+reads selected Y at entry SP-6 **before** X at entry SP-10. Wrong-offset and
+stored-value mutants must fail. This is labelled authored producer evidence,
+not an observation of the last writer in a natural gameplay session.
+It also does **not** prove replacement composition with a Rust producer. Before
+consumer promotion, the named producer must preserve those actual residual
+writes, with source-backed frames/callsites and a joint original/Rust sequence
+proof. A legacy producer that elides its MOVEM save area is not discharged by
+the consumer tracking arbitrary old bytes correctly. Keep the consumer pending
+until that producer/caller cohort is migrated and proven.
+
 ## 7. Exceptions, terminal entries and persistent control flow
 
 Execution classes describe clocks, not an implied RTS.

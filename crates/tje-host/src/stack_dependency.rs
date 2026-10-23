@@ -39,6 +39,7 @@ pub(super) struct CheckRun {
     pub logic_trace: LogicTrace,
     pub nested_calls: u64,
     pub wait_frames: u64,
+    pub dependent_writes: Option<crate::dependent_equivalence::RamWriteFootprint>,
 }
 
 impl Host {
@@ -54,20 +55,27 @@ impl Host {
         let dispatcher = self.registry.dispatcher();
         let mut clock = self.wait_clock.clone();
         let entry_frame = clock.frame;
+        let dependent = hook.dependent_proof.is_some();
         self.execute_fork(fork, |emulator| {
             if hook.execution_class == ExecutionClass::Functional {
                 emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
             }
-            let run = match side {
+            let mut run = match side {
                 CheckSide::Original { boundary, outcome } => {
                     let (audit, logic_trace) = if hook.execution_class == ExecutionClass::TimeAware
                     {
-                        let (audit, clock_run) =
+                        let (mut audit, clock_run) =
                             run_original_timed_until(emulator, &mut clock, boundary)?;
+                        if dependent {
+                            audit.stack_reads =
+                                Some(crate::dependent_equivalence::journal::from_clock_accesses(
+                                    &clock_run.accesses,
+                                ));
+                        }
                         (audit, clock_run.logic_trace)
                     } else {
                         (
-                            run_original_atomic_until(emulator, boundary, true)?,
+                            run_original_atomic_until(emulator, boundary, true, dependent)?,
                             LogicTrace::default(),
                         )
                     };
@@ -77,27 +85,38 @@ impl Host {
                         logic_trace,
                         nested_calls: 0,
                         wait_frames: clock.frame - entry_frame,
+                        dependent_writes: None,
                     }
                 }
                 CheckSide::Rust => {
                     let mut context = HookContext::new(emulator, revision, dispatcher)
                         .with_execution(hook.execution_class, clock);
                     context.enable_stack_audit();
+                    if dependent {
+                        context.enable_dependent_read_journal();
+                    }
                     let outcome = hook.execute(&mut context)?;
                     exits::finish(&mut context, hook, outcome)?;
                     CheckRun {
                         audit: AtomicRun {
                             uninitialized_reads: context.uninitialized_reads.into_inner(),
                             writes: context.writes,
+                            stack_reads: context.stack_reads.into_inner(),
                             ..AtomicRun::default()
                         },
                         outcome,
-                        logic_trace: context.logic_trace,
+                        logic_trace: context.logic_trace.into_inner(),
                         nested_calls: context.nested_calls,
                         wait_frames: context.time_frames,
+                        dependent_writes: None,
                     }
                 }
             };
+            if dependent {
+                run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
+                    &run.audit.writes,
+                ));
+            }
             if hook.execution_class == ExecutionClass::TimeAware {
                 // Capture real execution first, then canonicalize comparison-only
                 // latency while this fork still owns ROM-backed DMA sources.
