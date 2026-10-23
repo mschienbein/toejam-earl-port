@@ -20,13 +20,14 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
     (ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, TimeAware),
     // inventory.c:100: pending-upload byte wait and final VBlank wait.
     (ids::ENTITY_CLEAR_VIEWPORT_SPRITES, TimeAware),
-    // inventory.c:125: stable ordered tile writes; its banner call supplies
-    // already_blanked=1, so that particular call never reaches the VBlank wait.
-    (ids::INVENTORY_SERVICE_REDRAW_PHASE, Functional),
+    // inventory.c:125: already_blanked=1 excludes its banner wait, but the
+    // dispatch contract conservatively inherits the callee's general TimeAware
+    // class rather than silently refining execution class from an argument.
+    (ids::INVENTORY_SERVICE_REDRAW_PHASE, TimeAware),
     // inventory.c:197: redraw-phase IRQ wait plus viewport clear's VBlank wait.
     (ids::DRAW_INVENTORY, TimeAware),
-    // inventory.c:268: services four redraw phases directly, no IRQ wait.
-    (ids::INVENTORY_REDRAW_SYNCHRONOUSLY, Functional),
+    // inventory.c:268: directly services four phases; inherits that callee class.
+    (ids::INVENTORY_REDRAW_SYNCHRONOUSLY, TimeAware),
     // inventory.c:278: both phase loops require VBlank redraw service.
     (ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT, TimeAware),
     // inventory.c:290: viewport transition/open and explicit VBlank pause.
