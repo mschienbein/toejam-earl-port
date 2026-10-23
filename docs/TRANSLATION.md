@@ -366,6 +366,24 @@ shake/arrival delays and cloud/remap timers; check G's compiled output for every
 narrow pre-decrement comparison, and keep an all-values (256 or 65,536) regression
 test for each site.
 
+**Residual registers read by original-bug paths.** Some functions read a register or
+stack value their own code never initialised; the value is whatever the compiled
+caller left there. A translation must take that residue from `Context` (the data and
+address registers on entry) and must not invent zero. A Rust *caller* of such a
+function must leave the same residue its compiled original would have, so check G's
+compiled caller before calling. Known cases, each confirmed in G's compiled output:
+
+| Callee | Residue consumed | When |
+| --- | --- | --- |
+| `AllocateEntityViewportSprites` | entry D4 low byte (as tile) | shared tiles, no resident view, selector failure |
+| `ShowShipPieceName` | entry D3 (piece name) | default path |
+| `UpdateSpeechAndDialogue` → `StartDialogue` | saved entry D2 at the caller's SP (omitted speaker) | reunion calls |
+| `ShipPieceAbility` → `StartDialogue` | saved entry D2 (omitted speaker) | as above |
+| `ElevatorAdvanceRidersToNextLevel` | entry D3 low byte, entry A3 | uninitialised destination/elevator paths |
+| `IntroCreateCollisionSceneEntities` | entry A3 (parent) | parent allocation fails, attached succeeds |
+
+Add new cases here when you find them.
+
 ## Pointers, control flow, storage, and names
 
 - Keep addresses as 32-bit values; `Address::offset` scales by the emulated type's
