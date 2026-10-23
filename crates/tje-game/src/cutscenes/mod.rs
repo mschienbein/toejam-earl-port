@@ -132,12 +132,122 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::Executio
         ids::INTRO_VIDEO,
         crate::execution::ExecutionClass::TimeAware,
     ),
+    // CutscenesA entries (appended).
+    // G/src/cutscenes/title_and_transition.c:87,99: explicit VBlank, then plane fill.
+    (
+        ids::CLEAR_LOWER_VRAM_TILEMAP,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::CLEAR_UPPER_VRAM_TILEMAP,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // :200: 128 ordered VDP words, stable ROM metatiles, no status/raster reads.
+    (
+        ids::CUTSCENE_DRAW_METATILE_BLOCK,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // :24: every path waits VBlank; changed frames additionally upload graphics.
+    (
+        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // :178,142: explicit VBlank before ordered border writes and RNG draws.
+    (
+        ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // :212,226: fixed metatile writers, no status/raster or unstable DMA source.
+    (
+        ids::ENDING_DRAW_NINE_METATILE_BACKGROUND,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    (
+        ids::ENDING_FILL_REPEATED_METATILE_BACKGROUND,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // :111: calls the VBlank-waiting clear before loading the selected logo.
+    (
+        ids::TITLE_DRAW_SELECTED_LOGO,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // :245,69 and intro_frame_release.c:8: frame waits and interrupt-owned counters.
+    (
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // ending.c:466,405: explicit frame waits; bouncing also has a residual local.
+    (
+        ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // title_and_transition.c:282: frame waits, controller timeline and music events.
+    (
+        ids::TITLE_SCREEN_VIDEO,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // ending.c:68,287,221: script loops progress through real VBlank services.
+    (
+        ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::ENDING_PLAY_SCROLLING_CREDITS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // funkatron_scene.c:49: RAM logic plus a fixed present-panel VDP stream;
+    // its blanking gates are RAM stores, with no raster/status observation.
+    (
+        ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // sega_logo_vblank.c:11: DMA completion and music's YM/Z80 transactions.
+    (
+        ids::SEGA_LOGO_V_BLANK,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // ending.c:28 and title_and_transition.c:337: call full time-aware scenes.
+    (
+        ids::PLAY_ENDING_SEQUENCE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
 ];
 
 /// Reviewed atomic original entries and translations. Constructors, positioners
 /// and releases below only access RAM/ROM and RAM-only sprite allocation; their
 /// loops do not need peripheral clocks or interrupts. RNG rejection loops depend
 /// only on the RAM seed, never on asynchronous progress.
+///
+/// Reviewed originals with no clock/interrupt dependency. The W0 leaves below
+/// are call-free; the later entity/text constructors and releases make bounded
+/// RAM/ROM calls only (G/src/cutscenes/{cutscene_text,composite_entities,
+/// rocketship_allocate,rocketship_foreground,rocketship_release,
+/// ending_player_entities,collision_scene_entities,title_and_transition,
+/// funkotron_scene}.c). Classification does not waive residual-frame bugs.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     // G/src/cutscenes/drifting_entities.c:17,68,94: RAM-only entity allocation,
     // ROM frame dimensions, RNG state and per-object counters/positions.
@@ -199,6 +309,34 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::ENDING_POSITION_RIGHT_OFFSET_COMPOSITE,
     ids::INTRO_POSITION_FALLING_ROCKETSHIP,
     ids::ENDING_RESTART_ELEVATED_COMPOSITE_SEQUENCE,
+    // W1: bounded font copies and RAM-only character mapping.
+    ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
+    ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
+    // W2: allocation, initialization, and viewport bookkeeping are RAM-only.
+    ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR,
+    ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+    ids::CUTSCENE_SET_FOREGROUND_ROCKETSHIP_POSE,
+    ids::ENDING_CREATE_ACTIVE_PLAYER_ENTITIES,
+    ids::ENDING_CREATE_ELEVATED_THREE_PIECE_COMPOSITE,
+    ids::ENDING_CREATE_POSE_COMPOSITE,
+    ids::ENDING_CREATE_RIGHT_OFFSET_COMPOSITE,
+    ids::ENDING_CREATE_SIX_PIECE_COMPOSITE,
+    ids::FUNKATRON_CREATE_SCENE_ENTITY,
+    ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES,
+    ids::INTRO_CREATE_FALLING_ROCKETSHIP,
+    // W3: bounded release loops, no rendering transfers or waits.
+    ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE,
+    ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR,
+    ids::CUTSCENE_RELEASE_TEXT_ENTITIES,
+    ids::ENDING_RELEASE_ELEVATED_THREE_PIECE_COMPOSITE,
+    ids::ENDING_RELEASE_POSE_COMPOSITE,
+    ids::ENDING_RELEASE_RIGHT_OFFSET_COMPOSITE,
+    ids::ENDING_RELEASE_SIX_PIECE_COMPOSITE,
+    ids::INTRO_RELEASE_COLLISION_SCENE_ENTITIES,
+    ids::INTRO_RELEASE_FALLING_ROCKETSHIP,
+    // W4: text scan, allocation, queued font copies, and sprite-table RAM.
+    ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+    ids::CUTSCENE_TEXT_LOAD,
 ];
 
 /// G/src/cutscenes/cutscene_text.c:26 (`CutsceneAppendRemappedFontTiles`).
