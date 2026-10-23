@@ -50,10 +50,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: delay_iterations,
     },
     crate::Translation {
-        id: crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
-        function: remaining::select_viewport_sprite_chain,
-    },
-    crate::Translation {
         id: crate::ids::GET_PLAYER_INPUT,
         function: remaining::get_player_input,
     },
@@ -161,6 +157,10 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
+    // Full corpus: REV 00 replay of content-effects frame 74603 fails to
+    // return from a sprite callee at 00D02C. Pending sprite-owner diagnosis;
+    // earlier narrow-session coverage does not approve the original fallback.
+    crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
     // Full corpus: content-later REV 00 and content-effects REV 02 expose
     // live FF8033 differences at frame 837; earlier narrow sessions were
     // insufficient. Keep the body unregistered until that effect is proven.
@@ -187,6 +187,10 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Unregistered bodies retained for explicit proof harnesses.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+        function: remaining::select_viewport_sprite_chain,
+    },
     crate::Translation {
         id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
         function: wait_for_next_vblank,
