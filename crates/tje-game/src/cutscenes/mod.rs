@@ -33,6 +33,31 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::INTRO_PART3,
     ids::INTRO_PART4,
     ids::INTRO_VIDEO,
+    // A: time-aware bodies await natural/fixture proof with the shared resolver.
+    ids::CLEAR_LOWER_VRAM_TILEMAP,
+    ids::CLEAR_UPPER_VRAM_TILEMAP,
+    ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+    ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+    ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+    // Blocked by PrepareEntitySpriteFrame's audited dead high-byte read at CA36.
+    ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+    ids::TITLE_DRAW_SELECTED_LOGO,
+    // W3 helpers awaiting live-state proof or the shared time-aware integration.
+    ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+    ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+    ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+    // W4-W7: complete bodies, awaiting the residual-read audit and time-aware
+    // production contract before both-revision scene/interrupt proof.
+    ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+    ids::CUTSCENE_TEXT_LOAD,
+    ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+    ids::TITLE_SCREEN_VIDEO,
+    ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+    ids::ENDING_PLAY_SCROLLING_CREDITS,
+    ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+    ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
+    ids::SEGA_LOGO_V_BLANK,
+    ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
 ];
 
 /// Opt-in fixture roots only. The production dispatcher never consumes this list.
@@ -97,7 +122,99 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::INTRO_VIDEO,
         function: intro::intro_video,
     },
+    crate::Translation {
+        id: ids::CLEAR_LOWER_VRAM_TILEMAP,
+        function: title_and_transition::clear_lower_vram_tilemap,
+    },
+    crate::Translation {
+        id: ids::CLEAR_UPPER_VRAM_TILEMAP,
+        function: title_and_transition::clear_upper_vram_tilemap,
+    },
+    crate::Translation {
+        id: ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        function: title_and_transition::animate_title_transition_background,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+        function: title_and_transition::cutscene_draw_randomized_rectangle_border,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        function: title_and_transition::cutscene_draw_randomized_screen_border,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+        function: cutscene_text::cutscene_load_second_text_line,
+    },
+    crate::Translation {
+        id: ids::TITLE_DRAW_SELECTED_LOGO,
+        function: title_and_transition::title_draw_selected_logo,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        function: title_and_transition::cutscene_step_frame_and_music_cadence,
+    },
+    crate::Translation {
+        id: ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+        function: title_and_transition::initialize_title_transition_tilemap,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+        function: intro_frame_release::intro_release_frame_entities_and_refresh,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+        function: cutscene_text::cutscene_load_original_palette_text_line,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_TEXT_LOAD,
+        function: cutscene_text::cutscene_text_load,
+    },
+    crate::Translation {
+        id: ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+        function: ending::ending_play_descending_rocketship_scene,
+    },
+    crate::Translation {
+        id: ids::TITLE_SCREEN_VIDEO,
+        function: title_and_transition::title_screen_video,
+    },
+    crate::Translation {
+        id: ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+        function: ending::ending_play_dialogue_and_departure,
+    },
+    crate::Translation {
+        id: ids::ENDING_PLAY_SCROLLING_CREDITS,
+        function: ending::ending_play_scrolling_credits,
+    },
+    crate::Translation {
+        id: ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+        function: ending::ending_play_upward_rocketship_departure,
+    },
+    crate::Translation {
+        id: ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
+        function: funkotron_scene::funkatron_update_scene_entities,
+    },
+    crate::Translation {
+        id: ids::SEGA_LOGO_V_BLANK,
+        function: sega_logo_vblank::sega_logo_vblank,
+    },
+    crate::Translation {
+        id: ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
+        function: title_and_transition::sega_and_intro_video_routine,
+    },
 ];
+mod collision_scene_entities;
+mod composite_entities;
+mod cutscene_text;
+mod ending;
+mod ending_player_entities;
+mod funkotron_scene;
+mod intro_frame_release;
+mod rocketship_allocate;
+mod rocketship_foreground;
+mod rocketship_release;
+mod sega_logo_vblank;
+mod title_and_transition;
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
@@ -269,7 +386,114 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::ENDING_RESTART_ELEVATED_COMPOSITE_SEQUENCE,
         function: ending_restart_elevated_composite_sequence,
     },
+    crate::Translation {
+        id: ids::CUTSCENE_DRAW_METATILE_BLOCK,
+        function: title_and_transition::cutscene_draw_metatile_block,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
+        function: cutscene_text::cutscene_queue_centered_original_palette_text_line,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
+        function: cutscene_text::cutscene_queue_centered_remapped_text_line,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR,
+        function: rocketship_allocate::cutscene_allocate_rocketship_pair,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_ELEVATED_THREE_PIECE_COMPOSITE,
+        function: composite_entities::ending_create_elevated_three_piece_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_POSE_COMPOSITE,
+        function: composite_entities::ending_create_pose_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_RIGHT_OFFSET_COMPOSITE,
+        function: composite_entities::ending_create_right_offset_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_SIX_PIECE_COMPOSITE,
+        function: composite_entities::ending_create_six_piece_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_DRAW_NINE_METATILE_BACKGROUND,
+        function: title_and_transition::ending_draw_nine_metatile_background,
+    },
+    crate::Translation {
+        id: ids::ENDING_FILL_REPEATED_METATILE_BACKGROUND,
+        function: title_and_transition::ending_fill_repeated_metatile_background,
+    },
+    crate::Translation {
+        id: ids::FUNKATRON_CREATE_SCENE_ENTITY,
+        function: funkotron_scene::funkatron_create_scene_entity,
+    },
+    crate::Translation {
+        id: ids::INTRO_CREATE_FALLING_ROCKETSHIP,
+        function: composite_entities::intro_create_falling_rocketship,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE,
+        function: title_and_transition::cutscene_release_flagged_entity_range,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR,
+        function: rocketship_release::cutscene_release_rocketship_pair,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_RELEASE_TEXT_ENTITIES,
+        function: cutscene_text::cutscene_release_text_entities,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_ELEVATED_THREE_PIECE_COMPOSITE,
+        function: composite_entities::ending_release_elevated_three_piece_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_POSE_COMPOSITE,
+        function: composite_entities::ending_release_pose_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_RIGHT_OFFSET_COMPOSITE,
+        function: composite_entities::ending_release_right_offset_composite,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_SIX_PIECE_COMPOSITE,
+        function: composite_entities::ending_release_six_piece_composite,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_COLLISION_SCENE_ENTITIES,
+        function: collision_scene_entities::intro_release_collision_scene_entities,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_FALLING_ROCKETSHIP,
+        function: composite_entities::intro_release_falling_rocketship,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_SET_FOREGROUND_ROCKETSHIP_POSE,
+        function: rocketship_foreground::cutscene_set_foreground_rocketship_pose,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_ACTIVE_PLAYER_ENTITIES,
+        function: ending_player_entities::ending_create_active_player_entities,
+    },
+    crate::Translation {
+        id: ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES,
+        function: collision_scene_entities::intro_create_collision_scene_entities,
+    },
 ];
+
+// AllocateEntityViewportSprites' shared-tile/failure bug reads entry D4.W.
+// Forward the matching compiled caller's low word, preserving its C ABI on
+// both success and error. Unmodified-D4 callers need no extra forwarding.
+fn allocate_viewport_with_d4(context: &mut dyn Context, object: u32, low: u16) -> Result<u32> {
+    let saved = context.data_register(4);
+    context.set_data_register(4, (saved & 0xffff_0000) | u32::from(low));
+    let result = crate::call(context, ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES, &[object, 0]);
+    context.set_data_register(4, saved);
+    result
+}
 
 /// Reviewed non-atomic original entries, whether or not translated yet.
 /// Classes describe required execution, not approval of an unexercised body.
@@ -431,11 +655,11 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::Executio
         ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
         crate::execution::ExecutionClass::TimeAware,
     ),
-    // funkatron_scene.c:49: RAM logic plus a fixed present-panel VDP stream;
-    // its blanking gates are RAM stores, with no raster/status observation.
+    // funkatron_scene.c:49: StartDialogue reaches GenerateSpeech's explicit
+    // IRQ-cleared upload wait (speech_and_dialogue.c:135-136), as well as panel VDP.
     (
         ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
-        crate::execution::ExecutionClass::Functional,
+        crate::execution::ExecutionClass::TimeAware,
     ),
     // sega_logo_vblank.c:11: DMA completion and music's YM/Z80 transactions.
     (
