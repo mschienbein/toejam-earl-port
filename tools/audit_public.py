@@ -11,10 +11,10 @@ path, header-text, source-literal or historical-blob exceptions are carried over
 from __future__ import annotations
 
 import argparse
-import ast
 import base64
 import binascii
 import csv
+import difflib
 import hashlib
 import io
 import json
@@ -35,6 +35,10 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote_to_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
+UPSTREAM_URL = "https://github.com/jsgroth/jgenesis"
+UPSTREAM_REVISION = "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb"
+VENDOR_PREFIX = "vendor/jgenesis/"
+VENDOR_MANIFEST = VENDOR_PREFIX + "UPSTREAM.json"
 MAX_BYTES = 1_000_000
 MAX_DECODED_BYTES = 16 * MAX_BYTES
 MAX_JSON_NODES = 400_000
@@ -345,8 +349,9 @@ class DecodeBudget:
             raise DecodeLimitError("encoded-content decoding exceeds the per-blob byte budget")
 
 
-def decode_c_literal(token: bytes, *, rust: bool = False) -> tuple[bytes, int]:
-    """Decode ordinary C/Rust escapes, never executable source."""
+def decode_c_literal(token: bytes, *, rust: bool = False,
+                     python_bytes: bool = False) -> tuple[bytes, int]:
+    """Decode C, Rust or Python byte escapes without invoking a language compiler."""
     body = token[token.index(b'"') + 1:-1]
     out, escaped_nontext = bytearray(), 0
     simple = {ord("a"): 7, ord("b"): 8, ord("f"): 12, ord("n"): 10, ord("r"): 13,
@@ -371,7 +376,7 @@ def decode_c_literal(token: bytes, *, rust: bool = False) -> tuple[bytes, int]:
             continue
         if rust and value == ord("0"):
             decoded = bytes(1)
-        elif value in simple:
+        elif value in simple and not (python_bytes and value == ord("?")):
             decoded = bytes([simple[value]])
         elif not rust and 48 <= value <= 55:
             digits = bytearray([value])
@@ -381,16 +386,18 @@ def decode_c_literal(token: bytes, *, rust: bool = False) -> tuple[bytes, int]:
             decoded = bytes([int(digits, 8) & 0xFF])
         elif value == ord("x"):
             start = position
-            if rust:
+            if rust or python_bytes:
                 position += 2
                 if not re.fullmatch(rb"[0-9a-fA-F]{2}", body[start:position]):
-                    raise DecodeLimitError("invalid Rust hexadecimal escape")
+                    raise DecodeLimitError("invalid two-digit hexadecimal byte escape")
             else:
                 while position < len(body) and body[position] in b"0123456789abcdefABCDEF":
                     position += 1
                 if position == start:
                     raise DecodeLimitError("invalid C hexadecimal escape")
             decoded = bytes([int(body[start:position], 16) & 0xFF])
+        elif python_bytes and value in b"uUN":
+            decoded = b"\\" + bytes([value])
         elif value == ord("u") and body[position:position + 1] == b"{":
             end = body.find(b"}", position + 1)
             digits = body[position + 1:end].replace(b"_", b"")
@@ -411,7 +418,7 @@ def decode_c_literal(token: bytes, *, rust: bool = False) -> tuple[bytes, int]:
         else:
             if rust:
                 raise DecodeLimitError("invalid Rust string escape")
-            decoded = bytes([value])  # Traditional C's implementation-defined unknown escape.
+            decoded = (b"\\" if python_bytes else b"") + bytes([value])
         out.extend(decoded)
         escaped_nontext += sum(byte < 32 and byte not in b"\n\r\t\f" or byte >= 127 for byte in decoded)
     return bytes(out), escaped_nontext
@@ -500,6 +507,25 @@ def json_payloads(text: str, budget: DecodeBudget):
             work.extend((item, depth + 1) for item in value)
 
 
+def python_byte_literal(token: str) -> bytes | None:
+    """Decode a tokenized Python bytes literal, preserving unknown byte escapes."""
+    prefix = PY_BYTES_TOKEN.match(token)
+    if prefix is None:
+        return None
+    quote = prefix.end() - 1
+    delimiter = token[quote] * (3 if token.startswith(token[quote] * 3, quote) else 1)
+    if not token.endswith(delimiter):
+        return None
+    try:
+        body = token[quote + len(delimiter):-len(delimiter)]
+        raw = body.replace("\r\n", "\n").replace("\r", "\n").encode("ascii")
+        if "r" in token[:quote].lower():
+            return raw
+        return decode_c_literal(b'"' + raw + b'"', python_bytes=True)[0]
+    except (UnicodeError, DecodeLimitError):
+        return None
+
+
 def python_byte_payloads(data: bytes, budget: DecodeBudget):
     """Tokenize, never execute: repr(bytes), adjacent literals and simple literal '+' runs."""
     if not PY_BYTES_START.search(data):
@@ -517,10 +543,7 @@ def python_byte_payloads(data: bytes, budget: DecodeBudget):
     try:
         for token in tokenize.tokenize(io.BytesIO(data).readline):
             if token.type == tokenize.STRING and PY_BYTES_TOKEN.match(token.string):
-                try:
-                    value = ast.literal_eval(token.string)
-                except (ValueError, SyntaxError):
-                    value = None
+                value = python_byte_literal(token.string)
                 if isinstance(value, bytes):
                     parts.append(value)
                     continue
@@ -566,7 +589,10 @@ def literal_values(token: bytes) -> tuple[tuple[int | None, ...], bytes]:
     sign = -1 if token.startswith(b"-") else 1
     unsigned = token[1:] if token[:1] in (b"+", b"-") else token
     if unsigned.startswith((b'b"', b'br')):
-        raw = rust_byte_string(unsigned)
+        try:
+            raw = rust_byte_string(unsigned)
+        except DecodeLimitError:
+            return (None, None, None, None), b""  # E.g. a regex, not a valid Rust atom.
         value = cast_value(raw[0] * sign) if len(raw) == 1 else None
         return (value, value, value, value), raw
     if b"'" in unsigned:
@@ -735,15 +761,31 @@ def numeric_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
     return None
 
 
-def base64_candidates(data: bytes) -> set[bytes]:
-    """Normalize lexical Base64 runs separated only by whitespace, not by container syntax."""
-    tokens = {match.group() for match in BASE64_TOKEN.finditer(data)}
+def base64_candidates(data: bytes, *, binary_shapes: set[bytes] | None = None) -> set[bytes]:
+    """Keep broad private-ROM probes, but distinguish framed data from joined prose."""
+    tokens = set()
+    for match in BASE64_TOKEN.finditer(data):
+        token = match.group()
+        tokens.add(token)
+        before, after = data[match.start() - 1:match.start()], data[match.end():match.end() + 1]
+        if binary_shapes is not None and before in (b'"', b"'", b"`") and after == before:
+            binary_shapes.add(token)
     # Formatting headers delimit a run; their language names/chomping sigils are not payload.
     markup = re.sub(rb"""(?m)^[ \t]*(?:(?:[\w.-]+|"[^"\r\n]*"|'[^'\r\n]*'):[ \t]*)?(?:![\w!:/.-]+[ \t]+)?[|>](?:[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#[^\r\n]*)?$""", b"@", data)
     markup = re.sub(rb"(?m)^[ \t]*(?:>[ \t]*)+", b"", markup)
     markup = re.sub(rb"(?m)^[ \t]*(?:`{3,}|~{3,})[^\r\n]*", b"@", markup)
     markup = re.sub(rb"""(?m)^[ \t]*["']|["'][ \t]*$""", b"", markup)
     for view in dict.fromkeys((data, markup)):
+        if binary_shapes is not None:
+            framed = []
+            for line in [*view.splitlines(), b""]:
+                line = line.strip()
+                if line and re.fullmatch(rb"[A-Za-z0-9+/_-]+={0,2}", line):
+                    framed.append(line)
+                else:
+                    if framed:
+                        binary_shapes.add(b"".join(framed))
+                        framed.clear()
         chunks = []
         previous = None
 
@@ -1056,9 +1098,9 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
             if len(raw) >= MAX_NUMERIC_RUN:
                 return f"{origin}: numeric table column contains {len(raw)} byte values (limit {MAX_NUMERIC_RUN - 1})"
         for kind, raw in conventional_payloads(data, budget):
-            # Bare source expressions can also be valid Base85. Their unframed guesses
-            # retain the opaque-shape/private-ROM checks, not the binary length rule.
-            binary_limit = kind not in ("Base85", "Ascii85", "Z85")
+            # Bare source expressions are also valid Base85/quoted-printable. These
+            # guesses retain every opaque-shape/private-ROM check, not a length veto.
+            binary_limit = kind not in ("Base85", "Ascii85", "Z85", "quoted-printable")
             reason = inspect_decoded(raw, index, allowed, budget, origin + ": " + kind,
                                      path, depth, binary_limit=binary_limit)
             if reason is not None:
@@ -1098,7 +1140,8 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
             reason = inspect_decoded(group.raw, index, allowed, budget, origin + ": C string literal", path, depth)
             if reason is not None:
                 return reason
-    for token in base64_candidates(data):
+    binary_shapes: set[bytes] = set()
+    for token in base64_candidates(data, binary_shapes=binary_shapes):
         if len(token) % 4 == 1:
             continue
         try:
@@ -1106,14 +1149,16 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
         except (binascii.Error, ValueError):
             continue
         budget.charge(len(raw))
-        reason = inspect_decoded(raw, index, allowed, budget, origin + ": Base64/URL-safe Base64", path, depth)
+        reason = inspect_decoded(raw, index, allowed, budget, origin + ": Base64/URL-safe Base64",
+                                 path, depth, binary_limit=token in binary_shapes)
         if reason is not None:
             return reason
     return None
 
 
 def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
-                    inclusions: tuple[list[str], list[str]] | None = None) -> list[str]:
+                    inclusions: tuple[list[str], list[str]] | None = None,
+                    fragment: bool = False) -> list[str]:
     reasons = []
     try:
         text = data.decode("utf-8")
@@ -1122,7 +1167,7 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
         text, is_text = "", False
     if not is_text:
         reasons.append("non-text blob (not UTF-8 source/Markdown)")
-    if PurePosixPath(path).suffix.lower() == ".md" and (not is_text or not MARKDOWN.search(text)):
+    if not fragment and PurePosixPath(path).suffix.lower() == ".md" and (not is_text or not MARKDOWN.search(text)):
         reasons.append(".md file is not recognisable Markdown (possible ROM)")
     allowed: tuple[bytes, ...] = ()
     budget = DecodeBudget()
@@ -1177,7 +1222,7 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
     return reasons
 
 
-def rust_code_tokens(data: bytes) -> list[tuple[str, bytes]]:
+def rust_code_tokens(data: bytes) -> list[tuple[str, bytes, int]]:
     """Lex only enough Rust to locate builtin includes; comments/strings stay opaque."""
     tokens = []
     position = 0
@@ -1213,7 +1258,7 @@ def rust_code_tokens(data: bytes) -> list[tuple[str, bytes]]:
             closing = b'"' + raw[1]
             end = data.find(closing, raw.end())
             end = len(data) if end < 0 else end + len(closing)
-            tokens.append(("string", data[position:end]))
+            tokens.append(("string", data[position:end], position))
             position = end
             continue
         if data[position] == ord('"') or data.startswith((b'b"', b'c"'), position):
@@ -1226,25 +1271,26 @@ def rust_code_tokens(data: bytes) -> list[tuple[str, bytes]]:
                     break
                 else:
                     end += 1
-            tokens.append(("string", data[position:end]))
+            tokens.append(("string", data[position:end], position))
             position = end
             continue
         character = RUST_CHAR.match(data, position)
         if character:
-            tokens.append(("char", character[0]))
+            tokens.append(("char", character[0], position))
             position = character.end()
             continue
         identifier = RUST_IDENTIFIER.match(data, position)
         if identifier:
-            tokens.append(("identifier", identifier[0]))
+            tokens.append(("identifier", identifier[0], position))
             position = identifier.end()
             continue
-        tokens.append(("punctuation", data[position:position + 1]))
+        tokens.append(("punctuation", data[position:position + 1], position))
         position += 1
     return tokens
 
 
-def rust_inclusions(path: str, data: bytes) -> tuple[list[str], list[str]]:
+def rust_inclusions(path: str, data: bytes, *,
+                    changed_lines: set[int] | None = None) -> tuple[list[str], list[str]]:
     """Return public literal targets and unconditional compile-time include findings.
 
     Arbitrary Rust/build-macro evaluation is intentionally not attempted. Only a direct
@@ -1254,19 +1300,46 @@ def rust_inclusions(path: str, data: bytes) -> tuple[list[str], list[str]]:
     if PurePosixPath(path).suffix.lower() != ".rs":
         return targets, reasons
     tokens = rust_code_tokens(data)
+
+    def touched(start: int, end: int) -> bool:
+        if changed_lines is None:
+            return True
+        first = data.count(b"\n", 0, start) + 1
+        last = data.count(b"\n", 0, end) + 1
+        return any(first <= line <= last for line in changed_lines)
+
+    # Renaming these builtins would hide later invocations from a lexical gate.
+    # Require their canonical spellings rather than trying Rust name resolution.
+    for begin, (kind, name, start) in enumerate(tokens):
+        if (kind, name) != ("identifier", b"use"):
+            continue
+        if begin >= 2 and tokens[begin - 1][:2] == ("punctuation", b"#"):
+            continue
+        end = begin + 1
+        while end < len(tokens) and tokens[end][:2] != ("punctuation", b";"):
+            end += 1
+        last = tokens[end][2] + 1 if end < len(tokens) else len(data)
+        if not touched(start, last):
+            continue
+        for position in range(begin + 1, end - 1):
+            if (tokens[position][0] == "identifier"
+                    and tokens[position][1] in (b"include_bytes", b"include_str")
+                    and tokens[position + 1][:2] == ("identifier", b"as")):
+                reasons.append("compile-time Rust inclusion aliases are forbidden; use the canonical builtin")
+
     closing = {b"(": b")", b"[": b"]", b"{": b"}"}
     for index in range(len(tokens) - 2):
-        kind, name = tokens[index]
+        kind, name, start = tokens[index]
         if kind != "identifier" or name not in (b"include_bytes", b"include_str"):
             continue
-        if tokens[index + 1] != ("punctuation", b"!"):
+        if tokens[index + 1][:2] != ("punctuation", b"!"):
             continue
         macro = name.decode() + "!"
         opening = tokens[index + 2][1]
         stack = [closing[opening]] if opening in closing else []
         end = index + 3
         while stack and end < len(tokens):
-            token_kind, value = tokens[end]
+            token_kind, value, _ = tokens[end]
             if token_kind == "punctuation":
                 if value in closing:
                     stack.append(closing[value])
@@ -1274,10 +1347,13 @@ def rust_inclusions(path: str, data: bytes) -> tuple[list[str], list[str]]:
                     stack.pop()
             if stack:
                 end += 1
+        last = tokens[end][2] + len(tokens[end][1]) if end < len(tokens) else len(data)
+        if not touched(start, last):
+            continue
         arguments = tokens[index + 3:end]
-        if arguments and arguments[-1] == ("punctuation", b","):
+        if arguments and arguments[-1][:2] == ("punctuation", b","):
             arguments = arguments[:-1]
-        if stack or not opening in closing or len(arguments) != 1 or arguments[0][0] != "string":
+        if stack or opening not in closing or len(arguments) != 1 or arguments[0][0] != "string":
             reasons.append(f"{macro}: compile-time inclusion requires a direct tracked public path; "
                            "indirect or unresolved expressions are forbidden")
             continue
@@ -1376,6 +1452,175 @@ def reference_images(repo: Path) -> list[bytes]:
     return images
 
 
+def git_blob_id(data: bytes) -> str:
+    """Upstream uses Git SHA-1, independently of the audited repo's object format."""
+    return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+
+
+def safe_vendor_path(value: object) -> str:
+    if not isinstance(value, str):
+        raise AuditError("vendor manifest paths must be strings")
+    path = PurePosixPath(value)
+    if (not value or value == "." or path.is_absolute() or ".." in path.parts
+            or str(path) != value or "\\" in value or ":" in value
+            or not all(character.isprintable() for character in value)):
+        raise AuditError("vendor manifest contains a noncanonical relative path")
+    return value
+
+
+class UpstreamRepository:
+    """Fetch and verify the one pinned public tree; cache only under ignored .cache."""
+
+    def __init__(self, repo: Path):
+        self.cache = repo / ".cache" / "public-audit" / "jgenesis.git"
+        self.command = ["git", "--no-replace-objects", "--git-dir", str(self.cache)]
+        if not self.cache.exists():
+            self.cache.parent.mkdir(parents=True, exist_ok=True)
+            self.run("init", "--bare", str(self.cache), initialize=True)
+        probe = self.run("cat-file", "-t", UPSTREAM_REVISION, check=False)
+        if probe.returncode != 0 or probe.stdout.strip() != b"commit":
+            self.run("fetch", "--depth=1", "--no-tags", UPSTREAM_URL, UPSTREAM_REVISION)
+            self.run("update-ref", "refs/tje/upstream", UPSTREAM_REVISION)
+        # A cached object name alone is not evidence: check the complete pinned tree
+        # and object hashes, with replacement objects disabled.
+        self.run("fsck", "--strict", "--no-reflogs", UPSTREAM_REVISION)
+        self.files: dict[str, str] = {}
+        for entry in self.run("ls-tree", "-r", "-z", UPSTREAM_REVISION).stdout.split(b"\0"):
+            if not entry:
+                continue
+            meta, path = entry.split(b"\t", 1)
+            mode, kind, oid = meta.decode().split()
+            if kind == "blob" and mode in ("100644", "100755"):
+                self.files[os.fsdecode(path)] = oid
+        self.blobs: dict[str, bytes] = {}
+
+    def run(self, *args: str, check: bool = True,
+            initialize: bool = False) -> subprocess.CompletedProcess:
+        command = ["git", *args] if initialize else [*self.command, *args]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise AuditError(f"pinned jgenesis upstream is unavailable: {error}") from error
+        if check and result.returncode:
+            detail = result.stderr.decode("utf-8", "replace").strip()
+            raise AuditError(f"cannot verify pinned jgenesis upstream: {detail}")
+        return result
+
+    def blob(self, oid: str) -> bytes:
+        if oid not in self.blobs:
+            data = self.run("cat-file", "blob", oid).stdout
+            if git_blob_id(data) != oid:
+                raise AuditError("cached upstream blob does not match its Git object id")
+            self.blobs[oid] = data
+        return self.blobs[oid]
+
+
+@dataclass(frozen=True)
+class VendorEntry:
+    upstream_path: str | None
+    upstream_blob: str | None
+    modified: bool
+
+
+class VendorAudit:
+    """Only verified upstream bytes are exempt; local bytes always remain in scope."""
+
+    def __init__(self, repo: Path, manifest: bytes):
+        self.upstream = UpstreamRepository(repo)
+        self.entries = self.validate_manifest(manifest)
+
+    def validate_manifest(self, data: bytes) -> dict[str, VendorEntry]:
+        if len(data) > MAX_BYTES:
+            raise AuditError("vendor manifest exceeds the public blob size limit")
+        def unique_object(pairs: list[tuple[str, object]]) -> dict:
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise AuditError("vendor manifest contains a duplicate JSON key")
+                result[key] = value
+            return result
+
+        try:
+            document = json.loads(data, object_pairs_hook=unique_object)
+        except (ValueError, UnicodeError, RecursionError) as error:
+            raise AuditError("vendor manifest is not bounded valid JSON") from error
+        if (not isinstance(document, dict)
+                or set(document) != {"schema", "url", "revision", "files"}
+                or type(document["schema"]) is not int or document["schema"] != 1
+                or document["url"] != UPSTREAM_URL or document["revision"] != UPSTREAM_REVISION
+                or not isinstance(document["files"], dict)):
+            raise AuditError("vendor manifest must describe the pinned jgenesis URL, revision and schema")
+        entries = {}
+        for relative, spec in document["files"].items():
+            relative = safe_vendor_path(relative)
+            if (not isinstance(spec, dict)
+                    or set(spec) != {"upstream_path", "upstream_blob", "modified"}
+                    or type(spec["modified"]) is not bool):
+                raise AuditError(f"invalid vendor manifest entry for {relative!r}")
+            path, oid = spec["upstream_path"], spec["upstream_blob"]
+            if path is None and oid is None:
+                # This project-authored notice has no upstream counterpart and gets
+                # no exemption: its complete contents are audited normally.
+                if relative != "NOTICE.md" or spec["modified"] is not True:
+                    raise AuditError("only the local NOTICE.md may lack an upstream baseline")
+            else:
+                path = safe_vendor_path(path)
+                if (not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}", oid)
+                        or self.upstream.files.get(path) != oid):
+                    raise AuditError(f"vendor entry {relative!r} does not match the pinned upstream tree")
+            entries[relative] = VendorEntry(path, oid, spec["modified"])
+        return entries
+
+    def content(self, path: str, data: bytes, mode: str) -> tuple[bytes | None, set[int] | None]:
+        relative = path.removeprefix(VENDOR_PREFIX)
+        if relative not in self.entries:
+            raise AuditError(f"vendored file {relative!r} is absent from the verified manifest")
+        if mode not in ("100644", "100755"):
+            raise AuditError("vendored inputs must be regular tracked files, not symlinks/gitlinks")
+        entry = self.entries[relative]
+        if entry.upstream_blob is None:
+            return data, None
+        if git_blob_id(data) == entry.upstream_blob:
+            return None, None
+        baseline = self.upstream.blob(entry.upstream_blob)
+        def lf_lines(value: bytes) -> list[bytes]:
+            parts = value.split(b"\n")
+            return [part + b"\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+
+        before, after = lf_lines(baseline), lf_lines(data)
+        matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
+        additions, lines = [], set()
+        for kind, _, _, start, end in matcher.get_opcodes():
+            if kind in ("insert", "replace"):
+                additions.extend(after[start:end])
+                lines.update(range(start + 1, end + 1))
+        return b"".join(additions) or None, lines
+
+
+def generate_vendor_manifest(repo: Path) -> dict:
+    """Record current and historical vendor paths without copying any upstream bytes."""
+    repo = Path(os.fsdecode(git(repo, "rev-parse", "--show-toplevel").strip()))
+    upstream = UpstreamRepository(repo)
+    names = {os.fsdecode(path) for path in git(repo, "ls-files", "-z", "--", VENDOR_PREFIX).split(b"\0") if path}
+    for tree in set(git(repo, "log", "--all", "--format=%T").splitlines()):
+        for entry in git(repo, "ls-tree", "-r", "-z", tree.decode(), "--", VENDOR_PREFIX).split(b"\0"):
+            if entry:
+                names.add(os.fsdecode(entry.split(b"\t", 1)[1]))
+    files = {}
+    for name in sorted(names - {VENDOR_MANIFEST}):
+        relative = safe_vendor_path(name.removeprefix(VENDOR_PREFIX))
+        path = repo / name
+        if path.is_symlink():
+            raise AuditError("cannot generate provenance for a vendored symlink")
+        oid = upstream.files.get(relative)
+        if oid is None and relative != "NOTICE.md":
+            raise AuditError(f"vendored file {relative!r} has no pinned upstream counterpart")
+        modified = oid is None or not path.is_file() or git_blob_id(path.read_bytes()) != oid
+        files[relative] = {"upstream_path": relative if oid is not None else None,
+                           "upstream_blob": oid, "modified": modified}
+    return {"schema": 1, "url": UPSTREAM_URL, "revision": UPSTREAM_REVISION, "files": files}
+
+
 def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list[Finding], dict]:
     started = time.perf_counter()
     repo = Path(os.fsdecode(git(repo, "rev-parse", "--show-toplevel").strip()))
@@ -1429,22 +1674,59 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
             if kind != "blob":
                 raise AuditError(f"expected a blob, got {kind}: {oid}")
             sizes[oid] = int(size)
+    vendor = None
+    if any(path.startswith(VENDOR_PREFIX) for _, path, _, _ in refs):
+        preferred = ["index:0"]
+        if head.returncode == 0:
+            preferred.append(f"tree:{head.stdout.strip().decode()}")
+        manifest_oid = next(
+            (oid for source in preferred for oid, path, origin, mode in refs
+             if origin == source and path == VENDOR_MANIFEST and mode in ("100644", "100755")),
+            None)
+        if manifest_oid is None or sizes[manifest_oid] > MAX_BYTES:
+            raise AuditError("vendored files require a tracked, bounded vendor/jgenesis/UPSTREAM.json; "
+                             "run python tools/generate_vendor_manifest.py and stage the manifest")
+        vendor = VendorAudit(repo, git(repo, "cat-file", "blob", manifest_oid))
+
+    def scan_content(path: str, data: bytes, mode: str) -> tuple[list[str], tuple[list[str], list[str]]]:
+        original, changed_lines = data, None
+        try:
+            if vendor is not None and path.startswith(VENDOR_PREFIX):
+                if path == VENDOR_MANIFEST:
+                    vendor.validate_manifest(data)
+                else:
+                    data, changed_lines = vendor.content(path, data, mode)
+                    if data is None:
+                        return [], ([], [])
+        except AuditError as error:
+            return [f"vendor provenance: {error}"], ([], [])
+        inclusions = rust_inclusions(path, original, changed_lines=changed_lines)
+        reasons = content_reasons(path, data, index, inclusions=inclusions,
+                                  fragment=changed_lines is not None)
+        return reasons, inclusions
+
+    def vendor_context(path: str, source: str, tracked: set[str]) -> list[str]:
+        if (vendor is not None and path.startswith(VENDOR_PREFIX)
+                and not source.startswith("tree:") and VENDOR_MANIFEST not in tracked):
+            return ["vendored files require a regular tracked UPSTREAM.json in this Git state"]
+        return []
+
     findings = []
-    cache: dict[tuple[str, str], list[str]] = {}
-    include_cache: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
+    cache: dict[tuple[str, str, str], list[str]] = {}
+    include_cache: dict[tuple[str, str, str], tuple[list[str], list[str]]] = {}
     reader = BlobReader(repo)
     try:
         for oid, path, source, mode in sorted(refs):
             size = sizes.get(oid, 0)
             reasons = path_reasons(path, size, mode)
-            key = (oid, path)  # Markdown policy is path-specific.
+            key = (oid, path, mode)
             if mode != "160000" and size <= MAX_BYTES:
                 if key not in cache:
                     data = reader.read(oid)
-                    include_cache[key] = rust_inclusions(path, data)
-                    cache[key] = content_reasons(path, data, index, inclusions=include_cache[key])
+                    cache[key], include_cache[key] = scan_content(path, data, mode)
                 reasons += cache[key]
                 reasons += inclusion_context_reasons(include_cache[key][0], tracked_by_source.get(source, set()))
+                reasons += vendor_context(path, source, tracked_by_source.get(source, set()))
             findings.extend(Finding(source, path, reason) for reason in reasons)
     finally:
         reader.close()
@@ -1457,7 +1739,8 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
     }
     for path in sorted(work_paths):
         absolute = repo / path
-        if absolute.is_symlink():
+        mode = "120000" if absolute.is_symlink() else "100644"
+        if mode == "120000":
             data = os.fsencode(os.readlink(absolute))
         elif absolute.is_file():
             if absolute.stat().st_size > MAX_BYTES:
@@ -1471,12 +1754,12 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         hasher = hashlib.new(object_format)
         hasher.update(f"blob {len(data)}\0".encode())
         hasher.update(data)
-        key = (hasher.hexdigest(), path)
+        key = (hasher.hexdigest(), path, mode)
         if key not in cache:
-            include_cache[key] = rust_inclusions(path, data)
-            cache[key] = content_reasons(path, data, index, inclusions=include_cache[key])
-        reasons = path_reasons(path, len(data), "") + cache[key]
+            cache[key], include_cache[key] = scan_content(path, data, mode)
+        reasons = path_reasons(path, len(data), mode) + cache[key]
         reasons += inclusion_context_reasons(include_cache[key][0], tracked_worktree)
+        reasons += vendor_context(path, "worktree", tracked_worktree)
         findings.extend(Finding("worktree", path, reason) for reason in reasons)
     summary = {"blobs": len(oids), "trees": len(trees), "tracked_worktree_files": work_count,
                "roms": len(images), "rom_check": index is not None, "history": history,

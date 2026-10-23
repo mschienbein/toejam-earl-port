@@ -1,0 +1,597 @@
+{
+  "files": {
+    "Cargo.toml": {
+      "modified": true,
+      "upstream_blob": "c2db413748096c4866ca8cc7d6ce9d8be4ca2592",
+      "upstream_path": "Cargo.toml"
+    },
+    "LICENSE": {
+      "modified": false,
+      "upstream_blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "upstream_path": "LICENSE"
+    },
+    "NOTICE.md": {
+      "modified": true,
+      "upstream_blob": null,
+      "upstream_path": null
+    },
+    "backend/genesis-components/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "03f0c27f721da97f3ff983b6e22735011885a4a8",
+      "upstream_path": "backend/genesis-components/Cargo.toml"
+    },
+    "backend/genesis-components/src/cartridge.rs": {
+      "modified": false,
+      "upstream_blob": "799d005c24ae2c03b35d91e693de48830abe377b",
+      "upstream_path": "backend/genesis-components/src/cartridge.rs"
+    },
+    "backend/genesis-components/src/cartridge/eeprom.rs": {
+      "modified": false,
+      "upstream_blob": "07ebe9ecfabd35b77b69cd1b72f9b4f79ae8cae0",
+      "upstream_path": "backend/genesis-components/src/cartridge/eeprom.rs"
+    },
+    "backend/genesis-components/src/cartridge/eeprom/tests.rs": {
+      "modified": false,
+      "upstream_blob": "1da6693c67bd16af966e5055e2c39bd01008803f",
+      "upstream_path": "backend/genesis-components/src/cartridge/eeprom/tests.rs"
+    },
+    "backend/genesis-components/src/cartridge/external.rs": {
+      "modified": false,
+      "upstream_blob": "d9a4dfb7eb03a53a8179a00236eb7758a30a2192",
+      "upstream_path": "backend/genesis-components/src/cartridge/external.rs"
+    },
+    "backend/genesis-components/src/cartridge/external/metadata.rs": {
+      "modified": false,
+      "upstream_blob": "ce71c5651737373a2875a71d2dc9cffd7f50b2f0",
+      "upstream_path": "backend/genesis-components/src/cartridge/external/metadata.rs"
+    },
+    "backend/genesis-components/src/debug.rs": {
+      "modified": false,
+      "upstream_blob": "fb57c7b02d7565496f6f4052bb000f5f1167053e",
+      "upstream_path": "backend/genesis-components/src/debug.rs"
+    },
+    "backend/genesis-components/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "22052686b918c14f8e3498922a4903a7d8ad9237",
+      "upstream_path": "backend/genesis-components/src/lib.rs"
+    },
+    "backend/genesis-components/src/memory.rs": {
+      "modified": false,
+      "upstream_blob": "bbbe21c3fa60b90efc502c1a55ef07249f8443ea",
+      "upstream_path": "backend/genesis-components/src/memory.rs"
+    },
+    "backend/genesis-components/src/svp.rs": {
+      "modified": false,
+      "upstream_blob": "9acfc1ad5e0b05788149c6c60adb5866ff023415",
+      "upstream_path": "backend/genesis-components/src/svp.rs"
+    },
+    "backend/genesis-components/src/svp/ssp1601.rs": {
+      "modified": false,
+      "upstream_blob": "67161ff7a309948edac1df18862b33a5cb43a2c3",
+      "upstream_path": "backend/genesis-components/src/svp/ssp1601.rs"
+    },
+    "backend/genesis-components/src/vdp.rs": {
+      "modified": true,
+      "upstream_blob": "137b14aa1dfacf9da8108e773df41ef77fa27571",
+      "upstream_path": "backend/genesis-components/src/vdp.rs"
+    },
+    "backend/genesis-components/src/vdp/colors.rs": {
+      "modified": false,
+      "upstream_blob": "2093ef14af05970287964e1fe9dedee24db9d115",
+      "upstream_path": "backend/genesis-components/src/vdp/colors.rs"
+    },
+    "backend/genesis-components/src/vdp/cramdots.rs": {
+      "modified": false,
+      "upstream_blob": "47043efd967fdc6ead8f0de9aae7023c44b0439e",
+      "upstream_path": "backend/genesis-components/src/vdp/cramdots.rs"
+    },
+    "backend/genesis-components/src/vdp/debug.rs": {
+      "modified": false,
+      "upstream_blob": "c4ab09050609e6fbfefc79419dbcf05c770b84e0",
+      "upstream_path": "backend/genesis-components/src/vdp/debug.rs"
+    },
+    "backend/genesis-components/src/vdp/fifo.rs": {
+      "modified": false,
+      "upstream_blob": "5c3b6d9d725e57b2c9d9895b17d98be941d75bef",
+      "upstream_path": "backend/genesis-components/src/vdp/fifo.rs"
+    },
+    "backend/genesis-components/src/vdp/registers.rs": {
+      "modified": true,
+      "upstream_blob": "77bc4285be3bfe81abb6c5e93884e32f5ae862f0",
+      "upstream_path": "backend/genesis-components/src/vdp/registers.rs"
+    },
+    "backend/genesis-components/src/vdp/render.rs": {
+      "modified": false,
+      "upstream_blob": "0a801ed1a7646534933ef9f756a87b2c337297a6",
+      "upstream_path": "backend/genesis-components/src/vdp/render.rs"
+    },
+    "backend/genesis-components/src/vdp/sprites.rs": {
+      "modified": false,
+      "upstream_blob": "28f73d7975455c615084b2064da73aeb4e323db8",
+      "upstream_path": "backend/genesis-components/src/vdp/sprites.rs"
+    },
+    "backend/genesis-components/src/vdp/tests.rs": {
+      "modified": false,
+      "upstream_blob": "1c04617fd67dff63dfdef8d71a5cc1606b7d38b3",
+      "upstream_path": "backend/genesis-components/src/vdp/tests.rs"
+    },
+    "backend/genesis-components/src/ym2612.rs": {
+      "modified": false,
+      "upstream_blob": "f93fe2eb89786c885077f3e9c87e0f9ba79d21db",
+      "upstream_path": "backend/genesis-components/src/ym2612.rs"
+    },
+    "backend/genesis-components/src/ym2612/debug.rs": {
+      "modified": false,
+      "upstream_blob": "90463fa497f7efbb06586663f9f3d2530b063f72",
+      "upstream_path": "backend/genesis-components/src/ym2612/debug.rs"
+    },
+    "backend/genesis-components/src/ym2612/envelope.rs": {
+      "modified": false,
+      "upstream_blob": "fb2d7bd59952f8a6596fe4a3e41cd1e2793c0174",
+      "upstream_path": "backend/genesis-components/src/ym2612/envelope.rs"
+    },
+    "backend/genesis-components/src/ym2612/lfo.rs": {
+      "modified": false,
+      "upstream_blob": "cd0b4ae1a8af82f912e77b2a0cb9614d54680bca",
+      "upstream_path": "backend/genesis-components/src/ym2612/lfo.rs"
+    },
+    "backend/genesis-components/src/ym2612/phase.rs": {
+      "modified": false,
+      "upstream_blob": "c8df248fd94f2de61e05270c528422e31d64c9ce",
+      "upstream_path": "backend/genesis-components/src/ym2612/phase.rs"
+    },
+    "backend/genesis-components/src/ym2612/timer.rs": {
+      "modified": false,
+      "upstream_blob": "7ccf9b451c6c28ee4244a2536737cace3147da01",
+      "upstream_path": "backend/genesis-components/src/ym2612/timer.rs"
+    },
+    "backend/genesis-core/Cargo.toml": {
+      "modified": true,
+      "upstream_blob": "9e8355437a088134a400057d2dcd338a13181b2f",
+      "upstream_path": "backend/genesis-core/Cargo.toml"
+    },
+    "backend/genesis-core/README.md": {
+      "modified": false,
+      "upstream_blob": "f3305da79d5f2ae603dd99021bc7c4c4768aad11",
+      "upstream_path": "backend/genesis-core/README.md"
+    },
+    "backend/genesis-core/src/api.rs": {
+      "modified": true,
+      "upstream_blob": "14972487e9e9838420c8b2ad5b99df848ce27686",
+      "upstream_path": "backend/genesis-core/src/api.rs"
+    },
+    "backend/genesis-core/src/audio.rs": {
+      "modified": true,
+      "upstream_blob": "a4c0a8d4e0e4d2d658ae19de1efab07412f37eff",
+      "upstream_path": "backend/genesis-core/src/audio.rs"
+    },
+    "backend/genesis-core/src/bus.rs": {
+      "modified": true,
+      "upstream_blob": "286d600eab0bd88ebff5a16a569d50535180b3fd",
+      "upstream_path": "backend/genesis-core/src/bus.rs"
+    },
+    "backend/genesis-core/src/input.rs": {
+      "modified": false,
+      "upstream_blob": "de8ab48fac594288239cf6370733111a61c20ee5",
+      "upstream_path": "backend/genesis-core/src/input.rs"
+    },
+    "backend/genesis-core/src/input/gamepad.rs": {
+      "modified": false,
+      "upstream_blob": "62af78e6b7ae5f0a2206eb69ff896c27644b9b66",
+      "upstream_path": "backend/genesis-core/src/input/gamepad.rs"
+    },
+    "backend/genesis-core/src/input/mouse.rs": {
+      "modified": false,
+      "upstream_blob": "abdeb5487256d18bac33d62fb16be59f54079fe8",
+      "upstream_path": "backend/genesis-core/src/input/mouse.rs"
+    },
+    "backend/genesis-core/src/input/xe1ap.rs": {
+      "modified": false,
+      "upstream_blob": "1979f89163f1780c61f831636acf3f9c0f529cf1",
+      "upstream_path": "backend/genesis-core/src/input/xe1ap.rs"
+    },
+    "backend/genesis-core/src/lib.rs": {
+      "modified": true,
+      "upstream_blob": "33a83d0544989f3a46377068f53bbe3d9f805299",
+      "upstream_path": "backend/genesis-core/src/lib.rs"
+    },
+    "backend/genesis-core/src/timing.rs": {
+      "modified": false,
+      "upstream_blob": "193d15b84d37e8454c0de89295fc2eef3ac45214",
+      "upstream_path": "backend/genesis-core/src/timing.rs"
+    },
+    "backend/ti-sn76489/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "6466ca5bdf34cf1da6625aedb734153988de382b",
+      "upstream_path": "backend/ti-sn76489/Cargo.toml"
+    },
+    "backend/ti-sn76489/README.md": {
+      "modified": false,
+      "upstream_blob": "028417fcd50a439d2253a5df7269d39c88939f88",
+      "upstream_path": "backend/ti-sn76489/README.md"
+    },
+    "backend/ti-sn76489/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "08326cdd7b22bde7466f60f961739c9dfa6418b3",
+      "upstream_path": "backend/ti-sn76489/src/lib.rs"
+    },
+    "common/dsp/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "2c0786cd3a2de158198701749a1566fb61a3251f",
+      "upstream_path": "common/dsp/Cargo.toml"
+    },
+    "common/dsp/src/design.rs": {
+      "modified": false,
+      "upstream_blob": "88451d725946425524d7b99588d2ca5949e9b61d",
+      "upstream_path": "common/dsp/src/design.rs"
+    },
+    "common/dsp/src/iir.rs": {
+      "modified": false,
+      "upstream_blob": "62fbebc99f2a992700c33bd37337250de021797c",
+      "upstream_path": "common/dsp/src/iir.rs"
+    },
+    "common/dsp/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "ad7bed2864285530bfa000b3fe124f528fe838f2",
+      "upstream_path": "common/dsp/src/lib.rs"
+    },
+    "common/dsp/src/sinc.rs": {
+      "modified": false,
+      "upstream_blob": "77c16597e24fa30c9d1301e36adf1b4511b9efee",
+      "upstream_path": "common/dsp/src/sinc.rs"
+    },
+    "common/dsp/src/sinc/performance.rs": {
+      "modified": false,
+      "upstream_blob": "3a87e3afd9c6af51194ebc038e831cf6733af104",
+      "upstream_path": "common/dsp/src/sinc/performance.rs"
+    },
+    "common/dsp/src/sinc/quality.rs": {
+      "modified": false,
+      "upstream_blob": "098b98951098905c9f6fd0fcbed65046a9631608",
+      "upstream_path": "common/dsp/src/sinc/quality.rs"
+    },
+    "common/jgenesis-common/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "eca9915bb3c019985da771f3baf25c0d80578b88",
+      "upstream_path": "common/jgenesis-common/Cargo.toml"
+    },
+    "common/jgenesis-common/README.md": {
+      "modified": false,
+      "upstream_blob": "ff077359eb6fd7dfb3e2f1490948799511d9af4d",
+      "upstream_path": "common/jgenesis-common/README.md"
+    },
+    "common/jgenesis-common/src/audio.rs": {
+      "modified": false,
+      "upstream_blob": "abd310d7c6cc2abe2f64a49b2e1415a1683a4eb3",
+      "upstream_path": "common/jgenesis-common/src/audio.rs"
+    },
+    "common/jgenesis-common/src/audio/cubic_resampler.rs": {
+      "modified": false,
+      "upstream_blob": "5b2451a751d4ed408130a26560f89e64a7d77b88",
+      "upstream_path": "common/jgenesis-common/src/audio/cubic_resampler.rs"
+    },
+    "common/jgenesis-common/src/audio/fir_resampler.rs": {
+      "modified": false,
+      "upstream_blob": "24ba5a4d7cab230870a0b2e6fb0d0a966772c538",
+      "upstream_path": "common/jgenesis-common/src/audio/fir_resampler.rs"
+    },
+    "common/jgenesis-common/src/boxedarray.rs": {
+      "modified": false,
+      "upstream_blob": "7de48e124b356d24373afc22efe0596fe6a3953e",
+      "upstream_path": "common/jgenesis-common/src/boxedarray.rs"
+    },
+    "common/jgenesis-common/src/cheats.rs": {
+      "modified": false,
+      "upstream_blob": "af62415f0ccebeb3d26975f301fb02615a6bc5f0",
+      "upstream_path": "common/jgenesis-common/src/cheats.rs"
+    },
+    "common/jgenesis-common/src/debug.rs": {
+      "modified": false,
+      "upstream_blob": "48fe6ff16849b831170fccd1cf6eee5878d815eb",
+      "upstream_path": "common/jgenesis-common/src/debug.rs"
+    },
+    "common/jgenesis-common/src/frontend.rs": {
+      "modified": false,
+      "upstream_blob": "7c4268fbd01bce55dd82332a315f0acab136cc4b",
+      "upstream_path": "common/jgenesis-common/src/frontend.rs"
+    },
+    "common/jgenesis-common/src/frontend/finitefloat.rs": {
+      "modified": false,
+      "upstream_blob": "9dbc1a629fa6033cd387c2c9dbca41a0b7e012e7",
+      "upstream_path": "common/jgenesis-common/src/frontend/finitefloat.rs"
+    },
+    "common/jgenesis-common/src/input.rs": {
+      "modified": false,
+      "upstream_blob": "b53eddaeb0d1043fd54edb56fb15d354a083f6b6",
+      "upstream_path": "common/jgenesis-common/src/input.rs"
+    },
+    "common/jgenesis-common/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "938127930caf591ba99ea02bffd97747f4bb0ad9",
+      "upstream_path": "common/jgenesis-common/src/lib.rs"
+    },
+    "common/jgenesis-common/src/macros.rs": {
+      "modified": false,
+      "upstream_blob": "3b0876b9b831a5486601efc0ee6c3fe68d93e3de",
+      "upstream_path": "common/jgenesis-common/src/macros.rs"
+    },
+    "common/jgenesis-common/src/num.rs": {
+      "modified": false,
+      "upstream_blob": "17b26b1de2ffb58187f71ad6005a40be7befd33b",
+      "upstream_path": "common/jgenesis-common/src/num.rs"
+    },
+    "common/jgenesis-common/src/patch.rs": {
+      "modified": false,
+      "upstream_blob": "f6ed187da98f3671b0e951655ce04828103a515e",
+      "upstream_path": "common/jgenesis-common/src/patch.rs"
+    },
+    "common/jgenesis-common/src/patch/bps.rs": {
+      "modified": false,
+      "upstream_blob": "0a1a65b9021cfcfa0e11b4b9bcf88e1559814fb2",
+      "upstream_path": "common/jgenesis-common/src/patch/bps.rs"
+    },
+    "common/jgenesis-common/src/patch/ips.rs": {
+      "modified": false,
+      "upstream_blob": "5bc6127469442df241c11cd697a2b1bbf60034f7",
+      "upstream_path": "common/jgenesis-common/src/patch/ips.rs"
+    },
+    "common/jgenesis-common/src/paths.rs": {
+      "modified": false,
+      "upstream_blob": "1affb28846e72ab04e7cd306b7f5521054359f13",
+      "upstream_path": "common/jgenesis-common/src/paths.rs"
+    },
+    "common/jgenesis-common/src/rom.rs": {
+      "modified": false,
+      "upstream_blob": "50cd1b8af1a602572b688477aa2fce6772578e24",
+      "upstream_path": "common/jgenesis-common/src/rom.rs"
+    },
+    "common/jgenesis-common/src/sync.rs": {
+      "modified": false,
+      "upstream_blob": "c1f026f6923300ed27fd69d3bafee1867af2c4cb",
+      "upstream_path": "common/jgenesis-common/src/sync.rs"
+    },
+    "common/jgenesis-common/src/timeutils.rs": {
+      "modified": false,
+      "upstream_blob": "19e064fc98fdec1a12f3247513fef81b694c2d85",
+      "upstream_path": "common/jgenesis-common/src/timeutils.rs"
+    },
+    "common/jgenesis-proc-macros/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "7ce07530b1506dbc7cfbdf13f0925fd7f2ba5a4f",
+      "upstream_path": "common/jgenesis-proc-macros/Cargo.toml"
+    },
+    "common/jgenesis-proc-macros/README.md": {
+      "modified": false,
+      "upstream_blob": "8e32465e557aefafdc260327a52a5881d0d88f92",
+      "upstream_path": "common/jgenesis-proc-macros/README.md"
+    },
+    "common/jgenesis-proc-macros/src/config.rs": {
+      "modified": false,
+      "upstream_blob": "ade259ce5596b6813c8677047582b4247e38168b",
+      "upstream_path": "common/jgenesis-proc-macros/src/config.rs"
+    },
+    "common/jgenesis-proc-macros/src/encode.rs": {
+      "modified": false,
+      "upstream_blob": "6dcda0af658057bf6696e8ad8baad5e4d180dcec",
+      "upstream_path": "common/jgenesis-proc-macros/src/encode.rs"
+    },
+    "common/jgenesis-proc-macros/src/enums.rs": {
+      "modified": false,
+      "upstream_blob": "35592cdd758ff9d37d45c945705edbadc3079e3a",
+      "upstream_path": "common/jgenesis-proc-macros/src/enums.rs"
+    },
+    "common/jgenesis-proc-macros/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "ebecc168c9012df27f4ca952e4673c9508f2ba83",
+      "upstream_path": "common/jgenesis-proc-macros/src/lib.rs"
+    },
+    "common/jgenesis-proc-macros/src/partialclone.rs": {
+      "modified": false,
+      "upstream_blob": "58e2c6d724a89ddd518c060285b557d738342f38",
+      "upstream_path": "common/jgenesis-proc-macros/src/partialclone.rs"
+    },
+    "common/jgenesis-proc-macros/src/serialization.rs": {
+      "modified": false,
+      "upstream_blob": "a1648b3d8beb3aab72955618e0f989d5fc16ed2e",
+      "upstream_path": "common/jgenesis-proc-macros/src/serialization.rs"
+    },
+    "common/jgenesis-proc-macros/tests/config.rs": {
+      "modified": false,
+      "upstream_blob": "40bcb120c9c5325854b12f6dd10025c1e79edfe1",
+      "upstream_path": "common/jgenesis-proc-macros/tests/config.rs"
+    },
+    "common/jgenesis-proc-macros/tests/encode.rs": {
+      "modified": false,
+      "upstream_blob": "72e5da5e24567763167f6bdb3a66821010a04c39",
+      "upstream_path": "common/jgenesis-proc-macros/tests/encode.rs"
+    },
+    "common/jgenesis-proc-macros/tests/enums.rs": {
+      "modified": false,
+      "upstream_blob": "d23b83730ff607c0aa8873a9c55d01a4aedf1e9d",
+      "upstream_path": "common/jgenesis-proc-macros/tests/enums.rs"
+    },
+    "common/jgenesis-proc-macros/tests/lib.rs": {
+      "modified": false,
+      "upstream_blob": "baf7007e4a2a2b592fc3c8ff1881784c33a95363",
+      "upstream_path": "common/jgenesis-proc-macros/tests/lib.rs"
+    },
+    "common/jgenesis-proc-macros/tests/partialclone.rs": {
+      "modified": false,
+      "upstream_blob": "b58bb401ea37725093f84fff2dd92474d2ec2a85",
+      "upstream_path": "common/jgenesis-proc-macros/tests/partialclone.rs"
+    },
+    "common/jgenesis-proc-macros/tests/serialization.rs": {
+      "modified": false,
+      "upstream_blob": "7b0ebb6c3dd57d93c146cbd0e25cfe56f2be9a8b",
+      "upstream_path": "common/jgenesis-proc-macros/tests/serialization.rs"
+    },
+    "config/genesis-config/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "567e5bcc7b661dfcb5d5cd6e5f6b74676a10b928",
+      "upstream_path": "config/genesis-config/Cargo.toml"
+    },
+    "config/genesis-config/src/cheats.rs": {
+      "modified": false,
+      "upstream_blob": "10754d48ddf065b1d2451590485b8f18f43780f9",
+      "upstream_path": "config/genesis-config/src/cheats.rs"
+    },
+    "config/genesis-config/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "593e850581424db46194e6b651e718347ddac6cd",
+      "upstream_path": "config/genesis-config/src/lib.rs"
+    },
+    "cpu/m68000-emu/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "e9f2c36617b2671d667ad1a9071db21ded45d2fd",
+      "upstream_path": "cpu/m68000-emu/Cargo.toml"
+    },
+    "cpu/m68000-emu/README.md": {
+      "modified": false,
+      "upstream_blob": "cd54f7891105ef91cf41f720c34b0086a4096165",
+      "upstream_path": "cpu/m68000-emu/README.md"
+    },
+    "cpu/m68000-emu/src/bus.rs": {
+      "modified": false,
+      "upstream_blob": "803f32d9cb57e50a9460fe0860d1ba4b04db18ad",
+      "upstream_path": "cpu/m68000-emu/src/bus.rs"
+    },
+    "cpu/m68000-emu/src/core.rs": {
+      "modified": true,
+      "upstream_blob": "cec4207e87e047d4c9f743d96e7a60c07f675fbf",
+      "upstream_path": "cpu/m68000-emu/src/core.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions.rs": {
+      "modified": false,
+      "upstream_blob": "d02301beaa1ad9d6f839502d4ad5e143f3f56c80",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions/arithmetic.rs": {
+      "modified": false,
+      "upstream_blob": "e99310200f0562cc62f80e47a3d2a3e740dfe7cc",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions/arithmetic.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions/bits.rs": {
+      "modified": false,
+      "upstream_blob": "0bfcf8b75a125f98a27aac994b51e0539fedfca1",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions/bits.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions/controlflow.rs": {
+      "modified": false,
+      "upstream_blob": "d463c9389b959bf7d1b816956324410fbf0701ad",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions/controlflow.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions/load.rs": {
+      "modified": false,
+      "upstream_blob": "266fc6f2218d56760190e6911f6dd888410425a7",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions/load.rs"
+    },
+    "cpu/m68000-emu/src/core/instructions/table.rs": {
+      "modified": false,
+      "upstream_blob": "a9adea5f3364a86f33d49d67b5e59fe0eecb5336",
+      "upstream_path": "cpu/m68000-emu/src/core/instructions/table.rs"
+    },
+    "cpu/m68000-emu/src/debug.rs": {
+      "modified": false,
+      "upstream_blob": "238f971ccd007d3bec24c5754066d2661b5d2571",
+      "upstream_path": "cpu/m68000-emu/src/debug.rs"
+    },
+    "cpu/m68000-emu/src/disassemble.rs": {
+      "modified": false,
+      "upstream_blob": "71fb32e51579c78c49b83607158c8b2bb415fc2f",
+      "upstream_path": "cpu/m68000-emu/src/disassemble.rs"
+    },
+    "cpu/m68000-emu/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "0802b670e5ade79357e01b73477046dc4b5f9a72",
+      "upstream_path": "cpu/m68000-emu/src/lib.rs"
+    },
+    "cpu/m68000-emu/src/traits.rs": {
+      "modified": false,
+      "upstream_blob": "4d167f5bda99891f1942a28d485ed944388a8139",
+      "upstream_path": "cpu/m68000-emu/src/traits.rs"
+    },
+    "cpu/z80-emu/Cargo.toml": {
+      "modified": false,
+      "upstream_blob": "a82ebc983d6c914c415ee4bcf6c38c27018a9b86",
+      "upstream_path": "cpu/z80-emu/Cargo.toml"
+    },
+    "cpu/z80-emu/README.md": {
+      "modified": false,
+      "upstream_blob": "9647399e5c75627cd791e9f5e6aebabf95efd34d",
+      "upstream_path": "cpu/z80-emu/README.md"
+    },
+    "cpu/z80-emu/src/core.rs": {
+      "modified": false,
+      "upstream_blob": "efce2d6c6dad23af6c452b5c57d10c51f9e0fecc",
+      "upstream_path": "cpu/z80-emu/src/core.rs"
+    },
+    "cpu/z80-emu/src/core/instructions.rs": {
+      "modified": false,
+      "upstream_blob": "35c43b7684869b857b6af4af3b0f635bedd47a3d",
+      "upstream_path": "cpu/z80-emu/src/core/instructions.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/arithmetic.rs": {
+      "modified": false,
+      "upstream_blob": "d584e0f29fe7bcd8b5b2efe479a2107775b15ee5",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/arithmetic.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/bits.rs": {
+      "modified": false,
+      "upstream_blob": "c97058151048d9acc245530292c746887e1be028",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/bits.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/control.rs": {
+      "modified": false,
+      "upstream_blob": "55dd4adc130d7902b93197fab0afaac4ae809e5c",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/control.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/io.rs": {
+      "modified": false,
+      "upstream_blob": "1865f9846017e590adb99b9cc1a118eeab525e76",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/io.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/jump.rs": {
+      "modified": false,
+      "upstream_blob": "2f66d80bfd35adab8eb3c3138e01da74fcefffae",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/jump.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/load.rs": {
+      "modified": false,
+      "upstream_blob": "94823e1ba306603fbb292cc6c7091d1f19aa4238",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/load.rs"
+    },
+    "cpu/z80-emu/src/core/instructions/mnemonics.rs": {
+      "modified": false,
+      "upstream_blob": "4eb79b386e9e9bb32c759d7fe346a23a767160d5",
+      "upstream_path": "cpu/z80-emu/src/core/instructions/mnemonics.rs"
+    },
+    "cpu/z80-emu/src/debug.rs": {
+      "modified": false,
+      "upstream_blob": "50a5987caa72f555f0ad80be7ffc1bbcbf9e3f81",
+      "upstream_path": "cpu/z80-emu/src/debug.rs"
+    },
+    "cpu/z80-emu/src/disassemble.rs": {
+      "modified": false,
+      "upstream_blob": "114cd224cc0d3011e9eba3e05de9ebff32013479",
+      "upstream_path": "cpu/z80-emu/src/disassemble.rs"
+    },
+    "cpu/z80-emu/src/lib.rs": {
+      "modified": false,
+      "upstream_blob": "bac9df7ea21a844e47ac6b11afb94631e37c9df7",
+      "upstream_path": "cpu/z80-emu/src/lib.rs"
+    },
+    "cpu/z80-emu/src/traits.rs": {
+      "modified": false,
+      "upstream_blob": "cb15ad1e946d319d906360ad64c5fab7aa7ccd58",
+      "upstream_path": "cpu/z80-emu/src/traits.rs"
+    },
+    "rustfmt.toml": {
+      "modified": false,
+      "upstream_blob": "3ff4fd75796102e6e2a50eabd6f878529deeb7c9",
+      "upstream_path": "rustfmt.toml"
+    }
+  },
+  "revision": "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb",
+  "schema": 1,
+  "url": "https://github.com/jsgroth/jgenesis"
+}

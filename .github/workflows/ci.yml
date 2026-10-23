@@ -26,13 +26,29 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install pinned Rust toolchain
-        run: rustup show active-toolchain
+        run: |
+          python - <<'PY'
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          settings = tomllib.loads(Path("rust-toolchain.toml").read_text())["toolchain"]
+          command = ["rustup", "toolchain", "install", settings["channel"],
+                     "--profile", settings.get("profile", "minimal")]
+          for component in settings.get("components", []):
+              command.extend(["--component", component])
+          for target in settings.get("targets", []):
+              command.extend(["--target", target])
+          subprocess.run(command, check=True)
+          PY
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
       - name: Check Rust lints
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Run ROM-free tests
         run: cargo test --locked --workspace
+      - name: Run synthetic publication-gate regressions
+        run: python -m unittest discover -s tools -p 'test_*.py' -v
       - name: Build WebAssembly
         # All workspace members are wasm-capable. Add an explicit --exclude PACKAGE
         # only for a native-only crate; keep new wasm crates covered by default.
