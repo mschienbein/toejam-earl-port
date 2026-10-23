@@ -216,6 +216,52 @@ fn waits_progress_devices_and_fail_closed_without_a_satisfied_predicate() {
     );
 }
 
+#[cfg(feature = "game-adapter")]
+#[test]
+fn fill_join_uses_real_devices_without_polling_status_or_normalizing_other_dma() {
+    let mut context = context();
+    context.devices_mut().enable_trace();
+    let before = context.devices().clock();
+    let error = context
+        .wait_until(WaitRequest::vdp_fill_complete())
+        .unwrap_err();
+    assert!(error.to_string().contains("VRAM-fill DMA mode"), "{error}");
+    assert_eq!(context.devices().clock(), before);
+    assert!(context.devices().trace().unwrap().accesses.is_empty());
+
+    for value in [
+        0x8114, 0x8f01, 0x9300, 0x9402, 0x9500, 0x9600, 0x9780, 0x4000, 0x0080,
+    ] {
+        context.write_device_u16(0xc00004, value);
+    }
+    context.write_device_u16(0xc00000, 0xabcd);
+    assert!(context.devices().vdp().timing_dma_active());
+    context.devices_mut().clear_trace();
+    let before = context.devices().clock();
+    assert!(
+        context
+            .wait_until(WaitRequest {
+                max_ticks: 1,
+                ..WaitRequest::vdp_fill_complete()
+            })
+            .is_err()
+    );
+    assert!(context.devices().clock() > before);
+    assert!(context.devices().vdp().timing_dma_active());
+    context
+        .wait_until(WaitRequest::vdp_fill_complete())
+        .unwrap();
+    assert!(!context.devices().vdp().timing_dma_active());
+    assert_eq!(context.devices().vdp().hybrid_registers().dma_length, 0);
+    assert!(context.devices().trace().unwrap().accesses.is_empty());
+    let completed = context.devices().clock();
+    context
+        .wait_until(WaitRequest::vdp_fill_complete())
+        .unwrap();
+    assert_eq!(context.devices().clock(), completed);
+    assert!(context.devices().trace().unwrap().accesses.is_empty());
+}
+
 #[test]
 fn captures_round_trip_every_mutable_device_and_clock_phase() {
     let mut runtime = devices();

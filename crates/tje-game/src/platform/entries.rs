@@ -89,6 +89,7 @@ pub fn game_program(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
 /// hardware addresses, Z80 bootstrap and PSG bytes are read from the user's ROM.
 /// The last branch transfers to GameProgram; it never recursively runs the game.
 pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let entry = ids::START.metadata().address(context.revision());
     let ports_ab = read_device_long(context, 0xa10008);
     test_flags(context, ports_ab, 0x8000_0000);
     if ports_ab != 0 {
@@ -116,7 +117,10 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     if version != 0 {
         write_device_long(context, addresses[1].wrapping_add(0x2f00), 0x5345_4741);
     }
-    let _status = context.read_device_u16(addresses[4]);
+    let _status = context.read_device_u16_with_open_bus(
+        addresses[4],
+        OpenBusSource::prefetch(entry.wrapping_add(0x30)),
+    )?;
     data[0] = 0;
     addresses[6] = 0;
     let mut banks = context.stack_banks()?;
@@ -148,7 +152,11 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     }
     let move_n = if data[7] & 0x8000 != 0 { 8 } else { 0 };
     loop {
-        let busy = context.read_device_u8(addresses[1]) & 1 != 0;
+        let busy = context.read_device_u8_with_open_bus(
+            addresses[1],
+            OpenBusSource::prefetch(entry.wrapping_add(0x4c)),
+        )? & 1
+            != 0;
         let flags = move_n | (u16::from(!busy) << 2) | (u16::from(extend) << 4);
         context.set_status_register((context.status_register() & !0x1f) | flags);
         if !busy {
@@ -172,6 +180,7 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context.write_u16(addresses[6].wrapping_add(2), 0);
         context.write_u16(addresses[6], 0);
     }
+    context.wait_until(WaitRequest::vdp_fill_complete())?;
     for _ in 0..2 {
         let command = context.read_u32(cursor);
         cursor = cursor.wrapping_add(4);

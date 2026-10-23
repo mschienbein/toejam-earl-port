@@ -115,6 +115,16 @@ fn condition_holds(
     let bus = emulator.hybrid_bus_mut();
     Ok(match condition {
         WaitCondition::Interrupt => interrupt_returned,
+        WaitCondition::VdpFillComplete => {
+            if bus.vdp.hybrid_registers().dma_mode
+                != genesis_components::vdp::registers::DmaMode::VramFill
+            {
+                return Err(HostError::Metadata(
+                    "a non-observing fill join requires VRAM-fill DMA mode".into(),
+                ));
+            }
+            !bus.vdp.timing_dma_active()
+        }
         WaitCondition::RamWordChanged { address, previous } => {
             let address = canonical_ram_address(address);
             if !(0xff0000..=0xfffffe).contains(&address) || address & 1 != 0 {
@@ -1304,5 +1314,131 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn fill_join_emulator() -> GenesisEmulator {
+        let mut rom = vec![0; 1024];
+        rom[..4].copy_from_slice(&0xff7ffc_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x100_u32.to_be_bytes());
+        rom[0x100..0x102].copy_from_slice(&0x60fe_u16.to_be_bytes());
+        rom[0x200..0x202].copy_from_slice(&0x60fe_u16.to_be_bytes());
+        let mut emulator = GenesisEmulator::create(
+            Some(rom),
+            GenesisEmulatorConfig::default(),
+            &mut NoCartridgeSaves,
+        );
+        emulator.hybrid_parts().0.set_status_register(0x2700);
+        emulator
+    }
+
+    fn arm_fill(emulator: &mut GenesisEmulator, words: u16) {
+        let bus = emulator.hybrid_bus_mut();
+        for value in [
+            0x8114,
+            0x8f01,
+            0x9300 | (words & 0xff),
+            0x9400 | (words >> 8),
+            0x9500,
+            0x9600,
+            0x9780,
+            0x4000,
+            0x0080,
+        ] {
+            write(bus, 0xc00004, value);
+        }
+        write(bus, 0xc00000, 0xabcd);
+        assert!(bus.vdp.timing_dma_active());
+    }
+
+    #[test]
+    fn fill_join_advances_the_real_transfer_without_a_status_read() {
+        let mut emulator = fill_join_emulator();
+        arm_fill(&mut emulator, 512);
+        let mut expected = emulator.partial_clone();
+        expected.hybrid_bus_mut().hybrid_set_functional_mode(true);
+        emulator.hybrid_bus_mut().hybrid_accesses = Some(Vec::new());
+        let before = emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+        let run = run_wait(
+            &mut emulator,
+            &mut WaitClock::default(),
+            WaitRequest::vdp_fill_complete(),
+        )
+        .unwrap();
+        assert!(run.ticks > 0);
+        assert!(emulator.hybrid_bus().cycles.m68k_mclk_cycles > before);
+        assert!(!emulator.hybrid_bus().vdp.timing_dma_active());
+        assert_eq!(emulator.hybrid_bus().vdp.hybrid_registers().dma_length, 0);
+        assert!(
+            emulator
+                .hybrid_bus()
+                .vdp
+                .hybrid_logic_state_eq(&expected.hybrid_bus().vdp)
+        );
+        assert!(
+            emulator
+                .hybrid_bus()
+                .hybrid_accesses
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(run.accesses.is_empty());
+    }
+
+    #[test]
+    fn fill_join_rejects_other_modes_without_advancing_or_reading_status() {
+        let mut emulator = fill_join_emulator();
+        emulator.hybrid_bus_mut().hybrid_accesses = Some(Vec::new());
+        let before = emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+        let error = run_wait(
+            &mut emulator,
+            &mut WaitClock::default(),
+            WaitRequest::vdp_fill_complete(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("VRAM-fill DMA mode"), "{error}");
+        assert_eq!(emulator.hybrid_bus().cycles.m68k_mclk_cycles, before);
+        assert!(
+            emulator
+                .hybrid_bus()
+                .hybrid_accesses
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_new_command_can_still_abort_an_unjoined_fill() {
+        let mut aborted = fill_join_emulator();
+        arm_fill(&mut aborted, 512);
+        let mut joined = fill_join_emulator();
+        arm_fill(&mut joined, 512);
+        run_wait(
+            &mut joined,
+            &mut WaitClock::default(),
+            WaitRequest::vdp_fill_complete(),
+        )
+        .unwrap();
+        for emulator in [&mut aborted, &mut joined] {
+            write(emulator.hybrid_bus_mut(), 0xc00004, 0xc000);
+            write(emulator.hybrid_bus_mut(), 0xc00004, 0);
+        }
+        let mut run = ClockRun::default();
+        let mut audio = HeadlessAudio::default();
+        for _ in 0..32 {
+            timed_tick(
+                &mut aborted,
+                &mut WaitClock::default(),
+                &mut run,
+                &mut audio,
+            )
+            .unwrap();
+        }
+        assert!(!aborted.hybrid_bus().vdp.timing_dma_active());
+        assert_ne!(
+            aborted.hybrid_bus().vdp.hybrid_memories().0,
+            joined.hybrid_bus().vdp.hybrid_memories().0,
+        );
     }
 }

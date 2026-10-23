@@ -143,7 +143,8 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 ];
 
 /// Remaining non-RTS candidates require hardware-clock/IRQ proofs, not quiet fixtures.
-/// START additionally needs the source-backed concurrent DMA-fill completion join.
+/// START's fill join is proven in prepared entries; natural cold start still
+/// rejects the initial VDP status HBlank phase (7208/720C), requiring a clocked prefix.
 /// ISR fixture coverage alone does not discharge natural IRQ timing observations.
 pub static PENDING: &[crate::FunctionId] = &[crate::ids::START, crate::ids::LEVEL6_ISR];
 

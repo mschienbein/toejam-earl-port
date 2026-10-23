@@ -220,8 +220,8 @@ impl NativePlatform {
         }
     }
 
-    fn condition(&mut self, condition: WaitCondition, interrupts: u64) -> bool {
-        match condition {
+    fn condition(&mut self, condition: WaitCondition, interrupts: u64) -> Result<bool> {
+        Ok(match condition {
             WaitCondition::RamWordChanged { address, previous } => {
                 self.read_u16(address) != previous
             }
@@ -236,7 +236,18 @@ impl NativePlatform {
                 value,
             } => self.read_device_u8(address) & mask == value,
             WaitCondition::Interrupt => self.accepted_interrupts != interrupts,
-        }
+            WaitCondition::VdpFillComplete => {
+                let vdp = self.devices.vdp();
+                if vdp.hybrid_registers().dma_mode
+                    != genesis_components::vdp::registers::DmaMode::VramFill
+                {
+                    return Err(Error::Platform(
+                        "a non-observing fill join requires VRAM-fill DMA mode".into(),
+                    ));
+                }
+                !vdp.timing_dma_active()
+            }
+        })
     }
 }
 
@@ -271,13 +282,13 @@ impl Platform for NativePlatform {
     }
     fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
         let interrupts = self.accepted_interrupts;
-        if self.condition(request.condition, interrupts) {
+        if self.condition(request.condition, interrupts)? {
             return Ok(());
         }
         for _ in 0..request.max_ticks {
             self.devices.advance_master_clocks(15);
             self.service_interrupt()?;
-            if self.condition(request.condition, interrupts) {
+            if self.condition(request.condition, interrupts)? {
                 return Ok(());
             }
         }

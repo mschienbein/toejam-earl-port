@@ -45,6 +45,10 @@ pub enum WaitCondition {
     },
     /// Resume only after an actually accepted, unmasked interrupt handler returns.
     Interrupt,
+    /// Source-backed join after independent work allowed a VRAM fill to finish.
+    /// Unlike DMA status polling, this creates no game-visible device read.
+    /// Only VRAM-fill mode is eligible; it is not a RAM-source DMA guarantee.
+    VdpFillComplete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +79,10 @@ impl WaitRequest {
             mask: 2,
             value: 0,
         })
+    }
+
+    pub const fn vdp_fill_complete() -> Self {
+        Self::new(WaitCondition::VdpFillComplete)
     }
 
     pub const fn z80_busack() -> Self {

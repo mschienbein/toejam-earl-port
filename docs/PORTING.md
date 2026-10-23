@@ -1075,3 +1075,29 @@ including the final H-int-counter disable write. This fix neither drains masked
 interrupts nor aligns arbitrary original/Rust instruction cadence. Raw IRQ and
 device observations remain recorded.
 
+## Source-backed non-observing VRAM-fill joins
+
+`WaitRequest::vdp_fill_complete()` joins an **already issued VRAM fill** after
+source-identified independent work that allowed the original transfer to finish.
+It is not `dma_done()`: it adds **no VDP-status read**, fake busy bit or fixed
+cycle charge. Hybrid and readable-native adapters inspect the actual internal
+VRAM-fill completion state and advance their real device scheduler until it is
+complete. A different DMA mode is an error before any clock advance or MMIO read.
+Functional check forks do not admit this time-progressing condition.
+
+The first reviewed use is `_start` (G `src/asm/startup.s:55-77`). The original
+arms the fill at `0x246`, clears mirrored RAM with `MOVE.L`/DBRA at
+`0x25e..0x264`, then issues the next VDP command. Passive original-only
+observations on **both revisions** show the fill completing while still inside
+that RAM-clear loop, before the next command. The Rust body joins after its
+equivalent RAM stores and before those commands; it never patches VRAM or reads
+a status register the source did not read.
+
+This proves only the stable fill dependency, not an exact duration for the
+independent CPU work. The native scheduler must still preserve every observed
+IRQ, device operand and concurrent effect. It makes no promise for RAM-source
+DMA, VRAM copy, an armed fill missing its data word, arbitrary overlaps, or
+unreviewed command sequences. A command issued before a join can still abort
+the real transfer; the device model is not changed to protect callers from that
+original behavior.
+
