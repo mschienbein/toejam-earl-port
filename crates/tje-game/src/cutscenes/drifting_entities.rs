@@ -1,4 +1,4 @@
-use super::large_player_parts::{entity_at, reserve_frame_pieces};
+use super::large_player_parts::{allocate_viewport_with_d4_word, entity_at, reserve_frame_pieces};
 use crate::{Context, Result, call, ids};
 use tje_mem::{Ptr, ram, rom};
 
@@ -17,7 +17,7 @@ pub fn cutscene_create_drifting_entities(
         let slot = call(context, ids::ALLOCATE_ENTITY, &[])? as i16;
         if slot != 0 {
             let object = entity_at(context, slot);
-            reserve_frame_pieces(context, object, frame);
+            let piece_count = reserve_frame_pieces(context, object, frame);
             object.tile().write(context, 0);
             object
                 .current_frame()
@@ -49,11 +49,8 @@ pub fn cutscene_create_drifting_entities(
             object.frame_phase().write(context, 1);
             object.frame_duration().write(context, 1);
             object.frame().write(context, -1);
-            call(
-                context,
-                ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-                &[object.address(), 0],
-            )?;
+            // The compiler's D4 piece counter survives all intervening RNG calls.
+            allocate_viewport_with_d4_word(context, object, piece_count)?;
             object.sprite_ready().write(context, 0);
         }
         ram::g_cutscene_drifting_entities(revision)

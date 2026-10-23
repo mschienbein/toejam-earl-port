@@ -557,7 +557,16 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         if decrement(context, countdown) == 0 {
             match increment(context, state) {
                 1 => {
-                    call(context, ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES, &[])?;
+                    // G's preserved A3 holds the background-draw function; the
+                    // collision constructor consumes it on allocation failure.
+                    let saved_a3 = context.address_register(3);
+                    let residue = ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK
+                        .metadata()
+                        .address(revision);
+                    context.set_address_register(3, residue);
+                    let result = call(context, ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES, &[]);
+                    context.set_address_register(3, saved_a3);
+                    result?;
                     call(
                         context,
                         ids::PLAY_SOUND_EFFECT,

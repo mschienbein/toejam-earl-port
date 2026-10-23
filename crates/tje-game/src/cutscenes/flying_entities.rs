@@ -109,6 +109,14 @@ pub fn intro_update_flying_entity_motion(
         3 => (88, 12),
         _ => (168, 0),
     };
+    // G's scene 2/3 MOVEQ writes all of D4; the default CLR.W preserves its
+    // upper word. D4 is drift_x when the allocator's uninitialized-tile bug runs.
+    let saved_d4 = context.data_register(4);
+    let allocator_d4 = match scene {
+        2 => (-12_i32) as u32,
+        3 => 12,
+        _ => saved_d4 & 0xffff_0000,
+    };
     for index in 0..4 {
         let slot = ram::g_intro_flying_entities(revision)
             .at(index)
@@ -225,11 +233,14 @@ pub fn intro_update_flying_entity_motion(
         let velocity = object.velocity_height().read(context).wrapping_add(1);
         object.velocity_height().write(context, velocity);
         if object.velocity_height().read(context) == 0 {
-            call(
+            context.set_data_register(4, allocator_d4);
+            let result = call(
                 context,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                 &[object.address(), 0],
-            )?;
+            );
+            context.set_data_register(4, saved_d4);
+            result?;
             object.sprite_ready().write(context, 0);
         }
     }

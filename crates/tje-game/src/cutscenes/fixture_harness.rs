@@ -4,12 +4,18 @@
 //! Natural check coverage and authored live-state fixture coverage are separate.
 //! Reports contain only counters, labels and errors, never ROM-derived state.
 use serde_json::{Value, json};
-use std::{error::Error, fs, sync::Arc};
+use std::{
+    error::Error,
+    fs,
+    sync::{Arc, OnceLock},
+};
 use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{ObjectState, Target, ram};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
+
+static PROOF_ROOTS: OnceLock<Vec<tje_game::Translation>> = OnceLock::new();
 
 const OWNED_SOURCES: &[&str] = &[
     "src/cutscenes/sega_logo.c",
@@ -30,23 +36,17 @@ fn entries() -> impl Iterator<Item = &'static tje_game::Translation> {
 }
 
 fn registry(revision: tje_mem::Revision, selected: &[FunctionId]) -> Result<HookRegistry> {
-    let mut registry = HookRegistry::empty(revision);
+    let mut roots = Vec::with_capacity(selected.len());
     for &id in selected {
         let translation = entries()
             .find(|translation| translation.id == id)
             .ok_or_else(|| format!("untranslated selection: {}", id.metadata().name))?;
-        let class = if tje_game::is_atomic_capable(id) {
-            tje_game::execution::ExecutionClass::Atomic
-        } else {
-            tje_game::cutscenes::EXECUTION_CONTRACTS
-                .iter()
-                .find(|(candidate, _)| *candidate == id)
-                .map(|(_, class)| *class)
-                .ok_or("unclassified selection")?
-        };
-        registry.register_translation_with_execution(*translation, class)?;
+        roots.push(*translation);
     }
-    Ok(registry)
+    // The proof API requires static entry pointers. This command-line process
+    // creates one bounded root table, shared by its two hosts, never per call.
+    let roots = PROOF_ROOTS.get_or_init(|| roots);
+    Ok(HookRegistry::proof(revision, roots)?)
 }
 
 fn check(
@@ -139,6 +139,27 @@ fn clear_scene_pool(host: &mut Host) {
     ram::g_cutscene_rocketship_exhaust_entity(revision).write(&mut context, 0);
     ram::g_sega_trademark_entity(revision).write(&mut context, 0);
     ram::g_rng_state(revision).write(&mut context, 12345);
+}
+
+fn shared_tile_allocator_failure(host: &mut Host, slots: &[u8]) {
+    let revision = host.revision();
+    let mut context = host.context();
+    for index in 0..54 {
+        ram::g_viewport_sprite_slot_flags(revision)
+            .at(index)
+            .write(&mut context, 1);
+    }
+    for index in 0..80 {
+        ram::g_sprite_tile_group_allocated(revision)
+            .at(index)
+            .write(&mut context, 1);
+    }
+    for &slot in slots {
+        let object = ram::g_player_info(revision).at(i32::from(slot));
+        object.draw_flags().write(&mut context, 1);
+        object.behavior_flags().write(&mut context, 4);
+    }
+    Context::set_data_register(&mut context, 4, 0xface_05ff);
 }
 
 fn fixtures(host: &mut Host, outcomes: &mut Vec<Value>) -> Result {
@@ -525,6 +546,100 @@ fn fixtures(host: &mut Host, outcomes: &mut Vec<Value>) -> Result {
             outcomes,
         );
     }
+    clear_scene_pool(host);
+    original_setup(host, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
+    for index in [0, 3] {
+        let slot = ram::g_intro_large_player_part_entities(revision)
+            .at(index)
+            .read(&host.context());
+        shared_tile_allocator_failure(host, &[slot]);
+        check(
+            host,
+            ids::INTRO_POSITION_LARGE_PLAYER_PART,
+            &[index as u32, 100, 672],
+            "live-state fixture: shared tiles, no resident view, exhausted slots; D4 is unbiased Y",
+            outcomes,
+        );
+    }
+    let slots: Vec<_> = (0..8)
+        .map(|index| {
+            ram::g_intro_large_player_part_entities(revision)
+                .at(index)
+                .read(&host.context())
+        })
+        .collect();
+    shared_tile_allocator_failure(host, &slots);
+    check(
+        host,
+        ids::INTRO_POSITION_LARGE_PLAYER_PARTS,
+        &[],
+        "live-state fixture: seven shared-tile selector failures compose through Y-residue positioners",
+        outcomes,
+    );
+    clear_scene_pool(host);
+    original_setup(host, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
+    for index in 0..3 {
+        let slot = ram::g_intro_driving_part_entities(revision)
+            .at(index)
+            .read(&host.context());
+        shared_tile_allocator_failure(host, &[slot]);
+        check(
+            host,
+            ids::INTRO_POSITION_DRIVING_PART,
+            &[index as u32, 100, 672],
+            "live-state fixture: shared tiles, no resident view, exhausted slots; D4 is pre-bias Y",
+            outcomes,
+        );
+    }
+    clear_scene_pool(host);
+    original_setup(host, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+    let ship = ram::g_cutscene_rocketship_entity(revision).read(&host.context());
+    let exhaust = ram::g_cutscene_rocketship_exhaust_entity(revision).read(&host.context());
+    shared_tile_allocator_failure(host, &[ship, exhaust]);
+    check(
+        host,
+        ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
+        &[0, 100, 672],
+        "live-state fixture: both shared-tile allocations fail; caller D4.low is Y",
+        outcomes,
+    );
+    clear_scene_pool(host);
+    original_setup(host, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
+    let slots: Vec<_> = (0..4)
+        .map(|index| {
+            ram::g_intro_flying_entities(revision)
+                .at(index)
+                .read(&host.context())
+        })
+        .collect();
+    for scene in [2, 3, 4] {
+        shared_tile_allocator_failure(host, &slots);
+        for &slot in &slots {
+            let object = ram::g_player_info(revision).at(i32::from(slot));
+            let mut context = host.context();
+            object.x().write(&mut context, 168);
+            object.height().write(&mut context, -100);
+            object.velocity_x().write(&mut context, 0);
+            object.velocity_y().write(&mut context, 0);
+            object.velocity_height().write(&mut context, -1);
+        }
+        check(
+            host,
+            ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
+            &[scene],
+            "live-state fixture: shared-tile failure when delay reaches zero; D4 is MOVEQ/CLR.W drift",
+            outcomes,
+        );
+    }
+    shared_tile_allocator_failure(host, &slots[..1]);
+    Context::set_data_register(&mut host.context(), 4, 0xface_02a0);
+    check(
+        host,
+        ids::INTRO_UPDATE_RIGHTWARD_FLYING_ENTITY,
+        &[1, 1],
+        "live-state fixture: shared-tile failure retains unchanged nonzero entry D4",
+        outcomes,
+    );
     Ok(())
 }
 
@@ -557,7 +672,8 @@ fn main() -> Result {
         })
         .map(|translation| translation.id)
         .collect();
-    let mut natural = Host::new(&bytes, Mode::Check, registry(revision, &selected)?)?;
+    let registry = registry(revision, &selected)?;
+    let mut natural = Host::new(&bytes, Mode::Check, registry.clone())?;
     natural.set_wait_input_poller(script.clone());
     let mut natural_error = None;
     for frame in 0..frames {
@@ -566,7 +682,7 @@ fn main() -> Result {
             break;
         }
     }
-    let mut live = Host::new(&bytes, Mode::Reference, registry(revision, &selected)?)?;
+    let mut live = Host::new(&bytes, Mode::Reference, registry)?;
     live.set_wait_input_poller(script.clone());
     for frame in 0..frames {
         live.run_frame(script.at(frame))?;

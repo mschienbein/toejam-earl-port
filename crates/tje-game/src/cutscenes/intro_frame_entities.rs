@@ -1,4 +1,4 @@
-use super::large_player_parts::{entity_at, reserve_frame_pieces};
+use super::large_player_parts::{allocate_viewport_with_d4_word, entity_at, reserve_frame_pieces};
 use crate::{Context, Result, call, ids};
 use tje_mem::{Ptr, RenderFrame, ram, rom};
 
@@ -20,7 +20,7 @@ pub fn intro_create_hidden_frame_entities(
         let slot = call(context, ids::ALLOCATE_ENTITY, &[])? as i16;
         if slot != 0 {
             let object = entity_at(context, slot);
-            reserve_frame_pieces(context, object, frame);
+            let piece_count = reserve_frame_pieces(context, object, frame);
             object
                 .current_frame()
                 .write(context, Ptr::new(frame.address()));
@@ -30,11 +30,8 @@ pub fn intro_create_hidden_frame_entities(
             object.tile().write(context, tile);
             let flags = object.behavior_flags().read(context) | 0x40;
             object.behavior_flags().write(context, flags);
-            call(
-                context,
-                ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-                &[object.address(), 0],
-            )?;
+            // The matching caller still holds the completed piece counter in D4.
+            allocate_viewport_with_d4_word(context, object, piece_count)?;
             object.sprite_ready().write(context, 0);
             object.sequence().write(
                 context,

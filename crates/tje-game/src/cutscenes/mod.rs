@@ -16,8 +16,8 @@ pub mod sega_logo;
 
 /// Complete bodies withheld from production until both-revision check evidence.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Shared production Functional/TimeAware original-call lookup is pending.
-    ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+    // TimeAware checks did not return from original IRQ/frame waits in both
+    // revisions (proof-class-rev02/rev00); no successful checked entries yet.
     ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
     ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
     ids::INTRO_PART5,
@@ -37,10 +37,6 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Opt-in fixture roots only. The production dispatcher never consumes this list.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
-        function: sega_logo::sega_logo_clear_video_planes,
-    },
     crate::Translation {
         id: ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         function: large_player_parts::intro_release_large_player_sprites_and_refresh,
@@ -105,6 +101,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+        function: sega_logo::sega_logo_clear_video_planes,
+    },
     crate::Translation {
         id: ids::CUTSCENE_CREATE_DRIFTING_ENTITIES,
         function: drifting_entities::cutscene_create_drifting_entities,

@@ -1,4 +1,4 @@
-use super::large_player_parts::entity_at;
+use super::large_player_parts::{allocate_viewport_with_d4_word, entity_at};
 use crate::{Context, Result, call, ids};
 use tje_mem::{Ptr, ram, rom};
 
@@ -29,11 +29,7 @@ pub fn cutscene_set_rocketship_pair_pose(
     object.sequence().write(context, Ptr::new(sequence));
     object.frame_duration().write(context, 1);
     object.frame().write(context, -1);
-    call(
-        context,
-        ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-        &[object.address(), 0],
-    )?;
+    allocate_viewport_with_d4_word(context, object, arguments[2] as i16)?;
     let slot = ram::g_cutscene_rocketship_exhaust_entity(revision).read(context);
     let object = entity_at(context, i16::from(slot));
     if object.draw_flags().read(context) & 2 != 0 {
@@ -53,10 +49,6 @@ pub fn cutscene_set_rocketship_pair_pose(
     object.sequence().write(context, Ptr::new(sequence));
     object.frame_duration().write(context, 1);
     object.frame().write(context, -1);
-    call(
-        context,
-        ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-        &[object.address(), 0],
-    )?;
+    allocate_viewport_with_d4_word(context, object, arguments[2] as i16)?;
     Ok(None)
 }

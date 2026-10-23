@@ -10,6 +10,26 @@ pub(super) fn entity_at(context: &dyn Context, slot: i16) -> Address<ObjectState
     )
 }
 
+/// G/src/cutscenes/large_player_parts.c:80,207; matching callers leave their Y
+/// argument in D4.low. AllocateEntityViewportSprites reads that word as an
+/// uninitialized tile when shared-tile sprite allocation fails. Restore the
+/// Rust caller's preserved D4 even on error; never invent a zero residue.
+pub(super) fn allocate_viewport_with_d4_word(
+    context: &mut dyn Context,
+    entity: Address<ObjectState>,
+    word: i16,
+) -> Result<()> {
+    let saved = context.data_register(4);
+    context.set_data_register(4, (saved & 0xffff_0000) | u32::from(word as u16));
+    let result = call(
+        context,
+        ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
+        &[entity.address(), 0],
+    );
+    context.set_data_register(4, saved);
+    result.map(|_| ())
+}
+
 /// G/src/cutscenes/large_player_parts.c:28-32 and the identical counted-piece
 /// loops in drifting_entities.c:27-34 and intro_frame_entities.c:28-34.
 /// MCC68K reads height before width, then adds only the product's low byte.
@@ -17,7 +37,7 @@ pub(super) fn reserve_frame_pieces(
     context: &mut dyn Context,
     entity: Address<ObjectState>,
     frame: Address<RenderFrame>,
-) {
+) -> i16 {
     let count = frame.piece_count().read(context);
     entity.sprite_count().write(context, count);
     entity.tile_count().write(context, 0);
@@ -36,6 +56,7 @@ pub(super) fn reserve_frame_pieces(
         entity.tile_count().write(context, count);
         piece = piece.wrapping_add(1);
     }
+    piece
 }
 
 /// G/src/cutscenes/large_player_parts.c:18 (`IntroAllocateLargePlayerParts`).
@@ -108,11 +129,7 @@ pub fn intro_position_large_player_part(
     entity.frame_phase().write(context, 10);
     entity.frame_duration().write(context, 1);
     entity.frame().write(context, -1);
-    call(
-        context,
-        ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-        &[entity.address(), 0],
-    )?;
+    allocate_viewport_with_d4_word(context, entity, arguments[2] as i16)?;
     entity.sprite_ready().write(context, 0);
     Ok(None)
 }
@@ -214,11 +231,7 @@ pub fn intro_position_driving_part(
     entity.frame_phase().write(context, 10);
     entity.frame_duration().write(context, 1);
     entity.frame().write(context, -1);
-    call(
-        context,
-        ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-        &[entity.address(), 0],
-    )?;
+    allocate_viewport_with_d4_word(context, entity, arguments[2] as i16)?;
     entity.sprite_ready().write(context, 0);
     Ok(None)
 }

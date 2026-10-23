@@ -364,3 +364,24 @@ fn opaque_fill_covers_all_pixels_without_advancing_offset() {
         }
     }
 }
+
+#[test]
+fn b_entity_pointer_uses_signed_word_scaled_index_for_every_slot() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let context = MemoryContext::new(revision);
+        let base = ram::g_player_info(revision).address();
+        for bits in 0..=u16::MAX {
+            let index = bits as i16;
+            let truncated = (i32::from(index) * 128) as i16;
+            let expected = base.wrapping_add(i32::from(truncated) as u32);
+            let actual = large_player_parts::entity_at(&context, index).address();
+            assert_eq!(actual, expected, "{revision:?} {index}");
+        }
+        // These specifically distinguish ADDA.W from a full-width .at(index).
+        assert_eq!(large_player_parts::entity_at(&context, 512).address(), base);
+        assert_eq!(
+            large_player_parts::entity_at(&context, -1).address(),
+            base.wrapping_sub(128)
+        );
+    }
+}
