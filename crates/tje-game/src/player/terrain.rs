@@ -181,27 +181,33 @@ pub(super) fn player_apply_terrain_destination(
 }
 
 /// G/src/player/entity_motion_terrain.c:315 (`Player1ProcessTerrainMotion`).
+/// No prologue; JSR return is caller+0x0c in both matched revisions.
 pub(super) fn player1_process_terrain_motion(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    call(
+    super::frames::call_from(
         context,
+        ids::PLAYER1_PROCESS_TERRAIN_MOTION,
         ids::PLAYER_PROCESS_TERRAIN_MOTION,
         &[0, arguments[0]],
+        0x0c,
     )?;
     Ok(None)
 }
 
 /// G/src/player/entity_motion_terrain.c:322 (`Player2ProcessTerrainMotion`).
+/// No prologue; JSR return is caller+0x0e in both matched revisions.
 pub(super) fn player2_process_terrain_motion(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    call(
+    super::frames::call_from(
         context,
+        ids::PLAYER2_PROCESS_TERRAIN_MOTION,
         ids::PLAYER_PROCESS_TERRAIN_MOTION,
         &[1, arguments[0]],
+        0x0e,
     )?;
     Ok(None)
 }

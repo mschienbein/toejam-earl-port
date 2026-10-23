@@ -12,8 +12,11 @@ mod cooperation;
 mod counters;
 mod damage;
 mod directional;
+mod directional_animation;
 mod effects;
 mod falling;
+mod falling_check;
+mod frames;
 mod hottub;
 mod indexing;
 mod jump;
@@ -28,6 +31,7 @@ mod rocket;
 mod sleep;
 mod state;
 mod terrain;
+mod terrain_motion;
 mod update;
 
 /// Available Rust entries owned by this subsystem.
@@ -192,15 +196,24 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::EARTHLING_CHECK_DECOY_ATTACK_RANGE,
         function: damage::earthling_check_decoy_attack_range,
     },
+    crate::Translation {
+        id: ids::PLAYER_PROCESS_TERRAIN_MOTION,
+        function: terrain_motion::player_process_terrain_motion,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION,
+        function: directional_animation::player_apply_directional_movement_animation,
+    },
 ];
 
-/// Entries requiring the shared residual call-frame contract before proof.
+/// Frame migrations awaiting a checker prerequisite, not missing frame bodies.
+/// Chooser/filter retain the physical killed-high-byte read until differential
+/// perturbation can discharge it. Falling passes its real local array to the
+/// still-original MakePlayerFall and must wait for nested-original read auditing.
 pub static FRAME_BLOCKED: &[crate::FunctionId] = &[
-    ids::PLAYER_PROCESS_TERRAIN_MOTION, // 12-byte local packet passed by address.
-    ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION, // Mutates incoming sprite argument slot.
-    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Partial byte store then word read at A6-6.
-    ids::SPRITE_CHECKS, // Calls the residual-mode-frame-dependent directional chooser.
-    ids::CHECK_PLAYER_FALLING, // Local falling[2] is passed by address.
+    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+    ids::SPRITE_CHECKS,
+    ids::CHECK_PLAYER_FALLING,
 ];
 
 /// G/src/player/active_present_falling_and_respawn.c:956: the game-over branch
@@ -212,8 +225,9 @@ pub static TERMINAL_BLOCKED: &[crate::FunctionId] = &[ids::PLAYER_FINALIZE_LAST_
 /// still required. These entries are never part of the production dispatcher.
 pub static PENDING: &[crate::FunctionId] = &[
     ids::KILL_THE_PLAYER, // Both revisions: ordered device-write trace mismatch.
-    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Observed uninitialized mode-word high byte at A6-6.
-    ids::SPRITE_CHECKS,   // Transitive residual-mode dependency in PlayerChooseDirectionalMovement.
+    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Framed; killed-high-byte perturbation proof pending.
+    ids::SPRITE_CHECKS,   // Framed; transitive chooser perturbation proof pending.
+    ids::CHECK_PLAYER_FALLING, // Framed; nested-original local-read audit and timing proof pending.
     ids::PLAYER_START_FALLING, // Both revisions: original terrain-priority wait did not return.
     ids::PLAYER_UPDATE_TERRAIN_SINKING, // Both revisions: ordered device-write trace mismatch.
     ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE, // Both revisions: device-write trace mismatch.
@@ -247,6 +261,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::SPRITE_CHECKS,
         function: directional::sprite_checks,
+    },
+    crate::Translation {
+        id: ids::CHECK_PLAYER_FALLING,
+        function: falling_check::check_player_falling,
     },
     crate::Translation {
         id: ids::PLAYER_START_FALLING,

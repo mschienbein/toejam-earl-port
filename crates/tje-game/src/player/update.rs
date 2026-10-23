@@ -119,7 +119,18 @@ pub(super) fn player_update_death_animation(
 /// G/src/player/active_present_falling_and_respawn.c:1052 (`ProcessPlayers`).
 /// Preserve the exact handler chain and inventory-open continue, including the
 /// skipped common promotion/remap/terrain tail for that player.
+/// Matching prologue MOVEM D2-D4/A2, no LINK. The final CheckPlayerFalling
+/// call is at the restored outgoing-area baseline and returns at +0x1a0 in
+/// both revisions; earlier proven value-only handlers keep their contract.
 pub(super) fn process_players(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    super::frames::with_frame(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x1c, 0x04),
+        |context, _| process_players_body(context),
+    )
+}
+
+fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
     for number in 0..2 {
         let terrain = u32::from(
@@ -242,7 +253,13 @@ pub(super) fn process_players(context: &mut dyn Context, _: &[u32]) -> Result<Op
             &[player.address(), terrain],
         )?;
     }
-    call(context, ids::CHECK_PLAYER_FALLING, &[])?;
+    super::frames::call_from(
+        context,
+        ids::PROCESS_PLAYERS,
+        ids::CHECK_PLAYER_FALLING,
+        &[],
+        0x1a0,
+    )?;
     if ram::g_player_selection(revision).read(context) == 2 {
         call(context, ids::PLAYER_UPDATE_HEALTH_SHARING_CLAP, &[])?;
     }

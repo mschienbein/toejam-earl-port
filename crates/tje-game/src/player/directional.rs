@@ -1,17 +1,36 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/sprite_checks_and_movement.c:103 (`PlayerChooseDirectionalMovement`).
+/// Matching compiler: LINK -8, MOVEM D2-D6. Sprite is A6-4, velocity_y
+/// A6-2 and animation mode A6-6. The initial mode byte is written at A6-5,
+/// then loaded as a word and EXT.W discards its old high byte; do not zero it.
+/// The frame-sensitive outgoing JSR returns at caller+0x266 in both revisions.
 pub(super) fn player_choose_directional_movement(
     context: &mut dyn Context,
     arguments: &[u32],
+) -> Result<Option<u32>> {
+    super::frames::with_frame(
+        context,
+        crate::call_frame::FrameLayout::link(8, 0x7c, 0),
+        |context, stack| choose_direction(context, arguments, stack),
+    )
+}
+
+fn choose_direction(
+    context: &mut dyn Context,
+    arguments: &[u32],
+    stack: &crate::call_frame::LocalFrame,
 ) -> Result<Option<u32>> {
     let player = Address::<ObjectState>::new(arguments[0]);
     let number = i32::from(arguments[1] as i16);
     let mut input = arguments[2] as i16;
     let land = arguments[3] as u16;
     let revision = context.revision();
-    let mut sprite = -1_i16;
+    let sprite = stack.local::<i16>(-4);
+    let vy = stack.local::<i16>(-2);
+    let mode = stack.local::<i16>(-6);
+    sprite.write(context, -1);
     let mut speed_x = 320_i16;
     let mut speed_y = 240_i16;
     if land == 0x30 {
@@ -49,20 +68,23 @@ pub(super) fn player_choose_directional_movement(
             gate.write(context, 0);
         }
     }
-    let mut vy;
     if player.animation_group_mask().read(context) & 0x8000 == 0 {
         vx = player.velocity_x().read(context);
-        vy = player.velocity_y().read(context);
+        vy.write(context, player.velocity_y().read(context));
     } else {
         vx = player.acceleration_x().read(context);
-        vy = player.acceleration_y().read(context);
+        vy.write(context, player.acceleration_y().read(context));
     }
     if player.animation_group_mask().read(context) & 0x800_0000 != 0 {
         speed_x = speed_x.wrapping_mul(3);
         speed_y = speed_y.wrapping_mul(3);
     }
     let current = player.sprite_state().read(context);
-    let mut mode = i16::from(player.animation_motion_axes().read(context));
+    stack
+        .local::<i8>(-5)
+        .write(context, player.animation_motion_axes().read(context));
+    let raw_mode = mode.read(context);
+    mode.write(context, i16::from(raw_mode as i8));
     if player.animation_group_mask().read(context) & 0x80 != 0 {
         if (current == 28 && input & 1 != 0)
             || (current == 29 && input & 2 != 0)
@@ -71,50 +93,67 @@ pub(super) fn player_choose_directional_movement(
         {
             return Ok(None);
         }
-        sprite = 0;
-    } else if input & 0xf == 0 && (vx != 0 || vy != 0) {
-        sprite = 0;
+        sprite.write(context, 0);
+    } else if input & 0xf == 0 && (vx != 0 || vy.read(context) != 0) {
+        sprite.write(context, 0);
         vx = 0;
-        vy = 0;
-        mode = 0;
+        vy.write(context, 0);
+        mode.write(context, 0);
     } else if input & 0xc != 0 {
         if (input & 4 != 0 && vx >= 0) || (input & 8 != 0 && vx <= 0) {
-            sprite = if input & 4 != 0 { 10 } else { 11 };
-            mode = 3;
+            sprite.write(context, if input & 4 != 0 { 10 } else { 11 });
+            vy.write(context, 0);
+            mode.write(context, 3);
         }
         if input & 3 != 0 {
-            vy = if input & 1 != 0 { -speed_y } else { speed_y };
+            vy.write(context, if input & 1 != 0 { -speed_y } else { speed_y });
             vx = if input & 4 != 0 { -speed_y } else { speed_y };
         } else {
-            vy = 0;
+            vy.write(context, 0);
             vx = if input & 4 != 0 { -speed_x } else { speed_x };
         }
     } else if input & 3 != 0 {
-        if vx != 0 || (input & 1 != 0 && vy >= 0) || (input & 2 != 0 && vy <= 0) {
-            sprite = if input & 1 != 0 { 8 } else { 9 };
-            mode = 2;
+        if vx != 0
+            || (input & 1 != 0 && vy.read(context) >= 0)
+            || (input & 2 != 0 && vy.read(context) <= 0)
+        {
+            sprite.write(context, if input & 1 != 0 { 8 } else { 9 });
+            mode.write(context, 2);
             vx = 0;
         }
-        vy = if input & 1 != 0 { -speed_x } else { speed_x };
+        vy.write(context, if input & 1 != 0 { -speed_x } else { speed_x });
     }
-    call(
+    let outgoing = [
+        player.address(),
+        number as u32,
+        input as u32,
+        sprite.read(context) as u32,
+        vx as u32,
+        vy.read(context) as u32,
+        mode.read(context) as u32,
+    ];
+    super::frames::call_from(
         context,
+        ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
         ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION,
-        &[
-            player.address(),
-            number as u32,
-            input as u32,
-            sprite as u32,
-            vx as u32,
-            vy as u32,
-            mode as u32,
-        ],
+        &outgoing,
+        0x266,
     )?;
     Ok(None)
 }
 
 /// G/src/player/sprite_checks_and_movement.c:14 (`SpriteChecks`).
+/// Matching prologue MOVEM D2-D5/A2, no LINK. Both revisions use return offsets
+/// 0x70/0xf2/0x16a/0x212 for SetSprite/remapping/elevator/directional selection.
 pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    super::frames::with_frame(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x3c, 0x04),
+        |context, _| sprite_checks_body(context, arguments),
+    )
+}
+
+fn sprite_checks_body(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let number = i32::from(arguments[0] as i16);
     let mut input = arguments[1] as i16;
     let revision = context.revision();
@@ -137,7 +176,13 @@ pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Res
         if ticks.read(context) > 0 {
             ticks.write(context, ticks.read(context).wrapping_sub(1));
         } else {
-            call(context, ids::SET_SPRITE, &[player.address(), 0])?;
+            super::frames::call_from(
+                context,
+                ids::SPRITE_CHECKS,
+                ids::SET_SPRITE,
+                &[player.address(), 0],
+                0x70,
+            )?;
             player.velocity_x().write(context, 0);
             player.velocity_y().write(context, 0);
         }
@@ -155,10 +200,12 @@ pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Res
         .read(context)
         != 0
     {
-        input = call(
+        input = super::frames::call_from(
             context,
+            ids::SPRITE_CHECKS,
             ids::PLAYER_REMAP_DIRECTIONAL_INPUT,
             &[number as u32],
+            0xf2,
         )? as i16;
     }
     if player.x().read(context) <= 8 {
@@ -177,7 +224,14 @@ pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Res
         .at(number)
         .read(context);
     if elevator != 0 {
-        if call(context, ids::PROCESS_ELEVATOR, &[elevator as u32])? == 0 {
+        if super::frames::call_from(
+            context,
+            ids::SPRITE_CHECKS,
+            ids::PROCESS_ELEVATOR,
+            &[elevator as u32],
+            0x16a,
+        )? == 0
+        {
             input = 0;
         } else {
             input &= !0xc;
@@ -206,8 +260,9 @@ pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Res
         player.velocity_x().write(context, 0);
         player.velocity_y().write(context, 0);
     }
-    call(
+    super::frames::call_from(
         context,
+        ids::SPRITE_CHECKS,
         ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
         &[
             player.address(),
@@ -215,6 +270,7 @@ pub(super) fn sprite_checks(context: &mut dyn Context, arguments: &[u32]) -> Res
             input as u32,
             u32::from(land),
         ],
+        0x212,
     )?;
     Ok(None)
 }
