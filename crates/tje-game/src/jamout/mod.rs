@@ -48,6 +48,10 @@ pub static TRANSLATIONS: &[Translation] = &[
         id: ids::JAM_OUT_RELEASE_CHARACTER_COPIES,
         function: entities::release_character_copies,
     },
+    Translation {
+        id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+        function: layouts::draw_packed_background_block,
+    },
 ];
 
 /// Reviewed RAM-only originals: bounded loops and callees confined to sprite
@@ -114,11 +118,9 @@ pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
 
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[FunctionId] = &[
-    // Both-revision Functional proof passes; production class lookup is pending.
-    ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
-    // Complete TimeAware caller bodies await class-aware residual dispatch and
-    // both-revision proof. StartJamOut also retains the original creation call's
-    // uninitialized-local failure path until a call-frame ABI is available.
+    // Complete TimeAware callers await both-revision proof. StartJamOut also
+    // retains the original creation call's uninitialized-local failure path
+    // until a call-frame ABI is available.
     ids::JAM_OUT_V_BLANK,
     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
     ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
@@ -130,10 +132,6 @@ pub static PENDING: &[FunctionId] = &[
 
 /// Unregistered bodies retained for explicit proof harnesses.
 pub static PENDING_TRANSLATIONS: &[Translation] = &[
-    Translation {
-        id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
-        function: layouts::draw_packed_background_block,
-    },
     Translation {
         id: ids::JAM_OUT_V_BLANK,
         function: audio_callbacks::vblank,

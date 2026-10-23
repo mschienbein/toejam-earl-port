@@ -2,8 +2,12 @@
 //! input JSON and frame count. Built with the lane-private Cargo manifest.
 //! Every additional fixture is an authored mutation of a completed live state.
 
-use std::{fs, path::Path, sync::Arc};
-use tje_game::{Context, FunctionId, execution::ExecutionClass, ids};
+use std::{
+    fs,
+    path::Path,
+    sync::{Arc, LazyLock},
+};
+use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Platform, Ptr, Revision, ram};
 
@@ -18,32 +22,32 @@ const ROOTS: &[FunctionId] = &[
     ids::JAM_OUT_RELEASE_CHARACTER_COPIES,
 ];
 
+fn proof_roots(include_wait: bool) -> Vec<tje_game::Translation> {
+    ROOTS
+        .iter()
+        .filter(|&&id| include_wait || id != ids::WAIT_FOR_NEXT_V_BLANK)
+        .map(|&id| {
+            *tje_game::translations()
+                .chain(tje_game::core::PENDING_TRANSLATIONS)
+                .chain(tje_game::jamout::PENDING_TRANSLATIONS)
+                .find(|entry| entry.id == id)
+                .unwrap()
+        })
+        .collect()
+}
+
+static NATURAL_ROOTS: LazyLock<Vec<tje_game::Translation>> = LazyLock::new(|| proof_roots(false));
+static FIXTURE_ROOTS: LazyLock<Vec<tje_game::Translation>> = LazyLock::new(|| proof_roots(true));
+
 fn registry(revision: Revision, include_wait: bool) -> HookRegistry {
-    let mut registry = HookRegistry::empty(revision);
-    for &id in ROOTS {
-        // Natural full-music IRQ timing currently fails for the VBlank wait;
-        // retain that negative evidence separately, never label it a pass.
-        if id == ids::WAIT_FOR_NEXT_V_BLANK && !include_wait {
-            continue;
-        }
-        let class = tje_game::core::EXECUTION_CONTRACTS
-            .iter()
-            .chain(tje_game::jamout::EXECUTION_CONTRACTS)
-            .find_map(|&(candidate, class)| (candidate == id).then_some(class))
-            .unwrap_or_else(|| {
-                assert!(tje_game::is_atomic_capable(id));
-                ExecutionClass::Atomic
-            });
-        let translation = *tje_game::translations()
-            .chain(tje_game::core::PENDING_TRANSLATIONS)
-            .chain(tje_game::jamout::PENDING_TRANSLATIONS)
-            .find(|entry| entry.id == id)
-            .unwrap();
-        registry
-            .register_translation_with_execution(translation, class)
-            .unwrap();
-    }
-    registry
+    // The shared proof API overlays these bodies on all proven callees; no
+    // selected pending body silently falls back to its original implementation.
+    let roots = if include_wait {
+        &*FIXTURE_ROOTS
+    } else {
+        &*NATURAL_ROOTS
+    };
+    HookRegistry::proof(revision, roots.as_slice()).unwrap()
 }
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {

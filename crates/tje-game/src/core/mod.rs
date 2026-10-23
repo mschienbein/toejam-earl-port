@@ -59,6 +59,14 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::INITIALISE_THE_Z80,
         function: remaining::initialise_the_z80,
     },
+    crate::Translation {
+        id: crate::ids::DRAW_STARFIELD_PLANE,
+        function: remaining::draw_starfield_plane,
+    },
+    crate::Translation {
+        id: crate::ids::HANDLE_H_BLANK,
+        function: remaining::handle_hblank,
+    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
@@ -133,14 +141,11 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // without a real main-loop/terminal continuation contract; no fake RTS is added.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Both-revision Functional proofs pass; production class lookup is pending.
-    crate::ids::DRAW_STARFIELD_PLANE,
-    crate::ids::HANDLE_H_BLANK,
     // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
     // blocked on the timing-fidelity decision, not waived by counter fixtures.
     crate::ids::WAIT_FOR_NEXT_V_BLANK,
-    // Complete caller bodies await class-aware residual dispatch and
-    // both-revision natural/live-state proof, including any IRQ phase blocker.
+    // Complete caller bodies await both-revision natural/live-state proof,
+    // including any original-call frame or IRQ-observed timing blocker.
     crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
     crate::ids::ENTER_SPLIT_SCREEN,
     crate::ids::ENTER_SHARED_SCREEN,
@@ -156,14 +161,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
         function: wait_for_next_vblank,
-    },
-    crate::Translation {
-        id: crate::ids::DRAW_STARFIELD_PLANE,
-        function: remaining::draw_starfield_plane,
-    },
-    crate::Translation {
-        id: crate::ids::HANDLE_H_BLANK,
-        function: remaining::handle_hblank,
     },
     crate::Translation {
         id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
