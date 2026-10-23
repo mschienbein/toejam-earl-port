@@ -179,7 +179,7 @@ pub fn player_create_interaction_choice_display(
 /// G/src/earthlings/nice_earthling_touch.c:425 (`PlayerProcessLifeRequest`).
 /// TimeAware: the upload-byte spin resumes only through real completed IRQs;
 /// speech and relocation retain their own reviewed time-progressing contracts.
-/// Both inline text literals stay in the ROM's final 24 function bytes.
+/// Both inline literals follow the inventoried executable extent (RTS).
 pub fn player_process_life_request(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -224,9 +224,10 @@ pub fn player_process_life_request(
             .write(context, player.height().read(context).wrapping_add(30));
         call(context, ids::SET_NEXT_SPEECH_LIFETIME, &[64])?;
         let metadata = ids::PLAYER_PROCESS_LIFE_REQUEST.metadata();
-        let text = metadata.address(revision) + metadata.size(revision)
-            - if ram::g_player_selection(revision).read(context) != 2 {
-                24
+        let text = metadata.address(revision)
+            + metadata.size(revision)
+            + if ram::g_player_selection(revision).read(context) != 2 {
+                0
             } else {
                 12
             };

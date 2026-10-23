@@ -23,6 +23,8 @@ fn signed_boundary_regressions_match_both_original_revisions() {
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         for (label, x, y, width, height, vx, vy, axes) in [
             ("review-equality", 24, 500, 15, 0, -256, 0, 1),
             ("review-negative-x-difference", 24, 500, 16, 0, -4096, 0, 1),

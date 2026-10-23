@@ -4,6 +4,20 @@ use tje_game::{Context, FunctionId, earthlings, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram, rom};
 
+/// Resolve canonical bodies once so proof roots remain stable across promotion.
+/// This test-only table includes pending callees rather than bypassing them.
+pub(super) fn proof_translations() -> &'static [tje_game::Translation] {
+    static TABLE: std::sync::LazyLock<Vec<tje_game::Translation>> =
+        std::sync::LazyLock::new(|| {
+            earthlings::TRANSLATIONS
+                .iter()
+                .chain(earthlings::PENDING_TRANSLATIONS)
+                .copied()
+                .collect()
+        });
+    &TABLE
+}
+
 fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| {
@@ -525,7 +539,7 @@ fn visibility_fixtures(host: &mut Host) {
     }
 }
 
-fn time_aware_fixtures(host: &mut Host) {
+pub(super) fn time_aware_fixtures(host: &mut Host) {
     let revision = host.revision();
     let record = ram::g_earthling_banks(revision).at(0).at(0);
     let object = ram::g_player_info(revision).at(6);
@@ -678,7 +692,7 @@ fn decrement_boundary_fixtures(host: &mut Host) {
     }
 }
 
-fn present_fixtures(host: &mut Host) {
+pub(super) fn present_fixtures(host: &mut Host) {
     let revision = host.revision();
     // Source-reviewed exhausted scans deliberately reach bank zero's one-past
     // record, which is bank one's first record; no bounds guard is added.
@@ -788,14 +802,14 @@ fn index_and_present_fixtures(host: &mut Host) {
 }
 
 #[test]
-#[ignore = "requires both private retail ROMs; pending bodies stay unregistered"]
-fn pending_short_index_widths_on_live_states() {
-    static WIDTH_PENDING: &[tje_game::Translation] = &[
-        earthlings::PENDING_TRANSLATIONS[1],
-        earthlings::PENDING_TRANSLATIONS[2],
-        earthlings::PENDING_TRANSLATIONS[4],
-        earthlings::PENDING_TRANSLATIONS[5],
-        earthlings::PENDING_TRANSLATIONS[6],
+#[ignore = "requires both private retail ROMs"]
+fn short_index_widths_on_live_states() {
+    let roots = [
+        ids::AI_OPERA_SINGER_TOUCH,
+        ids::AI_WIZARD_TOUCH,
+        ids::PLAYER_PROCESS_LIFE_REQUEST,
+        ids::AI_MAILBOX_TOUCH,
+        ids::AI_WISEMAN_TOUCH,
     ];
     for revision in [Revision::Rev02, Revision::Rev00] {
         let key = if revision == Revision::Rev02 {
@@ -804,7 +818,8 @@ fn pending_short_index_widths_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry = HookRegistry::proof(revision, WIDTH_PENDING).unwrap();
+        let registry =
+            HookRegistry::proof_filtered(revision, proof_translations(), &roots).unwrap();
         // Reference replay has no entry replacements; check_fixture explicitly
         // checks candidates only after the live-state boundary is reached.
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
@@ -815,6 +830,8 @@ fn pending_short_index_widths_on_live_states() {
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         let record = ram::g_earthling_banks(revision).at(0).at(0);
         let object = ram::g_player_info(revision).at(6);
         record.object().write(&mut host.context(), 6);
@@ -901,6 +918,8 @@ fn word_index_stack_alias_is_a_dependency_audit_rejection() {
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         for number in [-256_i16, 256] {
             let player = ram::g_player_info(revision)
                 .at(0)
@@ -914,10 +933,7 @@ fn word_index_stack_alias_is_a_dependency_audit_rejection() {
                     &[number as u32],
                 )
                 .expect_err("stack-alias read must not be approved");
-            assert!(
-                error.to_string().contains("uninitialized stack read"),
-                "{error}"
-            );
+            assert!(error.to_string().contains("dependency"), "{error}");
         }
     }
 }
@@ -932,14 +948,20 @@ fn open_present_branches_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        static OPEN: &[tje_game::Translation] = &[earthlings::PENDING_TRANSLATIONS[12]];
-        let registry = HookRegistry::proof(revision, OPEN).unwrap();
+        let registry = HookRegistry::proof_filtered(
+            revision,
+            proof_translations(),
+            &[ids::OPEN_EARTHLING_PRESENT],
+        )
+        .unwrap();
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
         let script =
             InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         present_fixtures(&mut host);
         assert_eq!(host.checks.mismatches, 0);
         println!(
@@ -952,10 +974,10 @@ fn open_present_branches_on_live_states() {
 #[test]
 #[ignore = "requires both private retail ROMs; frame candidates are opt-in only"]
 fn explicit_earthling_frames_on_live_states() {
-    static FRAMES: &[tje_game::Translation] = &[
-        earthlings::PENDING_TRANSLATIONS[9],
-        earthlings::PENDING_TRANSLATIONS[10],
-        earthlings::PENDING_TRANSLATIONS[11],
+    let roots = [
+        ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+        ids::EARTHLING_RETAIN_LEVEL_BANK,
+        ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
     ];
     for revision in [Revision::Rev02, Revision::Rev00] {
         let key = if revision == Revision::Rev02 {
@@ -964,21 +986,16 @@ fn explicit_earthling_frames_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let mut registry = HookRegistry::proof(revision, FRAMES).unwrap();
-        for entry in earthlings::TRANSLATIONS {
-            registry
-                .register_translation_with_execution(
-                    *entry,
-                    tje_game::execution_class(entry.id).unwrap(),
-                )
-                .unwrap();
-        }
+        let registry =
+            HookRegistry::proof_filtered(revision, proof_translations(), &roots).unwrap();
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
         let script =
             InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
         for bank in 0..2 {
             for slot in 0..20 {
                 let entry = ram::g_earthling_banks(revision).at(bank).at(slot);
@@ -1061,10 +1078,7 @@ fn explicit_earthling_frames_on_live_states() {
                 &[state.address(), 255, 0, 1],
             )
             .expect_err("dependent residual path must stay unapproved");
-        assert!(
-            error.to_string().contains("uninitialized stack read"),
-            "{error}"
-        );
+        assert!(error.to_string().contains("dependency"), "{error}");
         println!(
             "DEPENDENT_RESIDUAL {revision:?}: {error}; {:?}",
             host.checks.uninitialized_stack_reads
@@ -1079,9 +1093,9 @@ fn native_startup_reports_the_untranslated_dependency_closure() {
         .map(|entry| entry.id)
         .collect();
     match tje_game::Dispatcher::native(&roots) {
-        Ok(_) => panic!("deferred frame-dependent entries must fail native startup"),
+        Ok(_) => panic!("dependent nearest-target entry must fail native startup"),
         Err(missing) => {
-            let required = ids::FIND_SPAWN_LOCATION_FOR_EARTHLING;
+            let required = ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET;
             assert!(missing.contains(&required));
             let names: Vec<_> = missing.iter().map(|id| id.metadata().name).collect();
             println!("NATIVE_MISSING {}", serde_json::to_string(&names).unwrap());
@@ -1106,15 +1120,7 @@ fn earthlings_sessions_and_labeled_live_fixtures() {
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
         let pending = std::env::var("TJE_EARTHLINGS_PENDING").unwrap_or_default();
         let registry = if pending == "all" {
-            let mut registry =
-                HookRegistry::proof(revision, earthlings::PENDING_TRANSLATIONS).unwrap();
-            for translation in earthlings::TRANSLATIONS {
-                let class = tje_game::execution_class(translation.id).expect("reviewed class");
-                registry
-                    .register_translation_with_execution(*translation, class)
-                    .unwrap();
-            }
-            registry
+            HookRegistry::proof(revision, proof_translations()).unwrap()
         } else {
             HookRegistry::filtered(revision, &["earthlings"], &[]).unwrap()
         };
@@ -1141,6 +1147,9 @@ fn earthlings_sessions_and_labeled_live_fixtures() {
             );
         }
         let natural = serde_json::to_value(&checked.checks).unwrap();
+        checked
+            .settle_fixture_boundary(script.at(checked.frame_count()))
+            .unwrap();
         live_fixtures(&mut checked);
         state_fixtures(&mut checked);
         behavior_fixtures(&mut checked);

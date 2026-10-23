@@ -83,7 +83,7 @@ pub fn earthling_process_special_think_states(
 
 /// G/src/earthlings/generic_enemy.c:71 (`AI_GenericEnemyThink`).
 /// TimeAware: the shopper speech branch waits for interrupt-owned sprite uploads.
-/// The literal remains in the user's ROM (compiler `_L139`, final ten bytes).
+/// The ROM `_L139` literal follows RTS, outside the inventoried executable size.
 pub fn ai_generic_enemy_think(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let earthling = Address::<EarthlingState>::new(arguments[0]);
@@ -165,7 +165,7 @@ pub fn ai_generic_enemy_think(context: &mut dyn Context, arguments: &[u32]) -> R
                 {
                     let speaker = earthling.object().read(context) as u32;
                     let metadata = ids::AI_GENERIC_ENEMY_THINK.metadata();
-                    let text = metadata.address(revision) + metadata.size(revision) - 10;
+                    let text = metadata.address(revision) + metadata.size(revision);
                     call(context, ids::GENERATE_SPEECH, &[speaker, text, 1])?;
                 }
                 if i16::from(earthling.state().read(context)) != next {

@@ -16,6 +16,8 @@ fn host(revision: Revision) -> Host {
     ];
     let registry = HookRegistry::filtered(revision, &[], &selected).unwrap();
     let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+    host.settle_fixture_boundary(tje_host::input::InputScript::default().at(0))
+        .unwrap();
     let registers = host.cpu().address_registers();
     host.context()
         .cpu()

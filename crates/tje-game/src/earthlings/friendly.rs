@@ -11,9 +11,10 @@ fn can_interact(context: &dyn Context, player: Address<ObjectState>, extra: Opti
         || (state == 57 && player.velocity_y().read(context) == 0)
 }
 
-fn literal_tail(context: &dyn Context, id: FunctionId, bytes: u32) -> u32 {
+fn inline_text(context: &dyn Context, id: FunctionId) -> u32 {
     let metadata = id.metadata();
-    metadata.address(context.revision()) + metadata.size(context.revision()) - bytes
+    // Inventory size ends at RTS; the source's STRINTEXT data follows it.
+    metadata.address(context.revision()) + metadata.size(context.revision())
 }
 
 fn restore_player_sprite(context: &mut dyn Context, player: Address<ObjectState>) -> Result<()> {
@@ -24,7 +25,7 @@ fn restore_player_sprite(context: &mut dyn Context, player: Address<ObjectState>
 
 /// G/src/earthlings/nice_earthling_touch.c:177 (`AI_WizardTouch`).
 /// TimeAware: speech can wait for interrupt-owned uploads. Inline speech text is
-/// read from the ROM tail (compiler `_L151`), never embedded in the native port.
+/// read from STRINTEXT after RTS (compiler `_L151`), never embedded in Rust.
 pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let number = i32::from(arguments[0] as i16);
@@ -79,7 +80,7 @@ pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<O
                 &[earthling.address()],
             )? as i8
         } else if earthling.state().read(context) <= 1 && object.frame().read(context) > 4 {
-            let text = literal_tail(context, ids::AI_WIZARD_TOUCH, 12);
+            let text = inline_text(context, ids::AI_WIZARD_TOUCH);
             let speaker = earthling.object().read(context) as u32;
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
             call(
@@ -190,7 +191,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
         if earthling.state().read(context) >= 4 {
             next = 0
         } else if earthling.state().read(context) <= 1 {
-            let text = literal_tail(context, ids::AI_OPERA_SINGER_TOUCH, 14);
+            let text = inline_text(context, ids::AI_OPERA_SINGER_TOUCH);
             let speaker = earthling.object().read(context) as u32;
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
             call(
@@ -270,7 +271,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
 
 /// G/src/earthlings/nice_earthling_touch.c:108 (`AI_MailboxTouch`).
 /// TimeAware: speech and mail-order opening require IRQ/VBlank progress. The
-/// compiler `_L95` literal is the final twelve bytes of this ROM function.
+/// compiler `_L95` literal follows the inventoried executable extent.
 pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let number = i32::from(arguments[0] as i16);
@@ -305,7 +306,7 @@ pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
         {
             let contact = mailbox.contact().at(number);
             if contact.read(context) == 0 {
-                let text = literal_tail(context, ids::AI_MAILBOX_TOUCH, 12);
+                let text = inline_text(context, ids::AI_MAILBOX_TOUCH);
                 let speaker = earthling.object().read(context) as u32;
                 call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
                 call(
@@ -396,7 +397,7 @@ pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
 
 /// G/src/earthlings/nice_earthling_touch.c:249 (`AI_WisemanTouch`).
 /// TimeAware: speech and identification inventory wait for real IRQs. The
-/// `_L189` literal and its alignment occupy the final fourteen function bytes.
+/// `_L189` literal follows RTS, outside the inventoried executable extent.
 pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let number = i32::from(arguments[0] as i16);
@@ -444,7 +445,7 @@ pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
                 &[earthling.address()],
             )? as i8
         } else if earthling.state().read(context) <= 1 {
-            let text = literal_tail(context, ids::AI_WISEMAN_TOUCH, 14);
+            let text = inline_text(context, ids::AI_WISEMAN_TOUCH);
             let speaker = earthling.object().read(context) as u32;
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
             call(

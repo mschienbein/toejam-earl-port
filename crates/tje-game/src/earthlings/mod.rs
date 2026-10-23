@@ -245,11 +245,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::LOAD_IN_EARTHLINGS,
         function: dispatch::load_in_earthlings,
     },
-];
-
-/// Bodies awaiting their per-revision proof; never included in production dispatch.
-/// Composed TimeAware proof fails on ProcessEarthlings' ordered device-write trace.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::AI_GENERIC_ENEMY_THINK,
         function: generic::ai_generic_enemy_think,
@@ -294,39 +289,25 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::EARTHLING_RETAIN_LEVEL_BANK,
         function: framed::earthling_retain_level_bank,
     },
-    // Dependent residual: awaiting dependent-equivalence proof.
-    crate::Translation {
-        id: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
-        function: framed::earthling_steer_toward_nearest_target,
-    },
     crate::Translation {
         id: ids::OPEN_EARTHLING_PRESENT,
         function: open_present::open_earthling_present,
     },
 ];
 
-/// Unregistered body identities. Timed bodies await the IRQ projection proof;
-/// explicit-frame bodies await the nested-original stack-audit fix. Nearest
-/// targeting also needs the dependent-residual contract, and OpenEarthlingPresent
-/// needs the discarded-upper-byte output-insensitivity proof.
-pub static PENDING: &[crate::FunctionId] = &[
-    ids::AI_GENERIC_ENEMY_THINK,
-    ids::AI_OPERA_SINGER_TOUCH,
-    ids::AI_WIZARD_TOUCH,
-    ids::EARTHLING_DISPATCH_ABILITIES,
-    ids::PLAYER_PROCESS_LIFE_REQUEST,
-    ids::AI_MAILBOX_TOUCH,
-    ids::AI_WISEMAN_TOUCH,
-    ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
-    ids::PROCESS_EARTHLINGS,
-    // Re-prove after nested-original prepared-slot/local auditing is fixed.
-    ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
-    ids::EARTHLING_RETAIN_LEVEL_BANK,
+/// Complete nearest-target body remains opt-in: its true residual-input path
+/// awaits HostFixture's dependent-equivalence contract, never a zero fallback.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     // Dependent residual: awaiting dependent-equivalence proof.
-    ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
-    // Discarded upper-byte read: awaiting output-insensitivity proof.
-    ids::OPEN_EARTHLING_PRESENT,
+    crate::Translation {
+        id: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+        function: framed::earthling_steer_toward_nearest_target,
+    },
 ];
+
+/// The true no-candidate/high-distance delta locals need dependent-equivalence
+/// evidence, including the exact compiled producer, before production approval.
+pub static PENDING: &[crate::FunctionId] = &[ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET];
 
 /// Original execution review, including untranslated entries. No ROM bytes are
 /// embedded: spawning and AI read their definitions through emulated ROM views.
