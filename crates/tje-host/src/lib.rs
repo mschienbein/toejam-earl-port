@@ -8,6 +8,7 @@
 //! retain their device effects but are not software data dependencies.
 
 pub mod abi;
+pub mod call_observation;
 pub mod catalogue;
 mod check_failure;
 pub use check_failure::{CheckFailure, CheckFailurePolicy};

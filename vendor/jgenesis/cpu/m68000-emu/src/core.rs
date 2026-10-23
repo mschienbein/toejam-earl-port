@@ -903,6 +903,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         self.jump_to_address(vector)?;
         self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
         self.cpu.hybrid_last_exception_vector = Some(ADDRESS_ERROR_VECTOR);
+        if let Some(counts) =
+            self.cpu.hybrid_instruction_counts.as_mut().filter(|counts| counts.enabled)
+        {
+            counts.other_exceptions += 1;
+        }
 
         Ok(())
     }
@@ -918,6 +923,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         let new_pc = self.bus.read_long_word(vector * 4);
         self.jump_to_address(new_pc)?;
         self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
+        if let Some(counts) =
+            self.cpu.hybrid_instruction_counts.as_mut().filter(|counts| counts.enabled)
+        {
+            counts.other_exceptions += 1;
+        }
         self.cpu.hybrid_last_exception_vector = Some(vector);
 
         Ok(())
@@ -937,6 +947,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         self.jump_to_address(new_pc)?;
         self.cpu.hybrid_exception_depth = self.cpu.hybrid_exception_depth.saturating_add(1);
         self.cpu.hybrid_last_exception_vector = Some(vector_addr / 4);
+        if let Some(counts) =
+            self.cpu.hybrid_instruction_counts.as_mut().filter(|counts| counts.enabled)
+        {
+            counts.irq_entries[usize::from(interrupt_level)] += 1;
+        }
 
         // Auto-vectored interrupt handling takes 49-59 cycles instead of 44:
         //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
@@ -992,10 +1007,32 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             return 4;
         }
 
-        match self.do_execute() {
-            Ok(cycles) => cycles,
-            Err(exception) => self.handle_exception(exception),
+        let instruction =
+            self.cpu.hybrid_instruction_counts.as_ref().filter(|counts| counts.enabled).map(|_| {
+                HybridExecutedInstruction {
+                    pc: self.cpu.pc(),
+                    opcode: self.cpu.next_opcode(),
+                    exception_depth: self.cpu.hybrid_exception_depth,
+                    completed_successfully: false,
+                }
+            });
+        let (cycles, completed_successfully) = match self.do_execute() {
+            Ok(cycles) => (cycles, true),
+            Err(exception) => (self.handle_exception(exception), false),
+        };
+        if let (Some(counts), Some(mut instruction)) =
+            (&mut self.cpu.hybrid_instruction_counts, instruction)
+        {
+            instruction.completed_successfully = completed_successfully;
+            counts.faulted_opcode_attempts += u64::from(!completed_successfully);
+            if instruction.exception_depth == 0 {
+                counts.main_thread += 1;
+            } else {
+                counts.exception_handler += 1;
+            }
+            counts.last_instruction = Some(instruction);
         }
+        cycles
     }
 
     fn handle_exception(&mut self, exception: Exception) -> u32 {
@@ -1138,16 +1175,44 @@ impl M68000Builder {
             halted: false,
             hybrid_exception_depth: 0,
             hybrid_last_exception_vector: None,
+            hybrid_instruction_counts: None,
             allow_tas_writes: self.allow_tas_writes,
             name: self.name.unwrap_or_default(),
         }
     }
 }
 
+/// Opt-in observation of actual decoded/executed opcodes, not CPU polling ticks.
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+pub struct HybridInstructionCounts {
+    enabled: bool,
+    /// Executed opcode attempts reaching do_execute, not a ready-PC proxy.
+    pub main_thread: u64,
+    /// Origin depth is sampled before execution; RTE belongs to its handler.
+    pub exception_handler: u64,
+    /// Successful autovector entries by interrupt level; recognition is not entry.
+    pub irq_entries: [u64; 8],
+    pub other_exceptions: u64,
+    /// Exceptional do_execute outcomes included in the origin totals.
+    /// This also includes intentional TRAP instructions, not just CPU faults.
+    /// Subtract only when reporting ordinary successful-completion counts.
+    pub faulted_opcode_attempts: u64,
+    pub last_instruction: Option<HybridExecutedInstruction>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+pub struct HybridExecutedInstruction {
+    pub pc: u32,
+    pub opcode: u16,
+    pub exception_depth: u32,
+    pub completed_successfully: bool,
+}
+
 const RESET_CYCLES: u32 = 132;
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct M68000 {
     registers: Registers,
     halted: bool,
@@ -1155,10 +1220,59 @@ pub struct M68000 {
     // traps nested inside IRQ handlers. This never changes instruction timing.
     hybrid_exception_depth: u32,
     hybrid_last_exception_vector: Option<u32>,
+    hybrid_instruction_counts: Option<HybridInstructionCounts>,
     allow_tas_writes: bool,
     // Used only for trace logging
     name: String,
 }
+
+// Observer counters are not console state and must not enter save/equality bytes.
+// Preserve the pre-observer field order and decode with observation disabled.
+#[cfg(feature = "bincode")]
+impl bincode::Encode for M68000 {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        bincode::Encode::encode(
+            &(
+                &self.registers,
+                self.halted,
+                self.hybrid_exception_depth,
+                self.hybrid_last_exception_vector,
+                self.allow_tas_writes,
+                &self.name,
+            ),
+            encoder,
+        )
+    }
+}
+#[cfg(feature = "bincode")]
+impl<Context> bincode::Decode<Context> for M68000 {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        let (
+            registers,
+            halted,
+            hybrid_exception_depth,
+            hybrid_last_exception_vector,
+            allow_tas_writes,
+            name,
+        ) = bincode::Decode::decode(decoder)?;
+        Ok(Self {
+            registers,
+            halted,
+            hybrid_exception_depth,
+            hybrid_last_exception_vector,
+            allow_tas_writes,
+            name,
+            hybrid_instruction_counts: None,
+        })
+    }
+}
+#[cfg(feature = "bincode")]
+bincode::impl_borrow_decode!(M68000);
 
 impl Default for M68000 {
     fn default() -> Self {
@@ -1334,6 +1448,24 @@ impl M68000 {
     #[must_use]
     pub fn hybrid_last_exception_vector(&self) -> Option<u32> {
         self.hybrid_last_exception_vector
+    }
+
+    /// Start an observer without changing architectural state or execution timing.
+    pub fn hybrid_enable_instruction_counts(&mut self) {
+        self.hybrid_instruction_counts =
+            Some(HybridInstructionCounts { enabled: true, ..Default::default() });
+    }
+
+    /// Host live scopes pause counting while executing diagnostic/check forks.
+    pub fn hybrid_set_instruction_counting(&mut self, enabled: bool) {
+        if let Some(counts) = &mut self.hybrid_instruction_counts {
+            counts.enabled = enabled;
+        }
+    }
+
+    #[must_use]
+    pub fn hybrid_instruction_counts(&self) -> Option<&HybridInstructionCounts> {
+        self.hybrid_instruction_counts.as_ref()
     }
 
     /// TJE hybrid observation: call only after successfully completing an RTE,

@@ -43,6 +43,9 @@ impl Host {
             let ready = bus.cycles.m68k_wait_cpu_cycles == 0
                 && self.emulator.hybrid_cpu().hybrid_instruction_ready(bus);
             if ready {
+                if self.session_trace.is_some() {
+                    self.trace_instruction(pc);
+                }
                 // Bounded milestones remain useful to the frontends without
                 // collecting the reference runner's per-frame diagnostics.
                 let symbols = self.symbols;
@@ -65,7 +68,12 @@ impl Host {
                     continue;
                 }
             }
-            if self.tick(&mut inputs)? == TickEffect::FrameRendered {
+            let effect = if self.session_trace.is_some() {
+                self.tick_live_original(&mut inputs)?
+            } else {
+                self.tick(&mut inputs)?
+            };
+            if effect == TickEffect::FrameRendered {
                 return Ok(());
             }
         }

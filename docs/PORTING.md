@@ -270,6 +270,40 @@ without per-call allocation; waits move reusable audio buffers rather than copy
 them. The opt-in replacement allocation test measures actual dispatched calls
 after buffer warm-up in both revisions.
 
+For exact **original-only** call resource distributions, enable ordinary session
+tracing before playback, then `host.enable_call_observations(&entry_addresses)`.
+This opt-in is restricted to Reference mode and tracked entries. Drain
+`take_call_observations()` after each frame; both `run_frame` and borrowed
+`play_frame` retain these observations, including live fixture settling.
+
+An interval begins immediately after the actual JSR/BSR targeting that entry and
+ends immediately after the actual RTS matching its saved return PC, SP+4 and
+exception depth, before any later caller IRQ. Nested/recursive intervals match
+their own stack identities. The caller's JSR/BSR is excluded; the callee's RTS
+and its actual nested callees are included. CPU counters increment only where
+the interpreter actually executes an opcode, not at ready-PC observations,
+refresh/DMA/FIFO waits, halt/reset, STOP polling, IRQ recognition or IRQ entry.
+Instructions are split by **pre-execution** exception depth (RTE belongs to its
+handler; a TRAP belongs to its origin), with successful IRQ entries by level and
+other exception entries separately retained.
+Faulting opcode attempts are counted explicitly, not advertised as retired
+instructions. Only successfully completed JSR/BSR/RTS opcodes form boundaries;
+a faulting call that enters a tracked exception handler is not a call to it.
+An interval with zero faults and zero non-IRQ exception entries permits the
+origin split to be described as function/ISR retired instructions. CPU counting
+is paused outside live original ticks, so direct diagnostic execution and
+checker forks cannot inflate the live ledger.
+Tick/master-clock/frame deltas measure the full interval, including interrupt
+and noninstruction progress; do
+not label those as ISR-excluded clocks. The counters are absent from serialized
+console state and architectural comparison words, and check forks do not earn
+live call coverage. Reconcile `observed_call_entry_counts()` actual entry-opcode
+counts against recognized calls, returns and unfinished intervals. A tail JMP
+is not measured by this JSR/BSR-to-RTS API; unmatched entries must be reported.
+Report unfinished intervals rather than inventing a return.
+These are observed operational resource measurements, not source-proved bounds,
+new call ceilings, timing charges or function-promotion evidence.
+
 Drive unexercised paths with recorded controller inputs that select the relevant
 menu/player/present/level. For rare and boundary paths, use `Host::check_fixture` on a
 fork of live state after reaching gameplay, with correct stack arguments or D0/D1

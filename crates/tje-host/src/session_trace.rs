@@ -37,7 +37,7 @@ pub struct FrameObservations {
 }
 
 pub(crate) struct SessionTrace {
-    slots: Vec<u16>,
+    pub(crate) slots: Vec<u16>,
     counts: Vec<u64>,
     watched: Vec<bool>,
     sample_addresses: Vec<u32>,
@@ -47,6 +47,7 @@ pub(crate) struct SessionTrace {
     active: bool,
     lagged: bool,
     last_entry: Option<u32>,
+    pub(crate) call_observer: Option<crate::call_observation::CallObserver>,
 }
 
 impl Host {
@@ -104,6 +105,7 @@ impl Host {
             active: false,
             lagged: false,
             last_entry: None,
+            call_observer: None,
         });
         Ok(())
     }

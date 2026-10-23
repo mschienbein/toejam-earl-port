@@ -243,7 +243,25 @@ impl Host {
     pub(crate) fn tick_live_original(&mut self, inputs: &mut Inputs) -> Result<TickEffect> {
         let pc = self.cpu().pc();
         let previous_line = self.emulator.hybrid_bus().vdp.scanline();
-        let effect = self.tick(inputs)?;
+        let observing_calls = self
+            .session_trace
+            .as_ref()
+            .is_some_and(|trace| trace.call_observer.is_some());
+        if observing_calls {
+            self.emulator
+                .hybrid_parts()
+                .0
+                .hybrid_set_instruction_counting(true);
+        }
+        let effect = self.tick(inputs);
+        if observing_calls {
+            self.emulator
+                .hybrid_parts()
+                .0
+                .hybrid_set_instruction_counting(false);
+        }
+        let effect = effect?;
+        self.observe_call_return(effect == TickEffect::FrameRendered)?;
         let vdp = &self.emulator.hybrid_bus().vdp;
         let blank_line = vdp
             .hybrid_registers()
