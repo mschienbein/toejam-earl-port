@@ -280,6 +280,15 @@ phones, and chooses health/promotion goals from live resources. It shares the
 same runtime terrain navigator and physical-controller conversion with the
 campaign planner. These are goal selectors, not assertions that every generated
 recording completes the checklist: only the replay's observed evidence counts.
+The content policy can prepare a fresh two-player life-transfer route entirely
+through controllers: genuinely eliminate P2, wake/request from the donor and
+accept the transfer. It never discards an existing late-game input prefix to
+replace it with that preparation. Services use reachable contact points and
+original marked-road approaches; pending present unboxing completes before
+following an elevator-waiting partner. Santa routes coordinate sneak/freeze
+between both pads and collect repeated real gifts to supply missing presents,
+promotions and spawnable Earthlings. These policies do not themselves certify
+unobserved ranks or interactions; only the actual replay evidence does.
 
 ```sh
 "$SESSION_TOOL" bot --rom roms/rev02.bin --scenario content-one --frames 40000 \
@@ -301,6 +310,10 @@ friendly services require payment/service RAM evidence, and the campaign stops
 only after all ten pieces and the real ending/final-level transition. Fixed World
 keeps geometry reproducible; dynamic RNG/AI still require feedback. A missing route
 is not permission to teleport, set completion flags or fabricate a late-game state.
+An ending recorder does not stop merely when `MapEnterFinalLevel` begins: normal
+`ProcessInput` must resume after that entry, graphics must be active and both
+final-map banks must actually be loaded. The recorder observes the original
+transition without inventing or rewriting either player's entity-level state.
 
 `secret-ending` and its two-player variant `secret-ending-two` are separate,
 explicitly labelled original-input routes: each enters

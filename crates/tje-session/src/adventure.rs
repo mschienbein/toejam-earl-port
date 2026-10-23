@@ -69,6 +69,7 @@ pub struct Adventure {
     coop_targets: Option<[(i16, i16); 2]>,
     coop_center: (i16, i16),
     final_entry: Option<u64>,
+    final_ready: bool,
     last_status: u64,
 }
 impl Adventure {
@@ -99,6 +100,7 @@ impl Adventure {
             coop_center: (0, 0),
             last_inventory_kind: [-1; 2],
             final_entry: None,
+            final_ready: false,
             last_status: 0,
         }
     }
@@ -121,6 +123,7 @@ impl Adventure {
                 "MapEnterFinalLevel" => {
                     self.scene = Scene::Game;
                     self.final_entry = Some(event.frame);
+                    self.final_ready = false;
                 }
                 "ShowGameOverAndReset" => {
                     self.scene = Scene::GameOver;
@@ -139,8 +142,13 @@ impl Adventure {
                     self.blocked.clear();
                     self.levels = [-1; 2];
                     self.arrival_exit = [None; 2];
+                    self.final_entry = None;
+                    self.final_ready = false;
                 }
-                "ProcessInput" if self.scene != Scene::Ending => self.scene = Scene::Game,
+                "ProcessInput" if self.scene != Scene::Ending => {
+                    self.scene = Scene::Game;
+                    self.final_ready |= self.final_entry.is_some();
+                }
                 _ => {}
             }
         }
@@ -815,8 +823,10 @@ impl Adventure {
     }
 
     pub fn campaign_complete(&self, memory: &Ram<'_>, revision: Revision, frame: u64) -> bool {
-        self.final_entry.is_some_and(|start| frame >= start + 300)
-            && ram::g_player_info(revision).at(0).level().read(memory) == 26
+        self.final_ready
+            && self.final_entry.is_some_and(|start| frame >= start + 300)
+            && ram::g_player1_map_level(revision).read(memory) == 26
+            && ram::g_player2_map_level(revision).read(memory) == 26
             && ram::g_v_blank_graphics_enabled(revision).read(memory) != 0
     }
 
@@ -1479,6 +1489,62 @@ mod tests {
             );
             assert_eq!(ram::g_player_powerups(revision).at(0).read(&memory), 0);
             assert_eq!(inventory.at(0).read(&memory), 2);
+        }
+    }
+
+    #[test]
+    fn final_completion_waits_for_main_loop_return_and_both_loaded_maps() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.final_entry = Some(1);
+            ram::g_v_blank_graphics_enabled(revision).write(&mut memory, 1);
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 26);
+            ram::g_player1_map_level(revision).write(&mut memory, 26);
+            ram::g_player_info(revision)
+                .at(1)
+                .level()
+                .write(&mut memory, 2);
+            assert!(!planner.campaign_complete(&Ram(memory.ram()), revision, 400));
+            planner.final_ready = true;
+            assert!(!planner.campaign_complete(&Ram(memory.ram()), revision, 400));
+            ram::g_player2_map_level(revision).write(&mut memory, 26);
+            assert!(planner.campaign_complete(&Ram(memory.ram()), revision, 400));
+            planner.final_ready = false;
+            assert!(!planner.campaign_complete(&Ram(memory.ram()), revision, 400));
+        }
+    }
+
+    #[test]
+    fn final_readiness_requires_a_later_normal_input_entry_and_resets_at_menus() {
+        for revision in Revision::ALL {
+            let mut planner = Adventure::new(Objective::Campaign);
+            let observe = |planner: &mut Adventure, id: tje_game::FunctionId, frame| {
+                planner.observe(
+                    &FrameObservations {
+                        ticks: Vec::new(),
+                        entries: vec![tje_host::session_trace::EntryObservation {
+                            address: id.metadata().address(revision),
+                            frame,
+                            stack_slots: [0; 4],
+                            ram_samples: Vec::new(),
+                        }],
+                    },
+                    revision,
+                );
+            };
+            observe(&mut planner, tje_game::ids::PROCESS_INPUT, 1);
+            assert!(!planner.final_ready);
+            observe(&mut planner, tje_game::ids::MAP_ENTER_FINAL_LEVEL, 2);
+            assert!(!planner.final_ready);
+            observe(&mut planner, tje_game::ids::PROCESS_INPUT, 3);
+            assert!(planner.final_ready);
+            observe(&mut planner, tje_game::ids::MENU_WHO_HANDLER, 4);
+            assert!(!planner.final_ready);
+            assert_eq!(planner.final_entry, None);
         }
     }
 }
