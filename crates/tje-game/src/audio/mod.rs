@@ -1,11 +1,22 @@
 //! Audio translation ownership; see docs/PORTING.md.
 //!
-//! The W0 RAM-only leaves below have no original callees or device waits.
-//! YM writers, Z80 uploads, and PCM/PSG mailbox submissions are deliberately not
-//! atomic-capable: their busy/BUSACK polling and mailbox retries require clocks.
-//! Retry fragments fall through into their waiting owner and are not RTS hooks.
+//! Original execution classes are reviewed for all 22 inventory entries.
+//! Seven RAM-only entries are Atomic, including the still-original
+//! `PlaySoundEffect` and its Atomic request-only callee.
+//! Nine fixed-source hardware transaction entries are Functional, not Atomic.
+//!
+//! Six originals are TimeAware: `AudioRetryPendingPcmMailbox`,
+//! `AudioSubmitPendingPcmSample`, and `AudioTrySubmitSequencerPcmSample`
+//! (`G/src/asm/sound_pcm.s:10-131`); `AudioRetryPendingPsgMailbox` and
+//! `AudioSubmitPendingIndexedCommand` (`G/src/asm/sound_psg.s:9-45`); and their
+//! transitive caller `MusicUpdateSequencer` (`G/src/asm/sound.s:762-1053`).
+//! Their mailbox-lock retries require a running Z80, exclude Functional, and
+//! observe every bounded BUSACK poll and 24/124-iteration released-bus delay.
+//! Original TimeAware fallback executes those actual instructions. A Rust
+//! translation still needs a reviewed whole-loop primitive; generic waits do
+//! not preserve the read/retry counts. Retry fragments are not RTS entry hooks.
 
-use crate::{Context, Result, ids};
+use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// Available Rust entries owned by this subsystem.
@@ -37,8 +48,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
-/// Each entry is a RAM-only leaf; the two loops have fixed 276-byte/six-record
-/// bounds. Missing IDs are not approved for atomic checking or fallback.
+/// The six W0 leaves have no callees; the copy/clear loops have fixed bounds.
+/// `PlaySoundEffect` (`G/src/audio/play_sound_effect.c:15-31`) only reads/writes
+/// RAM and calls the Atomic request-only `AudioRequestFmChannelRelease`.
+/// This classifies original entries independently of translation availability.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::MUSIC_RESTORE_INITIAL_STATE,
     ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
@@ -46,6 +59,76 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
     ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT,
     ids::PLAY_SOUND,
+    ids::PLAY_SOUND_EFFECT,
+];
+
+/// Reviewed original non-atomic contracts, independent of translation status.
+///
+/// - `SetupYM2612` (`G/src/asm/sound.s:71-664`): fixed patch ROM reads and
+///   ordered YM writes; BUSY latency is the Functional model's eventual-ready
+///   stutter. No timer/audio elapsed-time observation or mailbox retry occurs.
+/// - `AudioWriteFmChannelReleaseMask` (`sound.s:670-704`) and
+///   `YM2612UpdateFrequency` (`sound.s:709-756`): the same ordered YM/BUSACK
+///   transaction contract, with the DAC-delay byte changed while Z80 is stopped.
+/// - `LoadSoundDriverToZ80` (`G/src/asm/z80bus.s:10-39`): stable ROM upload
+///   while bus-owned, combinational BUSACK (reset still denies access), and
+///   ordered reset/release writes. Its fixed instruction delays are not logic
+///   observations; this is not a sound/startup timing-equivalence claim.
+/// - `AudioReleaseAllFmChannels` (`G/src/asm/sound_channels.s:9-20`): six
+///   Functional key-mask calls, then a RAM request clear.
+/// - `AudioLoadPendingChannelTemplateEffect` (`sound.s:9-64`): Functional
+///   releases followed by fixed-source channel-template ROM/RAM operations.
+/// - `MusicLoadSongChannelTemplates` (`G/src/asm/sound_schedule.s:24-38`):
+///   Functional release, Atomic initial-state copy, stable ROM-template copy.
+/// - `MusicSelectSongTemplateBank` (`sound_schedule.s:12-18`) and
+///   `MusicProcessTemplateRestartHook` (`sound_schedule.s:44-76`): finite RAM/
+///   stack decisions and only the reviewed Functional template-loader callees.
+/// - The six TimeAware entries documented above require the actual timed
+///   mailbox protocol and original IRQ execution; the class permits original
+///   fallback, not replacing their loops with a generic condition wait.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    (ids::SETUP_YM2612, ExecutionClass::Functional),
+    (
+        ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
+        ExecutionClass::Functional,
+    ),
+    (ids::YM2612_UPDATE_FREQUENCY, ExecutionClass::Functional),
+    (ids::LOAD_SOUND_DRIVER_TO_Z80, ExecutionClass::Functional),
+    (ids::AUDIO_RELEASE_ALL_FM_CHANNELS, ExecutionClass::Functional),
+    (
+        ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
+        ExecutionClass::Functional,
+    ),
+    (
+        ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
+        ExecutionClass::Functional,
+    ),
+    (
+        ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
+        ExecutionClass::Functional,
+    ),
+    (
+        ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
+        ExecutionClass::Functional,
+    ),
+    (
+        ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+        ExecutionClass::TimeAware,
+    ),
+    (ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE, ExecutionClass::TimeAware),
+    (
+        ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+        ExecutionClass::TimeAware,
+    ),
+    (
+        ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+        ExecutionClass::TimeAware,
+    ),
+    (
+        ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
+        ExecutionClass::TimeAware,
+    ),
+    (ids::MUSIC_UPDATE_SEQUENCER, ExecutionClass::TimeAware),
 ];
 
 /// G/src/asm/sound_init.s:12 (`MusicRestoreInitialState`, REV 02 0x03e3f4).
