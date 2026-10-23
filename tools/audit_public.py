@@ -1,9 +1,11 @@
 """Refuse private material in tracked worktree files, the index, HEAD, and optionally all history.
 
-    python tools/audit_public.py [--history] [--no-rom] [--repo DIR]
+    python tools/audit_public.py [--history] [--refs REF ...] [--no-rom] [--repo DIR]
 
 No Git objects or files are changed. Reports never echo the offending bytes. --no-rom is suitable
 for ROM-free CI; otherwise both pinned reference ROMs are required and verified before indexing.
+--refs checks only selected committed ancestry for publication; without it the index/worktree
+remain in scope, and --history additionally includes every local ref for hygiene reporting.
 
 Adapted from the GPL-3.0 toejam-earl-decomp public audit. No decompilation-specific
 path, header-text, source-literal or historical-blob exceptions are carried over.
@@ -28,9 +30,11 @@ import subprocess
 import sys
 import time
 import tokenize
+import unicodedata
 import zlib
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote_to_bytes
 
@@ -109,18 +113,14 @@ BYTE_STRING = (
 BYTE_CAST_ATOM = rb"(?:[ \t]*\)*\s+as\s+[ui]8)"
 BYTE_CAST = BYTE_CAST_ATOM + rb"*"
 BYTE_CAST_SUFFIX = re.compile(BYTE_CAST_ATOM + rb"+$")
-RUST_RAW_START = re.compile(rb'(?:br|r)(#{0,255})"')
+RUST_RAW_START = re.compile(rb'(?:br|cr|r)(#{0,255})"')
 RUST_IDENTIFIER = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")
-RUST_CHAR = re.compile(
-    rb"b?'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|[^\r\n])|"
-    rb"[^\\'\r\n])'")
 INTEGER = rb"(?:0[xX]_?[0-9a-fA-F](?:_?[0-9a-fA-F])*|\$[0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO]_?[0-7](?:_?[0-7])*|0[bB]_?[01](?:_?[01])*|[0-9](?:_?[0-9])*|[0-9a-fA-F]{2,})(?:_?[uUiI](?:8|16|32|64|128|size)|[uUlL]*)"
 NUMBER = re.compile(
     rb"(?<![\w.\\])[+-]?(?:" + BYTE_STRING + rb"|" + CHARACTER + rb"|" + INTEGER + rb")"
     + BYTE_CAST + rb"(?![\w.])")
 INTEGER_NUMBER = re.compile(
     rb"(?<![\w.\\])[+-]?(?:" + INTEGER + rb")" + BYTE_CAST + rb"(?![\w.])")
-LINE_COMMENT = re.compile(rb"//[^\r\n]*|/\*[^\r\n]*?\*/")
 BYTE_SEPARATORS = re.compile(rb"""^[\s,;:{}\[\]()=:+*/\\|<>?&!%~^`"'-]*$""")
 INT_SUFFIX = re.compile(rb"(?:_?[uUiI](?:8|16|32|64|128|size)|[uUlL]+)$")
 ROW_LABEL = re.compile(
@@ -350,7 +350,7 @@ class DecodeBudget:
 
 
 def decode_c_literal(token: bytes, *, rust: bool = False,
-                     python_bytes: bool = False) -> tuple[bytes, int]:
+                     python: bool = False, unicode_text: bool = False) -> tuple[bytes, int]:
     """Decode C, Rust or Python byte escapes without invoking a language compiler."""
     body = token[token.index(b'"') + 1:-1]
     out, escaped_nontext = bytearray(), 0
@@ -376,17 +376,18 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
             continue
         if rust and value == ord("0"):
             decoded = bytes(1)
-        elif value in simple and not (python_bytes and value == ord("?")):
+        elif value in simple and not (python and value == ord("?")):
             decoded = bytes([simple[value]])
         elif not rust and 48 <= value <= 55:
             digits = bytearray([value])
             while len(digits) < 3 and position < len(body) and 48 <= body[position] <= 55:
                 digits.append(body[position])
                 position += 1
-            decoded = bytes([int(digits, 8) & 0xFF])
+            number = int(digits, 8)
+            decoded = chr(number).encode() if unicode_text else bytes([number & 0xFF])
         elif value == ord("x"):
             start = position
-            if rust or python_bytes:
+            if rust or python:
                 position += 2
                 if not re.fullmatch(rb"[0-9a-fA-F]{2}", body[start:position]):
                     raise DecodeLimitError("invalid two-digit hexadecimal byte escape")
@@ -395,8 +396,18 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
                     position += 1
                 if position == start:
                     raise DecodeLimitError("invalid C hexadecimal escape")
-            decoded = bytes([int(body[start:position], 16) & 0xFF])
-        elif python_bytes and value in b"uUN":
+            number = int(body[start:position], 16)
+            decoded = chr(number).encode() if unicode_text else bytes([number & 0xFF])
+        elif python and unicode_text and value == ord("N"):
+            end = body.find(b"}", position + 1)
+            if body[position:position + 1] != b"{" or end < 0:
+                raise DecodeLimitError("invalid named Unicode escape")
+            try:
+                decoded = unicodedata.lookup(body[position + 1:end].decode("ascii")).encode()
+            except (KeyError, UnicodeError) as error:
+                raise DecodeLimitError("invalid named Unicode escape") from error
+            position = end + 1
+        elif python and not unicode_text and value in b"uUN":
             decoded = b"\\" + bytes([value])
         elif value == ord("u") and body[position:position + 1] == b"{":
             end = body.find(b"}", position + 1)
@@ -418,7 +429,7 @@ def decode_c_literal(token: bytes, *, rust: bool = False,
         else:
             if rust:
                 raise DecodeLimitError("invalid Rust string escape")
-            decoded = (b"\\" if python_bytes else b"") + bytes([value])
+            decoded = (b"\\" if python else b"") + bytes([value])
         out.extend(decoded)
         escaped_nontext += sum(byte < 32 and byte not in b"\n\r\t\f" or byte >= 127 for byte in decoded)
     return bytes(out), escaped_nontext
@@ -521,7 +532,7 @@ def python_byte_literal(token: str) -> bytes | None:
         raw = body.replace("\r\n", "\n").replace("\r", "\n").encode("ascii")
         if "r" in token[:quote].lower():
             return raw
-        return decode_c_literal(b'"' + raw + b'"', python_bytes=True)[0]
+        return decode_c_literal(b'"' + raw + b'"', python=True)[0]
     except (UnicodeError, DecodeLimitError):
         return None
 
@@ -671,15 +682,10 @@ def numeric_variants(data: bytes, matches: list[re.Match]) -> tuple[bytes, ...]:
     return tuple(bytes(stream) for stream in streams)
 
 
-def numeric_fields(data: bytes) -> tuple[bytes, ...] | None:
-    """Decode an all-numeric spelling; never infer an assignment or container grammar."""
-    matches = list(NUMBER.finditer(data))
-    if not matches or BYTE_SEPARATORS.fullmatch(NUMBER.sub(b" ", data)) is None:
-        return None
-    return numeric_variants(data, matches)
 
 
-def numeric_blocks(data: bytes, budget: DecodeBudget):
+def numeric_blocks(data: bytes, budget: DecodeBudget, *,
+                   path: str = "", source: SourceContext | None = None):
     """Every maximal numeric-token run, in any lexical context or container syntax."""
     if CONTROL_BYTES.search(data):
         return
@@ -688,18 +694,20 @@ def numeric_blocks(data: bytes, budget: DecodeBudget):
     except UnicodeDecodeError:
         return
 
+    source = source if source is not None else SourceContext.build(path, data)
+    literal_spans = [(start, start + len(value)) for kind, value, start in source.tokens
+                     if kind in ("string", "char", "regex", "literal_part")]
+
     def annotation(match):
-        token = match.group()
-        body = token[2:-2] if token.startswith(b"/*") else token[2:]
-        if numeric_fields(body) is not None:
-            return token
-        return bytes(10 if byte == 10 else 32 for byte in token)
+        if any(start < match.end() and match.start() < end for start, end in literal_spans):
+            return match.group()
+        return bytes(byte if byte in (10, 13) else 32 for byte in match.group())
 
     def views():
-        yield data  # Always inspect the raw run before doing optional normalization.
-        normalized = LINE_COMMENT.sub(annotation, data)
+        yield data  # Raw/comment contents never disappear from the audit.
+        normalized = source.code
         for pattern in (ROW_LABEL, ARRAY_DECLARATION):
-            normalized = pattern.sub(lambda match: bytes(10 if byte == 10 else 32 for byte in match.group()), normalized)
+            normalized = pattern.sub(annotation, normalized)
         if normalized != data:
             yield normalized
 
@@ -745,12 +753,13 @@ def numeric_blocks(data: bytes, budget: DecodeBudget):
 
 
 def numeric_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ...],
-                   budget: DecodeBudget, origin: str, path: str) -> str | None:
+                   budget: DecodeBudget, origin: str, path: str, *,
+                   source: SourceContext | None = None) -> str | None:
     key = hashlib.sha256(data).digest()
     if key in budget.numeric_scanned:
         return None
     budget.numeric_scanned.add(key)
-    for line, variants in numeric_blocks(data, budget):
+    for line, variants in numeric_blocks(data, budget, path=path, source=source):
         for raw in dict.fromkeys(variants):
             reason = payload_reason(raw, index, allowed, f"{origin}: numeric run at line {line}", budget)
             if reason is not None:
@@ -1158,7 +1167,7 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
 
 def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
                     inclusions: tuple[list[str], list[str]] | None = None,
-                    fragment: bool = False) -> list[str]:
+                    fragment: bool = False, source: SourceContext | None = None) -> list[str]:
     reasons = []
     try:
         text = data.decode("utf-8")
@@ -1171,19 +1180,30 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
         reasons.append(".md file is not recognisable Markdown (possible ROM)")
     allowed: tuple[bytes, ...] = ()
     budget = DecodeBudget()
-    structural = opaque_reason(path, data)
+    source = source if source is not None else SourceContext.build(path, data)
+    code_source = source_is_code(path)
+    structural = None if code_source else opaque_reason(path, data)
     budget.opaque_scanned.add(hashlib.sha256(data).digest())
     if structural is not None:
         reasons.append(structural)
         budget.structural_failure = True
     try:
-        numeric = numeric_reason(data, index, allowed, budget, "blob", path)
+        numeric = numeric_reason(data, index, allowed, budget, "blob", path, source=source)
         if numeric is not None:
             reasons.append(numeric)
             budget.structural_failure = True
         raw_kind = embedded_kind(data, budget)
         if raw_kind is not None:
             reasons.append(f"embedded {raw_kind} payload")
+        payloads = literal_payloads(source, budget, individual=code_source)
+        if code_source:
+            payloads = source_payload_regions(source, budget, payloads)
+        for payload in payloads:
+            reason = inspect_decoded(payload, index, allowed, budget,
+                                     "source literal/comment payload", path, 0)
+            if reason is not None:
+                reasons.append(reason)
+                break
         is_c = PurePosixPath(path).suffix.lower() in (".c", ".h")
         literals = list(c_literals(data, budget)) if is_c else []
         for group in literals:
@@ -1207,8 +1227,8 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
             offset = index.contains(view, 16, allowed, evidence=True)
             if offset is not None:
                 reasons.append(f"raw ROM window (binary >=16 bytes or text >={MIN_TEXT_MATCH}) at blob offset 0x{offset:x}")
-        reason = encoded_reason(view, index, allowed, budget, "blob", path=path)
-        if reason is None and is_text:
+        reason = None if code_source else encoded_reason(view, index, allowed, budget, "blob", path=path)
+        if reason is None and is_text and not code_source:
             for payload, literal in json_payloads(text if view is data else view.decode("utf-8"), budget):
                 reason = encoded_reason(payload, index, allowed, budget, "JSON string/adjacent array",
                                         decoded=True, path=path, check_opaque=literal)
@@ -1218,123 +1238,389 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
             reasons.append(reason)
     except DecodeLimitError as error:
         reasons.append(str(error))
-    reasons.extend((inclusions if inclusions is not None else rust_inclusions(path, data))[1])
+    reasons.extend((inclusions if inclusions is not None else rust_inclusions(path, source.data, source=source))[1])
     return reasons
 
 
-def rust_code_tokens(data: bytes) -> list[tuple[str, bytes, int]]:
-    """Lex only enough Rust to locate builtin includes; comments/strings stay opaque."""
-    tokens = []
-    position = 0
-    while position < len(data):
-        if data[position] in b" \t\r\n\f":
-            position += 1
+def source_language(path: str) -> str:
+    suffix = PurePosixPath(path).suffix.lower()
+    if suffix == ".py":
+        return "python"
+    if suffix in (".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".java", ".go", ".css"):
+        return "c"
+    if suffix in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".json"):
+        return "javascript"
+    if suffix in (".toml", ".lock", ".yaml", ".yml", ".sh", ".bash"):
+        return "config"
+    return "rust"  # Also inspect Rust-like data presentations in text/Markdown.
+
+
+SOURCE_GRAMMARS = {
+    ".rs": "rust", ".py": "python", ".c": "c", ".h": "c", ".cc": "cpp", ".cpp": "cpp",
+    ".cxx": "cpp", ".hpp": "cpp", ".js": "javascript", ".mjs": "javascript",
+    ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "tsx",
+    ".json": "json", ".toml": "toml", ".lock": "toml", ".yaml": "yaml", ".yml": "yaml",
+    ".css": "css", ".html": "html", ".sh": "bash", ".bash": "bash", ".wgsl": "wgsl",
+}
+
+
+def parser_language(path: str) -> str:
+    return SOURCE_GRAMMARS.get(PurePosixPath(path).suffix.lower(), "rust")
+
+
+def source_is_code(path: str) -> bool:
+    language = SOURCE_GRAMMARS.get(PurePosixPath(path).suffix.lower())
+    return language is not None and language not in ("json", "toml", "yaml")
+
+
+@lru_cache(maxsize=20)
+def source_parser(language: str):
+    try:
+        from tree_sitter_language_pack import get_parser
+    except ImportError as error:
+        raise AuditError("source grammars are required; install tools/audit_requirements.txt with uv") from error
+    try:
+        return get_parser(language)
+    except (LookupError, TypeError, ValueError) as error:
+        raise AuditError(f"cannot load pinned source grammar {language!r}: {error}") from error
+
+
+def source_tokens(data: bytes, path: str) -> list[tuple[str, bytes, int]]:
+    """Tokenize real grammars: comments never consume literal or interpolation text."""
+    literal_types = {
+        "string", "string_literal", "raw_string_literal", "char_literal", "byte_literal",
+        "template_string", "interpreted_string_literal", "string_value", "quoted_attribute_value",
+        "double_quote_scalar", "single_quote_scalar", "ansi_c_string",
+    }
+    interpolation_types = {"interpolation", "template_substitution", "format_expression"}
+    literal_parts = {"string_content", "string_fragment", "string_start", "string_end", "regex_pattern"}
+    number_types = {"integer", "float", "integer_literal", "float_literal", "number", "number_literal"}
+    def parse(region: bytes, language: str):
+        # Python and the other grammars accept CRLF but do not all treat a bare
+        # CR as a physical newline. Canonicalize it only for parsing, one byte
+        # for one byte; all token values/spans still come from original input.
+        canonical = re.sub(rb"\r(?!\n)", b"\n", region)
+        return source_parser(language).parse(canonical).root_node
+
+    tokens, pending = [], [(parse(data, parser_language(path)), 0, data, 0)]
+    visited = 0
+    while pending:
+        node, base, region, depth = pending.pop()
+        visited += 1
+        if visited > MAX_JSON_NODES or depth > MAX_ENCODING_DEPTH:
+            raise DecodeLimitError("source grammar exceeds the bounded node/injection budget")
+        value = region[node.start_byte:node.end_byte]
+        start = base + node.start_byte
+        if not value:
             continue
-        if data[position] >= 128:
-            width = 2 if data[position] < 224 else 3 if data[position] < 240 else 4
-            character = data[position:position + width].decode("utf-8", "replace")
-            if character.isspace() or character in ("\u200e", "\u200f"):
-                position += width
-                continue
-        if data.startswith(b"//", position):
-            end = data.find(b"\n", position + 2)
-            position = len(data) if end < 0 else end + 1
+        if node.type == "comment" or node.type.endswith("_comment") or node.type == "shebang":
+            tokens.append(("comment", value, start))
             continue
-        if data.startswith(b"/*", position):
-            position += 2
-            depth = 1
-            while position < len(data) and depth:
-                if data.startswith(b"/*", position):
-                    depth += 1
-                    position += 2
-                elif data.startswith(b"*/", position):
-                    depth -= 1
-                    position += 2
-                else:
-                    position += 1
+        if node.type == "regex":
+            tokens.append(("regex", value, start))
             continue
-        raw = RUST_RAW_START.match(data, position)
-        if raw:
-            closing = b'"' + raw[1]
-            end = data.find(closing, raw.end())
-            end = len(data) if end < 0 else end + len(closing)
-            tokens.append(("string", data[position:end], position))
-            position = end
+        if node.type in literal_types and not any(child.type in interpolation_types for child in node.children):
+            tokens.append(("char" if node.type in ("char_literal", "byte_literal") else "string", value, start))
             continue
-        if data[position] == ord('"') or data.startswith((b'b"', b'c"'), position):
-            end = position + (1 if data[position] == ord('"') else 2)
-            while end < len(data):
-                if data[end] == 92:
-                    end += 2
-                elif data[end] == ord('"'):
-                    end += 1
-                    break
-                else:
-                    end += 1
-            tokens.append(("string", data[position:end], position))
-            position = end
+        if node.type == "line_continuation":
             continue
-        character = RUST_CHAR.match(data, position)
-        if character:
-            tokens.append(("char", character[0], position))
-            position = character.end()
+        # C preprocessor argument bodies and HTML script/style bodies are source,
+        # not quoted data. Re-tokenize them without expanding or executing macros.
+        embedded = None
+        if node.type == "preproc_arg" and len(value) < len(region):
+            embedded = parser_language(path)
+        elif node.type == "raw_text" and node.parent is not None:
+            embedded = {"script_element": "javascript", "style_element": "css"}.get(node.parent.type)
+        if embedded is not None:
+            pending.append((parse(value, embedded), start, value, depth + 1))
             continue
-        identifier = RUST_IDENTIFIER.match(data, position)
-        if identifier:
-            tokens.append(("identifier", identifier[0], position))
-            position = identifier.end()
+        if node.child_count:
+            pending.extend((child, base, region, depth) for child in reversed(node.children))
             continue
-        tokens.append(("punctuation", data[position:position + 1], position))
-        position += 1
+        if node.type in literal_parts:
+            kind = "literal_part"
+        elif node.type == "plain_value" or (node.type == "word" and node.parent is not None
+                                           and node.parent.type != "command_name"):
+            kind = "data"
+        elif node.type in number_types:
+            kind = "number"
+        elif node.type.endswith("identifier") or RUST_IDENTIFIER.fullmatch(value.removeprefix(b"r#")):
+            kind = "identifier"
+        else:
+            kind = "punctuation"
+        tokens.append((kind, value, start))
     return tokens
 
 
-def rust_inclusions(path: str, data: bytes, *,
-                    changed_lines: set[int] | None = None) -> tuple[list[str], list[str]]:
-    """Return public literal targets and unconditional compile-time include findings.
+def source_lines(data: bytes) -> list[bytes]:
+    """Git diffs and changed-line provenance count LF, not every control byte."""
+    parts = data.split(b"\n")
+    return [part + b"\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
 
-    Arbitrary Rust/build-macro evaluation is intentionally not attempted. Only a direct
-    string literal can be resolved consistently for a worktree, index stage or old tree.
-    """
+
+@dataclass
+class SourceContext:
+    path: str
+    data: bytes
+    tokens: list[tuple[str, bytes, int]]
+    changed_lines: set[int] | None
+    code: bytes
+    changed_ranges: tuple[tuple[int, int], ...]
+
+    @classmethod
+    def build(cls, path: str, data: bytes, changed_lines: set[int] | None = None) -> SourceContext:
+        try:
+            data.decode("utf-8")
+            tokens = source_tokens(data, path) if CONTROL_BYTES.search(data) is None else []
+        except UnicodeError:
+            tokens = []
+        code = bytearray(data)
+        for kind, value, start in tokens:
+            if kind == "comment":
+                code[start:start + len(value)] = bytes(byte if byte in (10, 13) else 32 for byte in value)
+        ranges = []
+        if changed_lines is not None:
+            start = 0
+            for line, value in enumerate(source_lines(bytes(code)), 1):
+                if line in changed_lines:
+                    if ranges and ranges[-1][1] == start:
+                        ranges[-1] = (ranges[-1][0], start + len(value))
+                    else:
+                        ranges.append((start, start + len(value)))
+                if line not in changed_lines:
+                    code[start:start + len(value)] = bytes(byte if byte in (10, 13) else 32 for byte in value)
+                start += len(value)
+        return cls(path, data, tokens, changed_lines, bytes(code), tuple(ranges))
+
+    def touched(self, start: int, end: int) -> bool:
+        if self.changed_lines is None:
+            return True
+        return any(start < last and first < end for first, last in self.changed_ranges)
+
+    def code_touched(self, start: int, end: int) -> bool:
+        return self.changed_lines is None or bool(self.code[start:end].strip())
+
+
+def source_literal(value: bytes, path: str) -> bytes | None:
+    """Decode one lexical string/character literal without evaluating source code."""
+    language = source_language(path)
+    raw = RUST_RAW_START.match(value) if language == "rust" else None
+    if raw:
+        closing = b'"' + raw[1]
+        return value[raw.end():-len(closing)] if value.endswith(closing) else None
+    positions = [(position, quote) for quote in (b'"', b"'", b"`")
+                 if (position := value.find(quote)) >= 0]
+    if not positions:
+        return None
+    position, quote = min(positions)
+    prefix = value[:position]
+    if language == "c" and prefix.endswith(b"R"):
+        opening = value.find(b"(", position + 1)
+        closing = b")" + value[position + 1:opening] + b'"'
+        return value[opening + 1:-len(closing)] if opening >= 0 and value.endswith(closing) else None
+    triple = value.startswith(quote * 3, position)
+    delimiter = quote * (3 if triple else 1)
+    if not value.endswith(delimiter):
+        return None
+    body = value[position + len(delimiter):-len(delimiter)]
+    if language == "python":
+        if b"f" in prefix.lower():
+            return None  # Interpolated expressions are not literal assembly.
+        if b"b" in prefix.lower():
+            return python_byte_literal(value.decode("utf-8"))
+        body = body.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        if b"r" in prefix.lower():
+            return body
+    if language == "config" and quote == b"'":
+        return body.replace(b"''", b"'") if PurePosixPath(path).suffix in (".yaml", ".yml") else body
+    if quote == b"`" and b"${" in body:
+        return None
+    if b"\\" not in body:
+        return body
+    try:
+        return decode_c_literal(
+            b'"' + body + b'"', rust=language == "rust",
+            python=language in ("python", "javascript"),
+            unicode_text=language in ("python", "javascript"))[0]
+    except DecodeLimitError:
+        return None
+
+
+def literal_payloads(source: SourceContext, budget: DecodeBudget, *, individual: bool = False):
+    """Fold adjacent literals and bounded literal-only concat! trees."""
+    tokens = [token for token in source.tokens if token[0] != "comment"]
+    pairs, stack = {}, []
+    closers = {b"(": b")", b"[": b"]", b"{": b"}"}
+    strict = PurePosixPath(source.path).suffix.lower() == ".rs"
+    for index, (kind, value, _) in enumerate(tokens):
+        if kind != "punctuation":
+            continue
+        if value in closers:
+            stack.append((index, closers[value]))
+        elif stack and value == stack[-1][1]:
+            opening, _ = stack.pop()
+            pairs[opening] = index
+
+    def join(parts: list[bytes | None]) -> bytes:
+        known = [part for part in parts if part is not None]
+        budget.charge(sum(map(len, known)))
+        return b"".join(known)
+
+    def number_text(value: bytes) -> bytes:
+        spelling = re.sub(rb"f(?:32|64)$", b"", INT_SUFFIX.sub(b"", value)).replace(b"_", b"")
+        if spelling.lower().startswith((b"0x", b"0o", b"0b")):
+            return str(int(spelling, 0)).encode()
+        return spelling
+
+    def atom(index: int, depth: int, numbers: bool = False):
+        if depth > MAX_JSON_DEPTH:
+            raise DecodeLimitError("source literal assembly exceeds the bounded nesting depth")
+        if index >= len(tokens):
+            return None
+        kind, value, start = tokens[index]
+        if kind in ("string", "char"):
+            if not source.touched(start, start + len(value)):
+                return index + 1, b""
+            payload = source_literal(value, source.path)
+            if payload is None:
+                return None
+            budget.charge(len(payload))
+            return index + 1, payload
+        if numbers and (kind == "number" or (kind == "identifier" and value in (b"true", b"false"))):
+            payload = number_text(value) if kind == "number" else value
+            return index + 1, payload if source.touched(start, start + len(value)) else b""
+        if (numbers and kind == "punctuation" and value in (b"+", b"-")
+                and index + 1 < len(tokens) and tokens[index + 1][0] == "number"):
+            _, spelling, following = tokens[index + 1]
+            payload = value + number_text(spelling)
+            return index + 2, payload if source.touched(start, following + len(spelling)) else b""
+        if (numbers and kind == "identifier" and value.removeprefix(b"r#") == b"env"
+                and index + 2 < len(tokens) and tokens[index + 1][:2] == ("punctuation", b"!")):
+            end = pairs.get(index + 2)
+            if end is not None:
+                arguments = tokens[index + 3:end]
+                if arguments and arguments[-1][:2] == ("punctuation", b","):
+                    arguments = arguments[:-1]
+                metadata = {
+                    b"CARGO_PKG_VERSION", b"CARGO_PKG_VERSION_MAJOR", b"CARGO_PKG_VERSION_MINOR",
+                    b"CARGO_PKG_VERSION_PATCH", b"CARGO_PKG_VERSION_PRE", b"CARGO_PKG_NAME",
+                    b"CARGO_PKG_AUTHORS", b"CARGO_PKG_DESCRIPTION", b"CARGO_PKG_HOMEPAGE",
+                    b"CARGO_PKG_REPOSITORY", b"CARGO_PKG_LICENSE", b"CARGO_PKG_LICENSE_FILE",
+                    b"CARGO_PKG_RUST_VERSION", b"CARGO_PKG_README", b"CARGO_CRATE_NAME",
+                }
+                if (len(arguments) == 1 and arguments[0][0] == "string"
+                        and source_literal(arguments[0][1], source.path) in metadata):
+                    # Cargo manifest metadata is an audited public fact, not an
+                    # evaluated environment value. None marks the fact explicitly;
+                    # literal bytes on either side still form one checked stream.
+                    return end + 1, None
+        macro = (kind == "identifier" and value.removeprefix(b"r#") == b"concat"
+                 and index + 2 < len(tokens) and tokens[index + 1][:2] == ("punctuation", b"!")
+                 and tokens[index + 2][1] in closers)
+        if not macro:
+            return None
+        opening = index + 2
+        end = pairs.get(opening)
+        if end is None:
+            if strict and source.code_touched(start, len(source.data)):
+                raise DecodeLimitError("unresolved concat! literal assembly")
+            return None
+        if not source.code_touched(start, tokens[end][2] + 1):
+            return end + 1, b""
+        parts, cursor = [], opening + 1
+        while cursor < end:
+            parsed = atom(cursor, depth + 1, numbers=True)
+            if parsed is None:
+                if strict and source.code_touched(start, tokens[end][2] + 1):
+                    raise DecodeLimitError("concat! must contain only bounded literal arguments")
+                return end + 1, b""
+            cursor, payload = parsed
+            parts.append(payload)
+            if cursor < end:
+                if tokens[cursor][:2] != ("punctuation", b","):
+                    if strict and source.code_touched(start, tokens[end][2] + 1):
+                        raise DecodeLimitError("concat! must contain only bounded literal arguments")
+                    return end + 1, b""
+                cursor += 1
+        return end + 1, join(parts)
+
+    index = 0
+    while index < len(tokens):
+        composed = tokens[index][0] == "identifier" and tokens[index][1].removeprefix(b"r#") == b"concat"
+        parsed = atom(index, 0)
+        if parsed is None:
+            index += 1
+            continue
+        index, payload = parsed
+        parts = [payload]
+        while index < len(tokens):
+            following = index + 1 if tokens[index][:2] == ("punctuation", b"+") else index
+            parsed = atom(following, 0)
+            if parsed is None:
+                break
+            index, payload = parsed
+            parts.append(payload)
+        if individual or composed or len(parts) > 1:
+            payload = join(parts)
+            if payload:
+                yield payload
+
+def source_payload_regions(source: SourceContext, budget: DecodeBudget, literals):
+    """Encoding guesses apply to literal/comment data, never identifier/punctuation code."""
+    yield from literals
+    comments, previous_end = [], None
+
+    def comment_body(value: bytes) -> bytes:
+        if value.startswith(b"<!--"):
+            return value[4:-3]
+        if value.startswith(b"/*"):
+            body = value[2:-2]
+            if body[:1] in (b"*", b"!"):
+                body = body[1:]
+            return re.sub(rb"(?m)^[ \t]*\*(?:[ \t]?)", b"", body)
+        if value.startswith(b"//"):
+            body = value[2:]
+            return body[1:] if body[:1] in (b"/", b"!") else body
+        return value[1:] if value.startswith(b"#") else value
+
+    for kind, value, start in source.tokens:
+        if kind == "comment":
+            if previous_end is not None and source.data[previous_end:start].strip():
+                if comments:
+                    yield b"\n".join(comments)
+                    comments.clear()
+            previous_end = start + len(value)
+            if source.touched(start, previous_end):
+                body = comment_body(value)
+                budget.charge(len(body))
+                comments.append(body)
+        elif kind in ("literal_part", "data") and source.touched(start, start + len(value)):
+            budget.charge(len(value))
+            yield value
+    if comments:
+        yield b"\n".join(comments)
+
+
+
+def rust_inclusions(path: str, data: bytes, *, changed_lines: set[int] | None = None,
+                    source: SourceContext | None = None) -> tuple[list[str], list[str]]:
+    """Every inclusion builtin token must be a direct tracked-public literal call."""
     targets, reasons = [], []
     if PurePosixPath(path).suffix.lower() != ".rs":
         return targets, reasons
-    tokens = rust_code_tokens(data)
-
-    def touched(start: int, end: int) -> bool:
-        if changed_lines is None:
-            return True
-        first = data.count(b"\n", 0, start) + 1
-        last = data.count(b"\n", 0, end) + 1
-        return any(first <= line <= last for line in changed_lines)
-
-    # Renaming these builtins would hide later invocations from a lexical gate.
-    # Require their canonical spellings rather than trying Rust name resolution.
-    for begin, (kind, name, start) in enumerate(tokens):
-        if (kind, name) != ("identifier", b"use"):
-            continue
-        if begin >= 2 and tokens[begin - 1][:2] == ("punctuation", b"#"):
-            continue
-        end = begin + 1
-        while end < len(tokens) and tokens[end][:2] != ("punctuation", b";"):
-            end += 1
-        last = tokens[end][2] + 1 if end < len(tokens) else len(data)
-        if not touched(start, last):
-            continue
-        for position in range(begin + 1, end - 1):
-            if (tokens[position][0] == "identifier"
-                    and tokens[position][1] in (b"include_bytes", b"include_str")
-                    and tokens[position + 1][:2] == ("identifier", b"as")):
-                reasons.append("compile-time Rust inclusion aliases are forbidden; use the canonical builtin")
-
+    source = source if source is not None else SourceContext.build(path, data, changed_lines)
+    tokens = [token for token in source.tokens if token[0] != "comment"]
     closing = {b"(": b")", b"[": b"]", b"{": b"}"}
-    for index in range(len(tokens) - 2):
-        kind, name, start = tokens[index]
-        if kind != "identifier" or name not in (b"include_bytes", b"include_str"):
-            continue
-        if tokens[index + 1][:2] != ("punctuation", b"!"):
+    for index, (kind, name, start) in enumerate(tokens):
+        name = name.removeprefix(b"r#")
+        if kind != "identifier" or name not in (b"include_bytes", b"include_str", b"include"):
             continue
         macro = name.decode() + "!"
+        if index + 2 >= len(tokens) or tokens[index + 1][:2] != ("punctuation", b"!"):
+            if source.touched(start, start + len(name)):
+                reasons.append(f"{macro}: unresolved inclusion builtin identifier is forbidden "
+                               "(including forwarding, aliases and macro arguments)")
+            continue
         opening = tokens[index + 2][1]
         stack = [closing[opening]] if opening in closing else []
         end = index + 3
@@ -1348,7 +1634,7 @@ def rust_inclusions(path: str, data: bytes, *,
             if stack:
                 end += 1
         last = tokens[end][2] + len(tokens[end][1]) if end < len(tokens) else len(data)
-        if not touched(start, last):
+        if not source.code_touched(start, last):
             continue
         arguments = tokens[index + 3:end]
         if arguments and arguments[-1][:2] == ("punctuation", b","):
@@ -1583,11 +1869,7 @@ class VendorAudit:
         if git_blob_id(data) == entry.upstream_blob:
             return None, None
         baseline = self.upstream.blob(entry.upstream_blob)
-        def lf_lines(value: bytes) -> list[bytes]:
-            parts = value.split(b"\n")
-            return [part + b"\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
-
-        before, after = lf_lines(baseline), lf_lines(data)
+        before, after = source_lines(baseline), source_lines(data)
         matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
         additions, lines = [], set()
         for kind, _, _, start, end in matcher.get_opcodes():
@@ -1597,12 +1879,34 @@ class VendorAudit:
         return b"".join(additions) or None, lines
 
 
+def resolve_history_refs(repo: Path, publish_refs: list[str] | None) -> list[str]:
+    roots = ["--all"]
+    if publish_refs is not None:
+        if not publish_refs:
+            raise AuditError("--refs requires at least one commit reference")
+        roots = []
+        for ref in publish_refs:
+            if not isinstance(ref, str) or not ref or ref.startswith("-"):
+                raise AuditError("publication refs must be nonempty commit references, not Git options")
+            resolved = git(repo, "rev-parse", "--verify", "--end-of-options", ref + "^{commit}").strip()
+            roots.append(resolved.decode("ascii"))
+    return roots
+
+
+def history_tree_ids(repo: Path, publish_refs: list[str] | None = None) -> list[bytes]:
+    if git(repo, "rev-parse", "--is-shallow-repository").strip() == b"true":
+        raise AuditError("--history requires full history; fetch the shallow clone before auditing")
+    roots = resolve_history_refs(repo, publish_refs)
+    return git(repo, "log", "--format=%T", *roots).splitlines()
+
+
 def generate_vendor_manifest(repo: Path) -> dict:
-    """Record current and historical vendor paths without copying any upstream bytes."""
+    """Record only the current HEAD/index/worktree vendor closure, never other refs."""
     repo = Path(os.fsdecode(git(repo, "rev-parse", "--show-toplevel").strip()))
     upstream = UpstreamRepository(repo)
     names = {os.fsdecode(path) for path in git(repo, "ls-files", "-z", "--", VENDOR_PREFIX).split(b"\0") if path}
-    for tree in set(git(repo, "log", "--all", "--format=%T").splitlines()):
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "HEAD^{tree}"], capture_output=True)
+    for tree in [head.stdout.strip()] if head.returncode == 0 else []:
         for entry in git(repo, "ls-tree", "-r", "-z", tree.decode(), "--", VENDOR_PREFIX).split(b"\0"):
             if entry:
                 names.add(os.fsdecode(entry.split(b"\t", 1)[1]))
@@ -1621,17 +1925,21 @@ def generate_vendor_manifest(repo: Path) -> dict:
     return {"schema": 1, "url": UPSTREAM_URL, "revision": UPSTREAM_REVISION, "files": files}
 
 
-def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list[Finding], dict]:
+def audit(repo: Path, history: bool = False, no_rom: bool = False,
+          publish_refs: list[str] | None = None) -> tuple[list[Finding], dict]:
     started = time.perf_counter()
+    history = history or publish_refs is not None
     repo = Path(os.fsdecode(git(repo, "rev-parse", "--show-toplevel").strip()))
     object_format = git(repo, "rev-parse", "--show-object-format").decode().strip()
+    resolved_refs = resolve_history_refs(repo, publish_refs) if publish_refs is not None else None
     images = [] if no_rom else reference_images(repo)
     index = None if no_rom else RomIndex(images)
     refs: set[tuple[str, str, str, str]] = set()
     work_paths = set()
     index_paths: dict[str, set[str]] = {}
     tracked_by_source: dict[str, set[str]] = {}
-    for entry in git(repo, "ls-files", "--stage", "-z").split(b"\0"):
+    staged = git(repo, "ls-files", "--stage", "-z") if publish_refs is None else b""
+    for entry in staged.split(b"\0"):
         if not entry:
             continue
         meta, path = entry.split(b"\t", 1)
@@ -1648,9 +1956,9 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         raise AuditError("--history requires full history; fetch the shallow clone before auditing")
     # --all includes branches, tags and other refs. Deduplicate root trees, but never paths: the
     # same harmless blob at README.md and scratch/leak.txt must still be rejected at the latter.
-    trees = git(repo, "log", "--all", "--format=%T").splitlines() if history else []
+    trees = history_tree_ids(repo, resolved_refs) if history else []
     head = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "HEAD^{tree}"], capture_output=True)
-    if head.returncode == 0:
+    if head.returncode == 0 and publish_refs is None:
         trees.append(head.stdout.strip())
     trees = sorted(set(trees))
     for tree in trees:
@@ -1676,9 +1984,13 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
             sizes[oid] = int(size)
     vendor = None
     if any(path.startswith(VENDOR_PREFIX) for _, path, _, _ in refs):
-        preferred = ["index:0"]
-        if head.returncode == 0:
-            preferred.append(f"tree:{head.stdout.strip().decode()}")
+        if resolved_refs is None:
+            preferred = ["index:0"]
+            if head.returncode == 0:
+                preferred.append(f"tree:{head.stdout.strip().decode()}")
+        else:
+            tips = git(repo, "show", "-s", "--format=%T", *resolved_refs).splitlines()
+            preferred = [f"tree:{tree.decode()}" for tree in tips]
         manifest_oid = next(
             (oid for source in preferred for oid, path, origin, mode in refs
              if origin == source and path == VENDOR_MANIFEST and mode in ("100644", "100755")),
@@ -1687,6 +1999,15 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
             raise AuditError("vendored files require a tracked, bounded vendor/jgenesis/UPSTREAM.json; "
                              "run python tools/generate_vendor_manifest.py and stage the manifest")
         vendor = VendorAudit(repo, git(repo, "cat-file", "blob", manifest_oid))
+        manifest_oids = sorted({oid for oid, path, _, _ in refs
+                                if path == VENDOR_MANIFEST and oid != manifest_oid and sizes.get(oid, 0) <= MAX_BYTES})
+        for oid in manifest_oids:
+            try:
+                entries = vendor.validate_manifest(git(repo, "cat-file", "blob", oid))
+            except AuditError:
+                continue  # Its own source remains a finding; invalid metadata grants nothing.
+            for name, entry in entries.items():
+                vendor.entries.setdefault(name, entry)
 
     def scan_content(path: str, data: bytes, mode: str) -> tuple[list[str], tuple[list[str], list[str]]]:
         original, changed_lines = data, None
@@ -1700,9 +2021,10 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
                         return [], ([], [])
         except AuditError as error:
             return [f"vendor provenance: {error}"], ([], [])
-        inclusions = rust_inclusions(path, original, changed_lines=changed_lines)
+        source = SourceContext.build(path, original, changed_lines)
+        inclusions = rust_inclusions(path, original, source=source)
         reasons = content_reasons(path, data, index, inclusions=inclusions,
-                                  fragment=changed_lines is not None)
+                                  fragment=changed_lines is not None, source=source)
         return reasons, inclusions
 
     def vendor_context(path: str, source: str, tracked: set[str]) -> list[str]:
@@ -1762,7 +2084,7 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False) -> tuple[list
         reasons += vendor_context(path, "worktree", tracked_worktree)
         findings.extend(Finding("worktree", path, reason) for reason in reasons)
     summary = {"blobs": len(oids), "trees": len(trees), "tracked_worktree_files": work_count,
-               "roms": len(images), "rom_check": index is not None, "history": history,
+               "roms": len(images), "rom_check": index is not None, "history": history, "refs": publish_refs,
                "seconds": round(time.perf_counter() - started, 3)}
     return findings, summary
 
@@ -1771,10 +2093,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--history", action="store_true", help="include every tree reachable from all Git refs")
+    parser.add_argument("--refs", nargs="+", metavar="REF",
+                        help="publication history: only these commit refs and their ancestry; implies --history")
     parser.add_argument("--no-rom", action="store_true", help="CI: skip only the private ROM-byte comparison")
     args = parser.parse_args(argv)
     try:
-        findings, summary = audit(args.repo, args.history, args.no_rom)
+        findings, summary = audit(args.repo, args.history, args.no_rom, args.refs)
     except (AuditError, OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"audit_public: ERROR: {error}", file=sys.stderr)
         return 1
@@ -1786,9 +2110,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAIL {path!r}: {reason} [{', '.join(sorted(sources))}]")
     status = "FAIL" if findings else "PASS"
     rom_status = f"{summary['roms']} ROM(s) indexed" if summary["rom_check"] else "ROM comparison SKIPPED"
+    scope = ("refs " + ", ".join(summary["refs"])) if summary["refs"] is not None else (
+        "all local refs" if summary["history"] else "HEAD/index/worktree")
     print(f"audit_public: {status}; {summary['blobs']} unique Git blobs, {summary['trees']} trees, "
           f"{summary['tracked_worktree_files']} tracked worktree files; {rom_status}; "
-          f"{len(grouped)} finding(s); {summary['seconds']:.3f}s")
+          f"{len(grouped)} finding(s); history scope: {scope}; {summary['seconds']:.3f}s")
     return 1 if findings else 0
 
 

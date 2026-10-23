@@ -5,7 +5,7 @@
 The upstream URL and revision are authoritative constants in audit_public.py. The
 verified Git tree is cached under the repository's ignored .cache directory. Only
 paths, Git blob ids and modification flags are written, never upstream file bytes.
-Historical vendored paths are retained so the full-history audit remains usable.
+Only the current HEAD/index/worktree closure is considered, never unrelated refs.
 """
 from __future__ import annotations
 

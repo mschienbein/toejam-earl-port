@@ -1,6 +1,6 @@
 """ROM-free publication-gate regressions; all planted bytes are generated, not game data.
 
-Run with: python -m unittest discover -s tools -p 'test_*.py' -v
+Run with uv and tools/audit_requirements.txt; see AGENTS.md for the exact command.
 The optional real-ROM content test reads private inputs only into memory. No real
 ROM bytes are written into a fixture, Git index, commit or compiled artifact.
 """
@@ -68,6 +68,65 @@ def rust_atom_forms(window: bytes) -> dict[str, tuple[str, bytes]]:
     return forms
 
 
+def commented_array(window: bytes, language: str = "rs", *, nested: bool = False) -> bytes:
+    rows = [b", ".join(f"0x{value:02x}".encode() for value in window[start:start + 8])
+            for start in range(0, len(window), 8)]
+    comment = b"/* outer row boundary\n /* nested annotation */\n outer tail */" if nested else b"/* row boundary\n annotation text\n*/"
+    separator = b",\n# row boundary\n" if language == "py" else b",\n" + comment + b"\n"
+    body = separator.join(rows)
+    if language == "rs":
+        return declaration(b"[\n" + body + b"\n]")
+    if language in ("c", "cpp"):
+        return b"const unsigned char DATA[] = {\n" + body + b"\n};\n"
+    if language == "py":
+        return b"DATA = [\n" + body + b"\n]\n"
+    return b"const DATA = new Uint8Array([\n" + body + b"\n]);\n"
+
+
+def concat_hex(window: bytes, *, nested: bool = False, raw: bool = False) -> bytes:
+    fragments = [window[start:start + 8].hex().encode() for start in range(0, len(window), 8)]
+    literals = [(b'r##"' + value + b'"##') if raw else (b'"' + value + b'"') for value in fragments]
+    if nested:
+        literals = [b"concat!(" + b", ".join(literals[start:start + 2]) + b")"
+                    for start in range(0, len(literals), 2)]
+    macro = b"r#concat![" if raw else b"std::concat!("
+    closing = b"]" if raw else b")"
+    return b"const HEX: &str = " + macro + b"\n" + b",\n/* fragment boundary\n annotation */\n".join(literals) + b"\n" + closing + b";\n"
+
+
+def grammar_forms(window: bytes) -> dict[str, tuple[str, bytes]]:
+    fragments = [b'"' + window[start:start + 8].hex().encode() + b'"'
+                 for start in range(0, len(window), 8)]
+    c_strings = b" /* fragment\n boundary */\n".join(fragments)
+    py_strings = b" # fragment boundary\n".join(fragments)
+    javascript = commented_array(window, "js")
+    python = commented_array(window, "py")
+    fstring = b'DATA = f"{bytes([\n' + python.split(b"[\n", 1)[1].rsplit(b"\n]", 1)[0] + b'\n])!r}"\n'
+    return {
+        "multiline-comment": ("rs", commented_array(window)),
+        "nested-comment": ("rs", commented_array(window, nested=True)),
+        "concat-hex": ("rs", concat_hex(window)),
+        "nested-concat": ("rs", concat_hex(window, nested=True)),
+        "raw-concat": ("rs", concat_hex(window, raw=True)),
+        "c-comments": ("c", commented_array(window, "c")),
+        "c-adjacent": ("c", b"const char *HEX =\n" + c_strings + b";\n"),
+        "python-comments": ("py", python),
+        "python-adjacent": ("py", b"HEX = (\n" + py_strings + b"\n)\n"),
+        "python-fstring": ("py", fstring),
+        "javascript-comments": ("js", javascript),
+        "html-script-comments": ("html", b"<script>\n" + javascript + b"</script>\n"),
+    }
+
+
+def compile_rust(directory: Path, name: str, source: bytes) -> bytes:
+    path = directory / (name.replace("-", "_") + ".rs")
+    executable = path.with_suffix(".exe" if sys.platform == "win32" else "")
+    path.write_bytes(source)
+    subprocess.run(["rustc", "--edition=2024", str(path), "-o", str(executable)],
+                   capture_output=True, check=True)
+    return subprocess.run([str(executable)], capture_output=True, check=True).stdout
+
+
 def git_command(repo: Path, *args: str, data: bytes | None = None) -> bytes:
     result = subprocess.run(
         ["git", "-C", str(repo), "-c", "user.name=Audit Fixture", "-c", "user.email=audit@example.invalid", *args],
@@ -107,19 +166,19 @@ class GitAuditCase(unittest.TestCase):
             self.assertEqual(references.call_count, int(private))
             return findings
 
-    def matrix(self, forms: dict[str, tuple[str, bytes]]) -> list[tuple[str, str]]:
+    def matrix(self, forms: dict[str, tuple[str, bytes]], prefix: str = "cases") -> list[tuple[str, str]]:
         cases = []
         for state in STATES:
             for label, (suffix, payload) in forms.items():
-                path = f"cases/{state}/{label}.{suffix}"
+                path = f"{prefix}/{state}/{label}.{suffix}"
                 put(self.repo, path, payload if state == "history" else BENIGN)
                 cases.append((state, path))
-        self.git("add", "cases")
+        self.git("add", prefix)
         self.git("commit", "-m", "Synthetic historical payloads")
         for state, path in cases:
             if state == "history":
                 (self.repo / path).unlink()
-        self.git("add", "-u", "cases")
+        self.git("add", "-u", prefix)
         self.git("commit", "-m", "Remove synthetic historical payloads")
         for state, path in cases:
             label = Path(path).stem
@@ -164,6 +223,16 @@ class EncodingGitStateTests(GitAuditCase):
         for private in (False, True):
             self.assert_matrix(cases, private)
 
+    def test_grammar_boundaries_both_revisions_all_git_states_and_modes(self) -> None:
+        forms = {}
+        for revision, image in zip(("rev02", "rev00"), IMAGES):
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            forms.update({f"{revision}-{name}": value for name, value in grammar_forms(window).items()})
+        cases = self.matrix(forms)
+        self.assertEqual(len(cases), 72)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
     def test_cli_no_rom_fails_on_decoded_binary(self) -> None:
         put(self.repo, "payload.txt", BENIGN)
         self.git("add", "payload.txt")
@@ -186,13 +255,41 @@ class EncodingGitStateTests(GitAuditCase):
             self.assertTrue(all(any(f.path == "conflict.rs" and f.source == f"index:{stage}" for f in findings) for stage in (1, 2, 3)))
 
 
+class PublicationScopeTests(GitAuditCase):
+    def test_publication_refs_exclude_unpublished_branches_and_worktree_state(self) -> None:
+        self.git("checkout", "-b", "unpublished")
+        put(self.repo, "private.bin", b"Synthetic disallowed artifact, not game bytes.")
+        self.git("add", "private.bin")
+        self.git("commit", "-m", "Synthetic unpublished artifact")
+        findings, _ = audit.audit(self.repo, history=True, no_rom=True)
+        self.assertTrue(findings)
+        findings, summary = audit.audit(self.repo, no_rom=True, publish_refs=["main"])
+        self.assertEqual(findings, [])
+        self.assertEqual(summary["tracked_worktree_files"], 0)
+        self.assertTrue(summary["history"])
+        findings, _ = audit.audit(self.repo, no_rom=True, publish_refs=["main", "unpublished"])
+        self.assertTrue(any(f.path == "private.bin" for f in findings))
+        result = subprocess.run(
+            [sys.executable, str(Path(audit.__file__)), "--repo", str(self.repo), "--refs", "main", "--no-rom"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("history scope: refs main", result.stdout)
+
+    def test_invalid_publication_refs_fail_closed(self) -> None:
+        for refs in ([], ["--all"], ["missing-reference"]):
+            with self.subTest(refs=refs), self.assertRaises(audit.AuditError):
+                audit.audit(self.repo, no_rom=True, publish_refs=refs)
+
+
 class DecoderTests(unittest.TestCase):
     def test_binary_length_guard_does_not_depend_on_entropy(self) -> None:
         for size in (64, 96, 192):
             binary = bytes(size)
-            for form in (binary.hex().encode(), json.dumps(binary.decode()).encode(), declaration(b'b"' + b"\\0" * size + b'"')):
-                with self.subTest(size=size, form_length=len(form)):
-                    self.assertTrue(audit.content_reasons("fixture.rs", form, None))
+            forms = (("txt", binary.hex().encode()), ("json", json.dumps(binary.decode()).encode()),
+                     ("rs", declaration(b'b"' + b"\\0" * size + b'"')))
+            for suffix, form in forms:
+                with self.subTest(size=size, suffix=suffix, form_length=len(form)):
+                    self.assertTrue(audit.content_reasons("fixture." + suffix, form, None))
 
     def test_wrapped_low_entropy_base64_remains_binary_data_not_prose(self) -> None:
         encoded = base64.b64encode(bytes(WINDOW_SIZE))
@@ -244,18 +341,13 @@ class DecoderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="tje-audit-rust-proof-") as directory:
             for name, (_, declaration_source) in forms.items():
                 with self.subTest(form=name):
-                    source = Path(directory) / (name.replace("-", "_") + ".rs")
-                    executable = source.with_suffix(".exe" if sys.platform == "win32" else "")
+                    root = Path(directory)
                     if name == "one-byte-string":
                         main = (b"fn main() { let bytes: Vec<u8> = DATA.iter().flat_map(|p| p.iter().copied()).collect(); "
                                 b"std::io::Write::write_all(&mut std::io::stdout(), &bytes).unwrap(); }\n")
                     else:
                         main = b"fn main() { std::io::Write::write_all(&mut std::io::stdout(), DATA).unwrap(); }\n"
-                    source.write_bytes(declaration_source + main)
-                    subprocess.run(["rustc", "--edition=2024", str(source), "-o", str(executable)],
-                                   capture_output=True, check=True)
-                    result = subprocess.run([str(executable)], capture_output=True, check=True)
-                    self.assertEqual(result.stdout, window)
+                    self.assertEqual(compile_rust(root, name, declaration_source + main), window)
 
     def test_ordinary_code_docs_and_lock_hashes_stay_clean(self) -> None:
         checksum = hashlib.sha256(b"ordinary package checksum").hexdigest()
@@ -284,11 +376,122 @@ class DecoderTests(unittest.TestCase):
         index = audit.RomIndex(images)
         for revision, image in zip(("REV 02", "REV 00"), images):
             window = image[OFFSET:OFFSET + WINDOW_SIZE]
-            forms = required_forms(window) | rust_atom_forms(window)
+            forms = required_forms(window) | rust_atom_forms(window) | grammar_forms(window)
             for name, (suffix, source) in forms.items():
                 for private in (None, index):
                     with self.subTest(revision=revision, form=name, private=private is not None):
                         self.assertTrue(audit.content_reasons(f"in-memory.{suffix}", source, private))
+
+
+class StructuralSourceTests(unittest.TestCase):
+    def test_dense_rust_code_tokens_are_not_opaque_encoded_payloads(self) -> None:
+        owner = b"OWNED_SOURCES"
+        argument = b"translation.id.metadata().source"
+        owned = owner + b".contains(&" + argument + b")"
+        arguments = b"arguments[2]"
+        read = b"fs::read_to_string(&" + arguments + b")?"
+        parsed = b"(InputScript::parse(&" + read + b")?)"
+        constant = b"ids::" + (b"SOME_LONG_CONSTANT_NAME_" * 4) + b"END,"
+        fields = [b'"enabled":true', b'"count":3', b'"name":"ordinary"']
+        json = b"serde_json::json!({" + b",".join(fields) + b"})"
+        sources = (
+            b"fn demo() { let _ = " + owned + b"; }",
+            b"fn demo() { let _ = " + parsed + b"; }",
+            b"const IDS: &[FunctionId] = &[" + constant + b"];",
+            b"fn demo() { let _ = " + json + b"; }",
+        )
+        index = audit.RomIndex(IMAGES)
+        for source in sources:
+            for private in (None, index):
+                self.assertEqual(audit.content_reasons("dense.rs", source, private), [])
+
+    def test_literal_and_comment_payloads_keep_the_encoding_and_rom_checks(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        encoded = window.hex().encode()
+        sources = (
+            b'const HEX: &str = "' + encoded + b'";\n',
+            b"// " + encoded + b"\nfn ordinary() {}\n",
+            b"/* " + encoded + b" */\nfn ordinary() {}\n",
+        )
+        for source in sources:
+            for private in (None, audit.RomIndex(IMAGES)):
+                self.assertTrue(audit.content_reasons("payload.rs", source, private))
+        wrapped = base64.b64encode(bytes(WINDOW_SIZE))
+        comments = b"\n".join(b"///" + wrapped[start:start + 32] for start in range(0, len(wrapped), 32))
+        self.assertTrue(audit.content_reasons("comment.rs", comments, None))
+
+    def test_comments_do_not_change_literal_bytes(self) -> None:
+        samples = {
+            "literal.rs": b'const TEXT: &str = r##"/* keep */ // keep"##; /* remove\n block */\n',
+            "literal.cpp": b'const char *TEXT = R"tag(/* keep */ // keep)tag"; /* remove\n block */\n',
+            "literal.py": b'TEXT = r"""# keep /* keep */"""\n# remove\n',
+            "literal.js": b'const rx = /\\/\\* keep \\*\\//; const t = `/* keep */ ${ [1, /* remove */ 2] }`;\n',
+            "literal.ts": b'const rx: RegExp = /\\/\\* keep \\*\\//; const t = `/* keep */ ${ [1, /* remove */ 2] }`;\n',
+        }
+        for path, data in samples.items():
+            with self.subTest(path=path):
+                context = audit.SourceContext.build(path, data)
+                self.assertNotIn(b"remove", context.code)
+                self.assertIn(b"keep", context.code)
+                for kind, value, start in context.tokens:
+                    if kind in ("string", "char", "regex", "literal_part"):
+                        self.assertEqual(context.code[start:start + len(value)], value)
+
+    def test_literal_only_concat_is_bounded_and_benign_text_stays_clean(self) -> None:
+        source = b'''const MESSAGE: &str = concat!("Hello", " ", r#"world"#, '!', 1, true, 1.5);'''
+        context = audit.SourceContext.build("message.rs", source)
+        self.assertEqual(list(audit.literal_payloads(context, audit.DecodeBudget())), [b"Hello world!1true1.5"])
+        self.assertEqual(audit.content_reasons("message.rs", source, None), [])
+        unresolved = b'const DATA: &str = concat!("prefix", env!("UNREVIEWED_INPUT"));'
+        self.assertTrue(audit.content_reasons("unresolved.rs", unresolved, None))
+        metadata = b'const VERSION: &str = concat!("tje-session/", env!("CARGO_PKG_VERSION"));'
+        context = audit.SourceContext.build("version.rs", metadata)
+        self.assertEqual(list(audit.literal_payloads(context, audit.DecodeBudget())), [b"tje-session/"])
+        self.assertEqual(audit.content_reasons("version.rs", metadata, None), [])
+        with mock.patch.object(audit, "MAX_JSON_DEPTH", 1):
+            nested = b'const DATA: &str = concat!(concat!("a", "b"), "c");'
+            self.assertTrue(audit.content_reasons("nested.rs", nested, None))
+
+    def test_python_unicode_literal_composition_preserves_text_semantics(self) -> None:
+        source = rb'TEXT = ("\xE9" "\u3042" "\N{LATIN SMALL LETTER A}")'
+        context = audit.SourceContext.build("text.py", source)
+        self.assertEqual(list(audit.literal_payloads(context, audit.DecodeBudget())), ["éあa".encode()])
+        self.assertEqual(audit.content_reasons("text.py", source, None), [])
+
+    def test_parser_missing_fails_closed_without_a_legacy_lexer(self) -> None:
+        real_import = __import__
+        def blocked(name, *args, **kwargs):
+            if name == "tree_sitter_language_pack":
+                raise ImportError("synthetic missing grammar package")
+            return real_import(name, *args, **kwargs)
+        audit.source_parser.cache_clear()
+        try:
+            with mock.patch("builtins.__import__", side_effect=blocked), self.assertRaises(audit.AuditError):
+                audit.SourceContext.build("missing.rs", b"const X: u8 = 1;")
+        finally:
+            audit.source_parser.cache_clear()
+
+    def test_crlf_and_cr_comment_boundaries(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        for ending in (b"\n", b"\r\n", b"\r"):
+            for suffix in ("rs", "c", "py", "js"):
+                source = commented_array(window, suffix).replace(b"\n", ending)
+                self.assertTrue(audit.content_reasons(f"line-endings.{suffix}", source, None))
+
+    @unittest.skipUnless(shutil.which("rustc"), "Rust compiler absent; grammar regressions still run")
+    def test_review_comment_and_concat_proofs_emit_exact_synthetic_windows(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        forms = {name: value for name, value in grammar_forms(window).items() if value[0] == "rs"}
+        with tempfile.TemporaryDirectory(prefix="tje-audit-grammar-proof-") as directory:
+            for name, (_, source) in forms.items():
+                with self.subTest(form=name):
+                    if "concat" in name:
+                        main = (b"fn main() { let bytes: Vec<u8> = HEX.as_bytes().chunks(2).map(|pair| "
+                                b"u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect(); "
+                                b"std::io::Write::write_all(&mut std::io::stdout(), &bytes).unwrap(); }\n")
+                    else:
+                        main = b"fn main() { std::io::Write::write_all(&mut std::io::stdout(), DATA).unwrap(); }\n"
+                    self.assertEqual(compile_rust(Path(directory), name, source + main), window)
 
 
 class CompileTimeInclusionTests(GitAuditCase):
@@ -312,6 +515,59 @@ class CompileTimeInclusionTests(GitAuditCase):
             put(self.repo, f"cases/{state}/ignored.md", b"Ignored private input.\n")
         for private in (False, True):
             self.assert_matrix(cases, private)
+
+    def test_forwarded_inclusion_builtins_in_all_git_states_and_modes(self) -> None:
+        forms = {}
+        for builtin in ("include_bytes", "include_str", "include"):
+            for raw in (False, True):
+                name = ("r#" if raw else "") + builtin
+                filename = b"private-input.rs" if builtin == "include" else b"private-input.bin"
+                definition = b'macro_rules! load { ($m:ident) => { $m! { "../roms/' + filename + b'" } }; }\n'
+                if builtin == "include":
+                    call = f"load!({name});\n".encode()
+                else:
+                    target = b"&str" if builtin == "include_str" else b"&[u8]"
+                    call = b"const FORWARDED: " + target + b" = load!(" + name.encode() + b");\n"
+                forms[builtin + ("-raw" if raw else "")] = ("rs", definition + call)
+        forms["review-forward-bytes"] = ("rs", b'macro_rules! load { ($m:ident) => { $m!("../roms/rev02.bin") }; }\nconst DATA: &[u8] = load!(include_bytes);\n')
+        cases = self.matrix(forms)
+        self.assertEqual(len(cases), 21)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
+    def test_direct_include_of_tracked_public_rust_source_remains_allowed(self) -> None:
+        put(self.repo, "main.rs", b'include!("public.rs");\n')
+        put(self.repo, "public.rs", b"pub const MESSAGE: &str = \"Public source\";\n")
+        self.git("add", "main.rs", "public.rs")
+        self.git("commit", "-m", "Synthetic direct public include")
+        for private in (False, True):
+            self.assertEqual(self.inspect(private), [])
+
+    @unittest.skipUnless(shutil.which("rustc"), "Rust compiler absent; forwarding gate tests still run")
+    def test_forwarding_proofs_compile_with_only_synthetic_private_inputs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tje-audit-forward-proof-") as directory:
+            root = Path(directory)
+            binary = (IMAGES[0] * 64)
+            text = (b"Synthetic private UTF-8 input.\\n" * 40000)[:1024 * 1024]
+            (root / "input.bin").write_bytes(binary)
+            (root / "input.txt").write_bytes(text)
+            window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+            (root / "input.rs").write_bytes(declaration(b"[" + b",".join(str(value).encode() for value in window) + b"]"))
+            for builtin, filename, expected, value in (
+                ("include_bytes", "input.bin", binary, b"DATA"),
+                ("include_str", "input.txt", text, b"DATA.as_bytes()"),
+                ("include", "input.rs", window, b"DATA"),
+            ):
+                definition = b'macro_rules! load { ($m:ident) => { $m! { "' + filename.encode() + b'" } }; }\n'
+                if builtin == "include":
+                    declaration_source = b"load!(include);\n"
+                else:
+                    target = b"&str" if builtin == "include_str" else b"&[u8]"
+                    declaration_source = b"const DATA: " + target + b" = load!(" + builtin.encode() + b");\n"
+                main = b"fn main() { std::io::Write::write_all(&mut std::io::stdout(), " + value + b").unwrap(); }\n"
+                source = definition + declaration_source + main
+                self.assertTrue(audit.rust_inclusions("proof.rs", source)[1])
+                self.assertEqual(compile_rust(root, builtin, source), expected)
 
     def test_only_same_state_regular_tracked_targets_are_allowed(self) -> None:
         put(self.repo, "src/main.rs", b'const TEXT: &str = include_str!(r#"../public.txt"#);\n')
@@ -370,10 +626,20 @@ class VendorProvenanceTests(GitAuditCase):
         initialize_repo(self.upstream)
         self.baselines = {
             "Cargo.toml": b"[workspace]\n",
-            "table.rs": required_forms(IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE])["rust-byte-array"][1],
+            "table.rs": required_forms(IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE])["rust-byte-array"][1].replace(b"const DATA:", b"const UPSTREAM_DATA:"),
             "include.rs": b'const TEXT: &[u8] = include_bytes!(\n    "public.txt"\n);\n',
             "public.txt": b"Public upstream text.\n",
+            "assembly.rs": b'const HEX: &str = std::concat!(\n"public",\n" baseline text"\n);\n',
+            "projected.rs": commented_array(bytes(range(WINDOW_SIZE))).replace(b"annotation text", b"old annotation text"),
+            "unresolved.rs": b'const TEXT: &str = concat!(\nenv!("CARGO_PKG_NAME"),\n/* old comment */\n" public"\n);\n',
         }
+        for revision, image in zip(("rev02", "rev00"), IMAGES):
+            for name, (suffix, _) in grammar_forms(image[OFFSET:OFFSET + WINDOW_SIZE]).items():
+                benign = b"# Synthetic upstream.\n" if suffix == "py" else b"// Synthetic upstream.\n"
+                if suffix == "html":
+                    benign = b"<!-- Synthetic upstream. -->\n"
+                for state in STATES:
+                    self.baselines[f"cases/{state}/{revision}-{name}.{suffix}"] = benign
         for path, source in self.baselines.items():
             put(self.upstream, path, source)
         git_command(self.upstream, "add", ".")
@@ -430,6 +696,63 @@ class VendorProvenanceTests(GitAuditCase):
                 self.git("commit", "-m", "Restore synthetic upstream vendor file")
             for private in (False, True):
                 self.assert_matrix([(state, path)], private)
+
+    def test_manifest_generation_ignores_unpublished_prototypes(self) -> None:
+        self.git("checkout", "-b", "unpublished-prototype")
+        put(self.repo, audit.VENDOR_PREFIX + "prototype.rs", b"pub fn prototype() {}\n")
+        self.git("add", audit.VENDOR_PREFIX + "prototype.rs")
+        self.git("commit", "-m", "Synthetic unpublished vendor prototype")
+        self.git("checkout", "main")
+        self.assertEqual(audit.generate_vendor_manifest(self.repo), self.document)
+
+    def test_published_history_recovers_verified_provenance_for_removed_files(self) -> None:
+        path = audit.VENDOR_PREFIX + "table.rs"
+        (self.repo / path).unlink()
+        self.git("add", "-u", path)
+        self.document["files"].pop("table.rs")
+        self.write_manifest()
+        self.git("commit", "-m", "Remove synthetic upstream file from current closure")
+        for private in (False, True):
+            with mock.patch.object(audit, "reference_images", return_value=IMAGES):
+                findings, _ = audit.audit(self.repo, no_rom=not private, publish_refs=["HEAD"])
+            self.assertEqual(findings, [])
+
+    def test_vendor_grammar_boundaries_both_revisions_all_states_and_modes(self) -> None:
+        forms = {}
+        for revision, image in zip(("rev02", "rev00"), IMAGES):
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            forms.update({f"{revision}-{name}": value for name, value in grammar_forms(window).items()})
+        cases = self.matrix(forms, prefix=audit.VENDOR_PREFIX + "cases")
+        self.assertEqual(len(cases), 72)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
+    def test_vendor_comment_normalization_precedes_changed_line_projection(self) -> None:
+        path = audit.VENDOR_PREFIX + "projected.rs"
+        source = commented_array(IMAGES[1][OFFSET:OFFSET + WINDOW_SIZE]).replace(b"annotation text", b"new annotation text")
+        provenance = audit.VendorAudit(self.repo, (self.repo / audit.VENDOR_MANIFEST).read_bytes())
+        delta, _ = provenance.content(path, source, "100644")
+        self.assertNotIn(b"/*", delta)
+        self.assertIn(b"new annotation text", delta)
+        put(self.repo, path, source)
+        for private in (False, True):
+            self.assertTrue(any(f.path == path and f.source == "worktree" for f in self.inspect(private)))
+
+    def test_vendor_unchanged_concat_frame_still_groups_changed_literals(self) -> None:
+        path = audit.VENDOR_PREFIX + "assembly.rs"
+        source = concat_hex(IMAGES[1][OFFSET:OFFSET + WINDOW_SIZE])
+        provenance = audit.VendorAudit(self.repo, (self.repo / audit.VENDOR_MANIFEST).read_bytes())
+        delta, _ = provenance.content(path, source, "100644")
+        self.assertNotIn(b"concat!", delta)
+        put(self.repo, path, source)
+        for private in (False, True):
+            self.assertTrue(any(f.path == path and f.source == "worktree" for f in self.inspect(private)))
+
+    def test_vendor_comment_only_change_does_not_reaudit_old_unresolved_macros(self) -> None:
+        path = audit.VENDOR_PREFIX + "unresolved.rs"
+        put(self.repo, path, self.baselines["unresolved.rs"].replace(b"old comment", b"new comment"))
+        for private in (False, True):
+            self.assertEqual(self.inspect(private), [])
 
     def test_unknown_vendor_file_fails(self) -> None:
         path = audit.VENDOR_PREFIX + "unknown.rs"
