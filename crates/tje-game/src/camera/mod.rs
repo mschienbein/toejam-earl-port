@@ -3,6 +3,24 @@
 use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{Bus, Revision, ram, rom};
 
+mod animations;
+mod follow;
+mod movement;
+mod tiles;
+mod uploads;
+
+pub use animations::{animate_players_into_split_views, animate_split_screen_wipe};
+pub use follow::get_player_camera_velocity;
+pub use movement::{
+    move_camera_down, move_camera_left, move_camera_right, move_camera_up, try_update_camera_x,
+    try_update_camera_y,
+};
+pub use tiles::{build_camera_tile_column, build_camera_tile_row, build_pending_camera_tiles};
+pub use uploads::{
+    redraw_camera_tile_rows, set_camera_position, set_camera_view_origin, update_camera_x,
+    update_camera_y,
+};
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -24,6 +42,79 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::CLEAR_CAMERA_TILE_COLUMN,
         function: clear_camera_tile_column_hook,
+    },
+    crate::Translation {
+        id: ids::BUILD_CAMERA_TILE_ROW,
+        function: build_camera_tile_row,
+    },
+    crate::Translation {
+        id: ids::BUILD_CAMERA_TILE_COLUMN,
+        function: build_camera_tile_column,
+    },
+    crate::Translation {
+        id: ids::BUILD_PENDING_CAMERA_TILES,
+        function: build_pending_camera_tiles,
+    },
+    crate::Translation {
+        id: ids::GET_PLAYER_CAMERA_VELOCITY,
+        function: get_player_camera_velocity,
+    },
+];
+
+/// Complete Rust bodies awaiting both-revision execution-class proof. This table
+/// is deliberately not part of the production dispatcher or hook registry.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::UPDATE_CAMERA_Y,
+        function: update_camera_y,
+    },
+    crate::Translation {
+        id: ids::UPDATE_CAMERA_X,
+        function: update_camera_x,
+    },
+    crate::Translation {
+        id: ids::REDRAW_CAMERA_TILE_ROWS,
+        function: redraw_camera_tile_rows,
+    },
+    crate::Translation {
+        id: ids::SET_CAMERA_VIEW_ORIGIN,
+        function: set_camera_view_origin,
+    },
+    crate::Translation {
+        id: ids::SET_CAMERA_POSITION,
+        function: set_camera_position,
+    },
+    crate::Translation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: try_update_camera_y,
+    },
+    crate::Translation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: try_update_camera_x,
+    },
+    crate::Translation {
+        id: ids::MOVE_CAMERA_UP,
+        function: move_camera_up,
+    },
+    crate::Translation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: move_camera_down,
+    },
+    crate::Translation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: move_camera_left,
+    },
+    crate::Translation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: move_camera_right,
+    },
+    crate::Translation {
+        id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
+        function: animate_split_screen_wipe,
+    },
+    crate::Translation {
+        id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        function: animate_players_into_split_views,
     },
 ];
 

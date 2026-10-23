@@ -3,6 +3,29 @@
 use crate::{Context, Result, Translation, execution::ExecutionClass, ids};
 use tje_mem::{Address, Bus, ElevatorRecord, ObjectState, Revision, ram, rom};
 
+mod geometry;
+mod management;
+mod ride;
+mod scenes;
+mod transitions;
+
+pub use geometry::{
+    elevator_blocks_entity_movement, elevator_blocks_player_movement,
+    elevator_check_player_proximity_and_input, elevator_contains_position,
+    elevator_step_departure_height_cycles,
+};
+pub use management::{
+    elevator_create_entity_pair, elevator_update_entity_visibility, setup_elevator,
+    setup_initial_elevator,
+};
+pub use ride::{
+    elevator_advance_riders_to_next_level, elevator_alternate_ride_entities,
+    elevator_begin_ride_scene, elevator_end_ride_scene, elevator_load_ride_background_tiles,
+    elevator_prepare_ride_dialogue, elevator_ride_v_blank, elevator_update_ride_dialogue,
+};
+pub use scenes::{load_final_level_map, map_clear_active_level_objects, map_enter_final_level};
+pub use transitions::{process_elevator_step1, process_elevator_step2, process_elevators};
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[Translation] = &[
     Translation {
@@ -20,6 +43,103 @@ pub static TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::PROCESS_ELEVATOR,
         function: process_elevator_hook,
+    },
+    Translation {
+        id: ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT,
+        function: elevator_blocks_player_movement,
+    },
+    Translation {
+        id: ids::ELEVATOR_BLOCKS_ENTITY_MOVEMENT,
+        function: elevator_blocks_entity_movement,
+    },
+    Translation {
+        id: ids::ELEVATOR_CONTAINS_POSITION,
+        function: elevator_contains_position,
+    },
+    Translation {
+        id: ids::ELEVATOR_CHECK_PLAYER_PROXIMITY_AND_INPUT,
+        function: elevator_check_player_proximity_and_input,
+    },
+    Translation {
+        id: ids::ELEVATOR_STEP_DEPARTURE_HEIGHT_CYCLES,
+        function: elevator_step_departure_height_cycles,
+    },
+    Translation {
+        id: ids::ELEVATOR_CREATE_ENTITY_PAIR,
+        function: elevator_create_entity_pair,
+    },
+    Translation {
+        id: ids::ELEVATOR_UPDATE_ENTITY_VISIBILITY,
+        function: elevator_update_entity_visibility,
+    },
+    Translation {
+        id: ids::SETUP_ELEVATOR,
+        function: setup_elevator,
+    },
+    Translation {
+        id: ids::SETUP_INITIAL_ELEVATOR,
+        function: setup_initial_elevator,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATOR_STEP2,
+        function: process_elevator_step2,
+    },
+    Translation {
+        id: ids::ELEVATOR_UPDATE_RIDE_DIALOGUE,
+        function: elevator_update_ride_dialogue,
+    },
+    Translation {
+        id: ids::MAP_CLEAR_ACTIVE_LEVEL_OBJECTS,
+        function: map_clear_active_level_objects,
+    },
+];
+
+/// Complete Rust bodies awaiting both-revision execution-class proof; never
+/// registered by the production dispatcher until a passing proof activates them.
+pub static PENDING_TRANSLATIONS: &[Translation] = &[
+    Translation {
+        id: ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
+        function: elevator_load_ride_background_tiles,
+    },
+    Translation {
+        id: ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
+        function: elevator_alternate_ride_entities,
+    },
+    Translation {
+        id: ids::LOAD_FINAL_LEVEL_MAP,
+        function: load_final_level_map,
+    },
+    Translation {
+        id: ids::MAP_ENTER_FINAL_LEVEL,
+        function: map_enter_final_level,
+    },
+    Translation {
+        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        function: elevator_prepare_ride_dialogue,
+    },
+    Translation {
+        id: ids::ELEVATOR_RIDE_V_BLANK,
+        function: elevator_ride_v_blank,
+    },
+    Translation {
+        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
+        function: elevator_begin_ride_scene,
+    },
+    Translation {
+        id: ids::ELEVATOR_END_RIDE_SCENE,
+        function: elevator_end_ride_scene,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATOR_STEP1,
+        function: process_elevator_step1,
+    },
+    Translation {
+        id: ids::PROCESS_ELEVATORS,
+        function: process_elevators,
+    },
+    Translation {
+        id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
+        function: elevator_advance_riders_to_next_level,
     },
 ];
 
@@ -224,6 +344,13 @@ pub fn process_elevator_hook(context: &mut dyn Context, arguments: &[u32]) -> Re
         context.revision(),
         arguments[0] as i8,
     )))
+}
+
+// elevator_transitions.c:57,242 emit SUBQ.B immediately followed by BGT.
+// The branch consumes subtraction overflow, not flags from a reloaded byte:
+// decrementing -128 stores +127 but still enters the <= 0 path.
+fn decrement_byte_and_test_le_zero(value: i8) -> (i8, bool) {
+    (value.wrapping_sub(1), i16::from(value) - 1 <= 0)
 }
 
 #[cfg(test)]

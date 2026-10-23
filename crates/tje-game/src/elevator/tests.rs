@@ -127,3 +127,19 @@ fn query_decodes_every_byte_handle_including_wrapped_and_negative_values() {
         }
     }
 }
+
+#[test]
+fn byte_delay_predecrement_consumes_subtraction_overflow_before_reload() {
+    for value in i8::MIN..=i8::MAX {
+        let (stored, expired) = decrement_byte_and_test_le_zero(value);
+        let overflow = value == i8::MIN;
+        let negative = stored < 0;
+        let zero = stored == 0;
+        let bgt = !zero && negative == overflow;
+        assert_eq!(stored, value.wrapping_sub(1));
+        assert_eq!(expired, !bgt, "delay {value}");
+    }
+    assert_eq!(decrement_byte_and_test_le_zero(i8::MIN), (i8::MAX, true));
+    assert_eq!(decrement_byte_and_test_le_zero(1), (0, true));
+    assert_eq!(decrement_byte_and_test_le_zero(2), (1, false));
+}
