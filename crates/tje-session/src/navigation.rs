@@ -101,14 +101,13 @@ impl Navigator {
         target: (i16, i16),
         frame: u64,
     ) -> Option<u16> {
-        let travel = if ram::g_player_powerups(revision)
+        let travel = match ram::g_player_powerups(revision)
             .at(player as i32)
             .read(memory)
-            == 0
         {
-            Travel::Fly
-        } else {
-            Travel::Land
+            0 => Travel::Fly,
+            2 => Travel::Swim,
+            _ => Travel::Land,
         };
         self.toward(memory, rom, revision, player, (target, travel), frame)
     }
@@ -209,6 +208,15 @@ impl Navigator {
         start: (i16, i16),
         desired: (i16, i16),
     ) -> Option<(i16, i16)> {
+        self.reachable_land_in_range(start, desired, (i16::MAX, i16::MAX))
+    }
+
+    pub fn reachable_land_in_range(
+        &mut self,
+        start: (i16, i16),
+        desired: (i16, i16),
+        exclusive_range: (i16, i16),
+    ) -> Option<(i16, i16)> {
         let start = position_cell(start)?;
         self.parents.fill(usize::MAX);
         self.frontier.clear();
@@ -217,6 +225,10 @@ impl Navigator {
         let mut best = None;
         while let Some(Reverse((_, _, cell))) = self.frontier.pop() {
             if self.terrain[cell] <= 0x50
+                && (i32::from(cell_position(cell).0) - i32::from(desired.0)).abs()
+                    < i32::from(exclusive_range.0)
+                && (i32::from(cell_position(cell).1) - i32::from(desired.1)).abs()
+                    < i32::from(exclusive_range.1)
                 && best.is_none_or(|old| {
                     manhattan(cell_position(cell), desired) < manhattan(cell_position(old), desired)
                 })
@@ -712,6 +724,51 @@ mod tests {
                 ((188, 92), Travel::Land),
             );
             assert!(navigator.reachable);
+        }
+    }
+
+    #[test]
+    fn ship_contact_uses_real_reachable_land_instead_of_the_object_center() {
+        let mut navigator = Navigator::new();
+        for column in 20..=23 {
+            navigator.terrain[10 * WIDTH + column] = 0x10;
+        }
+        assert_eq!(
+            navigator.reachable_land_in_range((164, 84), (196, 84), (12, 8)),
+            Some((188, 84))
+        );
+        assert_eq!(
+            navigator.reachable_land_in_range((164, 84), (212, 84), (12, 8)),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_real_active_innertube_allows_automatic_water_routes() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 1);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 84);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            let mut navigator = Navigator::new();
+            navigator.level = 1;
+            navigator.terrain[10 * WIDTH + 20] = 0x10;
+            navigator.terrain[10 * WIDTH + 21] = 0x80;
+            navigator.terrain[10 * WIDTH + 22] = 0x10;
+            assert_eq!(
+                navigator.steer(&Ram(memory.ram()), &[], revision, 0, (180, 84), 100),
+                None
+            );
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 2);
+            assert!(
+                navigator
+                    .steer(&Ram(memory.ram()), &[], revision, 0, (180, 84), 101)
+                    .is_some()
+            );
         }
     }
 }

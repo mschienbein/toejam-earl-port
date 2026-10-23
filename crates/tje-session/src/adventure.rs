@@ -35,6 +35,13 @@ enum Scene {
     GameOver,
 }
 
+#[derive(Clone, Copy)]
+struct ShipContact {
+    level: i8,
+    goal: Goal,
+    point: (i16, i16),
+}
+
 pub struct Adventure {
     objective: Objective,
     navigation: [Navigator; 2],
@@ -52,6 +59,7 @@ pub struct Adventure {
     inventory_kinds: [i8; 2],
     held_action: [u16; 2],
     held_until: [u64; 2],
+    ship_contacts: [Option<ShipContact>; 2],
     mobility_needed: [bool; 2],
     doorway_used: [bool; 2],
     bath_since: [Option<u64>; 2],
@@ -80,6 +88,7 @@ impl Adventure {
             inventory_kinds: [0; 2],
             bath_since: [None; 2],
             arrival_exit: [None; 2],
+            ship_contacts: [None; 2],
             held_action: [0; 2],
             held_until: [0; 2],
             mobility_needed: [false; 2],
@@ -177,6 +186,9 @@ impl Adventure {
                 self.levels[player] = level;
                 self.level_since[player] = frame;
                 self.goals[player] = None;
+                self.mobility_needed[player] = false;
+                self.doorway_used[player] = false;
+                self.ship_contacts[player] = None;
             }
             if ram::g_player_lives(revision).at(player as i32).read(memory) < 0 {
                 self.mobility_needed[player] = false;
@@ -367,31 +379,52 @@ impl Adventure {
                                 continue;
                             }
                         }
+                        let mut ship_range = None;
                         if matches!(goal, Goal::Ship { .. }) {
-                            let approaches = [
-                                (0, 6),
-                                (0, 12),
-                                (-10, 0),
-                                (10, 0),
-                                (0, -6),
-                                (-18, 4),
-                                (18, 4),
-                                (0, 20),
-                            ];
-                            let attempt = self
-                                .blocked
-                                .iter()
-                                .filter(|&&(old_level, old)| old_level == level && old == goal)
-                                .count();
-                            let offset = approaches[attempt % approaches.len()];
-                            target = (
-                                earthling.x().read(memory) + offset.0,
-                                earthling.y().read(memory) + offset.1,
+                            let center = (earthling.x().read(memory), earthling.y().read(memory));
+                            let definition = tje_mem::rom::earthling_definitions(revision).at(0);
+                            let limits = (
+                                i16::from(rom[definition.contact_distance_x().address() as usize]),
+                                i16::from(rom[definition.contact_distance_y().address() as usize]),
                             );
+                            ship_range = Some((center, limits));
+                            let flying = matches!(
+                                ram::g_player_powerups(revision)
+                                    .at(player as i32)
+                                    .read(memory),
+                                0 | 2
+                            );
+                            if flying {
+                                target = center;
+                            } else if let Some(contact) = self.ship_contacts[player]
+                                .filter(|contact| contact.level == level && contact.goal == goal)
+                            {
+                                target = contact.point;
+                            } else {
+                                let _ = self.navigation[player]
+                                    .steer(memory, rom, revision, player, position, frame);
+                                if let Some(point) = self.navigation[player]
+                                    .reachable_land_in_range(position, center, limits)
+                                {
+                                    self.ship_contacts[player] =
+                                        Some(ShipContact { level, goal, point });
+                                    self.mobility_needed[player] = false;
+                                    target = point;
+                                } else {
+                                    self.mobility_needed[player] = true;
+                                    self.goals[player] = None;
+                                    continue;
+                                }
+                            }
                         }
                         let dx = (position.0 - target.0).abs();
                         let dy = (position.1 - target.1).abs();
-                        if dx < 12 && dy < 4 {
+                        let in_contact =
+                            ship_range.map_or(dx < 12 && dy < 4, |(center, limits)| {
+                                (position.0 - center.0).abs() < limits.0
+                                    && (position.1 - center.1).abs() < limits.1
+                            });
+                        if in_contact {
                             if kind == 24 {
                                 *pad |= RIGHT;
                             }
@@ -415,6 +448,9 @@ impl Adventure {
                             .steer(memory, rom, revision, player, target, frame)
                         {
                             *pad |= input;
+                            if matches!(goal, Goal::Ship { .. }) {
+                                self.mobility_needed[player] = false;
+                            }
                         } else {
                             self.mobility_needed[player] |= matches!(goal, Goal::Ship { .. });
                             self.blocked.push((level, goal));
@@ -775,6 +811,15 @@ impl Adventure {
         {
             return Some(Goal::Present { slot, kind: 8 });
         }
+        if self.mobility_needed[player]
+            && ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                != 2
+            && let Some(slot) = (0..16).find(|&slot| inventory.at(slot as i32).read(memory) == 2)
+        {
+            return Some(Goal::Present { slot, kind: 2 });
+        }
         let bucks = ram::g_player_bucks(revision).at(player as i32).read(memory);
         let food_health = tje_mem::rom_data_units(revision)
             .iter()
@@ -787,7 +832,7 @@ impl Adventure {
             let kind = inventory.at(slot as i32).read(memory);
             matches!(kind, 0 | 2).then_some(Goal::Present { slot, kind })
         });
-        let reserve_gear = (0..16).any(|slot| matches!(inventory.at(slot).read(memory), 0 | 8))
+        let reserve_gear = (0..16).any(|slot| matches!(inventory.at(slot).read(memory), 0 | 2 | 8))
             || ram::g_player_powerups(revision)
                 .at(player as i32)
                 .read(memory)
@@ -895,7 +940,7 @@ impl Adventure {
                 }
                 let needed = (self.objective == Objective::Campaign
                     && !reserve_gear
-                    && matches!(kind, 0 | 8))
+                    && matches!(kind, 0 | 2 | 8))
                     || (self.objective == Objective::Explore
                         && kind < 28
                         && content
