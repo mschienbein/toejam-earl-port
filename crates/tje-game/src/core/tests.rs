@@ -26,6 +26,34 @@ fn leaf_arithmetic_reads_and_writes_synthetic_memory() {
 }
 
 #[test]
+fn mapped_input_leaves_complete_result_in_d1_for_nonreturning_callers() {
+    use super::test_support::TestContext;
+    use crate::Context;
+    use tje_mem::ram;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        for swapped in [0, 1] {
+            ram::g_controller_buttons_ac_swapped(revision).write(&mut context, swapped);
+            for input in 0..=u16::MAX {
+                ram::g_controller1_raw_input(revision).write(&mut context, input);
+                context.set_data_register(1, 0xdeadbeef);
+                context.set_data_register(2, 0x12345678);
+                let input = u32::from(input);
+                let expected = if swapped == 0 {
+                    input
+                } else {
+                    (input & 0x9f) | ((input & 0x40) >> 1) | ((input & 0x20) << 1)
+                };
+                let result = super::read_mapped_player_input(&mut context, &[0]).unwrap();
+                assert_eq!(result, Some(expected));
+                assert_eq!(context.data_register(1), expected);
+                assert_eq!(context.data_register(2), 0x12345678);
+            }
+        }
+    }
+}
+
+#[test]
 fn reset_vdp_preserves_register_write_order() {
     use super::test_support::{TestContext, Write};
     for revision in [Revision::Rev02, Revision::Rev00] {

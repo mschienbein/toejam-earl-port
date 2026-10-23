@@ -98,7 +98,7 @@ pub fn create_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<O
                     }
                     object.sprite_ready().write(context, 0);
                     // D4.W is the slot number here. The callee's original shared
-                    // tile failure path consumes entry D4.B as its unassigned tile.
+                    // tile failure path consumes entry D4.W as its unassigned tile.
                     call_at(
                         context,
                         ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,

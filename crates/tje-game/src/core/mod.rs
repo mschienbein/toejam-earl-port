@@ -77,6 +77,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::VDP_INITIALISATION,
         function: control::vdp_initialisation,
     },
+    crate::Translation {
+        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: wait_for_next_vblank,
+    },
 ];
 
 /// Reviewed original entries that return without clock/interrupt progress.
@@ -157,9 +161,6 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
 // unregistered until every finite checkpoint is proven in both revisions.
 /// Complete bodies not approved for production replacement.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Natural REV 02 frame 492 observes YM BUSY 0 versus 128 inside the IRQ:
-    // blocked on the timing-fidelity decision, not waived by counter fixtures.
-    crate::ids::WAIT_FOR_NEXT_V_BLANK,
     // Complete caller bodies await both-revision natural/live-state proof,
     // including any original-call frame or IRQ-observed timing blocker.
     crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
@@ -177,10 +178,6 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Unregistered bodies retained for explicit proof harnesses.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
-        function: wait_for_next_vblank,
-    },
     crate::Translation {
         id: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
         function: views::reload_active_camera_views,
@@ -377,6 +374,9 @@ pub fn read_mapped_player_input(
     } else {
         input
     };
+    // Emitted c_startup_and_main_loop.s:61-77 leaves the full zero-extended
+    // result in D1 before copying it to D0. Non-RTS callers retain that residue.
+    context.set_data_register(1, mapped);
     Ok(Some(mapped))
 }
 /// G/src/core/startup_and_main_loop.c: GetLevelMusicIndex (REV 02 0x001262).

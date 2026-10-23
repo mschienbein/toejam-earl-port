@@ -52,6 +52,10 @@ pub static TRANSLATIONS: &[Translation] = &[
         id: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
         function: layouts::draw_packed_background_block,
     },
+    Translation {
+        id: ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+        function: entities::create_character_copies,
+    },
 ];
 
 /// Reviewed RAM-only originals: bounded loops and callees confined to sprite
@@ -127,8 +131,6 @@ pub static PENDING: &[FunctionId] = &[
     ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
     ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
     ids::START_JAM_OUT,
-    // Exact LINK/MOVEM, caller residue, and true return-PC body awaits proof.
-    ids::JAM_OUT_CREATE_CHARACTER_COPIES,
 ];
 
 /// Unregistered bodies retained for explicit proof harnesses.
@@ -160,10 +162,6 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
     Translation {
         id: ids::START_JAM_OUT,
         function: lifecycle::start_jam_out,
-    },
-    Translation {
-        id: ids::JAM_OUT_CREATE_CHARACTER_COPIES,
-        function: entities::create_character_copies,
     },
 ];
 

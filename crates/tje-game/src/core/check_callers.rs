@@ -116,6 +116,7 @@ fn attempt(
     arguments: &[u32],
 ) {
     let entry = id.metadata().address(host.revision());
+    println!("FIXTURE {}: {label}", id.metadata().name);
     let result = host.check_fixture(entry, arguments);
     rows.push(serde_json::json!({"function":id.metadata().name,"coverage_source":"live-state fixture","label":label,"entry_pc":entry,"arguments":arguments,"ok":result.is_ok(),"error":result.err().map(|error|error.to_string())}));
 }
