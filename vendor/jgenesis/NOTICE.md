@@ -38,6 +38,16 @@ Local changes are marked `TJE hybrid`, `TJE standalone cutover`, or `TJE timing 
 - `cpu/m68000-emu/src/{traits,debug,lib}.rs`: expose `ReadPurpose` and tagged byte/word reads with behavior-preserving defaults; preserve debugger callbacks for semantic and discarded reads; authored ROM-free CPU fixtures live in `lib.rs`'s test-only module.
 - `cpu/m68000-emu/src/core/instructions/{bits,load}.rs`: mark CLR's read-before-write and memory-to-register MOVEM's terminal read discarded, not semantic stack dependencies; still perform the original reads.
 
+Additional `TJE hybrid` check-contract extensions (disabled by default):
+
+- `backend/genesis-core/src/bus.rs`: an explicit check-fork-only functional mode completes VDP transaction latency after each port write and settles YM write BUSY; direct VDP status/HV observations are flagged as contract violations. BUSACK/reset semantics are unchanged. An opt-in chronological CPU RAM/device audit records timed calls without changing dispatch.
+- `backend/genesis-components/src/vdp.rs`: `hybrid_complete_transfers` drains FIFO and progresses DMA through the original commit routines without advancing raster clocks; `hybrid_logic_state_eq` compares the explicitly documented logical projection used by time-aware function checks. The existing full-state comparator is retained for atomic/functional checks.
+- `backend/genesis-components/src/ym2612.rs`: `hybrid_settle_write_busy` settles only the fixed register-write BUSY countdown for functional check forks; no timer, oscillator, status-read or sample algorithm is replaced.
+
+No constructor or ordinary timing path enables functional mode. The live machine
+and time-aware waits use unmodified FIFO/DMA/BUSY timing. Function-level logical
+projections do not substitute for the unmodified-upstream whole-session comparison.
+
 Removed upstream source modules, rather than leaving unsupported feature paths:
 
 - `backend/genesis-core/src/api/debug.rs`
