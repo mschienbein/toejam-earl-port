@@ -3,11 +3,33 @@
 use crate::{Context, Result, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
+mod dispatch;
+
 mod effects;
 mod items;
 mod placement;
 mod projectiles;
 mod telephone;
+
+/// SUBQ.B followed directly by a signed branch consumes N xor V, not the
+/// sign of a reloaded byte. The store still wraps at the declared width.
+#[inline]
+fn predecrement_i8(bus: &mut (impl tje_mem::Bus + ?Sized), counter: Address<i8>) -> i32 {
+    let decremented = i32::from(counter.read(bus)) - 1;
+    counter.write(bus, decremented as i8);
+    decremented
+}
+
+/// Word counterpart of the original SUBQ/signed-branch sequence.
+#[inline]
+fn predecrement_i16(bus: &mut (impl tje_mem::Bus + ?Sized), counter: Address<i16>) -> i32 {
+    let decremented = i32::from(counter.read(bus)) - 1;
+    counter.write(bus, decremented as i16);
+    decremented
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
@@ -119,6 +141,62 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::TELEPHONE_CLEAR_ALL,
         function: telephone::telephone_clear_all,
     },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
+        function: projectiles::earthling_update_control_remap_attack,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
+        function: projectiles::earthling_update_aimed_projectile_attack,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_DECOY,
+        function: effects::present_update_decoy,
+    },
+    crate::Translation {
+        id: ids::OPEN_BOOM_BOX,
+        function: effects::open_boom_box,
+    },
+    crate::Translation {
+        id: ids::OPEN_DECOY,
+        function: effects::open_decoy,
+    },
+    crate::Translation {
+        id: ids::PRESENT_IS_DOORWAY,
+        function: effects::present_is_doorway,
+    },
+    crate::Translation {
+        id: ids::PRESENT_IS_RAIN_CLOUD,
+        function: effects::present_is_rain_cloud,
+    },
+    crate::Translation {
+        id: ids::PRESENT_UPDATE_BOOM_BOX,
+        function: effects::present_update_boom_box,
+    },
+    crate::Translation {
+        id: ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
+        function: projectiles::player_apply_control_remap_effect,
+    },
+    crate::Translation {
+        id: ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
+        function: projectiles::present_create_active_terrain_effect,
+    },
+    crate::Translation {
+        id: ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
+        function: telephone::telephone_create_display_entity,
+    },
+    crate::Translation {
+        id: ids::EARTHLING_UPDATE_CONTROL_REMAP_PROJECTILES,
+        function: projectiles::earthling_update_control_remap_projectiles,
+    },
+    crate::Translation {
+        id: ids::SETUP_INITIAL_INVENTORY,
+        function: placement::setup_initial_inventory,
+    },
+    crate::Translation {
+        id: ids::PROCESS_TOMATO_RAIN,
+        function: projectiles::process_tomato_rain,
+    },
 ];
 
 /// Complete candidate bodies held outside production dispatch until their
@@ -158,54 +236,45 @@ pub static PENDING: &[crate::Translation] = &[
         id: ids::PRESENT_UPDATE_BURPS,
         function: effects::present_update_burps,
     },
-    // W4-W5 Atomic: awaiting their wave's live-state fixtures in both revisions.
-    crate::Translation {
-        id: ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
-        function: projectiles::earthling_update_control_remap_attack,
-    },
-    crate::Translation {
-        id: ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
-        function: projectiles::earthling_update_aimed_projectile_attack,
-    },
-    crate::Translation {
-        id: ids::PRESENT_UPDATE_DECOY,
-        function: effects::present_update_decoy,
-    },
+    // W5 Atomic: the original EntityCreateLevelItem allocation-failure path
+    // consumes an omitted argument from the caller's residual local frame.
     crate::Translation {
         id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
         function: items::entity_update_level_item_visibility,
     },
+    // W5-W6 TimeAware: awaiting shared production execution-class wiring and proof.
     crate::Translation {
-        id: ids::OPEN_BOOM_BOX,
-        function: effects::open_boom_box,
+        id: ids::SETUP_SELECTED_PRESENT,
+        function: dispatch::setup_selected_present,
     },
     crate::Translation {
-        id: ids::OPEN_DECOY,
-        function: effects::open_decoy,
+        id: ids::OPEN_SELECTED_PRESENT,
+        function: dispatch::open_selected_present,
     },
     crate::Translation {
-        id: ids::PRESENT_IS_DOORWAY,
-        function: effects::present_is_doorway,
+        id: ids::BUMMER_LIFE_PROMO,
+        function: effects::bummer_life_promo,
+    },
+    // W9-W15 TimeAware: awaiting the shared time-aware production/callee contract.
+    crate::Translation {
+        id: ids::PROCESS_PRESENTS,
+        function: dispatch::process_presents,
     },
     crate::Translation {
-        id: ids::PRESENT_IS_RAIN_CLOUD,
-        function: effects::present_is_rain_cloud,
+        id: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+        function: effects::player_teleport_through_doorway,
     },
     crate::Translation {
-        id: ids::PRESENT_UPDATE_BOOM_BOX,
-        function: effects::present_update_boom_box,
+        id: ids::PRESENT_UPDATE_DOORWAY,
+        function: effects::present_update_doorway,
     },
     crate::Translation {
-        id: ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
-        function: projectiles::player_apply_control_remap_effect,
+        id: ids::CHECK_FOR_TELEPHONE,
+        function: telephone::check_for_telephone,
     },
     crate::Translation {
-        id: ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
-        function: projectiles::present_create_active_terrain_effect,
-    },
-    crate::Translation {
-        id: ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
-        function: telephone::telephone_create_display_entity,
+        id: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
+        function: items::map_update_items_and_presents,
     },
 ];
 

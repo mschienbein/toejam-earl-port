@@ -366,3 +366,71 @@ pub fn player_collect_nearby_items(
     }
     Ok(None)
 }
+
+/// G/src/presents/item_updates.c:366 (`MapUpdateItemsAndPresents`).
+/// TimeAware: pickup speech, powerup HUD expiration, doorway and telephone waits.
+pub fn map_update_items_and_presents(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    if ram::g_player_inventory_open(revision).at(0).read(context) != 0
+        && ram::g_player_inventory_open(revision).at(1).read(context) != 0
+    {
+        return Ok(None);
+    }
+    for bank in 0..2 {
+        if ram::g_item_bank_users(revision).at(bank).read(context) != 0 {
+            call(
+                context,
+                ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+                &[ram::g_object_table(revision).at(bank).address(), 32],
+            )?;
+        }
+    }
+    call(
+        context,
+        ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
+        &[ram::g_dropped_present_table(revision).address(), 32],
+    )?;
+    for index in 0..2 {
+        if ram::g_player_lives(revision).at(index).read(context) >= 0
+            && ram::g_player_inventory_open(revision)
+                .at(index)
+                .read(context)
+                == 0
+        {
+            for bank in 0..2 {
+                if ram::g_item_bank_users(revision).at(bank).read(context) != 0
+                    && ram::g_player_info(revision).at(index).level().read(context)
+                        == ram::g_item_bank_levels(revision).at(bank).read(context)
+                {
+                    let items = ram::g_object_table(revision).at(bank);
+                    call(
+                        context,
+                        ids::PLAYER_COLLECT_NEARBY_ITEMS,
+                        &[index as u32, items.address(), 28, 1],
+                    )?;
+                    call(
+                        context,
+                        ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+                        &[index as u32, items.at(28).address()],
+                    )?;
+                }
+            }
+            call(
+                context,
+                ids::PLAYER_COLLECT_NEARBY_ITEMS,
+                &[
+                    index as u32,
+                    ram::g_dropped_present_table(revision).address(),
+                    32,
+                    0,
+                ],
+            )?;
+        }
+    }
+    call(context, ids::REDUCE_PRESENT_TIMER, &[])?;
+    call(context, ids::PROCESS_PRESENTS, &[])?;
+    if ram::g_player1_map_level(revision).read(context) == 26 {
+        call(context, ids::FUNKATRON_UPDATE_SCENE_ENTITIES, &[])?;
+    }
+    Ok(None)
+}

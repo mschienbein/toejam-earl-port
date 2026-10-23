@@ -187,3 +187,51 @@ pub fn drop_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Opti
     }
     Ok(None)
 }
+
+/// G/src/presents/level_item_setup.c:53 (`SetupInitialInventory`).
+/// Atomic: RAM reset, identity shuffle and deterministic original item-bank loading.
+pub fn setup_initial_inventory(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    for slot in 0..16 {
+        ram::g_player_inventory(revision)
+            .at(0)
+            .at(slot)
+            .write(context, -1);
+        ram::g_player_inventory(revision)
+            .at(1)
+            .at(slot)
+            .write(context, -1);
+    }
+    for slot in 0..32 {
+        ram::g_dropped_present_table(revision)
+            .at(slot)
+            .kind()
+            .write(context, -1);
+        ram::g_object_table(revision)
+            .at(0)
+            .at(slot)
+            .kind()
+            .write(context, -1);
+        ram::g_object_table(revision)
+            .at(1)
+            .at(slot)
+            .kind()
+            .write(context, -1);
+    }
+    ram::g_item_bank_levels(revision).at(0).write(context, -1);
+    ram::g_item_bank_levels(revision).at(1).write(context, -1);
+    call(context, ids::SETUP_PRESENT_IDENTITIES, &[])?;
+    for index in 0..2 {
+        if ram::g_player_lives(revision).at(index).read(context) >= 0 {
+            call(context, ids::LOAD_LEVEL_ITEM_BANK, &[1])?;
+            let inventory = ram::g_player_inventory(revision).at(index);
+            inventory.at(0).write(context, 27);
+            inventory.at(1).write(context, 27);
+            if ram::g_player_lives(revision).at(index ^ 1).read(context) < 0 {
+                inventory.at(2).write(context, 27);
+                inventory.at(3).write(context, 27);
+            }
+        }
+    }
+    Ok(None)
+}

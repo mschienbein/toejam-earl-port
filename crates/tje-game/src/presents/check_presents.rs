@@ -1,13 +1,41 @@
 //! Opt-in presents ROM proof driver. The private manifest and exact invocations
 //! are recorded in scratch/Presents/report.md. Not linked into the game library.
 use std::{env, fs, path::Path};
-use tje_game::{FunctionId, ids};
-use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
+use tje_game::{Context, FunctionId, ids};
+use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
 fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| panic!("{} {arguments:08x?}: {error}", id.metadata().name));
+}
+
+fn candidate_hook(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    let id = tje_game::function_at(context.revision(), context.cpu().pc()).unwrap();
+    let translation = tje_game::presents::PENDING
+        .iter()
+        .find(|candidate| candidate.id == id)
+        .unwrap();
+    let mut arguments = [0; 16];
+    let count = usize::from(id.metadata().abi.argument_count);
+    for (index, argument) in arguments[..count].iter_mut().enumerate() {
+        *argument = context.argument_u32(index as u32);
+    }
+    Ok((translation.function)(context, &arguments[..count])?)
+}
+
+fn registry(revision: Revision) -> HookRegistry {
+    let mut registry = HookRegistry::filtered(revision, &["presents"], &[]).unwrap();
+    for candidate in tje_game::presents::PENDING {
+        if tje_game::is_atomic_capable(candidate.id)
+            && candidate.id != ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY
+        {
+            registry
+                .register_contract(candidate.id.metadata().clone(), true, candidate_hook)
+                .unwrap();
+        }
+    }
+    registry
 }
 
 fn fixtures(host: &mut Host) {
@@ -204,6 +232,19 @@ fn main() {
     let root = Path::new(&args[1]);
     let evidence = Path::new(&args[2]);
     fs::create_dir_all(evidence).unwrap();
+    let roots: Vec<_> = tje_game::presents::TRANSLATIONS
+        .iter()
+        .map(|translation| translation.id)
+        .collect();
+    let missing = tje_game::Dispatcher::native(&roots)
+        .err()
+        .unwrap_or_default();
+    let names: Vec<_> = missing.iter().map(|id| id.metadata().name).collect();
+    fs::write(
+        evidence.join("native-closure.json"),
+        serde_json::to_vec_pretty(&names).unwrap(),
+    )
+    .unwrap();
     let script = InputScript::parse(
         &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
     )
@@ -215,7 +256,7 @@ fn main() {
             "rev00"
         };
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
-        let registry = HookRegistry::filtered(revision, &["presents"], &[]).unwrap();
+        let registry = registry(revision);
         let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
@@ -270,6 +311,8 @@ fn main() {
             fixtures(&mut host);
             wave2_fixtures(&mut host);
             wave3_fixtures(&mut host);
+            later_atomic_fixtures(&mut host);
+            wave67_atomic_fixtures(&mut host);
         }));
         fs::write(
             evidence.join(format!("{name}-with-fixtures.json")),
@@ -482,4 +525,229 @@ fn wave3_fixtures(host: &mut Host) {
             }
         }
     }
+}
+
+fn later_atomic_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    prepare_effect_fixture(host);
+    let earthling = ram::g_earthling_banks(revision).at(0).at(0);
+    let source = ram::g_player_info(revision).at(3);
+    earthling.kind().write(&mut host.context(), 15);
+    earthling.object().write(&mut host.context(), 3);
+    for frame in [-128_i8, -2, -1, 0, 1, 2, 6, 14, 16, 18] {
+        for duration in [0_i8, 1] {
+            for state in [8_i8, 9, 10, 11] {
+                source.frame().write(&mut host.context(), frame);
+                source.frame_duration().write(&mut host.context(), duration);
+                earthling.state().write(&mut host.context(), state);
+                fixture(
+                    host,
+                    ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
+                    &[earthling.address(), source.address()],
+                );
+                fixture(
+                    host,
+                    ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
+                    &[earthling.address(), source.address()],
+                );
+            }
+        }
+    }
+    for index in 0..2 {
+        let player = ram::g_player_info(revision).at(index);
+        player.x().write(&mut host.context(), 400);
+        player.y().write(&mut host.context(), 400);
+        player.level().write(&mut host.context(), 1);
+        ram::g_player_transient_effect_entities(revision)
+            .at(index)
+            .write(&mut host.context(), 9);
+        ram::g_player_info(revision)
+            .at(9)
+            .frame()
+            .write(&mut host.context(), 4);
+        ram::g_player_info(revision)
+            .at(9)
+            .frame_duration()
+            .write(&mut host.context(), 1);
+        for existing in [0_i8, 6] {
+            for full in [false, true] {
+                for slot in 0..34 {
+                    ram::g_dynamic_entity_slot_allocated(revision)
+                        .at(slot)
+                        .write(&mut host.context(), i8::from(full));
+                }
+                ram::g_player_decoy_entities(revision)
+                    .at(index)
+                    .write(&mut host.context(), existing);
+                fixture(host, ids::OPEN_DECOY, &[index as u32]);
+                ram::g_player_doorway_entities(revision)
+                    .at(index)
+                    .write(&mut host.context(), existing);
+                fixture(host, ids::PRESENT_IS_DOORWAY, &[index as u32]);
+                ram::g_player_rain_cloud_states(revision)
+                    .at(index)
+                    .write(&mut host.context(), existing);
+                fixture(host, ids::PRESENT_IS_RAIN_CLOUD, &[index as u32]);
+                ram::g_player_boom_box_entities(revision)
+                    .at(index)
+                    .write(&mut host.context(), existing);
+                fixture(host, ids::OPEN_BOOM_BOX, &[index as u32]);
+                ram::g_player_control_remap_entities(revision)
+                    .at(index)
+                    .write(&mut host.context(), existing);
+                fixture(
+                    host,
+                    ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
+                    &[index as u32],
+                );
+                fixture(
+                    host,
+                    ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
+                    &[player.address(), index as u32],
+                );
+                let telephone = ram::g_telephone_states(revision).at(index);
+                telephone.x().write(&mut host.context(), 400);
+                telephone.y().write(&mut host.context(), 400);
+                telephone.level().write(&mut host.context(), 1);
+                fixture(
+                    host,
+                    ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
+                    &[telephone.address()],
+                );
+            }
+        }
+        for number in [0_i8, 6] {
+            for hits in [-128_i8, 0, 2, 3, 127] {
+                for level in [1_i8, 2] {
+                    ram::g_player_decoy_entities(revision)
+                        .at(index)
+                        .write(&mut host.context(), number);
+                    ram::g_player_decoy_hit_counts(revision)
+                        .at(index)
+                        .write(&mut host.context(), hits);
+                    ram::g_player_info(revision)
+                        .at(6)
+                        .level()
+                        .write(&mut host.context(), level);
+                    fixture(host, ids::PRESENT_UPDATE_DECOY, &[index as u32]);
+                }
+            }
+        }
+        for number in [0_i8, 6] {
+            for timer in [i16::MIN, -1, 0, 1, 2, 300] {
+                for event in [0_i8, 1] {
+                    ram::g_player_boom_box_entities(revision)
+                        .at(index)
+                        .write(&mut host.context(), number);
+                    ram::g_player_boom_box_entities(revision)
+                        .at(index ^ 1)
+                        .write(&mut host.context(), 0);
+                    ram::g_player_boom_box_timers(revision)
+                        .at(index)
+                        .write(&mut host.context(), timer);
+                    ram::g_music_animation_event(revision).write(&mut host.context(), event);
+                    fixture(host, ids::PRESENT_UPDATE_BOOM_BOX, &[index as u32]);
+                }
+            }
+        }
+    }
+}
+
+fn wave67_atomic_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    prepare_effect_fixture(host);
+    for lives0 in [-1_i8, 3] {
+        for lives1 in [-1_i8, 3] {
+            ram::g_player_lives(revision)
+                .at(0)
+                .write(&mut host.context(), lives0);
+            ram::g_player_lives(revision)
+                .at(1)
+                .write(&mut host.context(), lives1);
+            for bank in 0..2 {
+                ram::g_item_bank_users(revision)
+                    .at(bank)
+                    .write(&mut host.context(), 0);
+            }
+            fixture(host, ids::SETUP_INITIAL_INVENTORY, &[]);
+        }
+    }
+    prepare_effect_fixture(host);
+    let projectile = ram::g_player_info(revision).at(6);
+    let player = ram::g_player_info(revision).at(0);
+    player.x().write(&mut host.context(), 400);
+    player.y().write(&mut host.context(), 400);
+    player.height().write(&mut host.context(), 0);
+    player.width().write(&mut host.context(), 32);
+    player.height_pixels().write(&mut host.context(), 32);
+    player.behavior_flags().write(&mut host.context(), 1);
+    player
+        .next()
+        .write(&mut host.context(), tje_mem::Ptr::new(0));
+    ram::g_entity_draw_list_head(revision)
+        .write(&mut host.context(), tje_mem::Ptr::new(player.address()));
+    for flags in [1_u8, 3, 5] {
+        for height in [-1_i16, 0, 1, 5, 10, 25, 26] {
+            for state in [-1_i8, 0, 21] {
+                for slot in 0..4 {
+                    ram::g_control_remap_projectile_entities(revision)
+                        .at(slot)
+                        .write(&mut host.context(), 0);
+                }
+                ram::g_control_remap_projectile_entities(revision)
+                    .at(0)
+                    .write(&mut host.context(), 6);
+                projectile.draw_flags().write(&mut host.context(), flags);
+                projectile.sprite_state().write(&mut host.context(), state);
+                projectile.height().write(&mut host.context(), height);
+                projectile.width().write(&mut host.context(), 9);
+                projectile.x().write(&mut host.context(), 400);
+                projectile.y().write(&mut host.context(), 400);
+                projectile.tile().write(&mut host.context(), 0x8000);
+                projectile.frame_duration().write(&mut host.context(), 0);
+                fixture(host, ids::EARTHLING_UPDATE_CONTROL_REMAP_PROJECTILES, &[]);
+                for slot in 0..4 {
+                    ram::g_control_remap_projectile_entities(revision)
+                        .at(slot)
+                        .write(&mut host.context(), 0);
+                }
+                for slot in 0..12 {
+                    ram::g_shared_projectile_entities(revision)
+                        .at(slot)
+                        .write(&mut host.context(), 0);
+                }
+                for owner in [-1_i8, 0, 3] {
+                    ram::g_shared_projectile_entities(revision)
+                        .at(0)
+                        .write(&mut host.context(), 6);
+                    ram::g_shared_projectile_owners(revision)
+                        .at(0)
+                        .write(&mut host.context(), owner);
+                    fixture(host, ids::PROCESS_TOMATO_RAIN, &[]);
+                }
+            }
+        }
+    }
+    for terrain in [0_u32, 0x10, 0x7f, 0x80, 0xffff] {
+        fixture(
+            host,
+            ids::MAP_IS_LARGE_PLACEMENT_TERRAIN_EXCLUDED,
+            &[terrain],
+        );
+    }
+    fixture(host, ids::PRESENT_CLEAR_WORLD_ENTITY_READINESS, &[]);
+    ram::g_player_decoy_entities(revision)
+        .at(0)
+        .write(&mut host.context(), 6);
+    fixture(host, ids::PRESENT_REGISTER_DECOY_HIT, &[6]);
+    for input in 0_u8..=255 {
+        ram::g_player_processed_input(revision)
+            .at(0)
+            .write(&mut host.context(), input);
+        ram::g_player_control_remap_indices(revision)
+            .at(0)
+            .write(&mut host.context(), (input & 3) as i8);
+        fixture(host, ids::PLAYER_REMAP_DIRECTIONAL_INPUT, &[0]);
+    }
+    fixture(host, ids::NO_OP, &[]);
 }

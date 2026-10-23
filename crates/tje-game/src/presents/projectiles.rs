@@ -94,8 +94,7 @@ pub fn check_tomato_rain_timer(
     }
     // SUBQ.B followed directly by BLE consumes its overflow flag. At -128 the
     // stored byte wraps to 127, but the signed branch still takes the spawn path.
-    let remaining = i32::from(delay.read(context)) - 1;
-    delay.write(context, remaining as i8);
+    let remaining = super::predecrement_i8(context, delay);
     if remaining > 0 {
         return Ok(None);
     }
@@ -426,8 +425,7 @@ pub fn player_update_control_remap_effect(
     let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
     effect.level().write(context, player.level().read(context));
     let timer = ram::g_player_control_remap_timers(revision).at(index);
-    let remaining = i32::from(timer.read(context)) - 1;
-    timer.write(context, remaining as i16);
+    let remaining = super::predecrement_i16(context, timer);
     if remaining <= 0
         || ram::g_player_lives(revision).at(index).read(context) < 0
         || matches!(player.sprite_state().read(context), 5 | 6)
@@ -699,5 +697,238 @@ pub fn present_create_active_terrain_effect(
             .write(context, effect.behavior_flags().read(context) | 1);
         call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[13])?;
     }
+    Ok(None)
+}
+
+/// G/src/presents/projectile_effects.c:439 (`EarthlingUpdateControlRemapProjectiles`).
+/// Atomic: four RAM handles, terrain/collision queries and entity/remap helpers.
+/// The terrain query and decoy-hit result retain this TU's mismatched int view.
+pub fn earthling_update_control_remap_projectiles(
+    context: &mut dyn Context,
+    _: &[u32],
+) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let handles = ram::g_control_remap_projectile_entities(revision);
+    for slot in 0..4 {
+        let number = handles.at(slot).read(context);
+        if number == 0 {
+            continue;
+        }
+        let projectile = ram::g_player_info(revision).at(i32::from(number));
+        if projectile.draw_flags().read(context) & 6 == 0 {
+            if projectile.height().read(context) < 5 {
+                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                handles.at(slot).write(context, 0);
+            }
+        } else if projectile.sprite_state().read(context) == -1 {
+            if projectile.height().read(context) <= 0 {
+                if projectile.tile().read(context) & 0x8000 != 0 {
+                    projectile
+                        .draw_flags()
+                        .write(context, projectile.draw_flags().read(context) & !0x40);
+                    let view = if projectile.draw_flags().read(context) & 4 != 0 {
+                        1
+                    } else {
+                        0
+                    };
+                    let args = [
+                        view,
+                        projectile.x().read(context) as u32,
+                        projectile.y().read(context) as u32,
+                    ];
+                    let hit = call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &args)? as i16;
+                    if hit == 0x90 {
+                        projectile
+                            .tile()
+                            .write(context, projectile.tile().read(context) & !0x8000);
+                        projectile.sprite_ready().write(context, 0);
+                    } else {
+                        call(context, ids::FREE_ENTITY, &[number as u32])?;
+                        handles.at(slot).write(context, 0);
+                    }
+                }
+            } else if projectile.height().read(context) <= 25 {
+                let hit = call(
+                    context,
+                    ids::ENTITY_FIND_PROJECTILE_TARGET_HIT,
+                    &[projectile.address()],
+                )? as i16;
+                if hit != 0 {
+                    let hit = hit.wrapping_sub(1);
+                    let index = i32::from(hit);
+                    if hit <= 1
+                        && ram::g_player_elevator_flags(revision)
+                            .at(index)
+                            .read(context)
+                            == 0
+                        && ram::g_player_inventory_open(revision)
+                            .at(index)
+                            .read(context)
+                            == 0
+                    {
+                        call(
+                            context,
+                            ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
+                            &[hit as u32],
+                        )?;
+                    } else {
+                        call(context, ids::PRESENT_REGISTER_DECOY_HIT, &[hit as u32])?;
+                    }
+                    call(context, ids::FREE_ENTITY, &[number as u32])?;
+                    handles.at(slot).write(context, 0);
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// G/src/presents/projectile_effects.c:141 (`ProcessTomatoRain`).
+/// Atomic: bounded shared-pool updates, RAM/ROM collision/animation and sound requests.
+/// Preserve signed owner comparisons and this TU's mismatched terrain/decoy D0 views.
+pub fn process_tomato_rain(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let handles = ram::g_shared_projectile_entities(revision);
+    for slot in 0..12 {
+        let number = i16::from(handles.at(slot).read(context));
+        if number == 0 {
+            continue;
+        }
+        let projectile = ram::g_player_info(revision).at(i32::from(number));
+        if projectile.height().read(context) < 10 && projectile.draw_flags().read(context) & 6 == 0
+        {
+            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            handles.at(slot).write(context, 0);
+        } else if projectile.sprite_state().read(context) == -1 {
+            if projectile.height().read(context) <= 0 {
+                if projectile.tile().read(context) & 0x8000 != 0 {
+                    projectile
+                        .draw_flags()
+                        .write(context, projectile.draw_flags().read(context) & !0x40);
+                    let view = if projectile.draw_flags().read(context) & 4 != 0 {
+                        1
+                    } else {
+                        0
+                    };
+                    let args = [
+                        view,
+                        projectile.x().read(context) as u32,
+                        projectile.y().read(context) as u32,
+                    ];
+                    let terrain =
+                        call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &args)? as i16;
+                    if terrain == 0x90 {
+                        projectile
+                            .tile()
+                            .write(context, projectile.tile().read(context) & !0x8000);
+                        projectile.sprite_ready().write(context, 0);
+                        projectile.sprite_state().write(context, 21);
+                    } else {
+                        projectile.velocity_x().write(context, 0);
+                        projectile.velocity_y().write(context, 0);
+                        projectile.height().write(context, 0);
+                        projectile.velocity_height().write(context, 0);
+                        projectile.acceleration_height().write(context, 0);
+                        let animation = if terrain != 0x80 {
+                            rom::tomato_ground_impact_animation(revision)
+                        } else {
+                            rom::tomato_terrain128_impact_animation(revision)
+                        };
+                        projectile
+                            .sequence()
+                            .write(context, animation.sequence().read(context));
+                        projectile
+                            .frames()
+                            .write(context, animation.frames().read(context));
+                        projectile
+                            .frame_phase()
+                            .write(context, animation.period().read(context));
+                        projectile.sprite_state().write(context, 0);
+                        projectile.frame().write(context, -1);
+                        projectile.frame_duration().write(context, 1);
+                        if ram::g_fm_effect_template_status(revision).read(context) == 0 {
+                            call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[15])?;
+                        }
+                    }
+                }
+            } else if projectile.height().read(context) <= 25 {
+                let owner = ram::g_shared_projectile_owners(revision)
+                    .at(slot)
+                    .read(context);
+                let hit = call(
+                    context,
+                    ids::PROJECTILE_FIND_COLLISION_EXCLUDING_OWNER,
+                    &[projectile.address(), owner as u32],
+                )? as i16;
+                if hit != 0 {
+                    let hit = hit.wrapping_sub(1);
+                    let index = i32::from(hit);
+                    if hit <= 1
+                        && ram::g_player_elevator_flags(revision)
+                            .at(index)
+                            .read(context)
+                            == 0
+                        && ram::g_player_inventory_open(revision)
+                            .at(index)
+                            .read(context)
+                            == 0
+                        && ram::g_player_interaction_choice_active(revision)
+                            .at(index)
+                            .read(context)
+                            == 0
+                    {
+                        let health = ram::g_player_health(revision).at(index);
+                        let damage = if ram::g_shared_projectile_owners(revision)
+                            .at(slot)
+                            .read(context)
+                            <= 1
+                        {
+                            4
+                        } else {
+                            6
+                        };
+                        health.write(context, health.read(context).wrapping_sub(damage));
+                    } else if call(context, ids::PRESENT_REGISTER_DECOY_HIT, &[hit as u32])? == 0 {
+                        let earthling = ram::g_player_info(revision)
+                            .at(index)
+                            .earthling()
+                            .read(context);
+                        call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+                    }
+                    projectile.velocity_x().write(context, 0);
+                    projectile.velocity_y().write(context, 0);
+                    projectile.velocity_height().write(context, 0);
+                    projectile.acceleration_height().write(context, 0);
+                    projectile
+                        .draw_flags()
+                        .write(context, projectile.draw_flags().read(context) & !0x40);
+                    let animation = rom::tomato_target_impact_animation(revision);
+                    projectile
+                        .sequence()
+                        .write(context, animation.sequence().read(context));
+                    projectile
+                        .frames()
+                        .write(context, animation.frames().read(context));
+                    projectile
+                        .frame_phase()
+                        .write(context, animation.period().read(context));
+                    projectile.frame().write(context, -1);
+                    projectile.frame_duration().write(context, 1);
+                    projectile.sprite_state().write(context, 0);
+                    call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[2])?;
+                }
+            }
+        } else if projectile.frame_duration().read(context) == 0
+            && projectile.sprite_state().read(context) != 21
+        {
+            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            handles.at(slot).write(context, 0);
+        }
+    }
+    call(
+        context,
+        ids::EARTHLING_UPDATE_CONTROL_REMAP_PROJECTILES,
+        &[],
+    )?;
     Ok(None)
 }

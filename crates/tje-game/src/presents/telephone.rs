@@ -156,3 +156,154 @@ pub fn telephone_create_display_entity(
     }
     Ok(None)
 }
+
+/// G/src/presents/telephone.c:72 (`CheckForTelephone`).
+/// TimeAware: answering enters DrawGameMap's VBlank and controller-input loops.
+pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let index = i32::from(arguments[0] as i16);
+    let telephone = ram::g_telephone_states(revision).at(index);
+    if telephone.level().read(context) == 0 {
+        return Ok(None);
+    }
+    let first_x = telephone
+        .x()
+        .read(context)
+        .wrapping_sub(ram::g_camera1_pending_x(revision).read(context));
+    let first_y = telephone
+        .y()
+        .read(context)
+        .wrapping_sub(ram::g_camera1_pending_y(revision).read(context));
+    let second_x = telephone
+        .x()
+        .read(context)
+        .wrapping_sub(ram::g_camera2_pending_x(revision).read(context));
+    let second_y = telephone
+        .y()
+        .read(context)
+        .wrapping_sub(ram::g_camera2_pending_y(revision).read(context));
+    if (telephone.level().read(context) == ram::g_player1_map_level(revision).read(context)
+        && i32::from(first_x) + 20 > 0
+        && first_x < 340
+        && i32::from(first_y) + 20 > 0
+        && first_y < 244)
+        || (telephone.level().read(context) == ram::g_player2_map_level(revision).read(context)
+            && ram::g_split_screen_enabled(revision).read(context) != 0
+            && i32::from(second_x) + 20 > 0
+            && second_x < 340
+            && i32::from(second_y) + 20 > 0
+            && second_y < 132)
+    {
+        if telephone.object().read(context) == 0 {
+            call(
+                context,
+                ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
+                &[telephone.address()],
+            )?;
+        }
+    } else {
+        let number = telephone.object().read(context);
+        if number != 0 {
+            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            telephone.object().write(context, 0);
+        }
+    }
+    let activated = ram::g_telephone_activated(revision).at(index);
+    if activated.read(context) == 0 {
+        for player_number in 0..2 {
+            let player = ram::g_player_info(revision).at(player_number);
+            if ram::g_player_lives(revision)
+                .at(player_number)
+                .read(context)
+                >= 0
+                && player.level().read(context) == telephone.level().read(context)
+                && ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
+                && (i32::from(telephone.x().read(context)) - i32::from(player.x().read(context)))
+                    .wrapping_abs()
+                    < 320
+                && (i32::from(telephone.y().read(context)) - i32::from(player.y().read(context)))
+                    .wrapping_abs()
+                    < 224
+            {
+                activated.write(context, 1);
+                ram::g_telephone_rings_left(revision)
+                    .at(index)
+                    .write(context, 6);
+                call(
+                    context,
+                    ids::TELEPHONE_START_RING,
+                    &[index as u32, telephone.address()],
+                )?;
+                break;
+            }
+        }
+        if activated.read(context) == 0 {
+            return Ok(None);
+        }
+    }
+    let delay = ram::g_telephone_time_to_ring(revision).at(index);
+    let remaining = super::predecrement_i8(context, delay);
+    if remaining <= 0 {
+        let rings = ram::g_telephone_rings_left(revision).at(index);
+        let remaining = super::predecrement_i8(context, rings);
+        if remaining > 0
+            && (ram::g_player_info(revision).at(0).level().read(context)
+                == telephone.level().read(context)
+                || ram::g_player_info(revision).at(1).level().read(context)
+                    == telephone.level().read(context))
+        {
+            if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
+                call(
+                    context,
+                    ids::TELEPHONE_START_RING,
+                    &[index as u32, telephone.address()],
+                )?;
+            } else {
+                rings.write(context, rings.read(context).wrapping_add(1));
+                delay.write(context, 1);
+            }
+        } else {
+            let number = telephone.object().read(context);
+            if number != 0 {
+                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                telephone.object().write(context, 0);
+                let args = [
+                    index as u32,
+                    telephone.x().read(context) as u32,
+                    (i32::from(telephone.y().read(context)) + 1) as u32,
+                    0,
+                    telephone.level().read(context) as u32,
+                ];
+                call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
+            }
+            telephone.level().write(context, 0);
+        }
+    }
+    if telephone.object().read(context) != 0 {
+        for player_number in 0..2 {
+            let player = ram::g_player_info(revision).at(player_number);
+            if ram::g_player_lives(revision)
+                .at(player_number)
+                .read(context)
+                >= 0
+                && player.level().read(context) == telephone.level().read(context)
+                && (i32::from(telephone.x().read(context)) - i32::from(player.x().read(context)))
+                    .wrapping_abs()
+                    < 16
+                && (i32::from(telephone.y().read(context)) - i32::from(player.y().read(context)))
+                    .wrapping_abs()
+                    < 8
+            {
+                let number = telephone.object().read(context);
+                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                telephone.object().write(context, 0);
+                ram::g_map_reveal_mode(revision).write(context, 1);
+                call(context, ids::DRAW_GAME_MAP, &[player_number as u32])?;
+                ram::g_map_reveal_mode(revision).write(context, 0);
+                telephone.level().write(context, 0);
+                break;
+            }
+        }
+    }
+    Ok(None)
+}

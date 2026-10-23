@@ -1,5 +1,5 @@
 use crate::{Context, Result, call, ids};
-use tje_mem::{ram, rom};
+use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/presents/present_effects.c:40 (`PresentStartTransientEffect`).
 /// Atomic: RAM allocation/restart, ROM animation reads and a queued PSG request.
@@ -102,8 +102,7 @@ pub fn present_update_rain_cloud(
         }
     } else {
         let timer = ram::g_player_rain_cloud_timers(revision).at(index);
-        let remaining = i32::from(timer.read(context)) - 1;
-        timer.write(context, remaining as i16);
+        let remaining = super::predecrement_i16(context, timer);
         if remaining <= 0
             || ram::g_player_lives(revision).at(index).read(context) < 0
             || matches!(player.sprite_state().read(context), 5 | 6)
@@ -464,8 +463,7 @@ pub fn present_update_boom_box(
     if handle.read(context) != 0 {
         let object = ram::g_player_info(revision).at(i32::from(handle.read(context)));
         let timer = ram::g_player_boom_box_timers(revision).at(index);
-        let remaining = i32::from(timer.read(context)) - 1;
-        timer.write(context, remaining as i16);
+        let remaining = super::predecrement_i16(context, timer);
         if remaining <= 0 {
             let level = object.level().read(context);
             call(context, ids::EARTHLING_WAKE_LEVEL, &[level as u32])?;
@@ -624,8 +622,7 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
             call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[14])?;
             timer.write(context, 50);
         } else {
-            let remaining = i32::from(timer.read(context)) - 1;
-            timer.write(context, remaining as i8);
+            let remaining = super::predecrement_i8(context, timer);
             if remaining < 0 {
                 let mask = ram::g_player_info(revision)
                     .at(index)
@@ -650,6 +647,278 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_burp(revision).address(), 50, 0],
                     )?;
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// G/src/presents/present_effects.c:395 (`BummerLifePromo`).
+/// TimeAware: completed displays can generate speech or another promotion display.
+pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let player = Address::<ObjectState>::new(arguments[0]);
+    let terrain = arguments[1] as u16;
+    let index = i32::from(player.entity_index().read(context));
+    let handle = ram::g_player_promotion_display_entities(revision).at(index);
+    if handle.read(context) == 0 {
+        return Ok(None);
+    }
+    let display = ram::g_player_info(revision).at(i32::from(handle.read(context)));
+    display.level().write(context, player.level().read(context));
+    if display.frame_duration().read(context) != 0 {
+        if display.sprite_state().read(context) == 16 {
+            let health = ram::g_player_health(revision).at(index);
+            if health.read(context) > 1 {
+                health.write(context, health.read(context).wrapping_sub(1));
+            }
+            call(context, ids::PLAY_SOUND, &[18, 40])?;
+        } else if display.sprite_state().read(context) == 17
+            && ram::g_pcm_effect_cooldown_ticks(revision).read(context) < 4
+        {
+            call(
+                context,
+                ids::PLAY_SOUND_EFFECT,
+                &[rom::sfx_extra_life_glitz(revision).address(), 87, 0],
+            )?;
+        } else if display.sprite_state().read(context) == 11 {
+            let cache_index = ram::g_random_cache_index(revision);
+            let next = if cache_index.read(context) == 58 {
+                0
+            } else {
+                cache_index.read(context).wrapping_add(1)
+            };
+            cache_index.write(context, next);
+            if ram::g_cached_random_values(revision)
+                .at(i32::from(next))
+                .read(context)
+                & 2
+                != 0
+            {
+                let phase = i16::from(display.frame().read(context)) % 14;
+                if phase == 12 || (phase > 1 && phase < 11 && phase != 7) {
+                    call(
+                        context,
+                        ids::PLAY_SOUND_EFFECT,
+                        &[rom::sfx_jam_snare_drum(revision).address(), 90, 0],
+                    )?;
+                }
+            }
+        }
+    } else {
+        let mut promotion_complete = false;
+        if display.sprite_state().read(context) == 17 {
+            let lives = ram::g_player_lives(revision).at(index);
+            if lives.read(context) < 8 {
+                lives.write(context, lives.read(context).wrapping_add(1));
+                ram::g_hud_redraw_pending(revision).write(context, 1);
+            }
+        } else if display.sprite_state().read(context) == 16 {
+            if !matches!(player.sprite_state().read(context), 5 | 6) {
+                ram::g_player_health(revision).at(index).write(context, 0);
+                let text = tje_mem::rom_symbol(revision, "GameText_0168DC")
+                    .expect("catalogued promotion text")
+                    .address;
+                call(context, ids::GENERATE_SPEECH, &[index as u32, text, 0])?;
+            }
+        } else if display.sprite_state().read(context) == 11 {
+            let text = rom::rank_name_str_table(revision)
+                .at(i32::from(
+                    ram::g_player_rank(revision).at(index).read(context),
+                ))
+                .read(context)
+                .address();
+            call(context, ids::GENERATE_SPEECH, &[index as u32, text, 1])?;
+            promotion_complete = true;
+            call(
+                context,
+                ids::PLAY_SOUND_EFFECT,
+                &[rom::sfx_yeah_all_right(revision).address(), 90, 0],
+            )?;
+        }
+        if matches!(player.sprite_state().read(context), 71 | 70) {
+            let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
+            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+        }
+        let number = handle.read(context);
+        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        handle.write(context, 0);
+        if promotion_complete
+            && (i32::from(ram::g_player_rank(revision).at(index).read(context)) - 2) % 3 == 0
+        {
+            call(
+                context,
+                ids::PERFORM_PROMOTION,
+                &[index as u32, 17, u32::from(terrain)],
+            )?;
+        }
+    }
+    Ok(None)
+}
+
+/// G/src/presents/present_effects.c:230 (`PlayerTeleportThroughDoorway`).
+/// TimeAware: explicit graphics-paused VBlank and screen-split redraw transactions.
+pub fn player_teleport_through_doorway(
+    context: &mut dyn Context,
+    arguments: &[u32],
+) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let index = i32::from(arguments[0] as i16);
+    let player = Address::<ObjectState>::new(arguments[1]);
+    let (camera_x, camera_y) = if ram::g_player_lives(revision).at(0).read(context) >= 0
+        && index == 1
+        && ram::g_split_screen_enabled(revision).read(context) != 0
+    {
+        (
+            ram::g_camera2_pending_x(revision).read(context),
+            ram::g_camera2_pending_y(revision).read(context),
+        )
+    } else {
+        (
+            ram::g_camera1_pending_x(revision).read(context),
+            ram::g_camera1_pending_y(revision).read(context),
+        )
+    };
+    loop {
+        call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[index as u32])?;
+        let args = [
+            player.address(),
+            player.x().read(context) as u32,
+            player.y().read(context) as u32,
+            2,
+        ];
+        if call(
+            context,
+            ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
+            &args,
+        )? == 0
+        {
+            break;
+        }
+    }
+    if ram::g_split_screen_enabled(revision).read(context) == 0
+        && i32::from(player.x().read(context)) > i32::from(camera_x) + 20
+        && i32::from(player.x().read(context)) < i32::from(camera_x) + 320 - 20
+        && i32::from(player.y().read(context)) > i32::from(camera_y) + 40
+        && i32::from(player.y().read(context)) < i32::from(camera_y) + 224 - 40
+    {
+        return Ok(None);
+    }
+    call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    let mode = ram::g_mode2_reg_softcopy(revision);
+    mode.write(context, mode.read(context) & 0x3c);
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    mode.write(context, mode.read(context) | 0x40);
+    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    Ok(None)
+}
+
+/// G/src/presents/present_effects.c:260 (`PresentUpdateDoorway`).
+/// TimeAware: a centered crossing can teleport and redraw through VBlank.
+pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let owner = i32::from(arguments[0] as i16);
+    let handle = ram::g_player_doorway_entities(revision).at(owner);
+    let number = handle.read(context);
+    if number == 0 {
+        return Ok(None);
+    }
+    if call(
+        context,
+        ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
+        &[owner as u32],
+    )? == 0
+    {
+        return Ok(None);
+    }
+    let object = ram::g_player_info(revision).at(i32::from(number));
+    if object.behavior_flags().read(context) & 0x40 != 0 {
+        object
+            .behavior_flags()
+            .write(context, object.behavior_flags().read(context) & !0x40);
+    }
+    if object.draw_flags().read(context) & 6 == 0
+        && ram::g_player_inventory_open(revision).at(0).read(context) == 0
+        && ram::g_player_inventory_open(revision).at(1).read(context) == 0
+    {
+        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        handle.write(context, 0);
+        return Ok(None);
+    }
+    let contact = ram::g_doorway_player_contact_flags(revision).at(owner);
+    if contact.read(context) & 4 != 0 {
+        let index = i32::from((contact.read(context) & 3).wrapping_sub(1));
+        let player = ram::g_player_info(revision).at(index);
+        if player.y().read(context) < object.y().read(context) {
+            call(
+                context,
+                ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+                &[index as u32, player.address()],
+            )?;
+            let args = [
+                index as u32,
+                player.x().read(context) as u32,
+                (i32::from(player.y().read(context)) + 1) as u32,
+                5,
+                player.level().read(context) as u32,
+            ];
+            call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
+        }
+    }
+    let mut active = 0_i8;
+    contact.write(context, 0);
+    for index in 0..2 {
+        let player = ram::g_player_info(revision).at(index);
+        let args = [
+            player.address(),
+            (i32::from(player.y().read(context)) >> 3) as u32,
+            (i32::from(player.x().read(context)) >> 3) as u32,
+        ];
+        if call(context, ids::PRESENT_FIND_DOORWAY_OWNER_AT_TILE, &args)? as i32 == owner + 1 {
+            contact.write(context, (index + 1) as i8);
+            if i32::from(player.x().read(context)) > i32::from(object.x().read(context)) - 6
+                && i32::from(player.x().read(context)) < i32::from(object.x().read(context)) + 6
+            {
+                active = 1;
+                contact.write(context, contact.read(context) | 4);
+            }
+        }
+    }
+    if active != object.sprite_state().read(context) {
+        let animation = rom::doorway_animations(revision).at(i32::from(active));
+        object
+            .sequence()
+            .write(context, animation.sequence().read(context));
+        object
+            .frames()
+            .write(context, animation.frames().read(context));
+        object
+            .frame_phase()
+            .write(context, animation.period().read(context));
+        object.frame_duration().write(context, 1);
+        object.frame().write(context, -1);
+        object.sprite_state().write(context, active);
+        if active != 0 {
+            object
+                .behavior_flags()
+                .write(context, object.behavior_flags().read(context) & !1);
+        } else {
+            object
+                .behavior_flags()
+                .write(context, object.behavior_flags().read(context) | 1);
+            if contact.read(context) != 0 {
+                let index = i32::from((contact.read(context) & 3).wrapping_sub(1));
+                let player = ram::g_player_info(revision).at(index);
+                if i32::from(contact.read(context) & 3) == index + 1
+                    && i32::from(player.y().read(context)) - i32::from(object.y().read(context)) < 8
+                {
+                    player
+                        .y()
+                        .write(context, object.y().read(context).wrapping_add(8));
                 }
             }
         }
