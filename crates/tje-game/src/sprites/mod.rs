@@ -7,6 +7,7 @@ mod dma_upload;
 mod frame_rendering;
 mod lifecycle;
 mod links;
+mod queue_update;
 mod rendering;
 mod slots;
 mod unpack;
@@ -232,6 +233,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::PROCESS_ENTITY_ANIMATION_MOTION,
         function: updates::process_entity_animation_motion,
     },
+    crate::Translation {
+        id: crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
+        function: dma_upload::link_player_sprites_for_split_wipe,
+    },
 ];
 
 /// Reviewed bodies/entries not yet eligible for production replacement.
@@ -243,10 +248,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     // The original loads a dead high byte immediately discarded by EXT.W.
     // Await the shared semantic-dependency audit before claiming both-ROM proof.
     crate::ids::PREPARE_ENTITY_SPRITE_FRAME,
-    // Functional bodies await shared production-class dispatch and both-ROM proof.
+    // Zero-length DMA exposes original call-frame RAM; shared frame/callsite proof is required.
     crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
-    crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
-    // Exact pending-upload RAM-byte wait needs a time-progressing platform primitive.
+    // Real-IRQ wait/pipeline body awaits TimeAware and original-callee dependency proof.
     crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
 ];
 
@@ -261,8 +265,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: dma_upload::upload_queued_sprite_graphics,
     },
     crate::Translation {
-        id: crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
-        function: dma_upload::link_player_sprites_for_split_wipe,
+        id: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+        function: queue_update::update_and_queue_entity_sprites,
     },
 ];
 

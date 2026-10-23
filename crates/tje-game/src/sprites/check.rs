@@ -326,26 +326,32 @@ fn seed_registers(host: &mut Host) {
 }
 
 fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
-    let mut registry = HookRegistry::empty(revision);
-    // Pending bodies require explicit selection and are confined to this proof harness.
-    for (translations, pending) in [
-        (tje_game::sprites::TRANSLATIONS, false),
-        (tje_game::sprites::PENDING_TRANSLATIONS, true),
-    ] {
-        for translation in translations {
-            if !(selected.contains(&translation.id) || selected.is_empty() && !pending) {
-                continue;
-            }
-            let atomic_capable = tje_game::sprites::ATOMIC_CAPABLE;
-            let class = if atomic_capable.contains(&translation.id) {
-                tje_game::execution::ExecutionClass::Atomic
-            } else {
-                tje_game::sprites::EXECUTION_CONTRACTS
-                    .iter()
-                    .find(|(id, _)| *id == translation.id)
-                    .expect("reviewed sprite execution class")
-                    .1
-            };
+    let pending = tje_game::sprites::PENDING_TRANSLATIONS;
+    let positions: Vec<_> = pending
+        .iter()
+        .enumerate()
+        .filter_map(|(index, body)| selected.contains(&body.id).then_some(index))
+        .collect();
+    if positions.is_empty() {
+        let subsystems: &[&str] = if selected.is_empty() {
+            &["sprites"]
+        } else {
+            &[]
+        };
+        return HookRegistry::filtered(revision, subsystems, selected).unwrap();
+    }
+    let first = positions[0];
+    let last = *positions.last().unwrap();
+    assert_eq!(
+        positions.len(),
+        last - first + 1,
+        "select a contiguous pending proof group"
+    );
+    // The shared proof constructor overlays these candidates on every proven callee.
+    let mut registry = HookRegistry::proof(revision, &pending[first..=last]).unwrap();
+    for translation in tje_game::sprites::TRANSLATIONS {
+        if selected.contains(&translation.id) {
+            let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
             registry
                 .register_translation_with_execution(*translation, class)
                 .unwrap();
@@ -367,10 +373,12 @@ fn main() {
     let frames = env::var("TJE_SPRITE_FRAMES")
         .map(|value| value.parse().unwrap())
         .unwrap_or(10_000u64);
-    let script = InputScript::parse(include_str!(
-        "../../../tje-host/examples/moving-player.json"
-    ))
-    .unwrap();
+    let script = std::sync::Arc::new(
+        InputScript::parse(include_str!(
+            "../../../tje-host/examples/moving-player.json"
+        ))
+        .unwrap(),
+    );
     let selected: Vec<_> = env::var("TJE_SPRITE_FUNCTIONS")
         .map(|names| {
             names
@@ -393,6 +401,8 @@ fn main() {
         let registry = registry(revision, &selected);
         let mut checked = Host::new(&bytes, Mode::Check, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        checked.set_wait_input_poller(script.clone());
+        reference.set_wait_input_poller(script.clone());
         for frame in 0..frames {
             let a = match checked.run_frame(script.at(frame)) {
                 Ok(snapshot) => snapshot,

@@ -1,4 +1,4 @@
-use super::{frame_rendering, lifecycle, links, rendering, slots, unpack, updates};
+use super::{frame_rendering, lifecycle, links, queue_update, rendering, slots, unpack, updates};
 use crate::{Context, Dispatcher, FunctionId, Result};
 use tje_mem::{Address, AddressSpace, Bus, Platform, Ptr, RenderPiece, Revision, ram, rom};
 
@@ -590,4 +590,108 @@ fn original_not_ready_budget_bug_suppresses_the_later_motion_callback() {
     // The original adds the over-budget 255 first, so no callback is invoked.
     updates::process_entity_animation_motion(&mut machine, &[]).unwrap();
     assert_eq!(first.draw_flags().read(&machine), 0x37);
+}
+
+#[test]
+fn cutoff_subtraction_branch_keeps_v_for_every_signed_word_input() {
+    let mut machine = Machine::new(Revision::Rev02);
+    let piece = machine.piece();
+    piece.width().write(&mut machine, 1);
+    piece.height().write(&mut machine, 1);
+    piece.y().write(&mut machine, 127);
+    for bits in 0..=u16::MAX {
+        let cutoff = bits as i16;
+        let result = rendering::clip_sprite_pixels_below_cutoff(
+            &mut machine,
+            &[piece.address(), cutoff as i32 as u32],
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Some(u32::from(125 >= i32::from(cutoff))),
+            "cutoff={cutoff}"
+        );
+    }
+}
+
+#[test]
+fn guarded_frame_duration_predecrement_matches_every_byte_and_zero_test() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let entity = ram::g_player_info(revision).at(39);
+    for bits in 0..=u8::MAX {
+        let old = bits as i8;
+        entity.frame_duration().write(&mut machine, old);
+        let expired = queue_update::tick_frame_duration(&mut machine, entity);
+        assert_eq!(expired, old == 1, "old={old}");
+        assert_eq!(
+            entity.frame_duration().read(&machine),
+            if old == 0 { 0 } else { old.wrapping_sub(1) },
+            "old={old}"
+        );
+    }
+}
+
+#[test]
+fn short_player_selectors_wrap_the_word_offset_before_address_addition() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let player = ram::g_player_info(revision).at(0);
+    player.draw_flags().write(&mut machine, 3);
+    player.behavior_flags().write(&mut machine, 0x10);
+    player.sprite_ready().write(&mut machine, 1);
+    player.sprite_count().write(&mut machine, 1);
+    player.primary_sprites().at(0).write(&mut machine, 25);
+    for selector in [512i16, -512, 1024, -1024] {
+        machine.writes.clear();
+        links::hide_flagged_player_sprites(&mut machine, &[selector as i32 as u32]).unwrap();
+        assert_eq!(
+            machine.writes,
+            [(4, 0x78c8), (4, 3), (0, 1)],
+            "selector={selector}"
+        );
+    }
+    // FreeEntity's player guard uses the input number, not the aliased pointer.
+    player.draw_flags().write(&mut machine, 1);
+    ram::g_dynamic_entity_slot_allocated(revision)
+        .at(506)
+        .write(&mut machine, 1);
+    updates::free_entity(&mut machine, &[512]).unwrap();
+    assert_eq!(player.draw_flags().read(&machine), 0);
+    assert_eq!(
+        ram::g_dynamic_entity_slot_allocated(revision)
+            .at(506)
+            .read(&machine),
+        0
+    );
+}
+
+#[test]
+fn int_entity_selector_does_not_reuse_the_short_selector_word_wrap() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    let player = ram::g_player_info(revision).at(0);
+    player.draw_flags().write(&mut machine, 1);
+    let before = machine.memory.ram().to_vec();
+    updates::update_entity_viewport_sprites(&mut machine, &[512]).unwrap();
+    assert_eq!(machine.memory.ram().as_slice(), before);
+    assert_eq!(machine.data[4], 0xa5a5_1234);
+}
+
+#[test]
+fn int_slot_query_keeps_its_long_index_even_after_a_full_word_of_slots() {
+    let revision = Revision::Rev02;
+    let mut machine = Machine::new(revision);
+    ram::g_viewport_sprite_slot_flags(revision)
+        .at(0)
+        .write(&mut machine, 2);
+    assert_eq!(
+        slots::is_sprite_slot_locked(&mut machine, &[25]).unwrap(),
+        Some(1)
+    );
+    // The full longword displacement reaches synthetic ROM, not the RAM flag alias.
+    assert_eq!(
+        slots::is_sprite_slot_locked(&mut machine, &[25 + 65536]).unwrap(),
+        Some(0)
+    );
 }
