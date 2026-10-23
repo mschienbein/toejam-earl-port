@@ -3,8 +3,188 @@
 use crate::{Context, Result, ids};
 use tje_mem::{Ptr, ram, rom};
 
+pub mod drifting_entities;
+pub mod ending_player_release;
+pub mod flying_entities;
+pub mod impact_and_planet_entities;
+pub mod intro;
+pub mod intro_frame_entities;
+pub mod large_player_parts;
+pub mod rocketship_pose;
+pub mod sega_logo;
+
+/// Complete bodies withheld from production until both-revision check evidence.
+pub static PENDING: &[crate::FunctionId] = &[
+    // Shared production Functional/TimeAware original-call lookup is pending.
+    ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+    ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+    ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+    ids::INTRO_PART5,
+    ids::INTRO_PART6,
+    ids::INTRO_PART7,
+    ids::INTRO_PART8,
+    ids::INTRO_PART9,
+    ids::SEGA_VIDEO,
+];
+
+/// Opt-in fixture roots only. The production dispatcher never consumes this list.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+        function: sega_logo::sega_logo_clear_video_planes,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+        function: large_player_parts::intro_release_large_player_sprites_and_refresh,
+    },
+    crate::Translation {
+        id: ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        function: intro::intro_begin_large_player_scene,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART5,
+        function: intro::intro_part5,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART6,
+        function: intro::intro_part6,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART7,
+        function: intro::intro_part7,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART8,
+        function: intro::intro_part8,
+    },
+    crate::Translation {
+        id: ids::INTRO_PART9,
+        function: intro::intro_part9,
+    },
+    crate::Translation {
+        id: ids::SEGA_VIDEO,
+        function: sega_logo::sega_video,
+    },
+];
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::CUTSCENE_CREATE_DRIFTING_ENTITIES,
+        function: drifting_entities::cutscene_create_drifting_entities,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_CREATE_PLANET_ENTITY,
+        function: impact_and_planet_entities::cutscene_create_planet_entity,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
+        function: rocketship_pose::cutscene_set_rocketship_pair_pose,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_UPDATE_DRIFTING_ENTITIES,
+        function: drifting_entities::cutscene_update_drifting_entities,
+    },
+    crate::Translation {
+        id: ids::ENDING_CREATE_STATIONARY_COMPOSITE,
+        function: impact_and_planet_entities::ending_create_stationary_composite,
+    },
+    crate::Translation {
+        id: ids::INTRO_ALLOCATE_DRIVING_PARTS,
+        function: large_player_parts::intro_allocate_driving_parts,
+    },
+    crate::Translation {
+        id: ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS,
+        function: drifting_entities::intro_allocate_flying_entity_slots,
+    },
+    crate::Translation {
+        id: ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS,
+        function: large_player_parts::intro_allocate_large_player_parts,
+    },
+    crate::Translation {
+        id: ids::INTRO_CREATE_ASTEROID_ENTITY,
+        function: large_player_parts::intro_create_asteroid_entity,
+    },
+    crate::Translation {
+        id: ids::INTRO_CREATE_HIDDEN_FRAME_ENTITIES,
+        function: intro_frame_entities::intro_create_hidden_frame_entities,
+    },
+    crate::Translation {
+        id: ids::INTRO_CREATE_ROCKETSHIP_IMPACT,
+        function: impact_and_planet_entities::intro_create_rocketship_impact,
+    },
+    crate::Translation {
+        id: ids::INTRO_POSITION_DRIVING_PART,
+        function: large_player_parts::intro_position_driving_part,
+    },
+    crate::Translation {
+        id: ids::INTRO_POSITION_LARGE_PLAYER_PART,
+        function: large_player_parts::intro_position_large_player_part,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_DRIVING_PART_SPRITES,
+        function: large_player_parts::intro_release_driving_part_sprites,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES,
+        function: large_player_parts::intro_release_large_player_part_sprites,
+    },
+    crate::Translation {
+        id: ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
+        function: flying_entities::intro_update_flying_entity_motion,
+    },
+    crate::Translation {
+        id: ids::INTRO_UPDATE_RIGHTWARD_FLYING_ENTITY,
+        function: flying_entities::intro_update_rightward_flying_entity,
+    },
+    crate::Translation {
+        id: ids::SEGA_LOGO_CREATE_TRADEMARK_ENTITY,
+        function: sega_logo::sega_logo_create_trademark_entity,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES,
+        function: drifting_entities::cutscene_release_drifting_entities,
+    },
+    crate::Translation {
+        id: ids::CUTSCENE_RELEASE_PLANET_ENTITY,
+        function: impact_and_planet_entities::cutscene_release_planet_entity,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_ACTIVE_PLAYER_ENTITIES,
+        function: ending_player_release::ending_release_active_player_entities,
+    },
+    crate::Translation {
+        id: ids::ENDING_RELEASE_STATIONARY_COMPOSITE,
+        function: impact_and_planet_entities::ending_release_stationary_composite,
+    },
+    crate::Translation {
+        id: ids::INTRO_POSITION_LARGE_PLAYER_PARTS,
+        function: large_player_parts::intro_position_large_player_parts,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_ASTEROID_ENTITY,
+        function: large_player_parts::intro_release_asteroid_entity,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_DRIVING_PARTS,
+        function: large_player_parts::intro_release_driving_parts,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS,
+        function: drifting_entities::intro_release_flying_entity_slots,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_LARGE_PLAYER_PARTS,
+        function: large_player_parts::intro_release_large_player_parts,
+    },
+    crate::Translation {
+        id: ids::INTRO_RELEASE_ROCKETSHIP_IMPACT,
+        function: impact_and_planet_entities::intro_release_rocketship_impact,
+    },
+    crate::Translation {
+        id: ids::SEGA_LOGO_RELEASE_TRADEMARK_ENTITY,
+        function: sega_logo::sega_logo_release_trademark_entity,
+    },
     crate::Translation {
         id: ids::CUTSCENE_APPEND_REMAPPED_FONT_TILES,
         function: cutscene_append_remapped_font_tiles,
