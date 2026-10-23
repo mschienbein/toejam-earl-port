@@ -1,6 +1,6 @@
 //! Opt-in presents ROM proof driver. The private manifest and exact invocations
 //! are recorded in scratch/Presents/report.md. Not linked into the game library.
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, sync::Arc};
 use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
@@ -245,11 +245,16 @@ fn main() {
         serde_json::to_vec_pretty(&names).unwrap(),
     )
     .unwrap();
-    let script = InputScript::parse(
-        &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
-    )
-    .unwrap();
+    let script = Arc::new(
+        InputScript::parse(
+            &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
+        )
+        .unwrap(),
+    );
     for revision in [Revision::Rev02, Revision::Rev00] {
+        if args.get(4).is_some_and(|argument| argument == "rev00") && revision != Revision::Rev00 {
+            continue;
+        }
         let name = if revision == Revision::Rev02 {
             "rev02"
         } else {
@@ -257,12 +262,20 @@ fn main() {
         };
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
         let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
+        let time_mode = args.get(3).is_some_and(|argument| argument == "time");
         let registry = if frame_mode {
             HookRegistry::proof(revision, tje_game::presents::PENDING_FRAMES).unwrap()
+        } else if time_mode {
+            let candidate = tje_game::presents::PENDING
+                .iter()
+                .find(|translation| translation.id == ids::PRESENT_TRY_END_ACTIVE_POWERUP)
+                .unwrap();
+            HookRegistry::proof(revision, std::slice::from_ref(candidate)).unwrap()
         } else {
             registry(revision)
         };
         let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
+        host.set_wait_input_poller(script.clone());
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -315,6 +328,8 @@ fn main() {
             .unwrap();
             if frame_mode {
                 placement_frame_fixtures(&mut host);
+            } else if time_mode {
+                powerup_end_time_fixtures(&mut host);
             } else {
                 fixtures(&mut host);
                 wave2_fixtures(&mut host);
@@ -1032,4 +1047,22 @@ fn placement_frame_fixtures(host: &mut Host) {
         ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
         &[visible.address(), 1],
     );
+}
+
+fn powerup_end_time_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    prepare_effect_fixture(host);
+    for index in 0..2 {
+        let player = ram::g_player_info(revision).at(index);
+        player.height().write(&mut host.context(), 0);
+        player.sprite_state().write(&mut host.context(), 0);
+        player.animation_group_mask().write(&mut host.context(), 1);
+        for powerup in [0_i8, 2, 5] {
+            ram::g_player_powerups(revision)
+                .at(index)
+                .write(&mut host.context(), powerup);
+            ram::g_sprite_graphics_upload_pending(revision).write(&mut host.context(), 0);
+            fixture(host, ids::PRESENT_TRY_END_ACTIVE_POWERUP, &[index as u32]);
+        }
+    }
 }

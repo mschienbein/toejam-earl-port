@@ -417,9 +417,7 @@ fn load_bank_body(
         0
     };
     // ADD.W for the level seed and ASL.W #2 for collected bits, not full scale.
-    let seed_address = ram::g_level_seeds(revision)
-        .at(0)
-        .byte_offset(i32::from(level.wrapping_mul(2)));
+    let seed_address = ram::g_level_seeds(revision).at_word_index(level);
     let seed = seed_address.read(context);
     let saved_seed = call_at(
         context,
@@ -508,9 +506,7 @@ fn load_bank_body(
         } else {
             80
         };
-        let collected = ram::g_collected_level_item_bits(revision)
-            .at(0)
-            .byte_offset(i32::from(level.wrapping_shl(2)));
+        let collected = ram::g_collected_level_item_bits(revision).at_word_index(level);
         let item = ram::g_object_table(revision).at(bank).at(slot);
         if collected.read(context) & tje_mem::arithmetic::lsr_u32(0x80000000, slot as u32) == 0 {
             item.kind().write(context, kind);

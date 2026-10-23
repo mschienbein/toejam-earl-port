@@ -19,8 +19,7 @@ mod telephone;
 /// used by the short-player object accesses reviewed in this subsystem.
 #[inline]
 fn word_indexed_player(revision: tje_mem::Revision, index: i32) -> Address<ObjectState> {
-    let offset = i32::from((index as i16).wrapping_shl(7));
-    ram::g_player_info(revision).at(0).byte_offset(offset)
+    ram::g_player_info(revision).at_word_index(index as i16)
 }
 
 /// SUBQ.B followed directly by a signed branch consumes N xor V, not the
