@@ -1,6 +1,6 @@
 //! Opt-in world-lane ROM harness. Build through the private manifest recorded in
 //! scratch/W0World/report.md; this is not a tje-game runtime module.
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, sync::Arc};
 use tje_game::{Context, Dispatcher, FunctionId, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
@@ -317,10 +317,12 @@ fn main() {
     let root = Path::new(&args[1]);
     let evidence = Path::new(&args[2]);
     fs::create_dir_all(evidence).unwrap();
-    let script = InputScript::parse(
-        &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
-    )
-    .unwrap();
+    let script = Arc::new(
+        InputScript::parse(
+            &fs::read_to_string(root.join("crates/tje-host/examples/start-game.json")).unwrap(),
+        )
+        .unwrap(),
+    );
     let roots = W0_ROOTS;
     assert!(
         Dispatcher::native(roots).is_ok(),
@@ -336,6 +338,7 @@ fn main() {
         let mut host = Host::new(&bytes, Mode::Check, registry(revision)).unwrap();
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
+        host.set_wait_input_poller(script.clone());
         for frame in 0..10000 {
             let actual = host.run_frame(script.at(frame)).unwrap();
             let expected = reference.run_frame(script.at(frame)).unwrap();
@@ -384,6 +387,24 @@ fn main() {
         let natural = serde_json::to_value(&host.checks).unwrap();
         let measurements = serde_json::to_value(&host.measurements).unwrap();
         fs::write(evidence.join(format!("{name}-natural.json")), serde_json::to_vec_pretty(&serde_json::json!({"checks": natural, "measurements": measurements, "whole_session_reference_equal_frames": 10000})).unwrap()).unwrap();
+        // The fixed W0 roots are atomic, but fixture injection itself still
+        // requires the current shared settled IRQ/bus boundary contract.
+        let boundary = host
+            .settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
+        fs::write(
+            evidence.join(format!("{name}-boundary.json")),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "ticks": boundary.ticks, "master_clocks": boundary.master_clocks,
+                "start_pc": boundary.start_pc, "end_pc": boundary.end_pc,
+                "start_frame": boundary.start_frame, "end_frame": boundary.end_frame,
+                "handlers_completed": boundary.handlers_completed,
+                "completed_frames": boundary.completed_frames.len(),
+                "entry_sr": host.cpu().status_register(),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         collision_fixtures(&mut host);
         camera_fixtures(&mut host);
         elevator_fixtures(&mut host);
