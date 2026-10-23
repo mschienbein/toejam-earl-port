@@ -55,9 +55,141 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// All entries below are call-free RAM/ROM operations. Their only loops have
-/// local finite counters; no return path waits for hardware or interrupts.
+/// Reviewed non-atomic original entries, whether or not translated yet.
+/// Classes describe required execution, not approval of an unexercised body.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+    // G/src/cutscenes/sega_logo.c:24: fixed stable-ROM VDP writes, no status,
+    // raster, interrupt or concurrent-source observations. Requires completed
+    // transactions because the 4,176-word stream exceeds the frozen FIFO.
+    (
+        ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+        crate::execution::ExecutionClass::Functional,
+    ),
+    // G/src/cutscenes/large_player_parts.c:128: explicitly waits one VBlank
+    // between queueing RAM sprite graphics and uploading them.
+    (
+        ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/cutscenes/intro.c:85: AnimateTitleTransitionBackground waits on IRQ.
+    (
+        ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/cutscenes/intro.c:524,628,711,819,866: every state-machine path
+    // services real VBlank waits; controller and music state change over time.
+    (
+        ids::INTRO_PART5,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART6,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART7,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART8,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART9,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/cutscenes/sega_logo.c:36: busy loops observe the IRQ-owned frame
+    // counter and SegaLogoVBlank consumes queued palette/sprite publications.
+    (
+        ids::SEGA_VIDEO,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/cutscenes/intro.c:97,912,314,383,455 and intro_part11.c:16:
+    // controller-release loops and timed states call shared VBlank service.
+    (
+        ids::INTRO_PART1,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART10,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART11,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART2,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART3,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::INTRO_PART4,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/cutscenes/intro.c:26: explicit waits plus ordered timed scene calls.
+    (
+        ids::INTRO_VIDEO,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+];
+
+/// Reviewed atomic original entries and translations. Constructors, positioners
+/// and releases below only access RAM/ROM and RAM-only sprite allocation; their
+/// loops do not need peripheral clocks or interrupts. RNG rejection loops depend
+/// only on the RAM seed, never on asynchronous progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    // G/src/cutscenes/drifting_entities.c:17,68,94: RAM-only entity allocation,
+    // ROM frame dimensions, RNG state and per-object counters/positions.
+    ids::CUTSCENE_CREATE_DRIFTING_ENTITIES,
+    ids::CUTSCENE_UPDATE_DRIFTING_ENTITIES,
+    ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS,
+    // G/src/cutscenes/impact_and_planet_entities.c:15,46,77: fixed constructor
+    // stores followed by RAM-only viewport sprite allocation.
+    ids::INTRO_CREATE_ROCKETSHIP_IMPACT,
+    ids::CUTSCENE_CREATE_PLANET_ENTITY,
+    ids::ENDING_CREATE_STATIONARY_COMPOSITE,
+    // G/src/cutscenes/rocketship_pose.c:10: RAM sprite release/reallocation.
+    ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
+    // G/src/cutscenes/large_player_parts.c:18,53,100,144,179,227,241:
+    // counted ROM pieces and RAM-only allocation, placement or release.
+    ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS,
+    ids::INTRO_POSITION_LARGE_PLAYER_PART,
+    ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES,
+    ids::INTRO_ALLOCATE_DRIVING_PARTS,
+    ids::INTRO_POSITION_DRIVING_PART,
+    ids::INTRO_RELEASE_DRIVING_PART_SPRITES,
+    ids::INTRO_CREATE_ASTEROID_ENTITY,
+    // G/src/cutscenes/intro_frame_entities.c:16: ten counted-ROM constructors.
+    ids::INTRO_CREATE_HIDDEN_FRAME_ENTITIES,
+    // G/src/cutscenes/flying_entities.c:15,50: scene-dependent RAM motion, RNG,
+    // and RAM-only sprite lifecycle; no waits/status/HV reads.
+    ids::INTRO_UPDATE_RIGHTWARD_FLYING_ENTITY,
+    ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
+    // G/src/cutscenes/sega_logo.c:125: fixed RAM-only trademark construction.
+    ids::SEGA_LOGO_CREATE_TRADEMARK_ENTITY,
+    // G/src/cutscenes/drifting_entities.c:55,111: bounded RAM-only releases.
+    ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES,
+    ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS,
+    // G/src/cutscenes/impact_and_planet_entities.c:39,70,103: conditional
+    // RAM-only FreeEntity; intentionally retain the published selector.
+    ids::INTRO_RELEASE_ROCKETSHIP_IMPACT,
+    ids::CUTSCENE_RELEASE_PLANET_ENTITY,
+    ids::ENDING_RELEASE_STATIONARY_COMPOSITE,
+    // G/src/cutscenes/ending_player_release.c:8: two RAM-only releases.
+    ids::ENDING_RELEASE_ACTIVE_PLAYER_ENTITIES,
+    // G/src/cutscenes/large_player_parts.c:41,114,167,264: bounded RAM-only
+    // releases or seven calls to the atomic positioner, in source order.
+    ids::INTRO_RELEASE_LARGE_PLAYER_PARTS,
+    ids::INTRO_POSITION_LARGE_PLAYER_PARTS,
+    ids::INTRO_RELEASE_DRIVING_PARTS,
+    ids::INTRO_RELEASE_ASTEROID_ENTITY,
+    // G/src/cutscenes/sega_logo.c:148: RAM-only release and selector clear.
+    ids::SEGA_LOGO_RELEASE_TRADEMARK_ENTITY,
+    // W0 entries below are call-free RAM/ROM operations with local counters.
     ids::CUTSCENE_APPEND_REMAPPED_FONT_TILES,
     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
