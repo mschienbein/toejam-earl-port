@@ -39,16 +39,131 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed leaf entries: only bounded RAM/ROM accesses, no callees or waits.
+/// Original execution review, including untranslated entries. No ROM bytes are
+/// embedded: spawning and AI read their definitions through emulated ROM views.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
+    // G/src/earthlings/bank_expiry.c:9: bounded refcount/object RAM cleanup.
+    ids::EARTHLING_RELEASE_LEVEL_BANK,
+    // G/src/earthlings/spawning_and_banks.c:53–576: placement, RNG, bank/object
+    // bookkeeping and animation pointers. Retry loops need no clock/IRQ progress.
+    ids::CHECK_EARTHLING_OVERLAP,
+    ids::EARTHLING_IS_SPECIAL_RECORD_NEARBY,
+    ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
     ids::MAP_GET_SHIP_PIECE_WORLD_POSITION,
+    ids::EARTHLING_RETAIN_LEVEL_BANK,
+    ids::SETUP_INITIAL_EARTHLINGS,
+    ids::SET_EARTHLING_STATE,
+    ids::EARTHLING_RELOCATE_RECORD,
+    ids::EARTHLING_RESTORE_SAVED_POSITION,
+    ids::EARTHLING_ALLOCATE_ENTITIES,
+    ids::LOAD_IN_EARTHLINGS,
+    ids::OPEN_EARTHLING_PRESENT,
+    // G/src/earthlings/spawning_and_banks.c:644–868: bounded record passes,
+    // RAM effect allocation/free and animation setup; no device observations.
+    ids::EARTHLING_APPLY_NEARBY_SLEEP,
+    ids::EARTHLING_WAKE_LEVEL,
+    ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK,
+    ids::EARTHLING_REMOVE_FROM_LEVEL,
+    ids::DAMAGE_EARTHLING,
+    ids::EARTHLING_DAMAGE_ON_HAZARD_TERRAIN,
+    ids::DO_VIKING_ABILITY,
     ids::EARTHLING_CLEAR_MOLE_PLAYER_CONTACT_FLAGS,
+    // G/src/earthlings/terrain_movement.c:20–211: fixed-point RAM movement,
+    // terrain ROM/RAM lookup, collision scans and decoy-hit bookkeeping.
+    ids::EARTHLING_PROBE_DIRECTIONAL_TERRAIN,
+    ids::EARTHLING_MOVE_ON_ALLOWED_TERRAIN,
     ids::EARTHLING_IS_UPDATE_BLOCKED,
+    ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG,
+    ids::EARTHLING_MOVE_WITHIN_MAP_BOUNDS,
+    // G/src/earthlings/movement_decision.c:12: collision/decoy and cached RNG.
+    ids::EARTHLING_SELECT_TURN_STATE,
+    // G/src/earthlings/generic_enemy.c:20: RAM special-state/attack handlers
+    // and PlaySoundEffect's RAM request; unlike the main think, no speech wait.
+    ids::EARTHLING_PROCESS_SPECIAL_THINK_STATES,
+    // G/src/earthlings/terrain_animation.c:16–199: animation/timer/steering
+    // and RAM sound requests, no polling on hardware or interrupt-owned bytes.
+    ids::EARTHLING_SELECT_TERRAIN_ANIMATION_STATE,
+    ids::EARTHLING_UPDATE_TERRAIN_ANIMATION_STATE,
+    ids::EARTHLING_THINK_TIMED_MOVEMENT,
+    // G/src/earthlings/animation_behaviours.c:16–207: timers, cached RNG,
+    // steering, animation setup and object release only.
+    ids::EARTHLING_THINK_HORIZONTAL_WANDER,
+    ids::EARTHLING_ADVANCE_HORIZONTAL_TURN_ANIMATION,
+    ids::EARTHLING_THINK_HORIZONTAL_REVERSAL,
+    ids::EARTHLING_THINK_TARGETED_RESET_CYCLE,
+    // G/src/earthlings/targeting.c:18–137, steering.c:6–64 and
+    // steering_helpers.c:9–36: RAM candidates, velocities and sound-request latch.
+    ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
     ids::EARTHLING_CAN_TARGET_PLAYER_STATE,
     ids::ENTITY_SET_VELOCITY_TOWARD_DELTA,
+    ids::ENTITY_STEER_WITH_HORIZONTAL_DRIFT,
     ids::ENTITY_STEER_WITH_VERTICAL_DEAD_ZONE,
+    ids::ENTITY_TRIGGER_TARGET_STATUS_EVENT_ONCE,
+    // G/src/earthlings/mailbox_earthling.c:10–43: bank RAM and direct RNG.
     ids::EARTHLING_IS_MAIL_ORDER_MAILBOX,
+    ids::EARTHLING_CONFIGURE_MAILBOX_LEVEL_BANK,
+    // G/src/earthlings/nice_earthling_touch.c:36–105,374–422: choice/input,
+    // object allocation/free, viewport residency and animation RAM only.
+    ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
+    ids::CHECK_A_BUTTON,
     ids::NICE_EARTHLING_CHECK,
+    ids::PLAYER_CREATE_LIFE_REQUEST_DISPLAY,
+    // G/src/earthlings/mole_santa.c:33–239: RAM objects, RNG, visibility,
+    // relocation and present placement. Retry loops have no concurrent observer.
+    ids::EARTHLING_SPAWN_MOLE_EFFECT,
+    ids::RELEASE_FINISHED_MOLE_EFFECTS_AND_STOLEN_PRESENTS,
+    ids::SANTA_LOGIC,
+    ids::DROP_PRESENTS_ABILITY,
+];
+
+/// Original paths requiring real interrupt progress, never atomic exceptions.
+/// No Earthlings entry has a Functional-only closed device-transaction stream.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+    // G/src/earthlings/generic_enemy.c:115–116 -> GenerateSpeech; its
+    // speech_and_dialogue.c:135–138 waits for the ISR-owned sprite upload byte.
+    (
+        ids::AI_GENERIC_ENEMY_THINK,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/earthlings/spawning_and_banks.c:579–640 invokes ROM callbacks:
+    // GenericEnemyThink can speak; touch includes ship screens and inventory waits.
+    (
+        ids::EARTHLING_DISPATCH_ABILITIES,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/earthlings/spawning_and_banks.c:871–885 invokes both dispatchers.
+    (
+        ids::PROCESS_EARTHLINGS,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/earthlings/nice_earthling_touch.c:108–371: GenerateSpeech on
+    // approach, plus mail-order/identification DrawInventory -> VBlank waits.
+    (
+        ids::AI_MAILBOX_TOUCH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::AI_WIZARD_TOUCH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::AI_WISEMAN_TOUCH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    (
+        ids::AI_OPERA_SINGER_TOUCH,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
+    // G/src/earthlings/nice_earthling_touch.c:425–486: explicit upload wait
+    // at 461; speech and relocation also wait for real VBlank IRQ completion.
+    (
+        ids::PLAYER_PROCESS_LIFE_REQUEST,
+        crate::execution::ExecutionClass::TimeAware,
+    ),
 ];
 
 /// G/src/earthlings/spawning_and_banks.c:178 (`MapGetShipPieceWorldPosition`).
