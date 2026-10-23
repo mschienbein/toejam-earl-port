@@ -15,6 +15,7 @@ use genesis_core::{GenesisBus, GenesisEmulator};
 use m68000_emu::{BusInterface, M68000, ReadPurpose, debug::DummyM68000Debugger};
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeSet};
+use tje_game::call_frame::FrameState;
 use tje_game::execution::{ExecutionClass, WaitRequest};
 use tje_game::{Dispatcher, FunctionId};
 use tje_rom::Revision;
@@ -238,6 +239,7 @@ pub struct HookContext<'a> {
     pub(crate) writes: Vec<OrderedWrite>,
     pub(crate) uninitialized_reads: RefCell<BTreeSet<UninitializedStackRead>>,
     stack_audit: Option<TranslatedStackAudit>,
+    frame_state: FrameState,
     pub(crate) execution_class: ExecutionClass,
     execution_ceiling: ExecutionClass,
     timed_execution: bool,
@@ -252,6 +254,7 @@ impl<'a> HookContext<'a> {
         revision: Revision,
         dispatcher: Dispatcher,
     ) -> Self {
+        let frame_state = FrameState::new(emulator.hybrid_cpu().stack_pointer());
         Self {
             emulator,
             revision,
@@ -260,6 +263,7 @@ impl<'a> HookContext<'a> {
             nested_calls: 0,
             uninitialized_reads: RefCell::new(BTreeSet::new()),
             stack_audit: None,
+            frame_state,
             execution_class: ExecutionClass::Atomic,
             execution_ceiling: ExecutionClass::Atomic,
             timed_execution: false,
@@ -438,12 +442,7 @@ impl<'a> HookContext<'a> {
         self.write_u16(address.wrapping_add(2), value as u16);
     }
     pub fn argument_u32(&self, index: u32) -> u32 {
-        self.read_u32(
-            self.emulator
-                .hybrid_cpu()
-                .stack_pointer()
-                .wrapping_add(4 + 4 * index),
-        )
+        self.frame_state.argument_slot(index as i32).read(self)
     }
     pub fn argument_i16(&self, index: u32) -> i16 {
         self.argument_u32(index) as i16
@@ -551,6 +550,53 @@ impl<'a> HookContext<'a> {
         set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
         Ok(result)
+    }
+
+    /// Run an original with the caller's exact outgoing area/return PC already
+    /// present. Unlike call_original_with_execution_contract, push no new slots.
+    fn call_original_prepared(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        if !self.execution_class.permits(class) {
+            return Err(HostError::Metadata(format!(
+                "{class:?} original unavailable in {:?}",
+                self.execution_class
+            )));
+        }
+        let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
+        let return_pc = self.read_u32(entry_sp);
+        let return_sp = entry_sp.wrapping_add(4);
+        let (cpu, bus) = self.emulator.hybrid_parts();
+        bus.apply_pending_writes();
+        cpu.set_pc(id.metadata().address(self.revision), bus);
+        let audit = if self.timed_execution {
+            let (_, run) = run_original_timed_with_audio(
+                self.emulator,
+                &mut self.wait_clock,
+                return_pc,
+                return_sp,
+                std::mem::take(&mut self.time_audio),
+                self.stack_audit.is_some(),
+            )?;
+            self.merge_clock_run(run);
+            AtomicRun::default()
+        } else {
+            run_original_atomic(
+                self.emulator,
+                return_pc,
+                return_sp,
+                self.stack_audit.is_some(),
+            )?
+        };
+        for write in &audit.writes {
+            if let OrderedWrite::Ram { address, .. } = *write {
+                self.audit_translated_write(address);
+            }
+        }
+        self.writes.extend(audit.writes);
+        self.uninitialized_reads
+            .get_mut()
+            .extend(audit.uninitialized_reads);
+        self.nested_calls += 1;
+        Ok(self.emulator.hybrid_cpu().data_registers()[0])
     }
 
     pub(crate) fn return_to_caller(&mut self, value: Option<u32>) {
@@ -740,6 +786,28 @@ impl tje_game::Context for HookContext<'_> {
     }
     fn set_status_register(&mut self, value: u16) {
         self.emulator.hybrid_parts().0.set_status_register(value);
+    }
+    fn stack_pointer(&self) -> tje_game::Result<u32> {
+        Ok(self.emulator.hybrid_cpu().stack_pointer())
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> tje_game::Result<()> {
+        set_sp(self.emulator.hybrid_parts().0, value);
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<FrameState> {
+        Some(self.frame_state)
+    }
+    fn set_frame_state(&mut self, state: FrameState) -> tje_game::Result<()> {
+        self.frame_state = state;
+        Ok(())
+    }
+    fn call_original_entry(
+        &mut self,
+        id: FunctionId,
+        class: ExecutionClass,
+    ) -> tje_game::Result<u32> {
+        self.call_original_prepared(id, class)
+            .map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher

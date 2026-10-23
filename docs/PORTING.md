@@ -392,3 +392,87 @@ timing-equivalence claim for a native scheduler or for replacement play.
 
 
 [decomp]: https://github.com/mschienbein/toejam-earl-decomp
+
+## Source-backed frame-sensitive calls
+
+The readable layer may keep proven value-only `tje_game::call` / Dispatcher calls
+when compiler stack bytes have no semantic effect. **Use the explicit frame
+contract** when an original function mutates an argument slot, reuses an outgoing
+slot, passes a local's emulated address, reads a residual local, or exposes frame
+bytes through an unchecked array/DMA. The cycle-exact engine owns exact stack
+timing; this contract owns logically observed addresses/bytes, not instruction
+cycle charges. Never zero missing arguments or unwritten local bytes.
+
+`Context::frame_state()` identifies the current entry SP; its `argument_slot(i)`
+is `Address<u32>` at entry SP + 4 + 4*i. `argument_word(i)` and
+`argument_byte(i)` address the low signed word/byte of the same four-byte slot.
+Unsigned parameters may cast the view. `stack_pointer` / `set_stack_pointer`
+expose the actual emulated SP, **not** `address_register(7)` (the address-register
+API is A0–A6). Native contexts implement FrameState/SP in owned emulated state;
+contexts without that capability fail explicitly, never invent an SP.
+
+Translate the emitted prologue, with a source citation:
+
+```rust
+use tje_game::call_frame::{FrameLayout, LocalFrame};
+// G src/sprites/sprite_slots.c:10; matching c_sprite_slots.s:3-5.
+let frame = LocalFrame::enter(context, FrameLayout::link(32, 0x7c, 0))?;
+let free_slots = frame.local::<[i8; 12]>(-20);
+let secondary_slots = frame.local::<[i8; 12]>(-32);
+let output_slot = frame.argument_slot(3); // original entry SP+16
+// ... use typed views, including original unchecked offset arithmetic ...
+frame.leave(context)?;
+```
+
+`link(n,d,a)` performs LINK A6,#-n then predecrement MOVEM of the selected registers.
+`movem(n,d,a)` omits LINK and allocates n local bytes before MOVEM. Masks are
+ordinary D0–D7/A0–A6 bitsets, not reversed opcode masks. Saves are written to real
+big-endian RAM; leave reads them back, so an overwritten save slot changes the
+restored register. LINK's old A6 is also real RAM. Neither entering nor leaving
+initializes/clears local storage. `local<T>(offset)` is A6-relative after LINK, or
+relative to pre-local-allocation SP without LINK; it intentionally bounds-checks
+no emulated C array. The helpers model MOVEM/UNLK values, not a single-register
+MOVE restore's CCR side effects: reproduce those explicitly when source requires.
+
+For an exact outgoing call, cite the original JSR/BSR return address in each
+revision and use `CallSite::new(pc)` or `CallSite::relative(caller, revision,
+offset)`. The caller must have the original SP/layout/residual registers at that
+point. `Dispatcher::call_at` pushes four-byte arguments right-to-left and the
+actual return PC, installs the callee FrameState, runs the Rust or original body,
+and performs RTS/caller cleanup without changing argument/local bytes. Hybrid
+original execution uses the **already prepared** entry; it cannot push a second
+sentinel frame. Class scopes and real wait envelopes remain enforced.
+
+When the original caller examines or reuses an outgoing slot, retain it explicitly:
+
+```rust
+use tje_game::call_frame::{CallSite, OutgoingArguments};
+let outgoing = OutgoingArguments::push(context, &[count, mode, secondary, output])?;
+let dispatcher = context.dispatcher();
+outgoing.call(context, dispatcher, ids::ALLOCATE_SPRITE_SLOTS, first_site)?;
+let advanced_output = outgoing.argument_slot(3).read(context);
+// Reuse the same slots, including the callee's mutation, at another real site:
+outgoing.call(context, dispatcher, ids::ALLOCATE_SPRITE_SLOTS, second_site)?;
+outgoing.release(context)?;
+```
+
+`OutgoingArguments::existing(context, slot_count)` adopts an area the compiler
+already reserved without writing it. Passing fewer slots deliberately exposes
+existing adjacent RAM for omitted-argument bugs; the callee's declared slots are
+read from emulated memory, not padded with zero. The initial argument slice passed
+to a Rust body is only a convenience snapshot: after an argument-slot mutation,
+read the actual view again. Numeric local pointers remain valid emulated
+addresses after return; no host reference/lifetime is manufactured.
+
+Ordinary errors restore suspended caller bookkeeping while remaining errors.
+Non-returning typed control transfers retain their live frame for the exit
+contract, with no fake RTS/cleanup. Unexpected SP or a corrupted return PC fails
+closed instead of silently resuming the Rust caller at an invented target.
+
+The ROM-backed `tests/call_frames.rs` runs an authored caller against retail
+AllocateSpriteSlots and a test-only full Rust selector in both revisions, proving
+SP+16 mutation plus two calls sharing outgoing slots. Its CPU-free native context
+also proves omitted-argument aliasing of a saved D2 and a writable local passed
+by emulated address. These tests do not register that test selector as a proven
+production game body; the sprites lane owns its real translation/proof.
+

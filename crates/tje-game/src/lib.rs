@@ -7,6 +7,7 @@ use std::fmt;
 use tje_mem::{Bus, Revision, arithmetic::ArithmeticTrap};
 
 pub mod audio;
+pub mod call_frame;
 pub mod camera;
 pub mod collision;
 pub mod core;
@@ -105,6 +106,7 @@ pub enum Error {
         callee: execution::ExecutionClass,
     },
     Arithmetic(ArithmeticTrap),
+    Frame(call_frame::FrameError),
     Platform(String),
 }
 impl fmt::Display for Error {
@@ -122,6 +124,7 @@ impl fmt::Display for Error {
                 write!(formatter, "{callee:?} call unavailable inside {caller:?}")
             }
             Self::Arithmetic(trap) => write!(formatter, "68000 arithmetic exception: {trap:?}"),
+            Self::Frame(error) => write!(formatter, "emulated call frame: {error:?}"),
             Self::Platform(message) => formatter.write_str(message),
         }
     }
@@ -130,6 +133,18 @@ impl std::error::Error for Error {}
 impl From<ArithmeticTrap> for Error {
     fn from(value: ArithmeticTrap) -> Self {
         Self::Arithmetic(value)
+    }
+}
+impl From<call_frame::FrameError> for Error {
+    fn from(value: call_frame::FrameError) -> Self {
+        Self::Frame(value)
+    }
+}
+impl Error {
+    /// Ordinary errors unwind suspended call bookkeeping; the exit layer marks
+    /// non-returning control transfers so their live frame is not unwound.
+    pub fn preserves_call_frame(&self) -> bool {
+        false
     }
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -211,6 +226,27 @@ pub trait Context: Bus + Platform {
     fn set_address_register(&mut self, index: usize, value: u32);
     fn status_register(&self) -> u16;
     fn set_status_register(&mut self, value: u16);
+    fn stack_pointer(&self) -> Result<u32> {
+        Err(call_frame::FrameError::Unavailable.into())
+    }
+    fn set_stack_pointer(&mut self, _value: u32) -> Result<()> {
+        Err(call_frame::FrameError::Unavailable.into())
+    }
+    fn frame_state(&self) -> Option<call_frame::FrameState> {
+        None
+    }
+    fn set_frame_state(&mut self, _state: call_frame::FrameState) -> Result<()> {
+        Err(call_frame::FrameError::Unavailable.into())
+    }
+    /// Run an original callee at an already materialized entry SP, consuming its
+    /// actual RTS without synthesizing another argument area.
+    fn call_original_entry(
+        &mut self,
+        function: FunctionId,
+        _class: execution::ExecutionClass,
+    ) -> Result<u32> {
+        Err(Error::Untranslated(function))
+    }
     fn dispatcher(&self) -> Dispatcher;
     /// Default contexts support Atomic only. Clock-capable platforms override
     /// both methods and enforce their entry execution envelope.
@@ -354,8 +390,17 @@ impl Dispatcher {
     /// Native startup validates the full dependency closure of each requested
     /// entry. Failure lists every missing target; it never enables ROM fallback.
     pub fn native(roots: &[FunctionId]) -> std::result::Result<Self, Vec<FunctionId>> {
+        Self::native_with(roots, &[])
+    }
+
+    /// Native proof overrides obey the same complete-closure check and never
+    /// introduce ROM fallback; all non-overridden proven Rust callees remain.
+    pub fn native_with(
+        roots: &[FunctionId],
+        translations: &'static [Translation],
+    ) -> std::result::Result<Self, Vec<FunctionId>> {
         let dispatcher = Self {
-            translations: &[],
+            translations,
             subsystems: SUBSYSTEMS,
             original_fallback: false,
         };
@@ -427,11 +472,35 @@ impl Dispatcher {
             context.call_original_with_execution(id, arguments, class)
         }
     }
+
+    pub(crate) fn allows_original_fallback(self) -> bool {
+        self.original_fallback
+    }
+
+    /// Exact-stack counterpart for slot/local/return-address-sensitive calls.
+    pub fn call_at(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        arguments: &[u32],
+        site: call_frame::CallSite,
+    ) -> Result<u32> {
+        call_frame::call_at(context, self, id, arguments, site)
+    }
 }
 
 /// A translated caller never chooses its callee's implementation or address.
 pub fn call(context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
     context.dispatcher().call(context, id, arguments)
+}
+
+pub fn call_at(
+    context: &mut dyn Context,
+    id: FunctionId,
+    arguments: &[u32],
+    site: call_frame::CallSite,
+) -> Result<u32> {
+    context.dispatcher().call_at(context, id, arguments, site)
 }
 
 pub static SUBSYSTEMS: &[Subsystem] = &[

@@ -608,3 +608,42 @@ platform implementations must perform the real device writes.
 [compiler]: https://github.com/mschienbein/toejam-earl-decomp/blob/main/docs/COMPILER.md
 [toolchain]: https://github.com/mschienbein/toejam-earl-decomp/blob/main/docs/TOOLCHAIN.md
 [runtime]: https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s
+
+## Semantically observed compiler frames
+
+Do not replace a compiler-local array with a host slice when its address, overflow,
+partially initialized bytes or surrounding save/argument slots are observed. Use
+`tje_game::call_frame::{FrameLayout, LocalFrame, OutgoingArguments, CallSite}` as
+described in [PORTING.md](PORTING.md), under “Source-backed frame-sensitive calls.”
+Value-only calls already proved under the readable-layer contract may remain
+frame-elided; this is not a global demand to emulate every compiler spill.
+
+Two concrete matching layouts demonstrate why an explicit contract is needed:
+
+| Function | Prologue and exact entry-SP-relative storage |
+|---|---|
+| `AllocateSpriteSlots` (`src/sprites/sprite_slots.c:10`) | LINK A6,#-32 then MOVEM D2–D6: A6 = entry SP−4; local region through entry SP−36; saved D2 begins at entry SP−56. `slot` A6−2, `free_count` A6−3, `secondary_count` A6−4, `index` A6−6, `limit` A6−8, 12-byte arrays A6−20 and A6−32. |
+| `BuildViewportSpriteLinks` (`src/sprites/entity_sprite_rendering.c`) | LINK A6,#-216 then MOVEM D2–D5/A2–A3: saved block starts at entry SP−244; 54-word arrays at A6−108 and A6−216. Overflow deliberately reaches adjacent storage, not host UB or a bounds panic. |
+
+`AllocateSpriteSlots`'s `output++` is especially important: matching compiler
+output reads the pointer at A6+20 (**entry SP+16**), increments that same long slot,
+then writes through the previous pointer. It is not merely a Rust-local pointer
+increment. A caller reusing its outgoing area must observe that changed slot.
+The frame API materializes LINK/MOVEM saves and restores through actual emulated
+RAM; it neither zeroes unused locals nor preserves save slots in an invisible
+host snapshot. A saved register overwritten by original unchecked addressing is
+restored from the overwritten bytes.
+
+For frame-sensitive Rust-to-Rust or hybrid calls, prepare four-byte argument slots
+and the source-backed original return PC using `OutgoingArguments::call` or
+`Dispatcher::call_at`. The callee receives its actual entry SP; declared arguments
+are loaded from that memory, including residual bytes for missing arguments.
+The caller may inspect/reuse its slots before `release`. `LocalFrame` exposes
+low-byte/word argument views and unchecked typed local addresses at original
+offsets. Tail/RTE/nonreturning transfers use their separate typed exit contracts
+and must not be converted to a normal frame cleanup.
+
+These are readable logical-memory obligations. Cycle-exact instruction timing,
+prefetch and complete compiler spill images remain the cycle-exact engine's job;
+do not claim that materializing a frame makes a Rust body cycle-equivalent.
+
