@@ -5,7 +5,7 @@
 //! The standard 10,000-frame session uses only the audio entry-hook filter, and
 //! every added synthetic input is separately labeled as a live-state fixture.
 
-use tje_game::{Context, FunctionId, audio, ids};
+use tje_game::{Context, FunctionId, Platform, audio, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
 
@@ -107,12 +107,39 @@ fn drive_live_fixtures(host: &mut Host) {
     }
 }
 
+fn drive_functional_live_fixtures(host: &mut Host) {
+    let revision = host.revision();
+    for id in [
+        ids::SETUP_YM2612,
+        ids::YM2612_UPDATE_FREQUENCY,
+        ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
+        ids::AUDIO_RELEASE_ALL_FM_CHANNELS,
+        ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
+        ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
+    ] {
+        let mut context = host.context();
+        context.set_data_register(1, 0);
+        context.set_data_register(3, 0);
+        context.set_data_register(4, 0x12);
+        context.set_data_register(5, 0x34);
+        context.write_z80_bus_request(0x100);
+        context.write_z80_ram(0x004a, 0);
+        ram::g_pending_fm_effect(revision).write(&mut context, 0);
+        if id == ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES {
+            check(host, id, &[0]);
+        } else {
+            check(host, id, &[]);
+        }
+    }
+}
+
 #[test]
 #[ignore = "requires both private retail ROMs; 10,000 frames per revision plus a timed reference"]
 fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
     let script =
         InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
-    assert!(tje_game::Dispatcher::native(audio::ATOMIC_CAPABLE).is_ok());
+    let roots: Vec<_> = audio::TRANSLATIONS.iter().map(|entry| entry.id).collect();
+    assert!(tje_game::Dispatcher::native(&roots).is_ok());
     for revision in [Revision::Rev02, Revision::Rev00] {
         let key = match revision {
             Revision::Rev02 => "TJE_REV02_ROM",
@@ -160,6 +187,7 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
         assert!(checked.measurements.game_frame.is_some());
         let natural = serde_json::to_value(&checked.checks).unwrap();
         drive_live_fixtures(&mut checked);
+        drive_functional_live_fixtures(&mut checked);
         assert_eq!(checked.checks.mismatches, 0);
         assert!(checked.checks.uninitialized_stack_reads.is_empty());
         assert!(checked.checks.unexercised.is_empty());
@@ -177,7 +205,8 @@ fn audio_10000_frames_and_labeled_live_fixtures_both_revisions() {
         });
         if let Some(directory) = std::env::var_os("TJE_AUDIO_METRICS_DIR") {
             std::fs::write(
-                std::path::Path::new(&directory).join(format!("{}-fixtures.json", revision.name())),
+                std::path::Path::new(&directory)
+                    .join(format!("{}-audio-all-fixtures.json", revision.name())),
                 serde_json::to_vec_pretty(&metrics).unwrap(),
             )
             .unwrap();
