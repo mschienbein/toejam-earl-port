@@ -1,0 +1,44 @@
+[package]
+name = "tje-engine-cranelift"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Native cycle-exact continuation compiler and verified local machine-code cache"
+
+[features]
+default = ["devices"]
+devices = ["dep:tje-native-platform", "dep:tje-mem", "dep:tje-rom", "dep:genesis-config", "dep:sha1", "tje-engine-runtime/devices"]
+
+[[example]]
+name = "first_launch"
+required-features = ["devices"]
+
+[[example]]
+name = "synthetic_capacity"
+required-features = ["devices"]
+
+[dependencies]
+cranelift-codegen = { version = "=0.137.0", default-features = false, features = ["std", "host-arch"] }
+cranelift-control = "=0.137.0"
+cranelift-frontend = "=0.137.0"
+cranelift-native = "=0.137.0"
+directories = "6"
+memmap2 = "0.9"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+wasmtime-internal-jit-icache-coherence = "=50.0.0"
+tje-engine-core = { path = "../tje-engine-core" }
+tje-engine-runtime = { path = "../tje-engine-runtime", default-features = false }
+tje-native-platform = { path = "../tje-native-platform", default-features = false, optional = true }
+tje-mem = { path = "../tje-mem", optional = true }
+tje-rom = { path = "../tje-rom", optional = true }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
+sha1 = { version = "0.10", optional = true }
+
+[dev-dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"

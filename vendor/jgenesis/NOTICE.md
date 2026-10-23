@@ -5,6 +5,23 @@ Source: <https://github.com/jsgroth/jgenesis>, exact commit
 Copyright and license remain those of jgenesis and its contributors. The upstream
 GNU GPL version 3 license is reproduced in `LICENSE`. No upstream fork is used.
 
+## Deterministic audio (TJE native, ER-001)
+
+`common/dsp/src/{lib,sinc}.rs` use the same portable scalar sinc convolution
+on every target. The retained scalar coefficient interpolation and tap-order
+accumulation use separate multiply/add operations; CPU-dependent AVX2/AVX512
+FMA kernels, lane reductions, feature dispatch and compile-time override flags
+are removed, not disabled through environment variables. SIMD-only buffer
+padding and tests are removed; scalar compaction/order/unfused-operation
+regressions replace the former tolerance-based SIMD comparisons.
+
+This intentionally establishes a new cross-target sample-bit baseline. Audio
+receipts made with the previous CPU-dispatched implementation must be rerun;
+they do not prove the scalar implementation. FIR coefficients, resampling
+ratios, chip clocks, filtering and sample mixing order are otherwise unchanged.
+Cross-target bit proofs belong to the synthetic chip-sequence and session
+verification suites; source selection alone is not such a proof.
+
 ## Crates retained
 
 - `common/dsp`, `common/jgenesis-common`, `common/jgenesis-proc-macros`
@@ -22,7 +39,8 @@ addon hardware or pull addon code/firmware into the dependency graph.
 
 ## Modified files
 
-Local changes are marked `TJE hybrid`, `TJE standalone cutover`, or `TJE timing survey` in code:
+Local changes are marked `TJE hybrid`, `TJE standalone cutover`, `TJE timing survey`,
+or `TJE native` in code:
 
 - `backend/genesis-core/Cargo.toml`: remove CD, 32X, SH-2 and addon debugger-test dependencies.
 - `backend/genesis-core/src/api.rs`: standalone-only construction/reset/render/tick/save API, remove addon/channel-debugger paths, and add narrow CPU/bus borrow accessors for instruction-boundary interception.
@@ -49,6 +67,37 @@ Additional `TJE hybrid` check-contract extensions (disabled by default):
 No constructor or ordinary timing path enables functional mode. The live machine
 and time-aware waits use unmodified FIFO/DMA/BUSY timing. Function-level logical
 projections do not substitute for the unmodified-upstream whole-session comparison.
+
+Additional `TJE native` device-only interfaces:
+
+- `Cargo.toml` and `backend/{genesis-core,genesis-components}/Cargo.toml`:
+  default-on `emulator` / `m68000-timing` features preserve existing builds.
+  Disabling them removes the 68000 dependency; Z80, VDP, FM, PSG, controllers,
+  resampling and clock counters remain available.
+- `backend/genesis-core/src/{lib,api}.rs`: runtime-only peripheral captures
+  contain cloned devices, clock phases, work/Z80 RAM, register values and the
+  resampler, never cartridge bytes or a 68000 execution object.
+- `backend/genesis-core/src/{lib,timing}.rs`: expose the unchanged clock counters
+  and retained input model without the emulator-only survey module.
+- `backend/genesis-core/src/{audio,bus}.rs`: move the chip sample sink trait to
+  the CPU-independent audio module; share the existing filters/resampler.
+  Expose the existing peripheral tick for differential proofs. Optional actual
+  chip-dispatch timestamps retain CPU origin and PC from the passive survey;
+  no observer is installed in ordinary emulation.
+- `backend/genesis-components/src/vdp.rs`: explicit status/HV read offsets let
+  native continuations preserve reference read look-ahead without linking an
+  opcode decoder. Zero-offset access samples the scheduler's current clock.
+  The emulator's existing opcode-specific adjustment and read effects are unchanged.
+- `backend/genesis-core/src/{lib,bus}.rs`: an optional CPU-issued journal covers
+  all physical addresses, stable semantic/prefetch/discarded purposes, prequeue
+  stores and interrupt acknowledgements. Z80 bank reads retain their existing
+  effects but bypass this main-CPU-only observation.
+- `cpu/m68000-emu/src/core.rs`: a read-only 25-word instruction-boundary state
+  accessor exposes the register file, banked stacks, prefetch, pending IRQ and
+  STOP/fault bookkeeping for compiled-native differential checks.
+- `backend/genesis-core/src/{lib,bus}.rs`: a separate optional actual RAM-commit
+  journal includes CPU and Z80 stores, canonicalizes mirrors/word alignment and
+  records only after writes commit. It is disabled by default like the CPU journal.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

@@ -17,11 +17,7 @@ use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use z80_emu::debug::DummyZ80Debugger;
 use z80_emu::traits::InterruptLine;
 
-pub trait GenesisAudioOutput {
-    fn collect_ym2612(&mut self, sample: (f64, f64));
-
-    fn collect_psg(&mut self, sample: f64);
-}
+use crate::audio::GenesisAudioOutput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct Z80BankRegister {
@@ -141,6 +137,13 @@ pub struct GenesisBus {
     pub hybrid_accesses: Option<Vec<HybridAccess>>,
     // TJE timing survey is separate from the function-check write contract.
     pub timing_survey: Option<crate::timing_survey::TimingSurvey>,
+    /// TJE native: actual chip dispatches, not attempted address writes.
+    /// Enable with `enable_native_write_trace` so processor/PC provenance exists.
+    pub native_writes: Option<Vec<crate::native::TimedWrite>>,
+    /// TJE native: opt-in CPU-issued transactions at every address, including ROM.
+    pub native_cpu_accesses: Option<Vec<crate::native::CpuAccess>>,
+    /// TJE native: all-origin actual work-RAM commits, separate from CPU issues.
+    pub native_ram_writes: Option<Vec<crate::native::RamWrite>>,
     /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
     /// ROM fetches are omitted; normal emulation leaves this disabled.
     pub hybrid_cpu_accesses: Option<Vec<HybridAccess>>,
@@ -184,6 +187,9 @@ impl GenesisBus {
             hybrid_writes: None,
             hybrid_accesses: None,
             timing_survey: None,
+            native_writes: None,
+            native_cpu_accesses: None,
+            native_ram_writes: None,
             hybrid_cpu_accesses: None,
             hybrid_functional: false,
             hybrid_functional_violation: None,
@@ -191,9 +197,31 @@ impl GenesisBus {
         }
     }
 
+    pub fn enable_native_write_trace(&mut self) {
+        self.timing_survey.get_or_insert_with(crate::timing_survey::TimingSurvey::default);
+        self.native_writes.get_or_insert_with(Vec::new);
+    }
+
+    fn record_native_write(&mut self, write: crate::native::DeviceWrite) {
+        let Some(trace) = &mut self.native_writes else {
+            return;
+        };
+        let survey =
+            self.timing_survey.as_ref().expect("native write trace requires timing survey");
+        let (origin, clock) = match survey.cpu {
+            crate::timing_survey::TimingCpu::M68k => {
+                (crate::native::Origin::Main, self.cycles.m68k_mclk_cycles)
+            }
+            crate::timing_survey::TimingCpu::Z80 => {
+                (crate::native::Origin::Z80, self.cycles.z80_mclk_cycles)
+            }
+        };
+        trace.push(crate::native::TimedWrite { clock, origin, pc: survey.pc, write });
+    }
+
     // TJE standalone cutover: no addon clocks or coupled channel debugger.
     #[inline]
-    pub(crate) fn tick_components(
+    pub fn tick_components(
         &mut self,
         m68k_cycles: u32,
         mclk_cycles: u64,
@@ -326,6 +354,28 @@ impl GenesisBus {
     }
 
     fn m68k_read_with_purpose<const WORD: bool>(
+        &mut self,
+        address: u32,
+        purpose: m68000_emu::ReadPurpose,
+    ) -> u16 {
+        let value = self.m68k_read_inner::<WORD>(address, purpose);
+        if let Some(trace) = &mut self.native_cpu_accesses {
+            let purpose = match purpose {
+                m68000_emu::ReadPurpose::Semantic => 0,
+                m68000_emu::ReadPurpose::Prefetch => 1,
+                m68000_emu::ReadPurpose::Discarded => 2,
+            };
+            trace.push(crate::native::CpuAccess::Read {
+                address: address & 0xFFFFFF,
+                word: WORD,
+                value,
+                purpose,
+            });
+        }
+        value
+    }
+
+    fn m68k_read_inner<const WORD: bool>(
         &mut self,
         address: u32,
         purpose: m68000_emu::ReadPurpose,
@@ -488,6 +538,9 @@ impl GenesisBus {
             }
             0xE00000..=0xFFFFFF => {
                 self.memory.write_main_ram::<WORD>(address, value);
+                if let Some(trace) = &mut self.native_ram_writes {
+                    trace.push(crate::native::RamWrite::new(address, WORD, value));
+                }
             }
             _ => {}
         }
@@ -592,12 +645,20 @@ impl GenesisBus {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Vdp { port: 0, value: vdp_word });
                 }
+                self.record_native_write(crate::native::DeviceWrite::Vdp {
+                    port: 0,
+                    value: vdp_word,
+                });
                 self.vdp.write_data(vdp_word);
             }
             0x04..=0x07 => {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Vdp { port: 4, value: vdp_word });
                 }
+                self.record_native_write(crate::native::DeviceWrite::Vdp {
+                    port: 4,
+                    value: vdp_word,
+                });
                 let was_dma = self.vdp.timing_dma_active();
                 self.vdp.write_control(vdp_word);
                 if !was_dma && self.vdp.timing_dma_active() {
@@ -613,12 +674,17 @@ impl GenesisBus {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Psg { value: value as u8 });
                 }
+                self.record_native_write(crate::native::DeviceWrite::Psg { value: value as u8 });
                 self.psg.write(value as u8);
             }
             0x1C..=0x1D => {
                 if let Some(trace) = &mut self.hybrid_writes {
                     trace.push(HybridWrite::Vdp { port: 0x1C, value: vdp_word });
                 }
+                self.record_native_write(crate::native::DeviceWrite::Vdp {
+                    port: 0x1C,
+                    value: vdp_word,
+                });
                 self.vdp.write_debug_register(vdp_word);
             }
             _ => {}
@@ -648,6 +714,10 @@ impl GenesisBus {
         if let Some(trace) = &mut self.hybrid_writes {
             trace.push(HybridWrite::Ym2612 { port: (address & 3) as u8, value });
         }
+        self.record_native_write(crate::native::DeviceWrite::Ym2612 {
+            port: (address & 3) as u8,
+            value,
+        });
         match address & 0x03 {
             0x00 => self.ym2612.write_address_1(value),
             0x02 => self.ym2612.write_address_2(value),
@@ -730,11 +800,25 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
+        if let Some(trace) = &mut self.native_cpu_accesses {
+            trace.push(crate::native::CpuAccess::Write {
+                address: address & 0xFFFFFF,
+                word: false,
+                value: value.into(),
+            });
+        }
         self.pending_writes.byte.push((address, value));
     }
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
+        if let Some(trace) = &mut self.native_cpu_accesses {
+            trace.push(crate::native::CpuAccess::Write {
+                address: address & 0xFFFFFF,
+                word: true,
+                value,
+            });
+        }
         self.pending_writes.word.push((address, value));
     }
 
@@ -745,6 +829,9 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn acknowledge_interrupt(&mut self, interrupt_level: u8) {
+        if let Some(trace) = &mut self.native_cpu_accesses {
+            trace.push(crate::native::CpuAccess::AcknowledgeInterrupt { level: interrupt_level });
+        }
         self.timing_interrupt(interrupt_level);
         // When the 68000 acknowledges a VDP interrupt, the VDP acknowledges whatever level it is
         // currently raising rather than paying attention to the 68000's IACK lines. This is noted
@@ -829,7 +916,11 @@ impl z80_emu::BusInterface for GenesisBus {
                         // TODO should probably return Z80 open bus instead?
                         0xFF
                     }
-                    _ => <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr),
+                    // TJE native: a Z80 bank fetch is not a CPU-issued transaction.
+                    _ => {
+                        self.m68k_read_inner::<false>(m68k_addr, m68000_emu::ReadPurpose::Semantic)
+                            as u8
+                    }
                 }
             }
         };

@@ -9,12 +9,18 @@ permissions:
 
 jobs:
   check:
-    name: Check (${{ matrix.os }})
+    name: Check (${{ matrix.os }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            arch: X64
+          - os: windows-latest
+            arch: X64
+          - os: macos-14
+            arch: ARM64
     defaults:
       run:
         shell: bash
@@ -50,21 +56,48 @@ jobs:
               command.extend(["--target", target])
           subprocess.run(command, check=True)
           PY
+      - name: Confirm required runner architecture
+        run: test "${{ runner.arch }}" = "${{ matrix.arch }}"
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
       - name: Check Rust lints
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Run ROM-free tests
         run: cargo test --locked --workspace
+      - name: Check cross-target canonical audio hashes
+        run: cargo test --locked --release -p tje-engine-verify audio::tests::canonical_audio_hashes_match_production_devices -- --nocapture
+      - name: Execute cold and cached native code publication on ARM64
+        if: runner.os == 'macOS'
+        run: cargo test --release --locked -p tje-engine-cranelift --no-default-features --lib --tests --target aarch64-apple-darwin
+      - name: Require real-time synthetic compiled-engine audio capacity
+        run: cargo run --locked --release -p tje-engine-cranelift --example synthetic_capacity -- --frames 600
       - name: Run synthetic publication-gate regressions
         run: python -m unittest discover -s tools -p 'test_*.py' -v
       - name: Build WebAssembly
-        # All workspace members are wasm-capable. Add an explicit --exclude PACKAGE
-        # only for a native-only crate; keep new wasm crates covered by default.
-        run: cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native
+        # Desktop presentation and native code generation are native-only; all
+        # other workspace members, including the runtime and Wasm emitter, build.
+        run: cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native --exclude tje-engine-cranelift
       - name: Check generated function traceability
         run: python tools/trace_functions.py --check
       - name: Audit public worktree and published ancestry without ROMs
         run: |
           python tools/audit_public.py --no-rom
           python tools/audit_public.py --history --refs HEAD --no-rom
+      - name: Install version-matched browser proof tools
+        if: runner.os == 'Linux'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/browser-proof/browsers
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked --root "$RUNNER_TEMP/wasm-bindgen" --target-dir "$RUNNER_TEMP/bindgen-target"
+          echo "$RUNNER_TEMP/wasm-bindgen/bin" >> "$GITHUB_PATH"
+          npm install --prefix "$RUNNER_TEMP/browser-proof" --save-exact playwright@1.56.1
+          "$RUNNER_TEMP/browser-proof/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check actual WebAssembly instructions, audio hashes and cache recovery
+        if: runner.os == 'Linux'
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser-proof/node_modules/playwright/index.mjs
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/browser-proof/browsers
+          TJE_WASM_PROOF_DIR: ${{ github.workspace }}/scratch/ci-wasm-proof/pkg
+        run: |
+          bash crates/tje-engine-wasmgen/browser/build.sh
+          node crates/tje-engine-wasmgen/browser/verify.mjs --primitives --report scratch/ci-wasm-proof/result.json

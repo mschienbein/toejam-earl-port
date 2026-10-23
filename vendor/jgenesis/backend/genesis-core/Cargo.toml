@@ -6,6 +6,11 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# TJE native: retain controllers and peripheral capture types without a 68000.
+[features]
+default = ["emulator"]
+emulator = ["dep:m68000-emu", "genesis-components/m68000-timing"]
+
 [dependencies]
 dsp = { workspace = true }
 jgenesis-common = { workspace = true }
@@ -13,10 +18,10 @@ jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
-m68000-emu = { workspace = true, features = ["bincode"] }
+m68000-emu = { workspace = true, features = ["bincode"], optional = true }
 z80-emu = { workspace = true, features = ["bincode"] }
 
-genesis-components = { workspace = true }
+genesis-components = { workspace = true, default-features = false }
 ti-sn76489 = { workspace = true }
 
 bincode = { workspace = true }

@@ -62,6 +62,40 @@ impl GenesisEmulator {
         &mut self.bus
     }
 
+    /// TJE native: fork the retained devices and data, not the 68000 engine.
+    pub fn capture_native_state(&self) -> crate::native::PeripheralState {
+        use z80_emu::BusInterface;
+        let bus = &self.bus;
+        let mut address = [0; 8];
+        address[..7].copy_from_slice(&self.m68k.address_registers());
+        address[7] = self.m68k.stack_pointer();
+        crate::native::PeripheralState {
+            ram: (0..0x10000).map(|a| bus.memory.read_main_ram_byte(a)).collect(),
+            audio_ram: (0..0x2000).map(|a| bus.memory.read_audio_ram(a)).collect(),
+            vdp: bus.vdp.clone(),
+            ym2612: bus.ym2612.clone(),
+            psg: bus.psg.clone(),
+            input: bus.input.clone(),
+            z80: self.z80.clone(),
+            z80_bank: bus.z80_bank.value(),
+            bus_request: bus.busreq(),
+            reset: bus.reset(),
+            cycles: bus.cycles,
+            timing_mode: self.timing_mode,
+            region: bus.cartridge.as_ref().map_or(GenesisRegion::Americas, Cartridge::region),
+            audio_resampler: self.audio_resampler.clone(),
+            config: self.config.clone(),
+            program_counter: self.m68k.pc(),
+            native_input_remainder: 0,
+            open_bus: bus.open_bus,
+            data: self.m68k.data_registers(),
+            address,
+            status: self.m68k.status_register(),
+            user_stack_pointer: self.m68k.user_stack_pointer(),
+            supervisor_stack_pointer: self.m68k.supervisor_stack_pointer(),
+        }
+    }
+
     pub fn create<S: SaveWriter>(
         mut cartridge_rom: Option<Vec<u8>>,
         config: GenesisEmulatorConfig,

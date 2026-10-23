@@ -30,7 +30,7 @@ jgenesis-proc-macros = { path = "common/jgenesis-proc-macros" }
 m68000-emu = { path = "cpu/m68000-emu" }
 z80-emu = { path = "cpu/z80-emu" }
 genesis-config = { path = "config/genesis-config" }
-genesis-components = { path = "backend/genesis-components" }
+genesis-components = { path = "backend/genesis-components", default-features = false }
 genesis-core = { path = "backend/genesis-core" }
 ti-sn76489 = { path = "backend/ti-sn76489" }
 

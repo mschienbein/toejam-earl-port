@@ -2,7 +2,11 @@
 // TJE standalone cutover: remove absent CD PCM/CD-DA/32X PWM models and
 // resamplers; preserve Genesis filtering, resampling, and sample addition order.
 
-use crate::bus::GenesisAudioOutput;
+/// TJE native: shared chip-sample sink, independent of either CPU bus.
+pub trait GenesisAudioOutput {
+    fn collect_ym2612(&mut self, sample: (f64, f64));
+    fn collect_psg(&mut self, sample: f64);
+}
 use bincode::{Decode, Encode};
 use dsp::design::FilterType;
 use dsp::iir::{FirstOrderIirFilter, IirFilter, SecondOrderIirFilter};

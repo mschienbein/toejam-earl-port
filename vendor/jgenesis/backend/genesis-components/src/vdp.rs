@@ -1237,11 +1237,21 @@ impl Vdp {
         log::trace!("VDP debug register write: {:?}", self.debug_register);
     }
 
+    #[cfg(feature = "m68000-timing")]
     pub fn read_status(&mut self, m68k_opcode: u16, m68k_divider: u64) -> u16 {
         log::trace!("VDP status register read");
 
-        let read_adjustment = Self::status_read_mclk_adjustment(m68k_opcode, m68k_divider);
-        let mut scanline_mclk = self.state.scanline_mclk_cycles + read_adjustment;
+        self.native_read_status_at(Self::status_read_mclk_adjustment(m68k_opcode, m68k_divider))
+    }
+
+    /// TJE native: sample the device at the scheduler's current master clock.
+    pub fn native_read_status(&mut self) -> u16 {
+        self.native_read_status_at(0)
+    }
+
+    /// TJE native: retain the reference's explicit read look-ahead without an opcode decoder.
+    pub fn native_read_status_at(&mut self, adjustment: u64) -> u16 {
+        let mut scanline_mclk = self.state.scanline_mclk_cycles + adjustment;
         let HVCounter { internal_h, internal_v: v_counter, vblank_flag, .. } =
             self.hv_counter_internal(scanline_mclk);
 
@@ -1286,6 +1296,7 @@ impl Vdp {
         status
     }
 
+    #[cfg(feature = "m68000-timing")]
     fn status_read_mclk_adjustment(m68k_opcode: u16, m68k_divider: u64) -> u64 {
         // Timing hack: When the CPU reads the status register or the HV counter, return values
         // from slightly in the future to account for the actual read occurring towards the end
@@ -1299,6 +1310,19 @@ impl Vdp {
         }
     }
 
+    /// TJE native: no instruction-prefetch latency is added to an explicit event.
+    #[must_use]
+    pub fn native_hv_counter(&self) -> u16 {
+        self.hv_counter_internal(self.state.scanline_mclk_cycles).hv_counter
+    }
+
+    /// TJE native: the continuation supplies its instruction-specific read offset.
+    #[must_use]
+    pub fn native_hv_counter_at(&self, adjustment: u64) -> u16 {
+        self.hv_counter_internal(self.state.scanline_mclk_cycles + adjustment).hv_counter
+    }
+
+    #[cfg(feature = "m68000-timing")]
     #[must_use]
     pub fn hv_counter(&self, m68k_opcode: u16, m68k_divider: u64) -> u16 {
         let read_adjustment = Self::status_read_mclk_adjustment(m68k_opcode, m68k_divider);

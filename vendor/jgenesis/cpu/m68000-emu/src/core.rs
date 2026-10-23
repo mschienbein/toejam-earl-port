@@ -1199,6 +1199,28 @@ impl M68000 {
         }
     }
 
+    /// TJE native: complete instruction-boundary register state, in the compiled
+    /// engine's stable 25-word order. This is observation only, never execution.
+    #[must_use]
+    pub fn hybrid_state_words(&self) -> [u32; 25] {
+        let mut words = [0; 25];
+        words[..8].copy_from_slice(&self.registers.data);
+        words[8..15].copy_from_slice(&self.registers.address);
+        words[15..].copy_from_slice(&[
+            self.registers.usp,
+            self.registers.ssp,
+            self.registers.pc,
+            self.registers.status_register().into(),
+            self.registers.prefetch.into(),
+            self.registers.pending_interrupt_level.unwrap_or(0).into(),
+            u32::from(self.registers.stopped),
+            u32::from(self.registers.frozen),
+            u32::from(self.registers.address_error),
+            u32::from(self.registers.last_instruction_was_muldiv),
+        ]);
+        words
+    }
+
     #[must_use]
     pub fn data_registers(&self) -> [u32; 8] {
         self.registers.data

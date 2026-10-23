@@ -1,0 +1,3 @@
+[target.wasm32-unknown-unknown]
+# Runtime-generated continuations install one entry in the application's table.
+rustflags = ["-C", "link-arg=--growable-table"]

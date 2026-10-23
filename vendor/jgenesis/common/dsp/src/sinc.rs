@@ -51,10 +51,6 @@ struct SampleRingBuffer {
 }
 
 impl SampleRingBuffer {
-    // Always leave space at the beginning and end so AVX512 loads can read the first and last
-    // samples without going out of bounds
-    const EXTRA_SPACE: usize = 8;
-
     // For an N-sample buffer, allows roughly 64*N^2 samples before needing to copy back to the
     // beginning
     const CAPACITY_MULTIPLIER: usize = 64;
@@ -64,7 +60,7 @@ impl SampleRingBuffer {
 
         let buffer_len = Self::CAPACITY_MULTIPLIER * required_samples;
 
-        Self { buffer: vec![0.0; buffer_len], idx: Self::EXTRA_SPACE, len: 0 }
+        Self { buffer: vec![0.0; buffer_len], idx: 0, len: 0 }
     }
 
     fn ensure_capacity(&mut self, required_samples: usize) {
@@ -76,15 +72,10 @@ impl SampleRingBuffer {
     }
 
     fn push(&mut self, sample: f64) {
-        if self.idx + self.len == self.buffer.len() - Self::EXTRA_SPACE {
-            // Copy from end of buffer to start
-            let left_len = Self::EXTRA_SPACE + self.len;
-            let (left, right) = self.buffer.split_at_mut(left_len);
-
-            let copy_start = self.idx - left_len;
-            left[Self::EXTRA_SPACE..].copy_from_slice(&right[copy_start..copy_start + self.len]);
-
-            self.idx = Self::EXTRA_SPACE;
+        if self.idx + self.len == self.buffer.len() {
+            // TJE native: scalar taps need no SIMD overread padding.
+            self.buffer.copy_within(self.idx..self.idx + self.len, 0);
+            self.idx = 0;
         }
 
         self.buffer[self.idx + self.len] = sample;
@@ -260,49 +251,10 @@ fn estimate_required_samples<Kernel: SincKernel>(ratio: f64) -> usize {
     2 * required_half + 1
 }
 
+// TJE native (ER-001): all targets use the same scalar tap order and separate
+// multiply/add operations. CPU-dispatched FMA and lane reductions change sample
+// bits, so they are not alternate implementations of this deterministic policy.
 fn sum_wing<const REVERSE: bool, const CHANNELS: usize>(
-    fir: &[f32],
-    interpolation_idx: u64,
-    step: u64,
-    input: [&[f64]; CHANNELS],
-    n: usize,
-) -> [f64; CHANNELS] {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use std::sync::LazyLock;
-
-        static AVX512_SUPPORTED: LazyLock<bool> = LazyLock::new(|| {
-            crate::AVX512_ENABLED
-                && is_x86_feature_detected!("avx512f")
-                && is_x86_feature_detected!("avx512vl")
-                && is_x86_feature_detected!("avx512dq")
-        });
-
-        static AVX2_SUPPORTED: LazyLock<bool> = LazyLock::new(|| {
-            crate::AVX2_ENABLED
-                && is_x86_feature_detected!("avx2")
-                && is_x86_feature_detected!("fma")
-        });
-
-        if *AVX512_SUPPORTED {
-            // SAFETY: This CPU supports AVX512 (F + VL + DQ)
-            unsafe {
-                return sum_wing_avx512::<REVERSE, _>(fir, interpolation_idx, step, input, n);
-            }
-        }
-
-        if *AVX2_SUPPORTED {
-            // SAFETY: This CPU supports AVX2 and FMA
-            unsafe {
-                return sum_wing_avx2::<REVERSE, _>(fir, interpolation_idx, step, input, n);
-            }
-        }
-    }
-
-    sum_wing_no_avx::<REVERSE, _>(fir, interpolation_idx, step, input, n)
-}
-
-fn sum_wing_no_avx<const REVERSE: bool, const CHANNELS: usize>(
     fir: &[f32],
     mut interpolation_idx: u64,
     step: u64,
@@ -339,251 +291,6 @@ fn sum_wing_no_avx<const REVERSE: bool, const CHANNELS: usize>(
     }
 
     sum
-}
-
-// SAFETY: Can only be called on a CPU that supports AVX2 and FMA instructions
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2,fma")]
-fn sum_wing_avx2<const REVERSE: bool, const CHANNELS: usize>(
-    fir: &[f32],
-    interpolation_idx: u64,
-    step: u64,
-    input: [&[f64]; CHANNELS],
-    n: usize,
-) -> [f64; CHANNELS] {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-    use std::hint::cold_path;
-    use std::mem::transmute;
-
-    const LINEAR_FACTOR_MASK: i64 = (1 << LINEAR_INTERPOLATION_BITS) - 1;
-    const LINEAR_FACTOR_MULTIPLIER: f64 = 1.0 / (1 << LINEAR_INTERPOLATION_BITS) as f64;
-
-    // SAFETY: Later code assumes all input slices are the same length and that n < input.len()
-    assert!(n < input[0].len());
-    if CHANNELS > 1 {
-        assert!(input[1..].iter().all(|channel_input| channel_input.len() == input[0].len()));
-    }
-
-    let mut sums = [_mm256_setzero_pd(); CHANNELS];
-
-    let initial_steps = if REVERSE {
-        _mm256_set_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
-    } else {
-        _mm256_setr_epi64x(0, step as i64, (2 * step) as i64, (3 * step) as i64)
-    };
-
-    let mut interpolation_idxs =
-        _mm256_add_epi64(_mm256_set1_epi64x(interpolation_idx as i64), initial_steps);
-
-    for i in (0..).step_by(4) {
-        let fir_idxs =
-            _mm256_srli_epi64::<{ LINEAR_INTERPOLATION_BITS as i32 }>(interpolation_idxs);
-
-        // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
-        let in_bounds = _mm256_xor_si256(
-            _mm256_set1_epi32(!0),
-            _mm256_cmpgt_epi64(fir_idxs, _mm256_set1_epi64x((fir.len() - 2) as i64)),
-        );
-        if _mm256_testz_si256(in_bounds, _mm256_set1_epi32(!0)) != 0 {
-            break;
-        }
-
-        let mut linear_factor_numerators =
-            _mm256_and_si256(interpolation_idxs, _mm256_set1_epi64x(LINEAR_FACTOR_MASK));
-
-        // _mm256_cvtepi64_* intrinsics are AVX512-only :(
-        // Shuffle/permute to an i32x4 vector then convert to f64x4
-
-        // 0 x 1 x  2 x 3 x  ->  0 1 0 1  2 3 2 3
-        linear_factor_numerators = _mm256_shuffle_epi32::<0b10_00_10_00>(linear_factor_numerators);
-
-        // 0 1 0 1  2 3 2 3  ->  0 1 2 3  0 1 2 3
-        linear_factor_numerators =
-            _mm256_permute4x64_epi64::<0b10_00_10_00>(linear_factor_numerators);
-
-        let linear_factor_numerators =
-            _mm256_cvtepi32_pd(_mm256_castsi256_si128(linear_factor_numerators));
-
-        let linear_factors =
-            _mm256_mul_pd(linear_factor_numerators, _mm256_set1_pd(LINEAR_FACTOR_MULTIPLIER));
-
-        // SAFETY: Mask is used to prevent out-of-bounds loads
-        // Load as f64s to pull in each coefficient followed by the next coefficient
-        // Pointer cast is fine because gather instructions don't require an aligned pointer
-        #[allow(clippy::cast_ptr_alignment)]
-        let all_coefficients = unsafe {
-            _mm256_mask_i64gather_pd::<4>(
-                _mm256_setzero_pd(),
-                fir.as_ptr().cast::<f64>(),
-                fir_idxs,
-                _mm256_castsi256_pd(in_bounds),
-            )
-        };
-
-        // 0 n0 1 n1  2 n2 3 n3 -> 0 1 n0 n1  2 3 n2 n3
-        let all_coefficients =
-            _mm256_permute_ps::<0b11_01_10_00>(_mm256_castpd_ps(all_coefficients));
-
-        // 0 1 n0 n1  2 3 n2 n3 -> 0 1 2 3  n0 n1 n2 n3
-        let all_coefficients = _mm256_castpd_ps(_mm256_permute4x64_pd::<0b11_01_10_00>(
-            _mm256_castps_pd(all_coefficients),
-        ));
-
-        let coefficients = _mm256_cvtps_pd(_mm256_castps256_ps128(all_coefficients));
-        let next_coefficients = _mm256_cvtps_pd(_mm256_extractf128_ps::<1>(all_coefficients));
-
-        let multipliers = _mm256_fmadd_pd(
-            linear_factors,
-            _mm256_sub_pd(next_coefficients, coefficients),
-            coefficients,
-        );
-
-        let input_idx = if REVERSE {
-            let (idx, overflowed) = n.overflowing_sub(i + 3);
-            if overflowed {
-                // Should never happen, but don't go out of bounds if it does
-                cold_path();
-                panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
-            }
-            idx
-        } else {
-            let idx = n + i + 1;
-            if idx + 3 >= input[0].len() {
-                // Should never happen, but don't go out of bounds if it does
-                cold_path();
-                panic!("input array index out of bounds; idx={}, len={}", idx + 3, input[0].len());
-            }
-            idx
-        };
-
-        for ch in 0..CHANNELS {
-            // SAFETY: Checked that idx >= 0 and idx + 3 < input.len()
-            let in_samples = unsafe { _mm256_loadu_pd(input[ch].as_ptr().add(input_idx)) };
-            sums[ch] = _mm256_fmadd_pd(multipliers, in_samples, sums[ch]);
-        }
-
-        interpolation_idxs =
-            _mm256_add_epi64(interpolation_idxs, _mm256_set1_epi64x((4 * step) as i64));
-    }
-
-    sums.map(|sum| {
-        let hsum = _mm256_hadd_pd(sum, sum);
-        let components: [f64; 4] = unsafe { transmute(hsum) };
-        components[0] + components[2]
-    })
-}
-
-// SAFETY: Can only be called on a CPU that supports AVX512 (F + VL + DQ)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vl,avx512dq")]
-fn sum_wing_avx512<const REVERSE: bool, const CHANNELS: usize>(
-    fir: &[f32],
-    interpolation_idx: u64,
-    step: u64,
-    input: [&[f64]; CHANNELS],
-    n: usize,
-) -> [f64; CHANNELS] {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-    use std::hint::cold_path;
-
-    const LINEAR_FACTOR_MASK: i64 = (1 << LINEAR_INTERPOLATION_BITS) - 1;
-    const LINEAR_FACTOR_MULTIPLIER: f64 = 1.0 / (1 << LINEAR_INTERPOLATION_BITS) as f64;
-
-    // SAFETY: Later code assumes all input slices are the same length and that n < input.len()
-    assert!(n < input[0].len());
-    if CHANNELS > 1 {
-        assert!(input[1..].iter().all(|channel_input| channel_input.len() == input[0].len()));
-    }
-
-    let mut sums = [_mm512_setzero_pd(); CHANNELS];
-
-    let initial_step_multipliers = if REVERSE {
-        _mm512_set_epi64(0, 1, 2, 3, 4, 5, 6, 7)
-    } else {
-        _mm512_setr_epi64(0, 1, 2, 3, 4, 5, 6, 7)
-    };
-
-    let mut interpolation_idxs = _mm512_add_epi64(
-        _mm512_set1_epi64(interpolation_idx as i64),
-        _mm512_mullo_epi64(_mm512_set1_epi64(step as i64), initial_step_multipliers),
-    );
-
-    for i in (0..).step_by(8) {
-        let fir_idxs = _mm512_srli_epi64::<{ LINEAR_INTERPOLATION_BITS }>(interpolation_idxs);
-
-        // SAFETY: Compare to len-1 instead of len because FIR is read using 64-bit loads
-        let in_bounds =
-            _mm512_cmplt_epi64_mask(fir_idxs, _mm512_set1_epi64((fir.len() - 1) as i64));
-        if in_bounds == 0 {
-            break;
-        }
-
-        let linear_factor_numerators =
-            _mm512_and_si512(interpolation_idxs, _mm512_set1_epi64(LINEAR_FACTOR_MASK));
-        let linear_factors = _mm512_mul_pd(
-            _mm512_cvtepi64_pd(linear_factor_numerators),
-            _mm512_set1_pd(LINEAR_FACTOR_MULTIPLIER),
-        );
-
-        // SAFETY: Mask is used to prevent out-of-bounds loads
-        // Load as f64s to pull in each coefficient followed by the next coefficient
-        // Pointer cast is fine because gather instructions don't require an aligned pointer
-        #[allow(clippy::cast_ptr_alignment)]
-        let all_coefficients = unsafe {
-            _mm512_mask_i64gather_pd::<4>(
-                _mm512_setzero_pd(),
-                in_bounds,
-                fir_idxs,
-                fir.as_ptr().cast::<f64>(),
-            )
-        };
-
-        // 0 n0 1 n1 2 n2 3 n3 4 n4 5 n5 6 n6 7 n7 -> 0 1 2 3 4 5 6 7 n0 n1 n2 n3 n4 n5 n6 n7
-        let all_coefficients = _mm512_permutexvar_ps(
-            _mm512_setr_epi32(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15),
-            _mm512_castpd_ps(all_coefficients),
-        );
-
-        let coefficients = _mm512_cvtps_pd(_mm512_castps512_ps256(all_coefficients));
-        let next_coefficients = _mm512_cvtps_pd(_mm512_extractf32x8_ps::<1>(all_coefficients));
-
-        let multipliers = _mm512_fmadd_pd(
-            linear_factors,
-            _mm512_sub_pd(next_coefficients, coefficients),
-            coefficients,
-        );
-
-        let input_idx = if REVERSE {
-            let (idx, overflowed) = n.overflowing_sub(i + 7);
-            if overflowed {
-                // Should never happen, but don't go out of bounds if it does
-                cold_path();
-                panic!("input array index out of bounds; idx={idx}, len={}", input[0].len());
-            }
-            idx
-        } else {
-            let idx = n + i + 1;
-            if idx + 7 >= input[0].len() {
-                // Should never happen, but don't go out of bounds if it does
-                cold_path();
-                panic!("input array index out of bounds; idx={}, len={}", idx + 7, input[0].len());
-            }
-            idx
-        };
-
-        for ch in 0..CHANNELS {
-            // SAFETY: Checked that idx >= 0 and idx + 7 < input.len()
-            let in_samples = unsafe { _mm512_loadu_pd(input[ch].as_ptr().add(input_idx)) };
-            sums[ch] = _mm512_fmadd_pd(multipliers, in_samples, sums[ch]);
-        }
-
-        interpolation_idxs =
-            _mm512_add_epi64(interpolation_idxs, _mm512_set1_epi64((8 * step) as i64));
-    }
-
-    sums.map(|sum| _mm512_reduce_add_pd(sum))
 }
 
 pub type QualitySincResampler<const CHANNELS: usize> = SincResampler<CHANNELS, Quality>;
@@ -626,7 +333,7 @@ mod tests {
         buffer.buffer.fill_with(|| rand::random_range(-1.0..=1.0));
 
         let len = 15;
-        let end_start = buffer.buffer.len() - 8 - len;
+        let end_start = buffer.buffer.len() - len;
 
         buffer.idx = end_start;
         buffer.len = len;
@@ -635,7 +342,7 @@ mod tests {
         buffer.push(1.0);
 
         // Validate that the index moved to start
-        assert_eq!(buffer.idx, 8);
+        assert_eq!(buffer.idx, 0);
         assert_eq!(buffer.len, len + 1);
 
         // Validate that samples were copied
@@ -644,132 +351,35 @@ mod tests {
         assert_eq!(buffer.as_slice(), expected);
     }
 
-    // Validates that sum_wing_avx2() and sum_wing_avx512() produce the same results as sum_wing_no_avx()
-    fn sum_wing_test<Kernel: SincKernel>(
-        source_rate: f64,
-        sum_wing_avx_fn: impl Fn(bool, &[f32], u64, u64, [&[f64]; 1], usize) -> [f64; 1],
-    ) {
-        let target_rate = 48000.0;
-        let ratio = target_rate / source_rate;
-        let required_samples = estimate_required_samples::<Kernel>(ratio);
-
-        let scale = if ratio < 1.0 { ratio } else { 1.0 };
-        let step_float = scale
-            * f64::from(Kernel::oversample_factor())
-            * f64::from(1 << LINEAR_INTERPOLATION_BITS);
-        let step = step_float.round() as u64;
-
-        let fir = Kernel::fir();
-
-        let mut buffer = SampleRingBuffer::new(required_samples);
-        buffer.idx = buffer.buffer.len() - SampleRingBuffer::EXTRA_SPACE - required_samples;
-        for _ in 0..2 * required_samples {
-            buffer.push(rand::random());
-        }
-
-        // Use fewer iterations when running in miri because miri is very slow
-        let iterations = cfg_select! {
-            miri => 3,
-            _ => required_samples / 2,
-        };
-
-        for _ in 0..iterations {
-            let n = required_samples / 2 + buffer.idx;
-
-            let interpolation_idx = (rand::random_range(0.0..1.0) * step_float).round() as u64;
-
-            let non_avx_reverse = sum_wing_no_avx::<true, _>(
-                fir,
-                interpolation_idx,
-                step,
-                [buffer.buffer.as_slice()],
-                n,
-            );
-            let non_avx_forward = sum_wing_no_avx::<false, _>(
-                fir,
-                interpolation_idx,
-                step,
-                [buffer.buffer.as_slice()],
-                n,
-            );
-
-            let avx_reverse =
-                sum_wing_avx_fn(true, fir, interpolation_idx, step, [buffer.buffer.as_slice()], n);
-            let avx_forward =
-                sum_wing_avx_fn(false, fir, interpolation_idx, step, [buffer.buffer.as_slice()], n);
-
-            assert!(
-                (non_avx_reverse[0] - avx_reverse[0]).abs() < 1e-9,
-                "{non_avx_reverse:?} == {avx_reverse:?} (source rate {source_rate})"
-            );
-            assert!(
-                (non_avx_forward[0] - avx_forward[0]).abs() < 1e-9,
-                "{non_avx_forward:?} == {avx_forward:?} (source rate {source_rate})",
-            );
-
-            buffer.pop();
-        }
+    #[test]
+    fn scalar_taps_preserve_sequential_reduction_order() {
+        let fir = [1.0_f32, 1.0, 1.0, 0.0];
+        let forward = [0.0, 1e16, 1.0, -1e16];
+        let reverse = [-1e16, 1.0, 1e16];
+        let step = 1 << LINEAR_INTERPOLATION_BITS;
+        assert_eq!(sum_wing::<false, 1>(&fir, 0, step, [&forward], 0), [0.0]);
+        assert_eq!(sum_wing::<true, 1>(&fir, 0, step, [&reverse], 2), [0.0]);
     }
 
-    const TEST_SOURCE_RATES: &[f64] = &[4000000.0, 55000.0, 48000.0, 20000.0];
-
-    // These tests should ideally be run using miri to verify no out-of-bounds memory reads:
-    //   $ cargo +nightly miri test -p dsp
-    #[cfg(target_arch = "x86_64")]
     #[test]
-    fn test_sum_wing_avx2() {
-        // SAFETY: Only run test on CPUs that support AVX2 and FMA
-        if !is_x86_feature_detected!("avx2") || !is_x86_feature_detected!("fma") {
-            return;
-        }
-
-        for &source_rate in TEST_SOURCE_RATES {
-            let sum_wing_fn = |reverse,
-                               fir: &[f32],
-                               interpolation_idx,
-                               step,
-                               samples: [&[f64]; 1],
-                               n| {
-                if reverse {
-                    unsafe { sum_wing_avx2::<true, _>(fir, interpolation_idx, step, samples, n) }
-                } else {
-                    unsafe { sum_wing_avx2::<false, _>(fir, interpolation_idx, step, samples, n) }
-                }
-            };
-
-            sum_wing_test::<Performance>(source_rate, sum_wing_fn);
-            sum_wing_test::<Quality>(source_rate, sum_wing_fn);
-        }
+    fn scalar_interpolation_does_not_fuse_multiply_and_add() {
+        let delta = 1.0 / f64::from(1 << LINEAR_INTERPOLATION_BITS);
+        let next = 1.0 / (1_u64 << 40) as f64;
+        let fir = [1.0_f32, next as f32, 0.0];
+        let input = [0.0, 1.0];
+        let index = (1 << LINEAR_INTERPOLATION_BITS) - 1;
+        let step = 3 << LINEAR_INTERPOLATION_BITS;
+        let result = sum_wing::<false, 1>(&fir, index, step, [&input], 0)[0];
+        assert_eq!(result.to_bits(), (delta + next).to_bits());
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[cfg_attr(miri, ignore)] // miri does not support all required AVX512 intrinsics as of 1.99 nightly
     #[test]
-    fn test_sum_wing_avx512() {
-        // SAFETY: Only run test on CPUs that support AVX512 (F + DQ + VL)
-        if !is_x86_feature_detected!("avx512f")
-            || !is_x86_feature_detected!("avx512dq")
-            || !is_x86_feature_detected!("avx512vl")
-        {
-            return;
-        }
-
-        for &source_rate in TEST_SOURCE_RATES {
-            let sum_wing_fn = |reverse,
-                               fir: &[f32],
-                               interpolation_idx,
-                               step,
-                               samples: [&[f64]; 1],
-                               n| {
-                if reverse {
-                    unsafe { sum_wing_avx512::<true, _>(fir, interpolation_idx, step, samples, n) }
-                } else {
-                    unsafe { sum_wing_avx512::<false, _>(fir, interpolation_idx, step, samples, n) }
-                }
-            };
-
-            sum_wing_test::<Performance>(source_rate, sum_wing_fn);
-            sum_wing_test::<Quality>(source_rate, sum_wing_fn);
-        }
+    fn scalar_accumulation_does_not_fuse_multiply_and_add() {
+        let coefficient = 1.0 + f32::EPSILON;
+        let fir = [coefficient, coefficient, 0.0];
+        let input = [0.0, -1.0, 1.0 - f64::EPSILON];
+        let step = 1 << LINEAR_INTERPOLATION_BITS;
+        let result = sum_wing::<false, 1>(&fir, 0, step, [&input], 0)[0];
+        assert_eq!(result.to_bits(), (-f64::EPSILON).to_bits());
     }
 }

@@ -216,6 +216,7 @@ impl CycleCounters {
 }
 
 // TJE timing survey: opt-in instrumentation, isolated from the clock algorithms.
+#[cfg(feature = "emulator")]
 pub mod survey {
     //! TJE timing survey: passive, opt-in bus observation and explicit retiming experiments.
     //! No observer is installed during ordinary emulation.

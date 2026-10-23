@@ -15,6 +15,22 @@ controller holds**. The elevator and Jam Out navigation was adapted from the
 Sessions lane's controller-only recordings; the tool independently observed their
 entry points below. JSON measurement outputs stay in private scratch, not Git.
 
+### Canonical resampling decision
+
+The shipped faithful engine and its reference oracle now use the same portable
+scalar resampler arithmetic on all targets. The earlier x86 SIMD/FMA dispatch
+could change sample bits relative to aarch64/WebAssembly because its operation
+order and fused operations differed. The user explicitly selected the portable
+path as the canonical reference resampling stage; no CPU/device timing or sound
+register stream is changed by this decision. See [ENGINE.md](ENGINE.md).
+
+The timing survey below is the historical measurement, not a newly rerun
+canonical-audio receipt. Instruction/clock/access observations retain their
+original meaning; bit-exact audio claims for the new engine require fresh
+canonical-path receipts. Authored PSG/YM sample-hash fixtures at 44.1 and 48 kHz
+exercise native CI and the actual browser independently of any cartridge.
+
+
 All seven runs together execute **96,000 reference video frames**, of which
 **88,650** are in the specified measurement windows. The twelve independent
 retiming forks per selected frame add **54,000** experimental video frames.

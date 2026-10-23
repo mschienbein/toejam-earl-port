@@ -3,13 +3,18 @@ name = "genesis-components"
 edition = "2024"
 version.workspace = true
 
+# TJE native: opcode-specific read latency belongs only to the emulator.
+[features]
+default = ["m68000-timing"]
+m68000-timing = ["dep:m68000-emu"]
+
 [dependencies]
 jgenesis-common = { workspace = true }
 jgenesis-proc-macros = { workspace = true }
 
 genesis-config = { workspace = true }
 
-m68000-emu = { workspace = true, features = ["bincode"] }
+m68000-emu = { workspace = true, features = ["bincode"], optional = true }
 z80-emu = { workspace = true, features = ["bincode"] }
 
 bincode = { workspace = true }

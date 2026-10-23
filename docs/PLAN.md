@@ -56,6 +56,15 @@ WebGL 2) presents it with scaling and filters.
 (AudioWorklet) and the Gamepad API; the ROM is chosen with a file picker and stays in the
 browser's storage.
 
+### Continuation boundary
+
+`tje-engine-core` owns the CPU/bus/IR ABI; `tje-engine-runtime` owns instruction
+admission, reset and exception/interrupt entry. `tje-native-platform` advances
+the original devices and publishes deferred CPU writes. The borrowed playback
+interface matches the host's frame/audio/input shape. The detailed ABI, fixed
+10+44-cycle reference interrupt sequence, backend cache boundaries and proof
+obligations are specified once in [ENGINE.md](ENGINE.md).
+
 ## Verification
 
 1. **Reference.** The original ROM in jgenesis, headless, with scripted input.
@@ -69,6 +78,51 @@ browser's storage.
    pieces, Jam Out and the ending, in both revisions.
 5. **CI** builds every target and runs the ROM-free checks; the suites that need the ROM run
    locally.
+
+### Engine replay acceptance
+
+`tje-engine-verify` is a development-only harness, never a shipped dependency.
+It compares every frame's work RAM, VRAM/CRAM/VSRAM, complete VDP state (including
+registers, latches, FIFO and DMA), Z80 RAM, pixels, exact stereo f64 sample bits and
+counts, and ordered timestamped YM2612/PSG dispatches. Receipts list actual executed
+original PCs and function coverage; unreached functions remain explicit. A mismatch
+is replayed to the first unequal original-instruction boundary, with the frame,
+scanline, master-clock position, original PC and committed function name.
+
+`replay --instruction-proof` additionally compares all 25 architectural CPU words,
+the base cycle charge, and every ordered 68000 bus read/write/IRQ acknowledge after
+each scheduler step. Semantic, prefetch and discarded reads remain distinct.
+Initial RAM equality and an all-origin actual RAM-commit journal (including Z80
+banked writes) prove complete work-RAM equality at each boundary without scanning
+64 KiB per instruction. Reports give separate step/instruction/access/RAM-commit
+denominators. Frame/device/output comparisons remain mandatory. `accept` enables
+this proof unconditionally for reference sanity, IR, native and browser Wasm.
+
+```sh
+# One session using the test-only IR oracle; reference selects two independent emulators.
+cargo run --release -p tje-engine-verify -- replay \
+  --rom roms/rev02.bin --session sessions/rev02-one-player.tje.json \
+  --backend ir --instruction-proof --report scratch/engine-ir.json
+
+# The release matrix: every *.tje.json in sessions, both ROM revisions,
+# independent reference sanity, IR, native compiled code, and actual browser Wasm.
+# WASM_PROOF is an executable browser proof wrapper (not an interpreter).
+cargo run --release -p tje-engine-verify --features native -- accept \
+  --rom-rev00 roms/rev00.bin --rom-rev02 roms/rev02.bin --sessions sessions \
+  --cache-dir scratch/engine-cache --wasm-command "$WASM_PROOF" \
+  --report scratch/engine-acceptance.json
+```
+
+`reference-sanity` takes the same ROM/session/report arguments without the cache or
+Wasm arguments and is deliberately **not** a release-acceptance receipt. `replay
+--backend native --cache-dir DIR` also reports native code size, cache status and
+startup/compilation timings. The browser wrapper receives `--rom`, `--session` and
+`--report`, writes a `tje_engine_verify::ReplayReport` with full instruction-proof
+counters for the real Wasm backend,
+and exits unsuccessfully on a mismatch. For a Node wrapper, use `--wasm-command
+node --wasm-arg path/to/wrapper.mjs`. An unavailable backend or missing/partial
+browser receipt fails acceptance; it is never replaced by the reference or IR
+oracle. Reports and caches stay private in ignored scratch/user storage.
 
 ## Phases
 
