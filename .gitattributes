@@ -1,0 +1,4 @@
+# Check out every file exactly as committed on every platform. The public audit and the
+# vendored-source identity checks hash worktree bytes, and Windows Git converts LF to CRLF
+# on checkout by default, which makes every vendored line look changed.
+* -text
