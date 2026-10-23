@@ -9,13 +9,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from collections.abc import Callable
 
 import audit_public as audit
 
@@ -155,6 +158,62 @@ def put(repo: Path, path: str, data: bytes) -> None:
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+
+
+def remove_tree(path: Path) -> None:
+    """Git objects are read-only on Windows; clear only that flag before retrying."""
+    def retry_readonly(function: Callable[[str], object], filename: str, error: BaseException) -> None:
+        if not isinstance(error, PermissionError):
+            raise error
+        mode = stat.S_IMODE(os.stat(filename).st_mode)
+        os.chmod(filename, mode | stat.S_IWRITE)
+        function(filename)  # A remaining lock/ACL failure must still fail cleanup.
+
+    shutil.rmtree(path, onexc=retry_readonly)
+
+
+class ReadonlyCleanupTests(unittest.TestCase):
+    def test_readonly_nested_git_object_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tje-audit-cleanup-") as directory:
+            root = Path(directory) / "cache"
+            objects = root / "objects" / "05"
+            objects.mkdir(parents=True)
+            blob = objects / "synthetic-object"
+            blob.write_bytes(b"Synthetic public test object.")
+            blob.chmod(stat.S_IREAD)
+            remove_tree(root)
+            self.assertFalse(root.exists())
+
+    def test_windows_permission_handler_makes_file_writable_and_retries_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="tje-audit-permission-") as directory:
+            target = Path(directory) / "object"
+            target.write_bytes(b"Synthetic public test object.")
+            target.chmod(stat.S_IREAD)
+            retry = mock.Mock()
+            def refuse_first(path: Path, *, onexc) -> None:
+                onexc(retry, str(target), PermissionError("synthetic Windows read-only object"))
+            with mock.patch.object(shutil, "rmtree", side_effect=refuse_first):
+                remove_tree(target.parent / "cache")
+            self.assertTrue(target.stat().st_mode & stat.S_IWRITE)
+            retry.assert_called_once_with(str(target))
+
+    def test_nonpermission_and_retry_failures_are_not_hidden(self) -> None:
+        original = OSError("synthetic unrelated cleanup failure")
+        def unrelated(path: Path, *, onexc) -> None:
+            onexc(mock.Mock(), str(path), original)
+        with mock.patch.object(shutil, "rmtree", side_effect=unrelated):
+            with self.assertRaises(OSError) as raised:
+                remove_tree(Path("synthetic-cache"))
+        self.assertIs(raised.exception, original)
+        with tempfile.TemporaryDirectory(prefix="tje-audit-locked-") as directory:
+            target = Path(directory) / "object"
+            target.write_bytes(b"Synthetic public test object.")
+            retry = mock.Mock(side_effect=PermissionError("synthetic still-locked object"))
+            def locked(path: Path, *, onexc) -> None:
+                onexc(retry, str(target), PermissionError("synthetic Windows read-only object"))
+            with mock.patch.object(shutil, "rmtree", side_effect=locked), self.assertRaises(PermissionError):
+                remove_tree(target.parent / "cache")
+            retry.assert_called_once_with(str(target))
 
 
 class GitAuditCase(unittest.TestCase):
@@ -976,7 +1035,7 @@ class VendorProvenanceTests(GitAuditCase):
         self.assertEqual(self.inspect(False), [])
 
     def test_missing_cache_and_unavailable_upstream_fail_closed(self) -> None:
-        shutil.rmtree(self.repo / ".cache")
+        remove_tree(self.repo / ".cache")
         self.upstream.rename(self.root / "upstream-unavailable")
         with self.assertRaises(audit.AuditError):
             self.inspect(False)
