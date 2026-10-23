@@ -1,8 +1,10 @@
 //! Player translation ownership; see docs/PORTING.md.
 //!
-//! `MapClearTilePriorityNearPlayer` (G/src/player/active_present_falling_and_respawn.c:71)
-//! remains original: its alternating VDP reads/writes wait for FIFO clock progress.
+//! Original execution contracts are reviewed independently of translation status.
+//! Speech and graphics-upload waits require real interrupt progress; queuing an
+//! audio request alone is RAM-only (`src/audio/play_sound_effect.c:15`).
 
+use crate::execution::ExecutionClass;
 use crate::{Context, Result, ids};
 use tje_mem::{Address, LevelItem, ObjectState, Ptr, ram, rom};
 
@@ -38,17 +40,105 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Reviewed original entries that return without clock/interrupt progress.
-/// Missing IDs are deliberately not approved for atomic checking or fallback.
+/// Reviewed original entries that need no clock or interrupt progress.
+/// Source locations below are relative to G/src/player. Arithmetic, collision,
+/// allocation, sprite selection, and audio-request callees are bounded RAM/ROM
+/// operations; no pending-upload, raster, DMA-status, or sound-mailbox polling
+/// occurs in their reachable paths.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
-    ids::STOP_PLAYER,
-    ids::PLAYER_INITIALIZE_PHASED_JUMP_MOTION,
-    ids::ENTITY_HAS_FREE_TIMED_EFFECT_SLOT,
-    // These four leaves perform bounded RAM/ROM accesses only, without callees.
-    ids::SETUP_PLAYER,
-    ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT,
-    ids::INITIALIZE_LEVEL_ZERO_FIXED_ITEMS,
-    ids::GET_LEVEL_ZERO_EARTHLING_POSITION,
+    ids::SETUP_PLAYER, // setup_player.c:13: fixed RAM sprite/object initialization.
+    ids::ENTITY_IS_NEAR_POSITION, // entity_motion_terrain.c:22: coordinates and abs.
+    ids::ENTITY_IS_WITHIN_RANGE, // entity_motion_terrain.c:35: coordinates and abs.
+    ids::PLAYER_PROCESS_TERRAIN_MOTION, // entity_motion_terrain.c:71: proposed motion and collision queries.
+    ids::PLAYER_APPLY_TERRAIN_DESTINATION, // entity_motion_terrain.c:196: terrain/cache and SetSprite.
+    ids::STOP_PLAYER, // entity_motion_terrain.c:303: six RAM stores.
+    ids::PLAYER1_PROCESS_TERRAIN_MOTION, // entity_motion_terrain.c:315: atomic forwarding.
+    ids::PLAYER2_PROCESS_TERRAIN_MOTION, // entity_motion_terrain.c:322: atomic forwarding.
+    ids::PROCESS_MOVEMENT, // process_movement.c:17: entity-list integration and collision queries.
+    ids::SPRITE_CHECKS, // sprite_checks_and_movement.c:14: input filtering; ProcessElevator is a RAM query.
+    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // sprite_checks_and_movement.c:103: velocity selection.
+    ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION, // sprite_checks_and_movement.c:205: animation selection and queued audio.
+    ids::GET_ACTIVE_PRESENT_SPRITE, // active_present_falling_and_respawn.c:14: pose selection and OpenRocketSkates.
+    ids::PLAYER_START_TEETERING_FALL, // active_present_falling_and_respawn.c:165: motion stores and SetSprite.
+    ids::PLAYER_UPDATE_TEETERING, // active_present_falling_and_respawn.c:193: counters, cached RNG, queued audio.
+    ids::PLAYER_UPDATE_JUMP_LANDING_ANIMATION, // active_present_falling_and_respawn.c:499: motion/sprite and queued audio.
+    ids::PLAYER_UPDATE_PRESENT_COMPLETION_AND_TERRAIN_POSE, // active_present_falling_and_respawn.c:541: bounded terrain scan.
+    ids::PLAYER_UPDATE_SPRING_SHOE_JUMP, // active_present_falling_and_respawn.c:699: motion/sprite and queued audio.
+    ids::OPEN_ROCKET_SKATES, // open_rocket_skates.c:11: StopPlayer, SetSprite, RAM.
+    ids::PLAYER_UPDATE_ROCKET_SKATES_SPRITE, // rocket_motion.c:16: StopPlayer, SetSprite, RAM.
+    ids::PLAYER_APPLY_ROCKET_SKATES_INPUT, // rocket_motion.c:70: local arithmetic and RAM.
+    ids::PLAYER_UPDATE_ROCKET_SKATES_MOTION, // rocket_motion.c:176: cached RNG and atomic input/sprite helpers.
+    ids::PLAYER_INITIALIZE_PHASED_JUMP_MOTION, // start_motion_mode.c:5: four RAM stores.
+    ids::PLAYER_CHECK_TERRAIN_EDGE_HOP, // edge_hop_and_clap.c:15: cache query, RNG, sprite/audio requests.
+    ids::PLAYER_UPDATE_HEALTH_SHARING_CLAP, // edge_hop_and_clap.c:60: health arithmetic, sprite/audio requests.
+    ids::OPEN_SCHOOL_BOOK, // sleep.c:21: sprite/motion and RAM countdown.
+    ids::PROCESS_SLEEP, // sleep.c:34: RAM input, allocation, ROM animation, queued audio; no speech wait.
+    ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT, // earthling_damage_reactions.c:8: RAM predicate.
+    ids::PLAYER_SQUISH, // earthling_damage_reactions.c:152: damage and queued audio.
+    ids::EARTHLING_START_HORIZONTAL_ATTACK, // earthling_damage_reactions.c:226: abs and SetEarthlingState.
+    ids::CUPID_ABILITY, // earthling_damage_reactions.c:245: bounded attack/state selection.
+    ids::EARTHLING_UPDATE_BOUNCING_DAMAGE_STATE, // earthling_damage_reactions.c:283: terrain/damage; residual map index is an ABI issue, not a time wait.
+    ids::WHIRL_WIND_ABILITY, // earthling_damage_reactions.c:315: sprite/RAM and FreeEntity.
+    ids::EARTHLING_CHECK_DECOY_ATTACK_RANGE, // earthling_damage_reactions.c:412: two RAM targets and atomic attack helper.
+    ids::ENTITY_HAS_FREE_TIMED_EFFECT_SLOT, // effect_slots.c:17: two RAM reads.
+    ids::ENTITY_SPAWN_TIMED_EFFECT, // effect_slots.c:26: allocation, ROM animation, queued audio.
+    ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT, // effect_slots.c:63: FreeEntity and RAM.
+    ids::PLAYER_LAUNCH_PRESENT_PROJECTILE, // projectiles.c:24: allocation, ROM placement, queued FM request.
+    ids::PLAYER_UPDATE_PRESENT_SHOOTING, // projectiles.c:105: atomic launch/pose helpers.
+    ids::DO_MOLE_ABILITY, // mole.c:23: bounded inventory scan, cached RNG and allocation.
+    ids::MOLE_ABILITY, // mole.c:77: inventory/state/collision helpers; no waits.
+    ids::INITIALIZE_LEVEL_ZERO_FIXED_ITEMS, // ability_helpers.c:20: fixed RAM stores.
+    ids::GET_LEVEL_ZERO_EARTHLING_POSITION, // ability_helpers.c:40: switch and two RAM stores.
+];
+
+/// Non-atomic ORIGINAL contracts, including still-untranslated callers.
+/// `GenerateSpeech` can wait for an IRQ-cleared graphics upload
+/// (G/src/speech/speech_and_dialogue.c:135); those callers are TimeAware even
+/// when their ordinary entry state happens to bypass speech.
+pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+    // active_present_falling_and_respawn.c:71: bounded VRAM read/write stream,
+    // stable sources, no raster/status reads; FIFO transaction completion needed.
+    (ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER, ExecutionClass::Functional),
+    // active_present_falling_and_respawn.c:134: IRQ-cleared terrain flag and speech.
+    (ids::PLAYER_START_FALLING, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:250,407: MakePlayerFall redraws through
+    // UpdateScreenSplitMode, whose shared/split transitions can wait for VBlank.
+    (ids::CHECK_PLAYER_FALLING, ExecutionClass::TimeAware),
+    (ids::MAKE_PLAYER_FALL, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:580: GenerateSpeech.
+    (ids::PLAYER_UPDATE_TERRAIN_SINKING, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:636,750: PlayerStartFalling.
+    (ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE, ExecutionClass::TimeAware),
+    (ids::PLAYER_RESOLVE_DESCENDING_TERRAIN, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:811: explicit WaitForNextVBlank loop.
+    (ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:844: explicit paused VBlank wait,
+    // plus PlayerAdvanceToNextLevel and screen transitions.
+    (ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:923: HudLoadActionIconSprite waits for
+    // the IRQ-cleared graphics upload (G/src/ui/hud.c:122-124).
+    (ids::KILL_THE_PLAYER, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:956: screen redraw and game-over
+    // input/VBlank loop; the reset branch does not normally return.
+    (ids::PLAYER_FINALIZE_LAST_LIFE_EXIT, ExecutionClass::TimeAware),
+    // active_present_falling_and_respawn.c:990,1052: falling/death/speech callees.
+    (ids::PLAYER_UPDATE_DEATH_ANIMATION, ExecutionClass::TimeAware),
+    (ids::PROCESS_PLAYERS, ExecutionClass::TimeAware),
+    // jump_motion.c:21,117: PlayerStartFalling and GenerateSpeech.
+    (ids::PLAYER_UPDATE_PHASED_JUMP_MOTION, ExecutionClass::TimeAware),
+    (ids::PLAYER_APPLY_PHASED_JUMP_INPUT, ExecutionClass::TimeAware),
+    // earthling_damage_reactions.c:40,177: GenerateSpeech.
+    (ids::PLAYER_YOUCH, ExecutionClass::TimeAware),
+    (ids::HULA_ABILITY, ExecutionClass::TimeAware),
+    // earthling_damage_reactions.c:347: PlayerStartFalling and GenerateSpeech.
+    (ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY, ExecutionClass::TimeAware),
+    // earthling_damage_reactions.c:435,467: Player_Youch's speech path.
+    (ids::CHICKEN_ABILITY, ExecutionClass::TimeAware),
+    (ids::AI_BOOGIE_TOUCH, ExecutionClass::TimeAware),
+    // ability_helpers.c:61: GenerateSpeech and general OpenSelectedPresent.
+    (ids::LEMONADE_ABILITY, ExecutionClass::TimeAware),
+    // hottub_ability.c:19: GenerateSpeech.
+    (ids::HOTTUB_ABILITY, ExecutionClass::TimeAware),
 ];
 /// G/src/player/entity_motion_terrain.c:303 (`StopPlayer`). Preserve the original
 /// interleaved velocity/acceleration store order, even on aliased addresses.
