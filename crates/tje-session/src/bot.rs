@@ -28,6 +28,7 @@ pub enum Scenario {
     Intro,
     Menus,
     SecretEnding,
+    SecretEndingTwo,
     ContentOne,
     ContentTwo,
 }
@@ -40,7 +41,8 @@ impl Scenario {
             | Self::JamOut
             | Self::JamAll
             | Self::ContentTwo
-            | Self::CampaignTwo => 2,
+            | Self::CampaignTwo
+            | Self::SecretEndingTwo => 2,
             _ => 1,
         }
     }
@@ -82,7 +84,9 @@ impl Planner {
                 Scenario::Campaign | Scenario::CampaignTwo => {
                     Some(Adventure::new(Objective::Campaign))
                 }
-                Scenario::SecretEnding => Some(Adventure::new(Objective::Campaign)),
+                Scenario::SecretEnding | Scenario::SecretEndingTwo => {
+                    Some(Adventure::new(Objective::Campaign))
+                }
                 Scenario::Explore => Some(Adventure::new(Objective::Explore)),
                 Scenario::Coop => Some(Adventure::new(Objective::Coop)),
                 Scenario::LevelZero => Some(Adventure::new(Objective::LevelZero)),
@@ -249,7 +253,11 @@ impl Planner {
             }
             return pads;
         }
-        if self.scenario == Scenario::SecretEnding && age < 700 {
+        if matches!(
+            self.scenario,
+            Scenario::SecretEnding | Scenario::SecretEndingTwo
+        ) && age < 700
+        {
             // Original reachable pause sequence, not a RAM intervention. It
             // removes nine assignments; coverage must not count them collected.
             for (start, button) in [
@@ -524,7 +532,7 @@ pub fn generate(
         Scenario::JamAll => "all eight Jam Out modes",
         Scenario::Intro => "full natural intro selected from the menu",
         Scenario::Menus => "controller options, pause, map and inventory",
-        Scenario::SecretEnding => {
+        Scenario::SecretEnding | Scenario::SecretEndingTwo => {
             "original hidden pause sequence clears nine assignments; not a ten-piece campaign"
         }
         _ => "Fixed World gameplay",
@@ -581,8 +589,11 @@ pub fn generate(
         }
         if matches!(
             scenario,
-            Scenario::Campaign | Scenario::CampaignTwo | Scenario::SecretEnding
-        ) && (scenario == Scenario::SecretEnding
+            Scenario::Campaign
+                | Scenario::CampaignTwo
+                | Scenario::SecretEnding
+                | Scenario::SecretEndingTwo
+        ) && (matches!(scenario, Scenario::SecretEnding | Scenario::SecretEndingTwo)
             || coverage
                 .content
                 .ship_pieces_collected
@@ -642,5 +653,13 @@ mod tests {
         assert!(planner.adventure.is_some());
         assert!(planner.content_bot.is_none());
         assert!(planner.navigators.is_none());
+    }
+
+    #[test]
+    fn disclosed_two_player_secret_ending_uses_both_pads() {
+        let planner = Planner::new(Scenario::SecretEndingTwo);
+        assert_eq!(planner.scenario.players(), 2);
+        assert!(planner.adventure.is_some());
+        assert_eq!(Scenario::SecretEnding.players(), 1);
     }
 }

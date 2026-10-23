@@ -287,7 +287,8 @@ only after all ten pieces and the real ending/final-level transition. Fixed Worl
 keeps geometry reproducible; dynamic RNG/AI still require feedback. A missing route
 is not permission to teleport, set completion flags or fabricate a late-game state.
 
-`secret-ending` is a separate, explicitly labelled original-input route: it enters
+`secret-ending` and its two-player variant `secret-ending-two` are separate,
+explicitly labelled original-input routes: each enters
 the hidden `GamePaused` sequence (`src/ui/pause.c:129-160`), which clears nine ship
 assignments, collects the remaining actual piece, and watches the real ending.
 It contains no RAM writes but **is not a ten-piece campaign**. The coverage
