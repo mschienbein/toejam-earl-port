@@ -29,15 +29,24 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     // G/src/ship/ship_screen_and_collection.c:61-105: both branches call
     // WaitForNextVBlank; the upload branch also performs stable-buffer DMA.
-    (ids::ANIMATE_SHIP_SCREEN_BACKGROUND, ExecutionClass::TimeAware),
+    (
+        ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
+        ExecutionClass::TimeAware,
+    ),
     // :108-128: stable ROM tiles/palettes and completed sprite-shadow DMA;
     // DrawHUD is Functional. No status/raster read or IRQ-dependent observer.
     (ids::RESTORE_GAMEPLAY_GRAPHICS, ExecutionClass::Functional),
     // :131-170: every branch explicitly waits for VBlank before font/upload.
-    (ids::ANIMATE_TRANSITION_BACKGROUND, ExecutionClass::TimeAware),
+    (
+        ids::ANIMATE_TRANSITION_BACKGROUND,
+        ExecutionClass::TimeAware,
+    ),
     // :173-256: VBlank waits, IRQ-updated frame/cooldown observations, and
     // PlayEndingSequence/MapEnterFinalLevel's time-progressing scene work.
-    (ids::PLAY_SHIP_COMPLETION_SEQUENCE, ExecutionClass::TimeAware),
+    (
+        ids::PLAY_SHIP_COMPLETION_SEQUENCE,
+        ExecutionClass::TimeAware,
+    ),
     // :259-305: finite stable tile/palette writes, then the time-aware
     // AnimateShipScreenBackground(1). The page==4 bug is unreachable as written.
     (
@@ -49,7 +58,10 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     (ids::SHOW_SHIP_PIECE_NAME, ExecutionClass::TimeAware),
     // :336-376: bounded RAM scan and stable ROM strings/decimal output through
     // Functional text writers; no status/raster read, wait, or unstable source.
-    (ids::SHOW_MISSING_SHIP_PIECE_SUMMARY, ExecutionClass::Functional),
+    (
+        ids::SHOW_MISSING_SHIP_PIECE_SUMMARY,
+        ExecutionClass::Functional,
+    ),
     // :380-416: background animation and explicit VBlank waits between fades.
     // Passing palette[16] requires an emulated call frame, not a narrower class.
     (ids::ANIMATE_SHIP_SCREEN_PALETTE, ExecutionClass::TimeAware),
@@ -67,7 +79,10 @@ pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
     (ids::SHIP_PIECE_ABILITY, ExecutionClass::TimeAware),
     // :652-661: calls time-aware ShowShipPieces. Preserve the original endless
     // search when all ten assignments are zero; no synthetic completion exit.
-    (ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE, ExecutionClass::TimeAware),
+    (
+        ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
+        ExecutionClass::TimeAware,
+    ),
 ];
 
 /// G/src/ship/ship_screen_and_collection.c:41 (`FillSpriteOpaquePixels`).
