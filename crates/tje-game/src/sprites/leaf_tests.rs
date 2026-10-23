@@ -792,3 +792,28 @@ fn canonical_selector_failure_does_not_read_the_unused_output_argument_slot() {
         assert_eq!(result, Some(1));
     }
 }
+
+#[test]
+fn ram_index_initializer_keeps_exact_scratch_residue_for_modal_callers() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        for high in [0u32, 0x1234_0000, 0xffff_0000] {
+            for ccr in 0..32u16 {
+                machine.data[0] = high | 0xabcd;
+                machine.data[1] = 0x1020_3040;
+                machine.address[0] = 0xffe800;
+                machine.address[1] = 0xffe900;
+                machine.sr = 0xa700 | ccr;
+                rendering::set_ram_indexes(&mut machine, &[]).unwrap();
+                assert_eq!(machine.data[0], high | 40);
+                assert_eq!(machine.data[1], 0x1020_3040);
+                assert_eq!(
+                    machine.address[0],
+                    ram::g_player_info(revision).at(40).address()
+                );
+                assert_eq!(machine.address[1], 0xffe900);
+                assert_eq!(machine.sr, 0xa704);
+            }
+        }
+    }
+}

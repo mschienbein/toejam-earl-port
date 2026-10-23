@@ -8,6 +8,7 @@ use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 mod check_callers;
 mod check_dma;
 mod check_frames;
+mod check_registers;
 mod check_updates;
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
@@ -387,6 +388,11 @@ fn main() {
         ))
         .unwrap(),
     );
+    if check_registers::requested() {
+        let (root, evidence) = check_registers::paths();
+        check_registers::prove_indexes(&root, &evidence, &script);
+        return;
+    }
     let selected: Vec<_> = env::var("TJE_SPRITE_FUNCTIONS")
         .map(|names| {
             names

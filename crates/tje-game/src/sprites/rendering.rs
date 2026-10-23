@@ -256,6 +256,8 @@ pub fn set_sprite(context: &mut dyn Context, arguments: &[u32]) -> Result<Option
 }
 
 /// G/src/sprites/entity_indexes.c:8, SetRAMIndexes. Initialize 40 indices without clearing records.
+/// Matching c_entity_indexes.s:4-15 also leaves D0.W=40, A0 just past record39,
+/// and Z-only CCR; D0's upper word, D1 and A1 retain their entry values.
 pub fn set_ram_indexes(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let table = ram::g_hardware_sprite_table(revision);
@@ -268,6 +270,9 @@ pub fn set_ram_indexes(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
             .entity_index()
             .write(context, index as i8);
     }
+    context.set_data_register(0, (context.data_register(0) & 0xffff_0000) | 40);
+    context.set_address_register(0, ram::g_player_info(revision).at(40).address());
+    context.set_status_register((context.status_register() & !0x1f) | 4);
     Ok(None)
 }
 
