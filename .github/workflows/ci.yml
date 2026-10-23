@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Install Linux build packages (ALSA, udev, pkg-config)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pkg-config libasound2-dev libudev-dev
       - name: Install pinned Rust toolchain
         run: |
           python - <<'PY'
@@ -52,6 +55,6 @@ jobs:
       - name: Build WebAssembly
         # All workspace members are wasm-capable. Add an explicit --exclude PACKAGE
         # only for a native-only crate; keep new wasm crates covered by default.
-        run: cargo build --locked --workspace --target wasm32-unknown-unknown
+        run: cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native
       - name: Audit public worktree, index and full history without ROMs
         run: python tools/audit_public.py --history --no-rom
