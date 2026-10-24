@@ -142,6 +142,14 @@ pub fn host(bytes: &[u8], mode: Mode, revision: Revision, capture_ticks: bool) -
                     | "GameProgram"
                     | "DropPresentsAbility"
                     | "PlayerProcessLifeRequest"
+                    | "EntityUpdateTerrainDrawFlag"
+                    | "EarthlingUpdateBouncingDamageState"
+                    | "NiceEarthlingCheck"
+                    | "InventoryRedrawSynchronously"
+                    | "PresentCreateActiveTerrainEffect"
+                    | "PresentRetireTerrainEffect"
+                    | "PresentCreateTemporaryTerrainEffect"
+                    | "HasSpeakerSpeech"
             )
         })
         .map(|function| function.address(revision))

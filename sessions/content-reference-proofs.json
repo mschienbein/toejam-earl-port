@@ -1,0 +1,392 @@
+{
+  "format": 1,
+  "scope": "Original reference/reference determinism only. Both independent instances start at power-on. Every video frame is compared, including full RAM/dead stack, VDP state, pixels, ordered hardware writes and exact PCM; there are no masks or skipped frames. This does not establish native replacement equivalence or a natural ten-piece campaign.",
+  "controller_hash_fields": [
+    "format",
+    "revision",
+    "start",
+    "frames",
+    "runs"
+  ],
+  "renaming_policy": "The actual receipt session path is preserved. Matching canonical controller digests prove that renamed public recordings contain exactly the compared revision, power-on start and controller history; descriptions/tool metadata are not controller inputs.",
+  "new_session_count": 23,
+  "new_frames": 1283040,
+  "inherited_session_count": 50,
+  "inherited_frames": 1493422,
+  "corpus_entries_hit": {
+    "rev00": 634,
+    "rev02": 634
+  },
+  "corpus_union_entries_hit": 636,
+  "inventory_entries": 648,
+  "entries": [
+    {
+      "session": "sessions/rev00-content-nerd-herd.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "93121a5da6963c1b00cc6d2a38cd9b21d27f8c50ba8749392b15a3293c97a23a",
+      "canonical_controller_sha256": "2753d1cad4ed15b51a2cffa129e4ea242036b0d0d39a564eb3496f1b14641c64",
+      "compared_input_canonical_controller_sha256": "2753d1cad4ed15b51a2cffa129e4ea242036b0d0d39a564eb3496f1b14641c64",
+      "reference_reference": {
+        "session": "../land00-96.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-lawnmower.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "312da7db75a86123eee0cee263ccfbaf6470bdc5ce429c9726f49d85d1b2f07e",
+      "canonical_controller_sha256": "7f0d52fd3ff446369af442d5b1033a2f0a9355b3c22fc060a67eff59551ee5b9",
+      "compared_input_canonical_controller_sha256": "7f0d52fd3ff446369af442d5b1033a2f0a9355b3c22fc060a67eff59551ee5b9",
+      "reference_reference": {
+        "session": "../land00-32.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-bees-variant.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "30edde837e840041fb4eb7545b169d84f7b1cdf7893b8a753786dc840466dcdb",
+      "canonical_controller_sha256": "b6f57f389fde9feba08073bd2bd6bbcc292b1a84d69b214afe601304eb3feedf",
+      "compared_input_canonical_controller_sha256": "b6f57f389fde9feba08073bd2bd6bbcc292b1a84d69b214afe601304eb3feedf",
+      "reference_reference": {
+        "session": "../land00-384.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-dentist-variant.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "e4e3acb97dd0cd1d06ae85c0707445917037071743d28bb8d8c7182ecfb8c5d7",
+      "canonical_controller_sha256": "4a29f3489bdf871a53327b813a05188cb7b1a822b62da8745f448b847ef202dd",
+      "compared_input_canonical_controller_sha256": "4a29f3489bdf871a53327b813a05188cb7b1a822b62da8745f448b847ef202dd",
+      "reference_reference": {
+        "session": "../land00-416.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-ice-cream.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "73499aa95828b648327e7ad99d36bb5f5658fc34f694a68cb4f48a84ae8e4fcf",
+      "canonical_controller_sha256": "49b6a41502222aac6ded177329bf35ee4490921f80e9d2572187c7dacf63bad4",
+      "compared_input_canonical_controller_sha256": "49b6a41502222aac6ded177329bf35ee4490921f80e9d2572187c7dacf63bad4",
+      "reference_reference": {
+        "session": "../land00-448.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-singer.tje.json",
+      "revision": "rev00",
+      "frames": 29000,
+      "file_sha256": "23367b624d85bf7f20d188cc3863fbd9b02ed2ce4af5bbfadf3f6911c2c94548",
+      "canonical_controller_sha256": "3f399550c980c8a2af49013e3309cef5a45d680e4cada1b4b0a4e77b9e4b866c",
+      "compared_input_canonical_controller_sha256": "3f399550c980c8a2af49013e3309cef5a45d680e4cada1b4b0a4e77b9e4b866c",
+      "reference_reference": {
+        "session": "../rev00-paid-singer.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 29000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-chickens.tje.json",
+      "revision": "rev00",
+      "frames": 37000,
+      "file_sha256": "6dccc9a29687b13033880d64dd907906654b471f779219dfbe32edc4c1178df0",
+      "canonical_controller_sha256": "e90936fd991b9ce6bc2fba6f8432018ae3ec0ab5f19c8961671954f7f1d2f279",
+      "compared_input_canonical_controller_sha256": "e90936fd991b9ce6bc2fba6f8432018ae3ec0ab5f19c8961671954f7f1d2f279",
+      "reference_reference": {
+        "session": "sessions/rev00-content-chickens.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 37000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-rose-actions.tje.json",
+      "revision": "rev02",
+      "frames": 10106,
+      "file_sha256": "377b048b7bddc3f7209282f2440427d730fe03bc3bc312126df7dc14e01ac78b",
+      "canonical_controller_sha256": "7ed232271decbfe65963acb7c311bdd485a7ecd9d323451331dcbc62d315a554",
+      "compared_input_canonical_controller_sha256": "7ed232271decbfe65963acb7c311bdd485a7ecd9d323451331dcbc62d315a554",
+      "reference_reference": {
+        "session": "../rev02-rose-actions.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 10106,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-rose-actions.tje.json",
+      "revision": "rev00",
+      "frames": 12000,
+      "file_sha256": "3a9635b43615498dcc271951af005bc8fd0360e0b2bc0000821787422c01d4dd",
+      "canonical_controller_sha256": "b72509a02cf0653ac63c71aa003d21c95c23c50731b4eec32e164323593a86fc",
+      "compared_input_canonical_controller_sha256": "b72509a02cf0653ac63c71aa003d21c95c23c50731b4eec32e164323593a86fc",
+      "reference_reference": {
+        "session": "sessions/rev00-content-rose-actions.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 12000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-whirlwind-contact.tje.json",
+      "revision": "rev02",
+      "frames": 83000,
+      "file_sha256": "d1f47509f787b9b93653e81ddd78d1b9061b521ca9d2dc85ab169f4e21cbd455",
+      "canonical_controller_sha256": "6af156a7c620454d066e3b2f94a5fe506668b497c796eaa555f5099331d93294",
+      "compared_input_canonical_controller_sha256": "6af156a7c620454d066e3b2f94a5fe506668b497c796eaa555f5099331d93294",
+      "reference_reference": {
+        "session": "sessions/rev02-content-whirlwind-contact.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 83000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-whirlwind-contact.tje.json",
+      "revision": "rev00",
+      "frames": 81000,
+      "file_sha256": "b277603ef17991ca264c31d09082ab3096eb5c643ec4fcd73f661d9efa497ef1",
+      "canonical_controller_sha256": "62dda5ee6b16ff4dea9533eca4f4b727e7460de624325b399934456853fbaf4e",
+      "compared_input_canonical_controller_sha256": "62dda5ee6b16ff4dea9533eca4f4b727e7460de624325b399934456853fbaf4e",
+      "reference_reference": {
+        "session": "sessions/rev00-content-whirlwind-contact.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 81000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-final-display.tje.json",
+      "revision": "rev02",
+      "frames": 17000,
+      "file_sha256": "5c79b489e3649eaa5d7b210fd591fdfeae6bf539eb39e3c9960f3bc380fb7f12",
+      "canonical_controller_sha256": "a2f770052e65bddebfd581fa981cc3f13ba1cd96d5a8cecf82405005acbd2b30",
+      "compared_input_canonical_controller_sha256": "a2f770052e65bddebfd581fa981cc3f13ba1cd96d5a8cecf82405005acbd2b30",
+      "reference_reference": {
+        "session": "sessions/rev02-content-final-display.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 17000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-final-display.tje.json",
+      "revision": "rev00",
+      "frames": 17000,
+      "file_sha256": "17af4a6a28e9fc0a55942e4de86f909e9bd9c2e206cd867bd2373d01e675d148",
+      "canonical_controller_sha256": "c8659961840e8a43634ea49758410b2d781b1d95fb962f92e1c345847ab25d2e",
+      "compared_input_canonical_controller_sha256": "c8659961840e8a43634ea49758410b2d781b1d95fb962f92e1c345847ab25d2e",
+      "reference_reference": {
+        "session": "sessions/rev00-content-final-display.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 17000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-map-restoration.tje.json",
+      "revision": "rev02",
+      "frames": 75304,
+      "file_sha256": "6a89d6349f57fa5d85eb3a2db1f330f87ce064aeb25aa981feacb987f88329e6",
+      "canonical_controller_sha256": "13d8bfd0cdfd9d746279f7a0ff72db48184969333e8e9bbc49151129abd229f4",
+      "compared_input_canonical_controller_sha256": "13d8bfd0cdfd9d746279f7a0ff72db48184969333e8e9bbc49151129abd229f4",
+      "reference_reference": {
+        "session": "../rev02-split-menus.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 75304,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-final-two.tje.json",
+      "revision": "rev02",
+      "frames": 11365,
+      "file_sha256": "21e9fe53d157a37432100d4dc976dd16fbc226ba7bb54ea5e4c97d25832f6f67",
+      "canonical_controller_sha256": "598b148587ee79748acaeb5e603c7bce9a5955932f971eb34841ff3e11e30b41",
+      "compared_input_canonical_controller_sha256": "598b148587ee79748acaeb5e603c7bce9a5955932f971eb34841ff3e11e30b41",
+      "reference_reference": {
+        "session": "sessions/rev02-content-final-two.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 11365,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-final-two.tje.json",
+      "revision": "rev00",
+      "frames": 11498,
+      "file_sha256": "6fe5ac34ca9b886d4819b8ede23051fbd22f4c53815ef509ae65a81081546a1b",
+      "canonical_controller_sha256": "6cae092969df057ca23258446d9543031aa34884b3944f3428da0e8dfd93be3f",
+      "compared_input_canonical_controller_sha256": "6cae092969df057ca23258446d9543031aa34884b3944f3428da0e8dfd93be3f",
+      "reference_reference": {
+        "session": "sessions/rev00-content-final-two.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 11498,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-rank-eight.tje.json",
+      "revision": "rev02",
+      "frames": 268000,
+      "file_sha256": "afc9906c2426d1e35310cf545fb727bc44866feaa0146b313494caf80e25d602",
+      "canonical_controller_sha256": "b0cf8eef238d59935efd4d1e14af1ee20cce03088c6a4c414f1369a94a2b9b85",
+      "compared_input_canonical_controller_sha256": "b0cf8eef238d59935efd4d1e14af1ee20cce03088c6a4c414f1369a94a2b9b85",
+      "reference_reference": {
+        "session": "sessions/rev02-content-rank-eight.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 268000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-rank-eight.tje.json",
+      "revision": "rev00",
+      "frames": 187000,
+      "file_sha256": "205917a99edca08733275cf23c0d88ce36529ecfc578877afc9f4d383e395515",
+      "canonical_controller_sha256": "2d66cfa0ca6f0393b7e7c337fa4802888f48328b77fa167000fa6fa7bd9021e0",
+      "compared_input_canonical_controller_sha256": "2d66cfa0ca6f0393b7e7c337fa4802888f48328b77fa167000fa6fa7bd9021e0",
+      "reference_reference": {
+        "session": "sessions/rev00-content-rank-eight.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 187000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-friendly-damage.tje.json",
+      "revision": "rev00",
+      "frames": 27963,
+      "file_sha256": "d583b4363242abc6b6dac31444245d5fd499285735c23ec226e1a64bda4b69bd",
+      "canonical_controller_sha256": "915e8a81cf35bd94174ade430d7500794c4975ce4a277cf772fac35d0fb9b8b0",
+      "compared_input_canonical_controller_sha256": "915e8a81cf35bd94174ade430d7500794c4975ce4a277cf772fac35d0fb9b8b0",
+      "reference_reference": {
+        "session": "sessions/rev00-content-friendly-damage.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 27963,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-projectile-combat.tje.json",
+      "revision": "rev02",
+      "frames": 140500,
+      "file_sha256": "f02069279f5220b54a035f89028b8a5c54687f73475e3903e8143dbee9efdcf6",
+      "canonical_controller_sha256": "f04881d6f2d0beb6e3a3bbb3c5d7c38578341027a1b36a53e178951ef9c68f82",
+      "compared_input_canonical_controller_sha256": "f04881d6f2d0beb6e3a3bbb3c5d7c38578341027a1b36a53e178951ef9c68f82",
+      "reference_reference": {
+        "session": "sessions/rev02-content-projectile-combat.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 140500,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-map-restoration.tje.json",
+      "revision": "rev00",
+      "frames": 31304,
+      "file_sha256": "e882a93c94add28a7ce19c6cd445e0c49df8f48ccd68ad35184dace4dd980cc1",
+      "canonical_controller_sha256": "d41dd47e47e4c7d811566a1c7859c2ba49ce048473c4d95d7ad13c6521992305",
+      "compared_input_canonical_controller_sha256": "d41dd47e47e4c7d811566a1c7859c2ba49ce048473c4d95d7ad13c6521992305",
+      "reference_reference": {
+        "session": "sessions/rev00-content-map-restoration.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 31304,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-cupid-bounce.tje.json",
+      "revision": "rev00",
+      "frames": 32000,
+      "file_sha256": "7f5cc150a7e8b5f11953f7aede52776869eeb54f3c209de40663d7410e4bdafd",
+      "canonical_controller_sha256": "20e5bb7ca70f3f78265fa16109a0a76c37953f4ff08348e52545ad3d9f27c495",
+      "compared_input_canonical_controller_sha256": "20e5bb7ca70f3f78265fa16109a0a76c37953f4ff08348e52545ad3d9f27c495",
+      "reference_reference": {
+        "session": "sessions/rev00-content-cupid-bounce.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 32000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-full-inventory.tje.json",
+      "revision": "rev02",
+      "frames": 67000,
+      "file_sha256": "ca0ce03f2bc7eeae23403a0eb247da4803c8e89a590eff1abe5571f9e3a06cc2",
+      "canonical_controller_sha256": "b6608446fafac16e4cbcdc26debaedeb2abcca76c22a350ec1b0e4a6c57a6920",
+      "compared_input_canonical_controller_sha256": "b6608446fafac16e4cbcdc26debaedeb2abcca76c22a350ec1b0e4a6c57a6920",
+      "reference_reference": {
+        "session": "sessions/rev02-content-full-inventory.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 67000,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    }
+  ]
+}

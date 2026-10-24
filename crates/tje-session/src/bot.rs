@@ -31,6 +31,7 @@ pub enum Scenario {
     SecretEndingTwo,
     ContentOne,
     ContentTwo,
+    ContentStockpile,
 }
 
 impl Scenario {
@@ -78,8 +79,13 @@ impl Planner {
             menu_active: true,
             navigators: matches!(scenario, Scenario::OnePlayer | Scenario::TwoPlayer)
                 .then(|| std::array::from_fn(|_| Navigator::new())),
-            content_bot: matches!(scenario, Scenario::ContentOne | Scenario::ContentTwo)
-                .then(|| ContentBot::new(scenario.players())),
+            content_bot: match scenario {
+                Scenario::ContentOne | Scenario::ContentTwo => {
+                    Some(ContentBot::new(scenario.players()))
+                }
+                Scenario::ContentStockpile => Some(ContentBot::stockpile(scenario.players())),
+                _ => None,
+            },
             adventure: match scenario {
                 Scenario::Campaign | Scenario::CampaignTwo => {
                     Some(Adventure::new(Objective::Campaign))
@@ -535,6 +541,9 @@ pub fn generate(
         Scenario::SecretEnding | Scenario::SecretEndingTwo => {
             "original hidden pause sequence clears nine assignments; not a ten-piece campaign"
         }
+        Scenario::ContentStockpile => {
+            "Fixed World stockpiling for the real full-inventory reaction"
+        }
         _ => "Fixed World gameplay",
     };
     let mut session = Session::new(
@@ -661,5 +670,27 @@ mod tests {
         assert_eq!(planner.scenario.players(), 2);
         assert!(planner.adventure.is_some());
         assert_eq!(Scenario::SecretEnding.players(), 1);
+    }
+
+    #[test]
+    fn stockpile_is_a_distinct_single_player_content_policy() {
+        for (scenario, players) in [
+            (Scenario::ContentOne, 1),
+            (Scenario::ContentTwo, 2),
+            (Scenario::ContentStockpile, 1),
+        ] {
+            let planner = Planner::new(scenario);
+            assert_eq!(planner.scenario.players(), players);
+            assert!(planner.content_bot.is_some());
+            assert!(planner.adventure.is_none());
+            assert!(planner.navigators.is_none());
+        }
+        assert_eq!(
+            Scenario::ContentStockpile
+                .to_possible_value()
+                .unwrap()
+                .get_name(),
+            "content-stockpile"
+        );
     }
 }

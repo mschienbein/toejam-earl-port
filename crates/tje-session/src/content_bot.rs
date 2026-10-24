@@ -7,6 +7,8 @@ use tje_host::session_trace::FrameObservations;
 use tje_mem::{Revision, ram};
 use tje_session::{A, B, C, DOWN, LEFT, RIGHT, UP};
 
+const EARTHLING_CUPID: i8 = 7;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Goal {
     Item {
@@ -36,6 +38,9 @@ enum Goal {
     Path {
         point: (i16, i16),
     },
+    FinalContact {
+        point: (i16, i16),
+    },
     Doorway,
 }
 
@@ -58,7 +63,14 @@ pub struct ContentBot {
     doorway_used: [bool; 2],
     service_contacts: [Option<(Goal, (i16, i16))>; 2],
     previous_health: [i8; 2],
+    whirlwind_contact: bool,
+    cupid_bounced: bool,
+    full_inventory_reaction: bool,
+    nice_earthling_checked: bool,
+    map_restored: bool,
+    rose_abilities: u8,
     initial_life_setup: Option<bool>,
+    stockpiling: bool,
     scene: &'static str,
     scene_player: usize,
     scene_since: u64,
@@ -86,12 +98,25 @@ impl ContentBot {
             doorway_used: [false; 2],
             service_contacts: [None; 2],
             previous_health: [i8::MAX; 2],
+            whirlwind_contact: false,
+            cupid_bounced: false,
+            full_inventory_reaction: false,
+            nice_earthling_checked: false,
+            map_restored: false,
+            rose_abilities: 0,
             initial_life_setup: None,
+            stockpiling: false,
             scene: "game",
             scene_player: 0,
             scene_since: 0,
             last_status: 0,
         }
+    }
+
+    pub fn stockpile(players: usize) -> Self {
+        let mut bot = Self::new(players);
+        bot.stockpiling = true;
+        bot
     }
 
     pub fn observe(&mut self, observations: &FrameObservations, revision: Revision) {
@@ -108,6 +133,17 @@ impl ContentBot {
                     self.scene_player = (event.stack_slots[0] as u16 as usize).min(1);
                 }
                 "PlayEndingSequence" => self.scene = "ending",
+                "EntityUpdateTerrainDrawFlag" => self.whirlwind_contact = true,
+                "EarthlingUpdateBouncingDamageState" => self.cupid_bounced = true,
+                "NiceEarthlingCheck" => self.nice_earthling_checked = true,
+                "InventoryRedrawSynchronously" => self.map_restored = true,
+                "PresentCreateActiveTerrainEffect" => self.rose_abilities |= 1,
+                "PresentRetireTerrainEffect" => self.rose_abilities |= 2,
+                "PresentCreateTemporaryTerrainEffect" => self.rose_abilities |= 4,
+                "HasSpeakerSpeech" => {
+                    self.full_inventory_reaction = true;
+                    self.goals = [None; 2];
+                }
                 "ProcessInput" | "MapEnterFinalLevel" => self.scene = "game",
                 "PlayerTeleportThroughDoorway" => {
                     let player = event.stack_slots[0] as u16 as usize;
@@ -140,7 +176,12 @@ impl ContentBot {
     ) {
         if self.scene != "game" {
             if frame > self.scene_since + 120 && frame % 48 < 12 {
-                pads[self.scene_player] |= if self.scene == "map" { C } else { A };
+                pads[self.scene_player] |=
+                    if self.scene == "map" && (self.players != 2 || self.map_restored) {
+                        C
+                    } else {
+                        A
+                    };
             }
             return;
         }
@@ -193,7 +234,7 @@ impl ContentBot {
                 }
             }
             if mode != 0 {
-                self.inventory_input(memory, revision, content, player, frame, pad);
+                self.inventory_input(memory, rom, revision, content, player, frame, pad);
                 continue;
             }
             if matches!(view.sprite_state().read(memory), 5 | 6) {
@@ -268,6 +309,9 @@ impl ContentBot {
                 self.goals[player] = None;
             }
             self.previous_health[player] = health;
+            if health >= 12 && self.exercise_roses(memory, rom, revision, player, frame, pad) {
+                continue;
+            }
             if let Some(goal) = self.goals[player]
                 && self.goal_done(memory, revision, content, player, goal)
             {
@@ -345,6 +389,24 @@ impl ContentBot {
                         let kind = earthling.kind().read(memory);
                         let x = earthling.x().read(memory);
                         let y = earthling.y().read(memory);
+                        if matches!(kind, 10 | 11 | 17)
+                            && !self.nice_earthling_checked
+                            && service_done(content, kind)
+                            && matches!(
+                                ram::g_player_powerups(revision)
+                                    .at(player as i32)
+                                    .read(memory),
+                                3 | 4
+                            )
+                        {
+                            if (position.1 - y).abs() < 8 && (position.0 - x).abs() < 56 {
+                                *pad |= A | if position.0 < x { RIGHT } else { LEFT };
+                            } else {
+                                let target = (x + if position.0 < x { -40 } else { 40 }, y);
+                                self.travel(memory, rom, revision, player, target, frame, pad);
+                            }
+                            continue;
+                        }
                         if kind == 23 {
                             let unit = tje_mem::rom_data_units(revision)
                                 .iter()
@@ -379,11 +441,47 @@ impl ContentBot {
                                 (x, y + 16)
                             };
                         }
-                        if matches!(kind, 9..=11 | 17) {
-                            let limits = (if kind == 9 { 30 } else { 35 }, 15);
+                        if matches!(kind, EARTHLING_CUPID | 8..=11 | 17) {
+                            let limits = if kind == EARTHLING_CUPID {
+                                (24, 8)
+                            } else if kind == 8 {
+                                let definition = tje_mem::rom::earthling_definitions(revision)
+                                    .at(i32::from(kind));
+                                (
+                                    i16::from(
+                                        rom[definition.contact_distance_x().address() as usize],
+                                    ),
+                                    i16::from(
+                                        rom[definition.contact_distance_y().address() as usize],
+                                    ),
+                                )
+                            } else {
+                                (if kind == 9 { 30 } else { 35 }, 15)
+                            };
                             if (position.0 - x).abs() < limits.0
                                 && (position.1 - y).abs() < limits.1
                             {
+                                if kind == EARTHLING_CUPID {
+                                    *pad |= A;
+                                    if ram::g_player_powerups(revision)
+                                        .at(player as i32)
+                                        .read(memory)
+                                        == 1
+                                        && view.height().read(memory) <= 10
+                                    {
+                                        // A stationary spring-shoe player cannot
+                                        // start a jump. Preserve the real windup.
+                                        let velocity_x = view.velocity_x().read(memory);
+                                        let velocity_y = view.velocity_y().read(memory);
+                                        if velocity_x != 0 {
+                                            *pad |= if velocity_x > 0 { RIGHT } else { LEFT };
+                                        } else if velocity_y != 0 {
+                                            *pad |= if velocity_y > 0 { DOWN } else { UP };
+                                        } else {
+                                            *pad |= if position.0 < x { RIGHT } else { LEFT };
+                                        }
+                                    }
+                                }
                                 continue;
                             }
                             let cached = self.service_contacts[player].filter(|(old, point)| {
@@ -462,6 +560,16 @@ impl ContentBot {
                         } else {
                             self.travel(memory, rom, revision, player, target, frame, pad);
                         }
+                        if kind == EARTHLING_CUPID
+                            && matches!(
+                                ram::g_player_powerups(revision)
+                                    .at(player as i32)
+                                    .read(memory),
+                                0 | 1 | 7
+                            )
+                        {
+                            *pad |= A;
+                        }
                         if kind == 20
                             && *pad & 15 != 0
                             && ram::g_player_powerups(revision)
@@ -492,14 +600,17 @@ impl ContentBot {
                             self.travel(memory, rom, revision, player, target, frame, pad);
                         }
                     }
-                    Goal::Survey { point, .. } | Goal::Path { point } => {
+                    Goal::Survey { point, .. }
+                    | Goal::Path { point }
+                    | Goal::FinalContact { point } => {
                         self.travel(memory, rom, revision, player, point, frame, pad);
                     }
                     Goal::Elevator { bank } => {
                         let elevator = ram::g_elevator_records(revision).at(bank).at(0);
-                        let target = (elevator.x().read(memory), elevator.y().read(memory) + 22);
-                        let dy = position.1 - elevator.y().read(memory);
-                        if (position.0 - target.0).abs() < 8 && (0..40).contains(&dy) {
+                        let (x, y) = (elevator.x().read(memory), elevator.y().read(memory));
+                        let (target, at_door) = elevator_approach(position, (x, y));
+                        let dy = position.1 - y;
+                        if at_door {
                             if elevator.state().read(memory) == 3 {
                                 *pad |= UP;
                             } else if elevator.state().read(memory) <= 1 {
@@ -558,6 +669,30 @@ impl ContentBot {
                 }
             }
         }
+        for (player, pad) in pads.iter_mut().enumerate().take(self.players) {
+            if *pad & 15 == 0
+                || ram::g_player_inventory_open(revision)
+                    .at(player as i32)
+                    .read(memory)
+                    != 0
+                || ram::g_player_elevator_flags(revision)
+                    .at(player as i32)
+                    .read(memory)
+                    != 0
+            {
+                continue;
+            }
+            match ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+            {
+                // Projectiles require a direction together with A; roses need
+                // fresh A edges. Opening either gift alone exercises no ability.
+                3 | 4 if frame % 96 < 12 => *pad |= A,
+                6 if frame % 64 < 12 => *pad |= A,
+                _ => {}
+            }
+        }
         if frame >= self.last_status + 1000 {
             self.last_status = frame;
             let stats: [(i8, i16, i16, i8, i8, i8, i8); 2] = std::array::from_fn(|player| {
@@ -593,8 +728,17 @@ impl ContentBot {
                         .read(memory),
                 )
             });
+            let points: [u16; 2] = std::array::from_fn(|player| {
+                ram::g_player_points(revision)
+                    .at(player as i32)
+                    .read(memory)
+            });
+            let terrain = [
+                ram::g_player1_terrain_underfoot(revision).read(memory),
+                ram::g_player2_terrain_underfoot(revision).read(memory),
+            ];
             eprintln!(
-                "content frame={frame} players={stats:?} resources={resources:?} inventories={inventories:?} goals={:?} presents={} earthlings={}",
+                "content frame={frame} players={stats:?} points={points:?} terrain={terrain:?} resources={resources:?} inventories={inventories:?} goals={:?} presents={} earthlings={}",
                 self.goals,
                 content
                     .presents_opened
@@ -608,6 +752,68 @@ impl ContentBot {
                     .count()
             );
         }
+    }
+
+    fn exercise_roses(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        player: usize,
+        frame: u64,
+        pad: &mut u16,
+    ) -> bool {
+        if self.rose_abilities == 7
+            || ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory)
+                != 6
+        {
+            return false;
+        }
+        let terrain = (if player == 0 {
+            ram::g_player1_terrain_underfoot(revision).read(memory)
+        } else {
+            ram::g_player2_terrain_underfoot(revision).read(memory)
+        }) & 0xf0;
+        if matches!(terrain, 0x10 | 0x50) && self.rose_abilities & 3 != 3
+            || !matches!(terrain, 0x10 | 0x50) && terrain < 0x80 && self.rose_abilities & 4 == 0
+        {
+            if frame % 48 < 12 {
+                *pad |= A;
+            }
+            return true;
+        }
+        if self.rose_abilities & 4 != 0 {
+            return false;
+        }
+        if let Some(Goal::Path { point }) = self.goals[player]
+            && matches!(self.navigation[player].terrain_at(point), 0x20 | 0x30)
+        {
+            self.travel(memory, rom, revision, player, point, frame, pad);
+            return true;
+        }
+        let view = ram::g_player_info(revision).at(player as i32);
+        let position = (view.x().read(memory), view.y().read(memory));
+        let _ = self.navigation[player].steer(memory, rom, revision, player, position, frame);
+        let point = [0x30, 0x20]
+            .into_iter()
+            .filter_map(|terrain| {
+                let desired = self.navigation[player].nearest_terrain(position, terrain)?;
+                self.navigation[player]
+                    .reachable_land_in_range(position, desired, (16, 16))
+                    .filter(|point| {
+                        matches!(self.navigation[player].terrain_at(*point), 0x20 | 0x30)
+                    })
+            })
+            .min_by_key(|point| (position.0 - point.0).abs() + (position.1 - point.1).abs());
+        if let Some(point) = point {
+            self.goals[player] = Some(Goal::Path { point });
+            self.goal_since[player] = frame;
+            self.travel(memory, rom, revision, player, point, frame, pad);
+            return true;
+        }
+        false
     }
 
     fn prepare_life_transfer(
@@ -675,6 +881,9 @@ impl ContentBot {
         content: &Content,
         _frame: u64,
     ) -> bool {
+        if self.stockpiling {
+            return self.full_inventory_reaction;
+        }
         content.presents_opened.values().all(Option::is_some)
             && content.earthlings_encountered.values().all(Option::is_some)
             && content.friendly_interactions.values().all(Option::is_some)
@@ -757,7 +966,8 @@ impl ContentBot {
             self.mobility_needed[player] = false;
             return;
         }
-        self.mobility_needed[player] = true;
+        self.mobility_needed[player] =
+            !self.stockpiling || matches!(self.goals[player], Some(Goal::Elevator { .. }));
         if let Some(goal) = self.goals[player] {
             self.defer(player, goal, frame + 12000);
         }
@@ -787,6 +997,9 @@ impl ContentBot {
     ) -> bool {
         let level = self.levels[player];
         match goal {
+            Goal::FinalContact { .. } => {
+                ram::g_present_display_panel_drawn(revision).read(memory) != 0
+            }
             Goal::Present { kind, drop } => {
                 let inventory = ram::g_player_inventory(revision).at(player as i32);
                 !(0..16).any(|slot| inventory.at(slot).read(memory) == kind)
@@ -812,6 +1025,23 @@ impl ContentBot {
                         && earthling.object().read(memory) != 0
                         && earthling.state().read(memory) > 1)
                     || (service_done(content, earthling.kind().read(memory))
+                        && !(earthling.kind().read(memory) == 8 && !self.whirlwind_contact)
+                        && !(earthling.kind().read(memory) == EARTHLING_CUPID
+                            && !self.cupid_bounced
+                            && matches!(
+                                ram::g_player_powerups(revision)
+                                    .at(player as i32)
+                                    .read(memory),
+                                0 | 1 | 7
+                            ))
+                        && !(matches!(earthling.kind().read(memory), 10 | 11 | 17)
+                            && !self.nice_earthling_checked
+                            && matches!(
+                                ram::g_player_powerups(revision)
+                                    .at(player as i32)
+                                    .read(memory),
+                                3 | 4
+                            ))
                         && !(earthling.kind().read(memory) == 20 && needs_gifts(content))
                         && !(earthling.kind().read(memory) == 10
                             && ram::g_player_health(revision)
@@ -866,17 +1096,71 @@ impl ContentBot {
         player: usize,
     ) -> Option<Goal> {
         let inventory = ram::g_player_inventory(revision).at(player as i32);
+        let terrain = if player == 0 {
+            ram::g_player1_terrain_underfoot(revision).read(memory)
+        } else {
+            ram::g_player2_terrain_underfoot(revision).read(memory)
+        };
+        if (terrain >= 0x80
+            || self.players == 1
+                && self.levels[player] < ram::g_highest_level(revision).read(memory))
+            && (0..16).any(|slot| inventory.at(slot).read(memory) == 23)
+            && (0..16).any(|slot| inventory.at(slot).read(memory) == 12)
+        {
+            // Water forces a shark; togetherness also recovers a lone carrier
+            // who fell below the highest level, without spending the Earthling.
+            return Some(Goal::Present {
+                kind: 12,
+                drop: false,
+            });
+        }
         let health = ram::g_player_health(revision)
             .at(player as i32)
             .read(memory);
+        if self.stockpiling && health >= 12 {
+            if !content.presents_opened.get(&7).is_some_and(Option::is_some) {
+                for kind in [27, 7] {
+                    if (0..16).any(|slot| inventory.at(slot).read(memory) == kind) {
+                        return Some(Goal::Present { kind, drop: false });
+                    }
+                }
+            }
+            let power = ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory);
+            if self.mobility_needed[player] && power != 0 {
+                for kind in [0, 2, 8, 1, 7, 27, 12, 26] {
+                    if kind != power
+                        && !(kind == 27 && power == 7)
+                        && (0..16).any(|slot| inventory.at(slot).read(memory) == kind)
+                    {
+                        return Some(Goal::Present { kind, drop: false });
+                    }
+                }
+            }
+            return None;
+        }
         let rank = ram::g_player_rank(revision).at(player as i32).read(memory);
         let count = (0..16)
             .filter(|&slot| inventory.at(slot).read(memory) >= 0)
             .count();
+        let farming = promotion_stock_ready(memory, revision, player);
+        let gearing = needs_mobility_gift(memory, revision, player);
+        let jumping = !farming && needs_cupid_height(memory, revision, player, self.cupid_bounced);
+        let hoarding = rank == 8 && !self.full_inventory_reaction && health >= 12;
+        let cupid_supply = self.cupid_bounced
+            || matches!(
+                ram::g_player_powerups(revision)
+                    .at(player as i32)
+                    .read(memory),
+                0 | 1
+            )
+            || (0..16).any(|slot| matches!(inventory.at(slot).read(memory), 0 | 1 | 18));
         let collecting = count < 12
             && health >= 12
-            && !self.mobility_needed[player]
-            && (0..16).any(|slot| inventory.at(slot).read(memory) == 18)
+            && ((1..8).contains(&rank)
+                || !self.mobility_needed[player]
+                    && (0..16).any(|slot| inventory.at(slot).read(memory) == 18))
             && (0..2).any(|bank| {
                 (0..28).any(|index| {
                     let item = ram::g_object_table(revision).at(bank).at(index);
@@ -890,7 +1174,26 @@ impl ContentBot {
                 if !(0..28).contains(&kind) {
                     return None;
                 }
-                if collecting && !matches!(kind, 0 | 9..=11 | 14 | 17 | 20..=21 | 23) {
+                if kind == 23 && !cupid_supply {
+                    // Preserve the sole carrier until a real height ability can
+                    // accompany Cupid, or a retained reroller can supply one.
+                    return None;
+                }
+                if hoarding
+                    && !(self.mobility_needed[player] && kind == 0
+                        || gearing && kind == 18
+                        || jumping && matches!(kind, 0 | 1 | 18))
+                {
+                    return None;
+                }
+                if farming && !matches!(kind, 11 | 18) {
+                    return None;
+                }
+                if collecting
+                    && !(farming && kind == 18)
+                    && !(jumping && matches!(kind, 0 | 1 | 18))
+                    && !matches!(kind, 0 | 9..=11 | 14 | 17 | 20..=21 | 23)
+                {
                     return None;
                 }
                 let missing = !content
@@ -899,7 +1202,7 @@ impl ContentBot {
                     .is_some_and(Option::is_some);
                 let score = if health < 12 && matches!(kind, 9 | 10 | 14 | 17) {
                     0
-                } else if kind == 11 && rank < 8 {
+                } else if kind == 11 && rank < 8 || jumping && matches!(kind, 0 | 1 | 18) {
                     1
                 } else if matches!(kind, 20 | 21)
                     || kind == 23
@@ -913,7 +1216,8 @@ impl ContentBot {
                     2
                 } else if missing && kind != 18 {
                     3
-                } else if (kind == 18 && (missing || count >= 5 || health < 12))
+                } else if (kind == 18
+                    && (farming || gearing || missing || count >= 5 || health < 12))
                     || matches!(kind, 7 | 27)
                         && !matches!(
                             ram::g_player_powerups(revision)
@@ -938,7 +1242,7 @@ impl ContentBot {
 
     #[allow(clippy::too_many_arguments)]
     fn select_goal(
-        &self,
+        &mut self,
         memory: &Ram<'_>,
         rom: &[u8],
         revision: Revision,
@@ -947,11 +1251,96 @@ impl ContentBot {
         frame: u64,
     ) -> Option<Goal> {
         let level = self.levels[player];
+        let blocked = &self.blocked;
         let eligible = |goal| {
-            !self.blocked.iter().any(|&(old_level, old_goal, until)| {
+            !blocked.iter().any(|&(old_level, old_goal, until)| {
                 old_level == level && old_goal == goal && until > frame
             })
         };
+        if level == 26 {
+            if ram::g_present_display_panel_drawn(revision).read(memory) != 0 {
+                return None;
+            }
+            let view = ram::g_player_info(revision).at(player as i32);
+            let position = (view.x().read(memory), view.y().read(memory));
+            let _ = self.navigation[player].steer(memory, rom, revision, player, position, frame);
+            let word = |address: u32| {
+                let address = address as usize;
+                i16::from_be_bytes([rom[address], rom[address + 1]])
+            };
+            for index in 0..277 {
+                let placement = tje_mem::rom::funkatron_scene_placements(revision).at(index);
+                if word(placement.interaction().address()) == if player == 0 { 54 } else { 31 } {
+                    let target = (word(placement.x().address()), word(placement.y().address()));
+                    if let Some(point) =
+                        self.navigation[player].reachable_land_in_range(position, target, (30, 20))
+                    {
+                        return Some(Goal::FinalContact { point });
+                    }
+                }
+            }
+            return None;
+        }
+        if !self.stockpiling && !self.whirlwind_contact {
+            for bank in 0..2 {
+                for index in 0..20 {
+                    let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                    let goal = Goal::Earthling { bank, index };
+                    if earthling.kind().read(memory) == 8
+                        && earthling.level().read(memory) == level
+                        && eligible(goal)
+                    {
+                        return Some(goal);
+                    }
+                }
+            }
+        }
+        if !self.stockpiling
+            && !self.cupid_bounced
+            && matches!(
+                ram::g_player_powerups(revision)
+                    .at(player as i32)
+                    .read(memory),
+                0 | 1 | 7
+            )
+        {
+            for bank in 0..2 {
+                for index in 0..20 {
+                    let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                    let goal = Goal::Earthling { bank, index };
+                    if earthling.kind().read(memory) == EARTHLING_CUPID
+                        && earthling.level().read(memory) == level
+                        && eligible(goal)
+                    {
+                        return Some(goal);
+                    }
+                }
+            }
+        }
+        if !self.stockpiling
+            && !self.nice_earthling_checked
+            && matches!(
+                ram::g_player_powerups(revision)
+                    .at(player as i32)
+                    .read(memory),
+                3 | 4
+            )
+        {
+            for bank in 0..2 {
+                for index in 0..20 {
+                    let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                    let kind = earthling.kind().read(memory);
+                    let goal = Goal::Earthling { bank, index };
+                    if matches!(kind, 10 | 11 | 17)
+                        && service_done(content, kind)
+                        && earthling.level().read(memory) == level
+                        && eligible(goal)
+                    {
+                        return Some(goal);
+                    }
+                }
+            }
+        }
         if level == 0 {
             for kind in [23, 24] {
                 if service_done(content, kind) {
@@ -1032,8 +1421,11 @@ impl ContentBot {
                 }
             }
         }
-        if let Some(goal @ Goal::Present { kind: 11 | 23, .. }) =
-            self.present_goal(memory, revision, content, player)
+        if let Some(
+            goal @ Goal::Present {
+                kind: 1 | 11 | 23, ..
+            },
+        ) = self.present_goal(memory, revision, content, player)
             && eligible(goal)
         {
             return Some(goal);
@@ -1113,6 +1505,7 @@ impl ContentBot {
                 let kind = earthling.kind().read(memory);
                 if !(0..25).contains(&kind)
                     || earthling.level().read(memory) != level
+                    || self.stockpiling && !matches!(kind, 9..=10 | 20 | 23..=24)
                     || (service_done(content, kind)
                         && !(kind == 20 && needs_gifts(content))
                         && !(kind == 10 && health < 18 && bucks > 0))
@@ -1154,7 +1547,19 @@ impl ContentBot {
                     continue;
                 }
                 let kind = item.kind().read(memory);
-                let priority = item_priority(kind, health, bucks, count, rom, revision, content);
+                if self.stockpiling && count >= 15 && kind == 80 && health >= 18 {
+                    continue;
+                }
+                let priority = item_priority(
+                    kind,
+                    health,
+                    bucks,
+                    count,
+                    rom,
+                    revision,
+                    content,
+                    !self.full_inventory_reaction,
+                );
                 if let Some(priority) = priority {
                     offer(
                         priority,
@@ -1179,6 +1584,7 @@ impl ContentBot {
                     rom,
                     revision,
                     content,
+                    !self.full_inventory_reaction,
                 )
             {
                 offer(
@@ -1233,7 +1639,8 @@ impl ContentBot {
         // Discovery points are awarded only for actually entering an uncovered
         // 320x256 region. These goals earn the remaining ranks by walking the
         // generated world, not by setting points or opening the map screen.
-        if (2..26).contains(&level)
+        if !self.stockpiling
+            && (2..26).contains(&level)
             && ram::g_player_rank(revision).at(player as i32).read(memory) < 8
         {
             let mut survey = None;
@@ -1247,20 +1654,13 @@ impl ContentBot {
                         continue;
                     }
                     let center = (72 + column * 320 + 160, 8 + row * 256 + 128);
-                    let mut point = None;
-                    for dy in (-112..=112_i16).step_by(16) {
-                        for dx in (-144..=144_i16).step_by(16) {
-                            let candidate = (center.0 + dx, center.1 + dy);
-                            let distance = (i32::from(position.0) - i32::from(candidate.0)).abs()
-                                + (i32::from(position.1) - i32::from(candidate.1)).abs();
-                            if self.navigation[player].terrain_at(candidate) <= 0x50
-                                && point.is_none_or(|(old, _)| distance < old)
-                            {
-                                point = Some((distance, candidate));
-                            }
-                        }
-                    }
-                    if let Some((distance, point)) = point {
+                    if let Some(point) = self.navigation[player].reachable_land_in_range(
+                        position,
+                        center,
+                        (160, 128),
+                    ) {
+                        let distance = (i32::from(position.0) - i32::from(point.0)).abs()
+                            + (i32::from(position.1) - i32::from(point.1)).abs();
                         let goal = Goal::Survey { column, row, point };
                         if eligible(goal) && survey.is_none_or(|(old, _)| distance < old) {
                             survey = Some((distance, goal));
@@ -1281,9 +1681,74 @@ impl ContentBot {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn earthling_present_ready(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        content: &Content,
+        player: usize,
+        frame: u64,
+    ) -> bool {
+        let view = ram::g_player_info(revision).at(player as i32);
+        if view.level().read(memory) == 0 || ram::g_split_screen_enabled(revision).read(memory) != 0
+        {
+            return true;
+        }
+        let wanted = (!self.cupid_bounced)
+            .then_some(EARTHLING_CUPID as u8)
+            .or_else(|| {
+                [15, 17, 12, 13, 19, 21, 22].into_iter().find(|&kind| {
+                    !content
+                        .earthlings_encountered
+                        .get(&kind)
+                        .is_some_and(Option::is_some)
+                })
+            });
+        let Some(wanted) = wanted else {
+            return true;
+        };
+        let position = (view.x().read(memory), view.y().read(memory));
+        let _ = self.navigation[player].steer(memory, rom, revision, player, position, frame);
+        let underfoot = if player == 0 {
+            ram::g_player1_terrain_underfoot(revision).read(memory)
+        } else {
+            ram::g_player2_terrain_underfoot(revision).read(memory)
+        };
+        let mut state = ram::g_rng_state(revision).read(memory);
+        let mut terrain = underfoot;
+        // OpenEarthlingPresent samples up to four real +/-40,+/-25 positions.
+        // Forced water/edge definitions cannot be changed just by timing.
+        for _ in 0..4 {
+            let x = position.0
+                + if next_random(&mut state) & 1 != 0 {
+                    40
+                } else {
+                    -40
+                };
+            let y = position.1
+                + if next_random(&mut state) & 1 != 0 {
+                    25
+                } else {
+                    -25
+                };
+            terrain = self.navigation[player].terrain_at((x, y));
+            if (underfoot == 0x80) == (terrain == 0x80) {
+                break;
+            }
+        }
+        if matches!(terrain, 0x50 | 0x80 | 0x90) {
+            return true;
+        }
+        next_random(&mut state) % 22 + 1 == u16::from(wanted)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn inventory_input(
         &mut self,
         memory: &Ram<'_>,
+        rom: &[u8],
         revision: Revision,
         content: &Content,
         player: usize,
@@ -1381,6 +1846,22 @@ impl ContentBot {
                 != drop
         {
             C
+        } else if mode == 1
+            && !drop
+            && inventory.at(slot).read(memory) == 18
+            && !randomizer_ready(memory, rom, revision, content, player, self.cupid_bounced)
+        {
+            // Menus preserve the live RNG. Close this real menu to let ordinary
+            // gameplay advance it, then try another genuine opening timing.
+            self.close_inventory[player] = true;
+            B
+        } else if mode == 1
+            && !drop
+            && inventory.at(slot).read(memory) == 23
+            && !self.earthling_present_ready(memory, rom, revision, content, player, frame)
+        {
+            self.close_inventory[player] = true;
+            B
         } else {
             self.inventory_actions[player] += 1;
             self.close_inventory[player] = true;
@@ -1391,6 +1872,192 @@ impl ContentBot {
         };
         self.press(player, frame, button, pad);
     }
+}
+
+fn elevator_approach(position: (i16, i16), elevator: (i16, i16)) -> ((i16, i16), bool) {
+    let (x, y) = elevator;
+    let flank = x + if position.0 < x { -32 } else { 32 };
+    let dx = (position.0 - x).abs();
+    let target = if position.1 <= y && dx < 24 {
+        (flank, y - 8)
+    } else if position.1 < y + 18 && dx >= 24 {
+        (flank, y + 22)
+    } else {
+        (x, y + 22)
+    };
+    let at_door = target.0 == x && dx < 8 && (0..40).contains(&(position.1 - y));
+    (target, at_door)
+}
+
+fn needs_mobility_gift(memory: &Ram<'_>, revision: Revision, player: usize) -> bool {
+    ram::g_player_rank(revision).at(player as i32).read(memory) == 8
+        && !matches!(
+            ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory),
+            0 | 2
+        )
+        && !(0..16).any(|slot| {
+            matches!(
+                ram::g_player_inventory(revision)
+                    .at(player as i32)
+                    .at(slot)
+                    .read(memory),
+                0 | 2
+            )
+        })
+}
+
+fn promotion_stock_ready(memory: &Ram<'_>, revision: Revision, player: usize) -> bool {
+    let rank = ram::g_player_rank(revision).at(player as i32).read(memory);
+    if !(0..8).contains(&rank)
+        || ram::g_player_health(revision)
+            .at(player as i32)
+            .read(memory)
+            < 12
+    {
+        return false;
+    }
+    let inventory = ram::g_player_inventory(revision).at(player as i32);
+    let mutable = (0..16)
+        .filter(|&slot| matches!(inventory.at(slot).read(memory), 0..=26))
+        .count();
+    // The last promotion needs no further randomizer; earlier ranks do.
+    let required = if rank == 7 { 1 } else { 9 - rank };
+    mutable >= required as usize && (0..16).any(|slot| inventory.at(slot).read(memory) == 18)
+}
+
+fn needs_cupid_height(memory: &Ram<'_>, revision: Revision, player: usize, bounced: bool) -> bool {
+    if bounced
+        || matches!(
+            ram::g_player_powerups(revision)
+                .at(player as i32)
+                .read(memory),
+            0 | 1
+        )
+    {
+        return false;
+    }
+    let level = ram::g_player_info(revision)
+        .at(player as i32)
+        .level()
+        .read(memory);
+    (0..2).any(|bank| {
+        ram::g_earthling_bank_users(revision).at(bank).read(memory) > 0
+            && (0..20).any(|index| {
+                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                earthling.kind().read(memory) == EARTHLING_CUPID
+                    && earthling.level().read(memory) == level
+            })
+    })
+}
+
+fn randomizer_ready(
+    memory: &Ram<'_>,
+    rom: &[u8],
+    revision: Revision,
+    content: &Content,
+    player: usize,
+    cupid_bounced: bool,
+) -> bool {
+    if ram::g_split_screen_enabled(revision).read(memory) != 0 {
+        return true;
+    }
+    let bucks = ram::g_player_bucks(revision).at(player as i32).read(memory);
+    let level = ram::g_player_info(revision)
+        .at(player as i32)
+        .level()
+        .read(memory);
+    let needs_singer_cash = bucks < 3
+        && !service_done(content, 17)
+        && (0..2).any(|bank| {
+            (0..20).any(|index| {
+                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                earthling.kind().read(memory) == 17
+                    && earthling.level().read(memory) == level
+                    && earthling.object().read(memory) > 0
+            })
+        });
+    let farming = promotion_stock_ready(memory, revision, player);
+    let gearing = needs_mobility_gift(memory, revision, player);
+    let jumping = !farming && needs_cupid_height(memory, revision, player, cupid_bounced);
+    if !farming && !gearing && !jumping && !needs_singer_cash {
+        return true;
+    }
+    let inventory = predict_randomizer(memory, rom, revision);
+    if needs_singer_cash {
+        let cash: i16 = inventory[player]
+            .iter()
+            .map(|kind| match kind {
+                20 => 1,
+                21 => 5,
+                _ => 0,
+            })
+            .sum();
+        return i16::from(bucks) + cash >= 3;
+    }
+    if jumping {
+        return inventory[player].contains(&0) || inventory[player].contains(&1);
+    }
+    if gearing {
+        return inventory[player].contains(&0) || inventory[player].contains(&2);
+    }
+    inventory[player].contains(&11)
+        && (ram::g_player_rank(revision).at(player as i32).read(memory) == 7
+            || inventory[player].contains(&18))
+}
+
+fn next_random(state: &mut i32) -> u16 {
+    // GetRandomNumber: Schrage's Park-Miller step, on a private scalar only.
+    let next = (*state % 127773)
+        .wrapping_mul(16807)
+        .wrapping_sub((*state / 127773).wrapping_mul(2836));
+    *state = if next > 0 {
+        next
+    } else {
+        next.wrapping_add(2147483647)
+    };
+    *state as u16
+}
+
+fn predict_randomizer(memory: &Ram<'_>, rom: &[u8], revision: Revision) -> [[i8; 16]; 2] {
+    let mut inventory = std::array::from_fn(|player| {
+        std::array::from_fn(|slot| {
+            ram::g_player_inventory(revision)
+                .at(player as i32)
+                .at(slot as i32)
+                .read(memory)
+        })
+    });
+    let mut state = ram::g_rng_state(revision).read(memory);
+    let address = tje_mem::rom::present_weight_table(revision).address() as usize;
+    let weights = &rom[address..address + 27];
+    let total: u32 = weights.iter().map(|&weight| u32::from(weight)).sum();
+    // SetupPresentIdentities makes 26 draws. RandomizePresents then runs sixty
+    // rounds; redraws and cached UI randoms do not advance gRNGState. All weights
+    // remain runtime cartridge data, never embedded in the recording or planner.
+    for _ in 0..26 {
+        next_random(&mut state);
+    }
+    for _ in 0..60 {
+        for player in &mut inventory {
+            for kind in player.iter_mut().filter(|kind| matches!(kind, 0..=26)) {
+                let mut selected = 0;
+                while selected == 0 {
+                    selected = u32::from(next_random(&mut state)) % (total + 1);
+                }
+                let mut cumulative = 0;
+                for (index, &weight) in weights.iter().enumerate() {
+                    cumulative += u32::from(weight);
+                    if selected <= cumulative {
+                        *kind = index as i8;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    inventory
 }
 
 fn seen(map: &std::collections::BTreeMap<String, Option<u64>>, name: &str) -> bool {
@@ -1436,9 +2103,13 @@ fn item_priority(
     rom: &[u8],
     revision: Revision,
     content: &Content,
+    full_reaction_needed: bool,
 ) -> Option<i32> {
     if kind < 0 {
         return None;
+    }
+    if full_reaction_needed && kind < 28 {
+        return Some(if count == 16 { 0 } else { 1 });
     }
     if (64..80).contains(&kind) && health < 18 {
         let unit = tje_mem::rom_data_units(revision)
@@ -1479,6 +2150,32 @@ mod tests {
 
     fn byte(memory: &mut [u8], address: u32, value: i8) {
         memory[(address & 0xFFFF) as usize] = value as u8;
+    }
+
+    #[test]
+    fn an_elevator_flank_is_not_the_doorway() {
+        let elevator = (1392, 768);
+        for side in [-1, 1] {
+            let flank = elevator.0 + side * 32;
+            assert_eq!(
+                elevator_approach((elevator.0 + side * 16, 756), elevator),
+                ((flank, 760), false)
+            );
+            for y in [760, 779, 785] {
+                assert_eq!(
+                    elevator_approach((flank, y), elevator),
+                    ((flank, 790), false)
+                );
+            }
+            assert_eq!(
+                elevator_approach((flank, 790), elevator),
+                ((1392, 790), false)
+            );
+        }
+        assert_eq!(
+            elevator_approach((1392, 784), elevator),
+            ((1392, 790), true)
+        );
     }
 
     #[test]
@@ -1876,12 +2573,348 @@ mod tests {
     }
 
     #[test]
+    fn togetherness_recovers_a_stranded_earthling_carrier_before_opening_it() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 23);
+            byte(&mut memory, inventory.at(1).address(), 12);
+            byte(&mut memory, ram::g_highest_level(revision).address(), 2);
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 1;
+            let content = Content::new();
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 12,
+                    drop: false,
+                })
+            );
+            bot.levels[0] = 2;
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 23,
+                    drop: false,
+                })
+            );
+            byte(
+                &mut memory,
+                ram::g_player1_terrain_underfoot(revision).address(),
+                -128,
+            );
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 12,
+                    drop: false,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn promotion_farming_collects_reroll_stock_before_consuming_unknown_gifts() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 3);
+            byte(&mut memory, inventory.at(1).address(), 18);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                27,
+            );
+            byte(&mut memory, ram::g_player_rank(revision).at(0).address(), 1);
+            let item = ram::g_object_table(revision).at(0).at(0);
+            byte(&mut memory, item.kind().address(), 4);
+            byte(&mut memory, item.level().address(), 2);
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 2;
+            let content = Content::new();
+            assert_eq!(bot.present_goal(&Ram(&memory), revision, &content, 0), None);
+            byte(&mut memory, inventory.at(2).address(), 11);
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 11,
+                    drop: false,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn promotion_stock_reserves_one_randomizer_and_one_gift_per_remaining_rank() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            byte(&mut memory, inventory.at(0).address(), 18);
+            for slot in 1..5 {
+                byte(&mut memory, inventory.at(slot).address(), 1);
+            }
+            byte(&mut memory, inventory.at(5).address(), 27);
+            byte(&mut memory, ram::g_player_rank(revision).at(0).address(), 3);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                19,
+            );
+            assert!(!promotion_stock_ready(&Ram(&memory), revision, 0));
+            byte(&mut memory, inventory.at(6).address(), 1);
+            assert!(promotion_stock_ready(&Ram(&memory), revision, 0));
+            let bot = ContentBot::new(1);
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &Content::new(), 0),
+                Some(Goal::Present {
+                    kind: 18,
+                    drop: false,
+                })
+            );
+            byte(&mut memory, inventory.at(6).address(), -1);
+            byte(&mut memory, ram::g_player_rank(revision).at(0).address(), 4);
+            assert!(promotion_stock_ready(&Ram(&memory), revision, 0));
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                11,
+            );
+            assert!(!promotion_stock_ready(&Ram(&memory), revision, 0));
+        }
+    }
+
+    #[test]
+    fn randomizer_prediction_preserves_slot_occupancy_and_never_changes_live_state() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            for player in 0..2 {
+                let inventory = ram::g_player_inventory(revision).at(player);
+                for slot in 0..16 {
+                    byte(&mut memory, inventory.at(slot).address(), -1);
+                }
+                byte(&mut memory, inventory.at(0).address(), 27);
+                byte(&mut memory, inventory.at(1).address(), 18);
+                byte(&mut memory, inventory.at(2).address(), 1);
+            }
+            byte(&mut memory, ram::g_rng_state(revision).address() + 3, 1);
+            let address = tje_mem::rom::present_weight_table(revision).address() as usize;
+            let mut rom = vec![0; address + 27];
+            // Synthetic single-outcome weights, not cartridge resource bytes.
+            rom[address + 21] = 1;
+            let predicted = predict_randomizer(&Ram(&memory), &rom, revision);
+            for (player, items) in predicted.iter().enumerate() {
+                assert_eq!(&items[..3], &[27, 21, 21]);
+                assert!(items[3..].iter().all(|&kind| kind == -1));
+                assert_eq!(
+                    ram::g_player_inventory(revision)
+                        .at(player as i32)
+                        .at(1)
+                        .read(&Ram(&memory)),
+                    18
+                );
+            }
+            assert_eq!(ram::g_rng_state(revision).read(&Ram(&memory)), 1);
+        }
+        let mut state = 1;
+        assert_eq!(next_random(&mut state), 16807);
+        assert_eq!(state, 16807);
+        assert_eq!(next_random(&mut state), 15089);
+        assert_eq!(state, 282475249);
+    }
+
+    #[test]
+    fn seeing_a_whirlwind_does_not_replace_its_actual_capture_goal() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let earthling = ram::g_earthling_banks(revision).at(0).at(0);
+            byte(&mut memory, earthling.kind().address(), 8);
+            byte(&mut memory, earthling.level().address(), 7);
+            let mut content = Content::new();
+            content.earthlings_encountered.insert(8, Some(1));
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 7;
+            let goal = Goal::Earthling { bank: 0, index: 0 };
+            assert!(!bot.goal_done(&Ram(&memory), revision, &content, 0, goal));
+            assert_eq!(
+                bot.select_goal(&Ram(&memory), &[], revision, &content, 0, 100),
+                Some(goal)
+            );
+            bot.whirlwind_contact = true;
+            assert!(bot.goal_done(&Ram(&memory), revision, &content, 0, goal));
+        }
+    }
+
+    #[test]
+    fn final_contact_completes_only_when_the_original_panel_flag_is_set() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let bot = ContentBot::new(1);
+            let goal = Goal::FinalContact { point: (0, 0) };
+            assert!(!bot.goal_done(&Ram(&memory), revision, &Content::new(), 0, goal));
+            byte(
+                &mut memory,
+                ram::g_present_display_panel_drawn(revision).address(),
+                1,
+            );
+            assert!(bot.goal_done(&Ram(&memory), revision, &Content::new(), 0, goal));
+        }
+    }
+
+    #[test]
+    fn final_promotion_does_not_require_another_randomizer() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            for player in 0..2 {
+                for slot in 0..16 {
+                    byte(
+                        &mut memory,
+                        ram::g_player_inventory(revision)
+                            .at(player)
+                            .at(slot)
+                            .address(),
+                        -1,
+                    );
+                }
+            }
+            byte(
+                &mut memory,
+                ram::g_player_inventory(revision).at(0).at(0).address(),
+                18,
+            );
+            byte(&mut memory, ram::g_player_rank(revision).at(0).address(), 7);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                19,
+            );
+            byte(&mut memory, ram::g_rng_state(revision).address() + 3, 1);
+            let address = tje_mem::rom::present_weight_table(revision).address() as usize;
+            let mut rom = vec![0; address + 27];
+            rom[address + 11] = 1;
+            assert!(promotion_stock_ready(&Ram(&memory), revision, 0));
+            assert!(randomizer_ready(
+                &Ram(&memory),
+                &rom,
+                revision,
+                &Content::new(),
+                0,
+                false
+            ));
+        }
+    }
+
+    #[test]
+    fn an_unwitnessed_full_inventory_pickup_remains_a_real_goal() {
+        let content = Content::new();
+        assert_eq!(
+            item_priority(3, 31, 4, 16, &[], Revision::Rev02, &content, true),
+            Some(0)
+        );
+        assert_eq!(
+            item_priority(3, 31, 4, 16, &[], Revision::Rev02, &content, false),
+            None
+        );
+        assert_eq!(
+            item_priority(-1, 31, 4, 16, &[], Revision::Rev02, &content, true),
+            None
+        );
+    }
+
+    #[test]
+    fn stockpile_capture_keeps_real_gifts_and_waits_for_the_original_full_pickup() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                byte(&mut memory, inventory.at(slot).address(), -1);
+            }
+            for slot in 0..4 {
+                byte(&mut memory, inventory.at(slot).address(), 27);
+            }
+            byte(&mut memory, inventory.at(4).address(), 3);
+            byte(
+                &mut memory,
+                ram::g_player_health(revision).at(0).address(),
+                23,
+            );
+            byte(
+                &mut memory,
+                ram::g_player_powerups(revision).at(0).address(),
+                -1,
+            );
+            let mut bot = ContentBot::stockpile(1);
+            let mut content = Content::new();
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 27,
+                    drop: false
+                })
+            );
+            content.presents_opened.insert(7, Some(1));
+            content.presents_opened.insert(27, Some(1));
+            assert_eq!(bot.present_goal(&Ram(&memory), revision, &content, 0), None);
+            assert!(!bot.complete(&Ram(&memory), revision, &content, 100));
+            byte(&mut memory, inventory.at(5).address(), 0);
+            bot.mobility_needed[0] = true;
+            assert_eq!(
+                bot.present_goal(&Ram(&memory), revision, &content, 0),
+                Some(Goal::Present {
+                    kind: 0,
+                    drop: false
+                })
+            );
+            bot.full_inventory_reaction = true;
+            assert!(bot.complete(&Ram(&memory), revision, &content, 101));
+        }
+    }
+
+    #[test]
+    fn cupid_knockdown_tracks_definition_seven_not_the_hamster() {
+        assert_eq!(EARTHLING_CUPID, 7);
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut memory = vec![0; 65536];
+            let earthling = ram::g_earthling_banks(revision).at(0).at(0);
+            byte(&mut memory, earthling.kind().address(), EARTHLING_CUPID);
+            byte(&mut memory, earthling.level().address(), 3);
+            byte(
+                &mut memory,
+                ram::g_player_powerups(revision).at(0).address(),
+                1,
+            );
+            let mut bot = ContentBot::new(1);
+            bot.levels[0] = 3;
+            let mut content = Content::new();
+            content.earthlings_encountered.insert(7, Some(1));
+            content.earthlings_encountered.insert(2, Some(1));
+            let goal = Goal::Earthling { bank: 0, index: 0 };
+            assert!(!bot.goal_done(&Ram(&memory), revision, &content, 0, goal));
+            assert_eq!(
+                bot.select_goal(&Ram(&memory), &[], revision, &content, 0, 100),
+                Some(goal)
+            );
+            byte(&mut memory, earthling.kind().address(), 2);
+            assert!(bot.goal_done(&Ram(&memory), revision, &content, 0, goal));
+        }
+    }
+
+    #[test]
     fn blocking_map_acknowledges_its_requesting_controller() {
         for revision in [Revision::Rev02, Revision::Rev00] {
             let mut bot = ContentBot::new(2);
             bot.scene = "map";
             bot.scene_player = 1;
             bot.scene_since = 1;
+            bot.map_restored = true;
             let mut pads = [tje_session::CONNECTED; 2];
             bot.choose(
                 &Ram(&[0; 65536]),

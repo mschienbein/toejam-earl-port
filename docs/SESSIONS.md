@@ -290,6 +290,14 @@ between both pads and collect repeated real gifts to supply missing presents,
 promotions and spawnable Earthlings. These policies do not themselves certify
 unobserved ranks or interactions; only the actual replay evidence does.
 
+`content-stockpile` is a distinct single-player capture policy: it collects real
+gifts through ordinary controller inputs instead of routinely unboxing them,
+retaining the genuine inventory until the original full-inventory pickup check
+is observed. That observed reaction, not a fabricated slot count, completes the
+capture. It never synthesizes inventory or restores a snapshot, and does not
+change the default `content-one` or `content-two` policies. Generated recordings
+still require the same independent replay evidence as every other session.
+
 ```sh
 "$SESSION_TOOL" bot --rom roms/rev02.bin --scenario content-one --frames 40000 \
   --out sessions/rev02-content-one.tje.json --report scratch/rev02-content-one.json
@@ -447,3 +455,44 @@ calls `ElevatorAdvanceRidersToNextLevel`, which increments rider levels; arrival
 processing only opens, closes and retires the arrival record. Coverage therefore
 distinguishes departure, arrival and real falls to lower levels, rather than
 inventing a downward elevator mode absent from the original.
+
+## Latest content and rank checkpoint
+
+This measured **73-recording / 2,776,462-video-frame** content checkpoint
+supersedes the historical 29-session coverage summary above. It combines
+50 inherited recordings (1,493,422 frames) with 23 new input-only recordings
+(1,283,040 frames); private bot experiments are not included.
+
+The 23 new recordings have independent power-on **reference/reference** comparisons
+at every video frame: **1,283,040 compared frames**, no skipped lag ticks, and
+`divergence: null` in every receipt. The
+[public proof index](../sessions/content-reference-proofs.json) preserves each
+actual compared session path and its receipt. Matching canonical controller
+SHA-256 values bind renamed public files to the exact compared revision,
+power-on start, frame count and RLE inputs; descriptions and tool notes are not
+controller inputs.
+
+| Reference entry coverage | Observed | Still zero |
+| --- | ---: | ---: |
+| REV 00 | 634 / 648 | 14 |
+| REV 02 | 634 / 648 | 14 |
+| Both revisions combined | 636 / 648 | 12 |
+
+In each revision the aggregate replay checklist now observes all **28 present
+storage identities**, all **25 Earthling kinds**, all **11 tracked friendly
+interactions**, and every rank **0 through 8**. Actual ship-piece pickup coverage
+remains **2 / 10 per revision** in this content corpus. Aggregate content and rank
+witnesses are not a single-game natural campaign.
+
+The four `rev00-content-final-display`, `rev02-content-final-display`,
+`rev00-content-final-two` and `rev02-content-final-two` continuations retain their
+explicitly disclosed original pause-secret ending prefixes. They are input-only,
+but are **not natural ten-piece evidence**. The other nineteen new content/rank
+recordings use normal play.
+
+These are observed reference executable-entry/content counts, not a claim that
+the remaining entries are unreachable. Reference/reference determinism is a
+separate evidence requirement and does not establish translated/native
+equivalence. This checkpoint does **not** certify a natural all-ten-pieces
+campaign, or a settled whole-corpus check-mode release gate.
+
