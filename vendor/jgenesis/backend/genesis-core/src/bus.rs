@@ -180,6 +180,55 @@ pub struct HybridExceptionBoundary {
     pub boundary: m68000_emu::ExceptionBoundary,
 }
 
+/// Actual hardware DMA activation at its dispatch-time exception scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct HybridDmaStart {
+    pub origin: crate::native::Origin,
+    pub pc: u32,
+    pub master_clock: u64,
+    pub address: u32,
+    pub value: u16,
+    pub entry_exception_depth: u32,
+    pub exception_depth: u32,
+}
+
+/// Opt-in owned observations for one speculative root, never IRQ authority.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct HybridDmaCapture {
+    pub entry_exception_depth: u32,
+    pub current_exception_depth: u32,
+    pub starts: Vec<HybridDmaStart>,
+    pub boundaries: Vec<HybridExceptionBoundary>,
+    pub invalid_depth_sequence: bool,
+    pub missing_dispatch_context: bool,
+    pub active_dma_port_write_seen: bool,
+    pub deferred_dma_port_write_seen: bool,
+}
+
+impl HybridDmaCapture {
+    fn observe_boundary(&mut self, master_clock: u64, boundary: m68000_emu::ExceptionBoundary) {
+        let depth = match boundary {
+            m68000_emu::ExceptionBoundary::Entered { vector: _, handler: _, depth } => {
+                if self.current_exception_depth.checked_add(1) != Some(depth) {
+                    self.invalid_depth_sequence = true;
+                }
+                depth
+            }
+            m68000_emu::ExceptionBoundary::Returned { depth } => {
+                if depth.checked_add(1) != Some(self.current_exception_depth) {
+                    self.invalid_depth_sequence = true;
+                }
+                depth
+            }
+        };
+        if depth < self.entry_exception_depth {
+            self.invalid_depth_sequence = true;
+        }
+        self.current_exception_depth = depth;
+        self.boundaries.push(HybridExceptionBoundary { master_clock, boundary });
+    }
+}
+
 /// Passive queue/stall checkpoint; no MMIO read or pending-write flush.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HybridBusCheckpoint {
@@ -237,6 +286,8 @@ pub struct GenesisBus {
     /// TJE hybrid: opt-in complete DMA source stream for reviewed zero-count
     /// proofs. Normal checks retain only RAM-source audit events.
     pub hybrid_dma_all_sources: bool,
+    /// TJE strict proof only: default None, owned dispatch/boundary observations.
+    hybrid_dma_capture: Option<HybridDmaCapture>,
     // TJE hybrid: opt-in untimed transaction semantics, enabled only on check forks.
     hybrid_functional: bool,
     pub hybrid_functional_violation: Option<u32>,
@@ -271,6 +322,7 @@ impl GenesisBus {
             hybrid_cpu_accesses,
             hybrid_exception_boundaries,
             hybrid_dma_all_sources,
+            hybrid_dma_capture,
             hybrid_functional,
             hybrid_functional_violation,
         } = self;
@@ -300,6 +352,7 @@ impl GenesisBus {
                 hybrid_cpu_accesses,
                 hybrid_exception_boundaries,
                 hybrid_dma_all_sources,
+                hybrid_dma_capture,
                 hybrid_functional,
                 hybrid_functional_violation,
             ),
@@ -332,6 +385,7 @@ impl GenesisBus {
             hybrid_cpu_accesses: _,
             hybrid_exception_boundaries: _,
             hybrid_dma_all_sources: _,
+            hybrid_dma_capture: _,
             hybrid_functional: _,
             hybrid_functional_violation: _,
         } = self;
@@ -408,6 +462,7 @@ impl GenesisBus {
             hybrid_cpu_accesses: None,
             hybrid_exception_boundaries: None,
             hybrid_dma_all_sources: false,
+            hybrid_dma_capture: None,
             hybrid_functional: false,
             hybrid_functional_violation: None,
             m68k_reset: true,
@@ -417,6 +472,69 @@ impl GenesisBus {
     pub fn enable_native_write_trace(&mut self) {
         self.timing_survey.get_or_insert_with(crate::timing_survey::TimingSurvey::default);
         self.native_writes.get_or_insert_with(Vec::new);
+    }
+
+    /// Arm only on a speculative fork with the actual CPU's entry depth.
+    pub fn hybrid_arm_dma_capture(&mut self, actual_entry_depth: u32) {
+        self.hybrid_dma_capture = Some(HybridDmaCapture {
+            entry_exception_depth: actual_entry_depth,
+            current_exception_depth: actual_entry_depth,
+            starts: Vec::new(),
+            boundaries: Vec::new(),
+            invalid_depth_sequence: false,
+            missing_dispatch_context: false,
+            active_dma_port_write_seen: false,
+            deferred_dma_port_write_seen: false,
+        });
+    }
+
+    pub fn hybrid_dma_capture(&self) -> Option<&HybridDmaCapture> {
+        self.hybrid_dma_capture.as_ref()
+    }
+
+    fn record_hybrid_dma_start(&mut self, address: u32, value: u16) {
+        let Some(capture) = &mut self.hybrid_dma_capture else { return };
+        let Some(survey) = &self.timing_survey else {
+            capture.missing_dispatch_context = true;
+            return;
+        };
+        let (origin, master_clock) = match survey.cpu {
+            crate::timing_survey::TimingCpu::M68k => {
+                (crate::native::Origin::Main, self.cycles.m68k_mclk_cycles)
+            }
+            crate::timing_survey::TimingCpu::Z80 => {
+                (crate::native::Origin::Z80, self.cycles.z80_mclk_cycles)
+            }
+        };
+        capture.starts.push(HybridDmaStart {
+            origin,
+            pc: survey.pc,
+            master_clock,
+            address,
+            value,
+            entry_exception_depth: capture.entry_exception_depth,
+            exception_depth: capture.current_exception_depth,
+        });
+    }
+
+    fn observe_active_dma_port_write(&mut self) -> Option<usize> {
+        let capture = self.hybrid_dma_capture.as_mut()?;
+        if self.vdp.timing_dma_active() {
+            capture.active_dma_port_write_seen = true;
+        }
+        Some(self.vdp.hybrid_checkpoint().pending_dma_port_writes)
+    }
+
+    fn observe_deferred_dma_port_write(&mut self, before: Option<usize>) {
+        if let Some(before) = before {
+            let after = self.vdp.hybrid_checkpoint().pending_dma_port_writes;
+            if after > before {
+                self.hybrid_dma_capture
+                    .as_mut()
+                    .expect("active capture")
+                    .deferred_dma_port_write_seen = true;
+            }
+        }
     }
 
     fn record_native_write(&mut self, write: crate::native::DeviceWrite) {
@@ -878,7 +996,9 @@ impl GenesisBus {
                     port: 0,
                     value: vdp_word,
                 });
+                let pending_before = self.observe_active_dma_port_write();
                 self.vdp.write_data(vdp_word);
+                self.observe_deferred_dma_port_write(pending_before);
             }
             0x04..=0x07 => {
                 if let Some(trace) = &mut self.hybrid_writes {
@@ -889,7 +1009,9 @@ impl GenesisBus {
                     value: vdp_word,
                 });
                 let was_dma = self.vdp.timing_dma_active();
+                let pending_before = self.observe_active_dma_port_write();
                 self.vdp.write_control(vdp_word);
+                self.observe_deferred_dma_port_write(pending_before);
                 if !was_dma && self.vdp.timing_dma_active() {
                     self.timing_access(
                         crate::timing_survey::TimingKind::DmaStart,
@@ -897,6 +1019,7 @@ impl GenesisBus {
                         address,
                         vdp_word,
                     );
+                    self.record_hybrid_dma_start(address, vdp_word);
                 }
             }
             0x10..=0x17 if WORD || address.bit(0) => {
@@ -1077,6 +1200,9 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn observe_exception_boundary(&mut self, boundary: m68000_emu::ExceptionBoundary) {
+        if let Some(capture) = &mut self.hybrid_dma_capture {
+            capture.observe_boundary(self.cycles.m68k_mclk_cycles, boundary);
+        }
         if let (Some(accesses), Some(boundaries)) =
             (&mut self.hybrid_cpu_accesses, &mut self.hybrid_exception_boundaries)
         {
@@ -1355,6 +1481,7 @@ mod hybrid_control_tests {
             ("hybrid_cpu", |b| b.hybrid_cpu_accesses = Some(Vec::new())),
             ("boundaries", |b| b.hybrid_exception_boundaries = Some(Vec::new())),
             ("all_dma", |b| b.hybrid_dma_all_sources = true),
+            ("dma_capture", |b| b.hybrid_arm_dma_capture(0)),
             ("functional", |b| b.hybrid_functional = true),
             ("violation", |b| b.hybrid_functional_violation = Some(7)),
         ];
@@ -1376,5 +1503,117 @@ mod hybrid_control_tests {
         bus.vdp.write_control(0x4000);
         assert_eq!(baseline, control(&bus));
         assert_ne!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod dma_capture_tests {
+    use super::*;
+    use m68000_emu::BusInterface;
+
+    fn bus() -> GenesisBus {
+        GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default())
+    }
+
+    fn prepare(bus: &mut GenesisBus, depth: u32) {
+        bus.enable_native_write_trace();
+        bus.timing_survey.as_mut().unwrap().pc = 0x100;
+        bus.hybrid_arm_dma_capture(depth);
+    }
+
+    fn start(bus: &mut GenesisBus) {
+        for value in [0x8114, 0x9301, 0x9400, 0x9500, 0x9600, 0x977f, 0x4000, 0x0080] {
+            bus.write_word(0xc00004, value);
+            bus.apply_pending_writes();
+        }
+    }
+
+    #[test]
+    fn unarmed_success_markers_allocate_nothing_and_change_no_bus_state() {
+        let mut bus = bus();
+        let before = bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap();
+        bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Entered {
+            vector: 30,
+            handler: 0x300,
+            depth: 1,
+        });
+        bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned { depth: 0 });
+        assert!(bus.hybrid_dma_capture().is_none());
+        assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
+    }
+
+    #[test]
+    fn actual_dispatch_records_relative_root_depth_without_index_logger() {
+        let mut bus = bus();
+        prepare(&mut bus, 1);
+        assert!(bus.hybrid_cpu_accesses.is_none());
+        assert!(bus.hybrid_exception_boundaries.is_none());
+        start(&mut bus);
+        let capture = bus.hybrid_dma_capture().unwrap();
+        assert_eq!(capture.starts.len(), 1);
+        assert_eq!(capture.starts[0].entry_exception_depth, 1);
+        assert_eq!(capture.starts[0].exception_depth, 1);
+        assert_eq!(capture.starts[0].pc, 0x100);
+        assert_eq!(capture.starts[0].origin, crate::native::Origin::Main);
+        assert!(!capture.invalid_depth_sequence);
+    }
+
+    #[test]
+    fn successful_return_updates_scope_before_later_same_clock_device_dispatch() {
+        let mut bus = bus();
+        prepare(&mut bus, 0);
+        bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Entered {
+            vector: 28,
+            handler: 0x300,
+            depth: 1,
+        });
+        bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned { depth: 0 });
+        start(&mut bus);
+        let capture = bus.hybrid_dma_capture().unwrap();
+        assert_eq!(capture.boundaries.len(), 2);
+        assert_eq!(capture.starts[0].exception_depth, 0);
+        assert_eq!(capture.starts[0].master_clock, capture.boundaries[1].master_clock);
+        assert!(!capture.invalid_depth_sequence);
+    }
+
+    #[test]
+    fn out_of_order_or_missing_scope_context_is_latched_unknown_not_guessed() {
+        let mut bus = bus();
+        prepare(&mut bus, 0);
+        bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned { depth: 0 });
+        start(&mut bus);
+        assert!(bus.hybrid_dma_capture().unwrap().invalid_depth_sequence);
+        let mut missing = self::bus();
+        missing.hybrid_arm_dma_capture(0);
+        start(&mut missing);
+        let capture = missing.hybrid_dma_capture().unwrap();
+        assert!(capture.missing_dispatch_context);
+        assert!(capture.starts.is_empty());
+    }
+
+    #[test]
+    fn byte_and_word_active_dma_port_writes_cannot_hide_internal_chaining() {
+        let mut word = bus();
+        prepare(&mut word, 0);
+        start(&mut word);
+        word.write_word(0xc00004, 0xc000);
+        word.apply_pending_writes();
+        let capture = word.hybrid_dma_capture().unwrap();
+        assert!(capture.active_dma_port_write_seen);
+        assert!(capture.deferred_dma_port_write_seen);
+
+        let mut byte = bus();
+        prepare(&mut byte, 0);
+        start(&mut byte);
+        byte.write_byte(0xc00000, 7);
+        byte.apply_pending_writes();
+        assert!(byte.hybrid_dma_capture().unwrap().deferred_dma_port_write_seen);
+
+        let mut z80 = bus();
+        prepare(&mut z80, 0);
+        start(&mut z80);
+        z80.timing_survey.as_mut().unwrap().cpu = crate::timing_survey::TimingCpu::Z80;
+        z80_emu::BusInterface::write_memory(&mut z80, 0x7f00, 7);
+        assert!(z80.hybrid_dma_capture().unwrap().deferred_dma_port_write_seen);
     }
 }

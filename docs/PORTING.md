@@ -1019,6 +1019,7 @@ composition unless the entire observed historical producer state is preserved
 or entry state is supplied by the exact cycle engine. No narrower immediate-frame
 claim, automatic production activation or global memory exception follows.
 
+
 The ROM-free tests retain CR-01's omitted-store rejection in both revision
 configurations and Functional/TimeAware classes, and prove that the zero-only
 marker refuses its nonzero consumer. They also reject source/value/order/origin,
@@ -1027,6 +1028,85 @@ no-CPU-residual/feedback controls. The ignored `zero_dma_sources` integration su
 replays both production roots against an independent reference for 10,000 frames
 in each revision, keeps the authors' ordinary fixtures, then proves the marked
 zero case and rejects a nonzero attempt with no backfilled coverage.
+
+### Separate ClockedStrict zero-count platform policy
+
+`ClockedStrictWorkRamDma` is a distinct platform-only source policy, selected by
+`host.enable_clocked_strict_zero_dma(DependentProofConfig::default())` in Check
+mode after natural and ordinary coverage, before the mandatory zero fixture.
+It does not broaden the frozen descriptor above. Original classification stays
+Functional and original callee permissions are unchanged; admission requires
+exactly `CheckForkRoute::ClockedStrict`, not a generic time-progressing/strict
+predicate and not the commuting envelope. Activation, source-plan resolution and
+every attempt/probe recheck eligibility before normalization, fork execution or
+seed effects; both actual forks must remain unnormalized and non-retimed.
+
+Clocked source diagnostics use `check_clocked_fixture(address, arguments)`,
+returning the actual typed entry outcome. This requires Check mode, a settled
+boundary, exactly ClockedStrict and an RTS contract. It validates the saved live
+caller PC is even, inside the actual raw immutable ROM and has its real prefetch;
+RAM, mirrored/unmapped targets and the legacy sentinel reject before any seed.
+Only the provided MCC argument slots and that real return PC are injected inside
+the existing discarded SPEC fixture trajectory. Missing formal arguments are
+not padded. Both actual check forks run, with no third original replay or fake
+scratch-D0 result. Full live machine and persistent completion authority restore
+on every result; speculative watch observations can reject but never clear LIVE
+debt. This is an injected RTS fixture from a recorded live boundary, not natural
+JSR coverage. The old sentinel-based `check_fixture`/Frozen path is unchanged.
+
+The closed root requires a zero encoded count, a work-RAM source and no unowned
+pending DMA/port writes. An owned hardware DMA-start record captures actual
+dispatch origin, PC, clock, address/value and exception depth at that point.
+Successful entry/RTE markers update that depth before peripheral advancement;
+missing/out-of-order scope evidence rejects. Root means actual dispatch depth
+equals real entry depth, even when the caller already is an ISR. A matching
+PC/value at another time never establishes scope. Any active-DMA port write or
+new deferred DMA DATA/CONTROL queue insertion latches rejection, even after the
+queue drains, so internal replay/chaining cannot hide a start. Additional
+external starts or source beats reject; none are silently partitioned away.
+Every one of the 65,536 actual words retains raw/canonical address, origin,
+width, purpose, value and order under the same timed VDP data plane.
+
+Every genuine semantic CPU residual read still rejects, including IRQ reads and
+padding. Root-thread device feedback reads reject; any accepted child-IRQ device
+read must be bound to the actual relative entry/return envelope and actual CPU
+IRQ-acknowledge/read stream. All values, purposes and timing remain exact,
+including discarded/prefetch reads: no readiness stutter, undefined-bit mask,
+absolute-is-ISR shortcut or guessed PC range applies. A blocked mandatory case
+remains pending with its actual site; semantic reads are not relabelled.
+
+Main separately approved **16 seeded plus four collective fills** for this
+strict policy, under these stronger conditions. Each coupled pair retains the
+existing complete physical ClockedStrict comparator, full SR/CCR and RAM
+write/value footprint. Each original probe must also preserve baseline CPU,
+IRQ, raw CPU issues, every-origin RAM/HostMutation chronology, timed chip
+dispatch, non-VDP Z80/audio/input/clock state and the borrowed control views.
+Physical RAM outside the **exact actually assigned input domain** must match.
+One typed topology record retains each actual DMA word's raw address in that
+control chronology, without compression across any boundary and without a data
+field. Actual values remain in the complete raw journal, never invented reads.
+
+The VDP control view is deliberately a conservative superset: full FIFO stale
+words and InternalState data latches remain included. If a data-only case
+changes that view, it rejects for review rather than normalizing or silently
+widening the projection. Actual original DMA-consumption values **and real VRAM
+bytes** must change to establish sensitivity. Changed incoming RAM, FIFO metadata
+or diagnostic fields alone are not sensitivity.
+
+The strict dependency domain must remain exactly stable. Growth or shrink is an
+unsupported source-shape rejection, never a restart which could discard an
+observed CPU/IRQ/HostMutation counterexample or reuse earlier sensitivity.
+Attempt-work counters remain distinct from final qualified probe/sensitivity
+counters; the latter advance only after the complete stable-domain call passes.
+
+Receipts are labelled **finite probe evidence, not a formal proof**. Bounded
+`clocked_strict` evidence is separate from the legacy frozen counters, so old
+approval is never backfilled. Frame mode remains 16 + 4N; frozen admission,
+probes and evidence remain unchanged. Whole historical RAM producers remain an
+explicit consumer-only qualification. An ordinary source-host reference IRQ
+profile is not native ISR/producer composition approval, and this policy does
+not promote any game body by itself.
+
 
 ## 7. Exceptions, terminal entries and persistent control flow
 

@@ -5,8 +5,11 @@
 //! perturbations; neither a LocalFrame nor an address list alone is approval.
 
 pub(crate) mod journal;
+mod strict_zero_dma;
 mod zero_dma;
 pub use journal::DependentRead;
+pub(crate) use strict_zero_dma::ControlLog;
+pub use strict_zero_dma::StrictDmaEvidence;
 pub use zero_dma::{DmaSourceSummary, ZeroDmaRoot};
 
 use crate::{
@@ -82,6 +85,12 @@ pub enum DependentSource {
     ZeroEncodedWorkRamDma {
         frame: FrameLayout,
         root: ZeroDmaRoot,
+        producer_cohort: &'static str,
+    },
+    /// Separately reviewed real-clock platform data plane. Neither the legacy
+    /// frozen contract nor a commuting envelope can acquire this policy.
+    ClockedStrictWorkRamDma {
+        frame: FrameLayout,
         producer_cohort: &'static str,
     },
 }
@@ -163,7 +172,63 @@ impl ProofSetting {
         matches!(
             self.contract.source,
             DependentSource::ZeroEncodedWorkRamDma { .. }
+                | DependentSource::ClockedStrictWorkRamDma { .. }
         )
+    }
+
+    pub(crate) fn is_clocked_strict(self) -> bool {
+        matches!(
+            self.contract.source,
+            DependentSource::ClockedStrictWorkRamDma { .. }
+        )
+    }
+
+    pub(crate) fn requires_frozen(self) -> bool {
+        matches!(
+            self.contract.source,
+            DependentSource::ZeroEncodedWorkRamDma { .. }
+        )
+    }
+
+    pub(crate) fn validate_route(self, hook: &Hook) -> Result<()> {
+        if self.is_clocked_strict() {
+            strict_zero_dma::validate_hook(hook)
+        } else if self.requires_frozen()
+            && hook.check_route() != crate::CheckForkRoute::FrozenFunctional
+        {
+            Err(HostError::Metadata(
+                "zero-count DMA proof requires its reviewed ClassDefined frozen Functional fork"
+                    .into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn validate_actual_strict(self, machine: &GenesisEmulator) -> Result<()> {
+        if self.is_clocked_strict() {
+            strict_zero_dma::validate_actual(machine)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_dma_pair(
+        self,
+        plan: zero_dma::ZeroDmaPlan,
+        original: &GenesisEmulator,
+        translated: &GenesisEmulator,
+        original_run: &CheckRun,
+        translated_run: &CheckRun,
+        bytes: &BTreeSet<u32>,
+    ) -> std::result::Result<(), String> {
+        plan.compare(&original_run.audit, &translated_run.audit, bytes)?;
+        if self.is_clocked_strict() {
+            strict_zero_dma::validate_pair(original, translated, original_run, translated_run)
+        } else {
+            plan.reject_feedback(original, &original_run.audit)?;
+            plan.reject_feedback(translated, &translated_run.audit)
+        }
     }
 }
 
@@ -242,6 +307,9 @@ pub struct DependentEvidence {
     pub dependent_bytes: BTreeSet<u32>,
     /// Small frame-source trace only. Full DMA values remain in the internal journal.
     pub last_read_trace: Vec<DependentRead>,
+    /// Distinct policy counters; frozen successes never backfill strict proof.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clocked_strict: Option<StrictDmaEvidence>,
 }
 impl DependentEvidence {
     fn merge(&mut self, other: Self) {
@@ -410,6 +478,9 @@ impl Host {
             DependentSource::ZeroEncodedWorkRamDma { root, .. } => {
                 root.resolve(self, hook).map(Some)
             }
+            DependentSource::ClockedStrictWorkRamDma { .. } => {
+                strict_zero_dma::resolve(self, hook).map(Some)
+            }
         }
     }
 
@@ -428,6 +499,9 @@ impl Host {
             ..DependentEvidence::default()
         };
         let mut sites = BTreeSet::new();
+        let mut strict_progress = setting
+            .is_clocked_strict()
+            .then(strict_zero_dma::ProbeProgress::default);
         let result = self.prove_dependent(
             &mut Baselines {
                 original,
@@ -439,6 +513,7 @@ impl Host {
             &mut evidence,
             &mut sites,
             dma_plan,
+            strict_progress.as_mut(),
         );
         if result.is_err() {
             evidence.calls_rejected += 1;
@@ -455,11 +530,19 @@ impl Host {
                 address: site.address,
             });
         }
-        self.checks
+        let destination = self
+            .checks
             .dependent_equivalence
             .entry(hook.symbol.name.to_owned())
-            .or_default()
-            .merge(evidence);
+            .or_default();
+        if let Some(progress) = strict_progress {
+            destination
+                .clocked_strict
+                .get_or_insert_with(Default::default)
+                .merge(evidence, progress);
+        } else {
+            destination.merge(evidence);
+        }
         result
     }
 
@@ -470,11 +553,18 @@ impl Host {
         evidence: &mut DependentEvidence,
         sites: &mut BTreeSet<crate::abi::UninitializedStackRead>,
         dma_plan: Option<zero_dma::ZeroDmaPlan>,
+        mut strict_progress: Option<&mut strict_zero_dma::ProbeProgress>,
     ) -> std::result::Result<u64, String> {
         let setting = hook.dependent_proof.expect("marked hook");
         setting
             .config
             .validate()
+            .map_err(|error| error.to_string())?;
+        setting
+            .validate_route(hook)
+            .map_err(|error| error.to_string())?;
+        setting
+            .validate_actual_strict(&self.emulator)
             .map_err(|error| error.to_string())?;
         let entry = exits::EntryState::capture(&self.context(), hook.exit_contract)
             .map_err(|error| error.to_string())?;
@@ -498,11 +588,12 @@ impl Host {
             .collect();
         if let Some(plan) = dma_plan {
             evidence.last_dma_dependent_byte_count = bytes.len();
-            plan.reject_feedback(baseline.original, &baseline.original_run.audit)?;
-            plan.reject_feedback(baseline.translated, &baseline.translated_run.audit)?;
-            plan.compare(
-                &baseline.original_run.audit,
-                &baseline.translated_run.audit,
+            setting.validate_dma_pair(
+                plan,
+                baseline.original,
+                baseline.translated,
+                baseline.original_run,
+                baseline.translated_run,
                 &bytes,
             )?;
             evidence.last_dma_source = Some(plan.summary());
@@ -581,6 +672,12 @@ impl Host {
                     }
                     Probe::DmaFill(value) => ClockRunPurpose::DependentDmaFill { value },
                 };
+                setting
+                    .validate_route(hook)
+                    .map_err(|error| error.to_string())?;
+                setting
+                    .validate_actual_strict(&self.emulator)
+                    .map_err(|error| error.to_string())?;
                 let mut rust = self.fork();
                 perturb(&mut rust, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
@@ -597,6 +694,12 @@ impl Host {
                 let boundary =
                     exits::reference_boundary(hook, rust_run.outcome, entry, self.revision)
                         .map_err(|error| error.to_string())?;
+                setting
+                    .validate_route(hook)
+                    .map_err(|error| error.to_string())?;
+                setting
+                    .validate_actual_strict(&self.emulator)
+                    .map_err(|error| error.to_string())?;
                 let mut original = self.fork();
                 perturb(&mut original, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
@@ -621,14 +724,22 @@ impl Host {
                     Probe::DmaFill(_) => evidence.collective_dma_probes_completed += 1,
                 }
                 if let Some(plan) = dma_plan {
-                    plan.reject_feedback(&original, &original_run.audit)?;
-                    plan.reject_feedback(&rust, &rust_run.audit)?;
-                    plan.compare(&original_run.audit, &rust_run.audit, &bytes)?;
+                    setting.validate_dma_pair(
+                        plan,
+                        &original,
+                        &rust,
+                        &original_run,
+                        &rust_run,
+                        &bytes,
+                    )?;
                 }
                 let a =
                     DerivedReads::derive_with_sites(&original_run.audit, sp, dma_plan.is_none());
                 let b = DerivedReads::derive_with_sites(&rust_run.audit, sp, dma_plan.is_none());
                 sites.extend(a.sites.iter().chain(&b.sites).copied());
+                if setting.is_clocked_strict() {
+                    strict_zero_dma::require_stable_domain(&bytes, &a.bytes, &b.bytes)?;
+                }
                 let previous = bytes.len();
                 bytes.extend(a.bytes.iter().chain(&b.bytes));
                 if bytes.len() != previous {
@@ -648,23 +759,46 @@ impl Host {
                     entry_ram,
                     sp,
                 )?;
-                evidence.probe_pairs_matched += 1;
-                // Use actual original D0/registers/SR/RAM/writes. Original
-                // CheckRun.outcome is the Rust-declared boundary, not a result.
-                if compare_outputs(
-                    baseline.original,
-                    &mut original,
-                    baseline.original_run,
-                    &original_run,
-                    hook,
-                    entry_ram,
-                    sp,
-                )
-                .is_err()
-                {
-                    sensitive = true;
-                    evidence.sensitive_probe_pairs += 1;
+                if let Some(progress) = strict_progress.as_deref_mut() {
+                    strict_zero_dma::compare_original_control(
+                        baseline.original,
+                        &original,
+                        baseline.original_run,
+                        &original_run,
+                        &bytes,
+                        progress,
+                    )?;
+                    progress.control_checks += 1;
+                    let (source, vram) = strict_zero_dma::sensitivity(
+                        baseline.original,
+                        &original,
+                        &baseline.original_run.audit,
+                        &original_run.audit,
+                    );
+                    progress.source_sensitive += u64::from(source);
+                    progress.vram_sensitive += u64::from(vram);
+                    if source && vram {
+                        sensitive = true;
+                        evidence.sensitive_probe_pairs += 1;
+                    }
+                } else {
+                    // Legacy policies retain their original output-sensitivity test.
+                    if compare_outputs(
+                        baseline.original,
+                        &mut original,
+                        baseline.original_run,
+                        &original_run,
+                        hook,
+                        entry_ram,
+                        sp,
+                    )
+                    .is_err()
+                    {
+                        sensitive = true;
+                        evidence.sensitive_probe_pairs += 1;
+                    }
                 }
+                evidence.probe_pairs_matched += 1;
             }
             if grew {
                 continue;

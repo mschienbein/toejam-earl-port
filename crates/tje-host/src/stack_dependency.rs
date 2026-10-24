@@ -61,23 +61,17 @@ impl Host {
         let mut clock = self.wait_clock.clone();
         let entry_frame = clock.frame;
         let dependent = hook.dependent_proof.is_some();
+        let route = hook.check_route();
+        if let Some(setting) = hook.dependent_proof {
+            setting.validate_route(hook)?;
+            setting.validate_actual_strict(fork)?;
+        }
         let provenance_side = match side {
             CheckSide::Original { .. } => crate::future_frame_watch::Side::Original,
             CheckSide::Rust => crate::future_frame_watch::Side::Rust,
         };
         // Even the reference fork is speculative; purpose is not authority.
         let provenance = self.future_frame_branch(provenance_side, origin);
-        let route = hook.check_route();
-        if hook
-            .dependent_proof
-            .is_some_and(|setting| setting.captures_all_dma())
-            && route != crate::CheckForkRoute::FrozenFunctional
-        {
-            return Err(HostError::Metadata(
-                "zero-count DMA proof requires its reviewed ClassDefined frozen Functional fork"
-                    .into(),
-            ));
-        }
         let capture_enabled = self.checks.actual_capture_enabled;
         let mut completed_capture = None;
         let mut receipt = None;
@@ -126,6 +120,12 @@ impl Host {
                 )));
             }
             let mut audit = stack.empty_run();
+            if hook
+                .dependent_proof
+                .is_some_and(|setting| setting.is_clocked_strict())
+            {
+                audit.strict_control = Some(Default::default());
+            }
             let saved_trace = emulator
                 .hybrid_bus_mut()
                 .hybrid_cpu_accesses
@@ -149,7 +149,7 @@ impl Host {
                 }
                 if hook
                     .dependent_proof
-                    .is_some_and(|setting| setting.captures_all_dma())
+                    .is_some_and(|setting| setting.requires_frozen())
                     && !emulator.hybrid_bus().hybrid_functional_mode()
                 {
                     return Err(HostError::Metadata(
@@ -169,6 +169,15 @@ impl Host {
                         emulator.hybrid_bus(),
                         clock.frame,
                     );
+                }
+                if hook
+                    .dependent_proof
+                    .is_some_and(|setting| setting.is_clocked_strict())
+                {
+                    let actual_entry_depth = emulator.hybrid_cpu().hybrid_exception_depth();
+                    emulator
+                        .hybrid_bus_mut()
+                        .hybrid_arm_dma_capture(actual_entry_depth);
                 }
                 stack_slot.as_mut().expect("root audit").drain(
                     emulator.hybrid_bus_mut(),

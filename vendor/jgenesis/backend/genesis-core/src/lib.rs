@@ -97,6 +97,7 @@ pub use api::{GenesisEmulator, GenesisError, GenesisResult};
 // TJE hybrid access: expose only the bus type and opt-in observation events.
 #[cfg(feature = "emulator")]
 pub use bus::{
-    GenesisBus, HybridAccess, HybridBusCheckpoint, HybridExceptionBoundary, HybridWrite,
+    GenesisBus, HybridAccess, HybridBusCheckpoint, HybridDmaCapture, HybridDmaStart,
+    HybridExceptionBoundary, HybridWrite,
 };
 pub use genesis_config::{GenesisButton, GenesisInputs, GenesisJoypadState};

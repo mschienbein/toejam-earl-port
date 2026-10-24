@@ -99,6 +99,12 @@ impl ZeroDmaRoot {
 }
 
 impl ZeroDmaPlan {
+    pub(super) const fn single_transfer(source: u32) -> Self {
+        Self {
+            source,
+            transfers: 1,
+        }
+    }
     pub(crate) fn transfers(self) -> u64 {
         u64::from(self.transfers)
     }

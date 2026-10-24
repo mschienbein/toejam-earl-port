@@ -54,6 +54,7 @@ pub(crate) struct AtomicRun {
     pub uninitialized_reads: BTreeSet<UninitializedStackRead>,
     pub writes: Vec<OrderedWrite>,
     pub stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
+    pub strict_control: Option<crate::dependent_equivalence::ControlLog>,
 }
 
 impl AtomicRun {
@@ -64,6 +65,11 @@ impl AtomicRun {
         self.writes.extend(other.writes);
         if let Some(reads) = other.stack_reads {
             self.stack_reads.get_or_insert_with(Vec::new).extend(reads);
+        }
+        if let Some(control) = other.strict_control {
+            self.strict_control
+                .get_or_insert_with(Default::default)
+                .append(control);
         }
     }
 }
@@ -347,6 +353,9 @@ impl StackAuditState {
         access: genesis_core::HybridAccess,
         audit: &mut AtomicRun,
     ) {
+        if let Some(control) = &mut audit.strict_control {
+            control.observe(access);
+        }
         let (address, word, value) = match access {
             genesis_core::HybridAccess::Write {
                 address,

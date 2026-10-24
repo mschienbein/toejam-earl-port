@@ -139,6 +139,94 @@ impl Host {
         Ok(())
     }
 
+    /// Inject an RTS fixture from a recorded live, settled boundary using that
+    /// caller's real immutable-ROM PC, not a sentinel. This is diagnostic call
+    /// injection, never evidence of a natural JSR. Both actual check forks run;
+    /// no third original replay or invented scratch D0 result is returned.
+    pub fn check_clocked_fixture(
+        &mut self,
+        address: u32,
+        arguments: &[u32],
+    ) -> Result<tje_game::exits::EntryOutcome> {
+        if self.mode != crate::Mode::Check {
+            return Err(HostError::Metadata(
+                "clocked fixtures require Check mode".into(),
+            ));
+        }
+        self.observe_retained_native_prefix()?;
+        self.require_fixture_boundary()?;
+        let hook = self
+            .registry
+            .at(address)
+            .cloned()
+            .ok_or_else(|| HostError::Metadata(format!("no hook at {address:06X}")))?;
+        if hook.check_route() != crate::CheckForkRoute::ClockedStrict
+            || hook.exit_contract != tje_game::exits::ExitContract::Rts
+        {
+            return Err(HostError::Metadata(
+                "clocked fixtures require exactly ClockedStrict and an RTS contract".into(),
+            ));
+        }
+        let caller_pc = self.cpu().pc();
+        let caller_prefetch = self.cpu().next_opcode();
+        if caller_pc & 1 != 0 || caller_pc == crate::abi::CALL_SENTINEL {
+            return Err(HostError::Metadata(
+                "clocked fixture caller is not a real even immutable-ROM return target".into(),
+            ));
+        }
+        // The existing debugger accessor requires a mutable borrow, but this
+        // validation only reads its raw words: no mirror, cheat or fallback.
+        let expected = self
+            .emulator
+            .hybrid_bus_mut()
+            .cartridge
+            .as_mut()
+            .and_then(|cartridge| {
+                cartridge
+                    .debug_rom_view()
+                    .get(caller_pc as usize / 2)
+                    .copied()
+            });
+        if expected != Some(caller_prefetch) {
+            return Err(HostError::Metadata(
+                "clocked fixture caller return is outside immutable ROM or has invalid prefetch"
+                    .into(),
+            ));
+        }
+        let saved_sp = self.cpu().stack_pointer();
+        let frame_bytes = u32::try_from(arguments.len())
+            .ok()
+            .and_then(|slots| slots.checked_add(1))
+            .and_then(|slots| slots.checked_mul(4))
+            .ok_or_else(|| {
+                HostError::Metadata("clocked fixture frame exceeds its representation".into())
+            })?;
+        let entry_sp = saved_sp
+            .checked_sub(frame_bytes)
+            .ok_or_else(|| HostError::Metadata("clocked fixture frame underflows".into()))?;
+        if saved_sp & 1 != 0
+            || (entry_sp & 0xffffff) < 0xe00000
+            || (saved_sp & 0xffffff) < 0xe00000
+            || (entry_sp & 0xffff) > (saved_sp & 0xffff)
+        {
+            return Err(HostError::Metadata(
+                "clocked fixture frame is outside its actual stack bank".into(),
+            ));
+        }
+        self.isolated_fixture(|host| {
+            let mut sp = saved_sp;
+            for &argument in arguments.iter().rev() {
+                sp -= 4;
+                host.context().write_u32(sp, argument);
+            }
+            host.context().write_u32(entry_sp, caller_pc);
+            let (cpu, bus) = host.emulator.hybrid_parts();
+            crate::abi::set_sp(cpu, entry_sp);
+            cpu.set_pc(address, bus);
+            host.check_hook(&hook)
+        })
+    }
+
     /// Check a deliberately prepared reset, exception or ordinary entry without
     /// inventing a caller's return address. Set frame/register inputs explicitly
     /// before calling; unlike RTS fixtures, this never settles the prepared frame.
@@ -311,3 +399,6 @@ impl Host {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod clocked_tests;

@@ -25,7 +25,7 @@ fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| panic!("{} {arguments:08x?}: {error}", id.metadata().name));
 }
-fn platform_ordinary(host: &mut Host) {
+pub fn platform_ordinary(host: &mut Host) {
     let source = ram::g_sprite_tile_upload_buffer(host.revision()).address();
     for index in 0..32_u32 {
         host.context()
@@ -45,7 +45,7 @@ fn platform_ordinary(host: &mut Host) {
         );
     }
 }
-fn paired_natural(checked: &mut Host, reference: &mut Host, script: &InputScript, frames: u64) {
+pub fn paired_natural(checked: &mut Host, reference: &mut Host, script: &InputScript, frames: u64) {
     for frame in 0..frames {
         let a = checked.run_frame(script.at(frame)).unwrap();
         let b = reference.run_frame(script.at(frame)).unwrap();
