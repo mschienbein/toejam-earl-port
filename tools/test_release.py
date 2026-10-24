@@ -189,7 +189,7 @@ class ReleaseTests(unittest.TestCase):
             member = archive.getinfo(executable.relative_to(destination.parent).as_posix())
             self.assertEqual((member.external_attr >> 16) & 0o777, 0o755)
         self.assertEqual(run.call_args_list, [
-            mock.call(["lipo", "-verify_arch", "x86_64", "arm64", str(executable)], check=True),
+            mock.call(["lipo", str(executable), "-verify_arch", "x86_64", "arm64"], check=True),
             mock.call(["codesign", "--force", "--sign", "-", str(bundle)], check=True),
             mock.call(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True),
         ])

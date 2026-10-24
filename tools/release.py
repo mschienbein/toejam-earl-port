@@ -405,7 +405,8 @@ def stage_macos(binary: Path, destination: Path, version: str) -> None:
     }
     with contents.joinpath("Info.plist").open("wb") as stream:
         plistlib.dump(metadata, stream)
-    subprocess.run(["lipo", "-verify_arch", "x86_64", "arm64", str(executable)], check=True)
+    # lipo takes the input file before -verify_arch; every argument after it is an architecture.
+    subprocess.run(["lipo", str(executable), "-verify_arch", "x86_64", "arm64"], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", str(bundle)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
 
