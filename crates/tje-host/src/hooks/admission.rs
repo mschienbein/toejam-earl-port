@@ -1,8 +1,7 @@
 //! Live admission is independent of the source class and owner check envelope.
-//! Only the committed production entry form and body establish canonical origin.
+//! Only a sealed selection from the trusted production lookup grants origin.
 use super::{Body, HostError, Result};
-use std::sync::LazyLock;
-use tje_game::{FramedTranslation, FunctionId, TranslatedEntry, Translation};
+use tje_game::{FramedTranslation, Translation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyProvenance {
@@ -11,83 +10,10 @@ pub enum BodyProvenance {
     HostInstrumentation,
 }
 
-#[derive(Clone, Copy)]
-enum CanonicalBody {
-    Missing,
-    Entry(TranslatedEntry),
-    Conflict(FunctionId),
-}
-
-impl CanonicalBody {
-    fn id(&self) -> Option<FunctionId> {
-        match self {
-            Self::Missing => None,
-            Self::Entry(entry) => Some(entry.id()),
-            Self::Conflict(id) => Some(*id),
-        }
-    }
-}
-
-fn index_canonical_bodies(
-    entries: impl IntoIterator<Item = TranslatedEntry>,
-) -> [CanonicalBody; 648] {
-    let mut bodies = [CanonicalBody::Missing; 648];
-    for (index, entry) in entries.into_iter().enumerate() {
-        let Some(slot) = bodies.get_mut(index) else {
-            // Invalid production metadata cannot approve any body.
-            return [CanonicalBody::Conflict(entry.id()); 648];
-        };
-        *slot = CanonicalBody::Entry(entry);
-    }
-    bodies.sort_unstable_by_key(CanonicalBody::id);
-    for index in 1..bodies.len() {
-        if let Some(id) = bodies[index].id()
-            && bodies[index - 1].id() == Some(id)
-        {
-            bodies[index - 1] = CanonicalBody::Conflict(id);
-            bodies[index] = CanonicalBody::Conflict(id);
-        }
-    }
-    bodies
-}
-
-// This fixed, immutable production-only index uses FunctionId's public ordering,
-// not its crate-private representation. No heap or pending/proof table is used.
-static CANONICAL_BODIES: LazyLock<[CanonicalBody; 648]> = LazyLock::new(|| {
-    index_canonical_bodies(
-        tje_game::translations()
-            .copied()
-            .map(TranslatedEntry::Values)
-            .chain(
-                tje_game::framed_translations()
-                    .copied()
-                    .map(TranslatedEntry::Framed),
-            ),
-    )
-});
-
-fn is_canonical(entry: TranslatedEntry) -> bool {
-    let Ok(index) = CANONICAL_BODIES.binary_search_by_key(&Some(entry.id()), CanonicalBody::id)
-    else {
-        return false;
-    };
-    match (CANONICAL_BODIES.get(index), entry) {
-        (
-            Some(CanonicalBody::Entry(TranslatedEntry::Values(expected))),
-            TranslatedEntry::Values(actual),
-        ) => expected.id == actual.id && std::ptr::fn_addr_eq(expected.function, actual.function),
-        (
-            Some(CanonicalBody::Entry(TranslatedEntry::Framed(expected))),
-            TranslatedEntry::Framed(actual),
-        ) => expected.id == actual.id && std::ptr::fn_addr_eq(expected.function, actual.function),
-        _ => false,
-    }
-}
-
 pub(super) fn body_provenance(body: Body) -> BodyProvenance {
     let canonical = match body {
-        Body::Game(entry) => is_canonical(TranslatedEntry::Values(entry)),
-        Body::Framed(entry) => is_canonical(TranslatedEntry::Framed(entry)),
+        Body::Game(selected) | Body::Framed(selected) => selected.is_canonical_production(),
+        Body::Continuation(_) => false,
         Body::Host(_) => return BodyProvenance::HostInstrumentation,
     };
     if canonical {
@@ -110,12 +36,9 @@ impl RegistryAdmission {
         values: &'static [Translation],
         framed: &'static [FramedTranslation],
     ) {
-        self.noncanonical_dispatcher |= values
-            .iter()
-            .copied()
-            .map(TranslatedEntry::Values)
-            .chain(framed.iter().copied().map(TranslatedEntry::Framed))
-            .any(|entry| !is_canonical(entry));
+        // Caller-supplied tables are always explicit overlays, even if they
+        // alias a canonical static table or contain identical function bodies.
+        self.noncanonical_dispatcher |= !values.is_empty() || !framed.is_empty();
     }
 
     pub fn record_hook(&mut self, origin: BodyProvenance) {

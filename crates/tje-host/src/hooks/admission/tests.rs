@@ -1,6 +1,8 @@
 use super::*;
 use crate::{Host, Mode, hooks::HookRegistry};
-use tje_game::{Context, execution::ExecutionClass, ids};
+use tje_game::{
+    Context, Dispatcher, FunctionId, SelectedEntry, TranslatedEntry, execution::ExecutionClass, ids,
+};
 use tje_rom::Revision;
 
 fn changed_body(context: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
@@ -22,7 +24,7 @@ static CHANGED_FRAMES: &[FramedTranslation] = &[FramedTranslation {
     id: ids::ABS,
     function: changed_frame,
 }];
-static CANONICAL_VALUES: &[Translation] = &[Translation {
+static SAME_FUNCTION_VALUES: &[Translation] = &[Translation {
     id: ids::ABS,
     function: tje_game::runtime::abs,
 }];
@@ -36,6 +38,20 @@ static MIXED: &[Translation] = &[
         function: tje_game::core::wait_for_next_vblank,
     },
 ];
+
+fn production(function: FunctionId) -> SelectedEntry {
+    Dispatcher::hybrid()
+        .resolve_entry(function)
+        .unwrap()
+        .unwrap()
+}
+
+fn candidate(values: &'static [Translation], function: FunctionId) -> SelectedEntry {
+    Dispatcher::hybrid_with(values)
+        .resolve_entry(function)
+        .unwrap()
+        .unwrap()
+}
 
 fn rejects_before_rom_import(registry: HookRegistry) {
     assert!(registry.ensure_replacement_admission().is_err());
@@ -79,8 +95,27 @@ fn unhooked_pending_callee_overlays_keep_independent_noncanonical_provenance() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut registry = HookRegistry::proof_filtered(revision, MIXED, &[ids::ABS]).unwrap();
         assert_eq!(registry.len(), 1);
-        let hook = registry.at(ids::ABS.metadata().address(revision)).unwrap();
-        assert_eq!(hook.body_provenance(), BodyProvenance::CanonicalProduction);
+        assert_eq!(
+            registry
+                .at(ids::ABS.metadata().address(revision))
+                .unwrap()
+                .body_provenance(),
+            BodyProvenance::CandidateOverride,
+        );
+        // Explicit unit-only root replacement isolates the ALL-callee barrier.
+        // The public manual API consumes a genuine sealed production selection.
+        registry.hooks.clear();
+        registry.admission.noncanonical_hooks = false;
+        registry
+            .register_translation_with_execution(production(ids::ABS), ExecutionClass::Atomic)
+            .unwrap();
+        assert_eq!(
+            registry
+                .at(ids::ABS.metadata().address(revision))
+                .unwrap()
+                .body_provenance(),
+            BodyProvenance::CanonicalProduction,
+        );
         assert!(
             registry
                 .at(ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision))
@@ -126,16 +161,19 @@ fn bounded_entries_and_manual_value_registration_cannot_launder_bodies() {
         }
         let mut registry = HookRegistry::empty(revision);
         registry
-            .register_translation_with_execution(CHANGED_VALUES[0], ExecutionClass::Atomic)
+            .register_translation_with_execution(
+                candidate(CHANGED_VALUES, ids::ABS),
+                ExecutionClass::Atomic,
+            )
             .unwrap();
         assert!(!registry.admission.proof_only);
         assert!(registry.admission.noncanonical_hooks);
         rejects_before_rom_import(registry);
         let mut registry = HookRegistry::empty(revision);
-        let pending = *tje_game::core::PENDING_TRANSLATIONS
-            .iter()
-            .find(|entry| entry.id == ids::WAIT_FOR_NEXT_V_BLANK)
-            .unwrap();
+        let pending = candidate(
+            tje_game::core::PENDING_TRANSLATIONS,
+            ids::WAIT_FOR_NEXT_V_BLANK,
+        );
         registry
             .register_translation_with_execution(pending, ExecutionClass::TimeAware)
             .unwrap();
@@ -149,15 +187,15 @@ fn manual_framed_registration_keeps_global_canonical_identity_separate_from_over
         let pending = tje_game::sprites::PENDING_FRAMED_TRANSLATIONS;
         let mut registry = HookRegistry::proof_filtered_with_frames(
             revision,
-            CANONICAL_VALUES,
+            SAME_FUNCTION_VALUES,
             pending,
             &[ids::ABS],
         )
         .unwrap();
-        let entry = pending[0];
+        let entry = &pending[0];
         registry
             .register_framed_translation_with_execution(
-                entry,
+                entry.id,
                 tje_game::execution_class(entry.id).unwrap(),
             )
             .unwrap();
@@ -172,10 +210,7 @@ fn manual_framed_registration_keeps_global_canonical_identity_separate_from_over
         let mut registry = HookRegistry::empty(revision);
         assert!(
             registry
-                .register_framed_translation_with_execution(
-                    CHANGED_FRAMES[0],
-                    ExecutionClass::Atomic
-                )
+                .register_framed_translation_with_execution(ids::ABS, ExecutionClass::Atomic)
                 .is_err()
         );
         assert!(registry.is_empty());
@@ -238,12 +273,11 @@ fn canonical_bounded_manual_and_default_bodies_remain_eligible_without_class_or_
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut manual = HookRegistry::empty(revision);
         manual
-            .register_translation_with_execution(CANONICAL_VALUES[0], ExecutionClass::Atomic)
+            .register_translation_with_execution(production(ids::ABS), ExecutionClass::Atomic)
             .unwrap();
         for registry in [
             HookRegistry::translated(revision).unwrap(),
             HookRegistry::filtered(revision, &[], &[ids::ABS]).unwrap(),
-            HookRegistry::from_entries(revision, CANONICAL_VALUES, &[]).unwrap(),
             HookRegistry::from_entries(revision, &[], &[]).unwrap(),
             manual,
         ] {
@@ -253,7 +287,17 @@ fn canonical_bounded_manual_and_default_bodies_remain_eligible_without_class_or_
         }
         // A proof constructor remains diagnostic even if every supplied body
         // happens to be canonical; provenance is not inferred from its policy.
-        rejects_before_rom_import(HookRegistry::proof(revision, CANONICAL_VALUES).unwrap());
+        rejects_before_rom_import(HookRegistry::proof(revision, SAME_FUNCTION_VALUES).unwrap());
+        let mut canonical_proof = HookRegistry::proof(revision, &[]).unwrap();
+        canonical_proof
+            .register_translation_with_execution(production(ids::ABS), ExecutionClass::Atomic)
+            .unwrap();
+        let hook = canonical_proof
+            .at(ids::ABS.metadata().address(revision))
+            .unwrap();
+        assert_eq!(hook.body_provenance(), BodyProvenance::CanonicalProduction);
+        assert!(hook.proof_only_admission());
+        rejects_before_rom_import(canonical_proof);
         rejects_before_rom_import(HookRegistry::proof(revision, &[]).unwrap());
     }
 }
@@ -297,26 +341,83 @@ fn dispatch_and_frame_entries_reject_before_any_guest_or_clock_effect() {
 }
 
 #[test]
-fn canonical_index_matches_all_and_only_production_entry_forms() {
-    for entry in tje_game::translations()
-        .copied()
-        .map(TranslatedEntry::Values)
-        .chain(
-            tje_game::framed_translations()
-                .copied()
-                .map(TranslatedEntry::Framed),
-        )
+fn only_trusted_production_resolution_mints_canonical_authority() {
+    for function in tje_game::translations()
+        .map(|entry| entry.id)
+        .chain(tje_game::framed_translations().map(|entry| entry.id))
     {
-        assert!(is_canonical(entry));
+        let selected = production(function);
+        assert!(selected.is_canonical_production());
+        assert_eq!(selected.id(), function);
     }
-    for entry in tje_game::core::PENDING_TRANSLATIONS {
-        assert!(!is_canonical(TranslatedEntry::Values(*entry)));
+    for dispatcher in [
+        Dispatcher::hybrid(),
+        Dispatcher::hybrid_with_overrides(&[]),
+        Dispatcher::hybrid_with_overrides_and_frames(&[], &[]),
+        Dispatcher::native(&[ids::ABS]).unwrap(),
+        Dispatcher::native_with(&[ids::ABS], &[]).unwrap(),
+        Dispatcher::native_with_frames(&[ids::ABS], &[], &[]).unwrap(),
+    ] {
+        assert!(
+            dispatcher
+                .resolve_entry(ids::ABS)
+                .unwrap()
+                .unwrap()
+                .is_canonical_production()
+        );
     }
-    for entry in tje_game::sprites::PENDING_FRAMED_TRANSLATIONS {
-        assert!(!is_canonical(TranslatedEntry::Framed(*entry)));
+    assert!(
+        Dispatcher::hybrid_with(&[])
+            .resolve_entry(ids::ABS)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        Dispatcher::hybrid_with_frames(&[], &[])
+            .resolve_entry(ids::ABS)
+            .unwrap()
+            .is_none()
+    );
+    let trusted = production(ids::ABS);
+    let TranslatedEntry::Values(raw_canonical) = trusted.entry() else {
+        panic!("abs production entry must remain a value entry");
+    };
+    let raw_alias = std::slice::from_ref(raw_canonical);
+    // Even the exact SAME promoted data address does not confer authority when
+    // it enters the custom route. No code/data pointer comparison participates.
+    for dispatcher in [
+        Dispatcher::hybrid_with(raw_alias),
+        Dispatcher::hybrid_with_overrides(raw_alias),
+        Dispatcher::hybrid_with_frames(raw_alias, &[]),
+        Dispatcher::hybrid_with_overrides_and_frames(raw_alias, &[]),
+        Dispatcher::native_with(&[ids::ABS], raw_alias).unwrap(),
+        Dispatcher::native_with_frames(&[ids::ABS], raw_alias, &[]).unwrap(),
+        Dispatcher::hybrid_with(SAME_FUNCTION_VALUES),
+    ] {
+        let selected = dispatcher.resolve_entry(ids::ABS).unwrap().unwrap();
+        assert_eq!(selected.id(), ids::ABS);
+        assert!(!selected.is_canonical_production());
     }
-    assert!(!is_canonical(TranslatedEntry::Values(CHANGED_VALUES[0])));
-    assert!(!is_canonical(TranslatedEntry::Framed(CHANGED_FRAMES[0])));
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for values in [raw_alias, SAME_FUNCTION_VALUES] {
+            let mut registry = HookRegistry::empty(revision);
+            registry
+                .register_translation_with_execution(
+                    candidate(values, ids::ABS),
+                    ExecutionClass::Atomic,
+                )
+                .unwrap();
+            assert_eq!(
+                registry
+                    .at(ids::ABS.metadata().address(revision))
+                    .unwrap()
+                    .body_provenance(),
+                BodyProvenance::CandidateOverride
+            );
+            rejects_before_rom_import(registry);
+            rejects_before_rom_import(HookRegistry::from_entries(revision, values, &[]).unwrap());
+        }
+    }
 }
 
 #[test]
@@ -332,7 +433,7 @@ fn canonical_body_retains_live_eligibility_under_unit_only_owner_policy_variatio
             ProofEnvelope::ClockedCommutingInterrupts,
         ] {
             let mut registry =
-                HookRegistry::from_translations(revision, std::slice::from_ref(canonical)).unwrap();
+                HookRegistry::filtered(revision, &[], &[ids::GET_RANDOM_NUMBER]).unwrap();
             let target = canonical.id.metadata().address(revision);
             // Explicit cfg(test)-only owner-policy variation on a REAL canonical
             // body. It neither promotes a pending id nor bypasses an origin guard.
@@ -361,29 +462,51 @@ fn canonical_body_retains_live_eligibility_under_unit_only_owner_policy_variatio
 }
 
 #[test]
-fn canonical_index_conflicts_and_overflow_never_approve_a_body() {
-    let canonical = TranslatedEntry::Values(CANONICAL_VALUES[0]);
-    for entries in [
-        [canonical, canonical],
-        [canonical, TranslatedEntry::Framed(CHANGED_FRAMES[0])],
+fn duplicate_custom_resolution_and_wrong_entry_forms_fail_before_mutation() {
+    static DUPLICATE: &[Translation] = &[
+        Translation {
+            id: ids::ABS,
+            function: tje_game::runtime::abs,
+        },
+        Translation {
+            id: ids::ABS,
+            function: changed_body,
+        },
+    ];
+    for dispatcher in [
+        Dispatcher::hybrid_with(DUPLICATE),
+        Dispatcher::hybrid_with_overrides(DUPLICATE),
     ] {
-        let bodies = index_canonical_bodies(entries);
-        let index = bodies
-            .binary_search_by_key(&Some(ids::ABS), CanonicalBody::id)
-            .unwrap();
-        assert!(matches!(bodies[index], CanonicalBody::Conflict(id) if id == ids::ABS));
-        assert_eq!(
-            bodies
-                .iter()
-                .filter(|slot| matches!(slot, CanonicalBody::Conflict(_)))
-                .count(),
-            2,
-        );
+        assert!(dispatcher.resolve_entry(ids::ABS).is_err());
+        assert!(dispatcher.validate_entries().is_err());
     }
-    let overflow = index_canonical_bodies(std::iter::repeat_n(canonical, 649));
-    assert!(
-        overflow
-            .iter()
-            .all(|slot| matches!(slot, CanonicalBody::Conflict(_)))
-    );
+    let framed = Dispatcher::hybrid_with_frames(&[], CHANGED_FRAMES)
+        .resolve_entry(ids::ABS)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(framed.entry(), TranslatedEntry::Framed(_)));
+    assert!(!framed.is_canonical_production());
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut registry = HookRegistry::empty(revision);
+        assert!(
+            registry
+                .register_translation_with_execution(framed, ExecutionClass::Atomic)
+                .is_err()
+        );
+        assert!(registry.is_empty());
+        let mut custom = HookRegistry::from_entries(revision, &[], CHANGED_FRAMES).unwrap();
+        custom.hooks.clear();
+        custom.admission.noncanonical_hooks = false;
+        custom
+            .register_framed_translation_with_execution(ids::ABS, ExecutionClass::Atomic)
+            .unwrap();
+        assert_eq!(
+            custom
+                .at(ids::ABS.metadata().address(revision))
+                .unwrap()
+                .body_provenance(),
+            BodyProvenance::CandidateOverride
+        );
+        rejects_before_rom_import(custom);
+    }
 }

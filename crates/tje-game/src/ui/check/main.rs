@@ -36,7 +36,7 @@ fn run_session(
     let mut registry = HookRegistry::proof(revision, &[])?;
     // This baseline runner never enables unproven modal/input-loop bodies.
     // The separate inventory runner opts into an explicit named subset.
-    for &translation in ui::TRANSLATIONS {
+    for translation in ui::TRANSLATIONS {
         let class = if ui::ATOMIC_CAPABLE.contains(&translation.id) {
             ExecutionClass::Atomic
         } else {
@@ -46,7 +46,10 @@ fn run_session(
                 .map(|contract| contract.class)
                 .ok_or("pending UI entry has no reviewed class")?
         };
-        registry.register_translation_with_execution(translation, class)?;
+        registry.register_translation_with_execution(
+            tje_game::Dispatcher::hybrid().resolve_entry(translation.id)?.unwrap(),
+            class,
+        )?;
     }
     let mut checked = Host::new(bytes, Mode::Check, registry.clone())?;
     checked.set_wait_input_poller(Arc::new(InputScript::parse(source)?));

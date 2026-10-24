@@ -355,7 +355,10 @@ fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
         if selected.contains(&translation.id) {
             let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
             registry
-                .register_translation_with_execution(*translation, class)
+                .register_translation_with_execution(
+                    tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
+                    class,
+                )
                 .unwrap();
         }
     }
@@ -363,7 +366,7 @@ fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
         if selected.contains(&translation.id) {
             let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
             registry
-                .register_framed_translation_with_execution(*translation, class)
+                .register_framed_translation_with_execution(translation.id, class)
                 .unwrap();
         }
     }

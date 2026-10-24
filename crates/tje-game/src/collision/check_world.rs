@@ -52,7 +52,7 @@ fn registry(revision: Revision) -> HookRegistry {
     {
         registry
             .register_translation_with_execution(
-                *translation,
+                tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
                 tje_game::execution_class(translation.id).expect("reviewed W0 execution class"),
             )
             .unwrap();

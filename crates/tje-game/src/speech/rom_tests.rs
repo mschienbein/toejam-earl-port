@@ -36,14 +36,14 @@ fn registry(revision: Revision) -> HookRegistry {
         "explicit proof selection"
     );
     let mut registry = HookRegistry::proof(revision, translations).unwrap();
-    for &translation in ship::TRANSLATIONS.iter().chain(speech::TRANSLATIONS) {
+    for translation in ship::TRANSLATIONS.iter().chain(speech::TRANSLATIONS) {
         if !translations
             .iter()
             .any(|selected| selected.id == translation.id)
         {
             registry
                 .register_translation_with_execution(
-                    translation,
+                    tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
                     tje_game::execution_class(translation.id).unwrap(),
                 )
                 .unwrap();

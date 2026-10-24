@@ -70,6 +70,8 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Run ROM-free tests
         run: cargo test --locked --workspace
+      - name: Run optimized live-admission regressions
+        run: cargo test --locked --release -p tje-host --lib hooks::admission::tests
       - name: Check cross-target canonical audio hashes
         run: cargo test --locked --release -p tje-engine-verify audio::tests::canonical_audio_hashes_match_production_devices -- --nocapture
       - name: Execute cold and cached native code publication on ARM64

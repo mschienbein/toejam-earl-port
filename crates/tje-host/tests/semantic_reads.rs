@@ -183,7 +183,7 @@ fn discarded_word_high_byte_is_informational_on_either_side() {
 #[ignore = "requires both private retail ROMs"]
 fn prepare_entity_sprite_frame_ca36_discarded_high_byte_passes() {
     let id = ids::PREPARE_ENTITY_SPRITE_FRAME;
-    let translation = *tje_game::translations()
+    let translation = tje_game::translations()
         .chain(tje_game::sprites::PENDING_TRANSLATIONS)
         .find(|translation| translation.id == id)
         .unwrap();
@@ -191,7 +191,10 @@ fn prepare_entity_sprite_frame_ca36_discarded_high_byte_passes() {
         let mut registry = HookRegistry::empty(revision);
         registry
             .register_translation_with_execution(
-                translation,
+                tje_game::Dispatcher::hybrid_with(std::slice::from_ref(translation))
+                    .resolve_entry(id)
+                    .unwrap()
+                    .unwrap(),
                 tje_game::execution_class(id).unwrap(),
             )
             .unwrap();

@@ -567,16 +567,31 @@ words, emitted audio bits and the existing complete encoded CPU/Z80/device/RAM/
 clock/raster/resampler/timing state. An instantaneous legacy body cannot pass merely
 because final VRAM/RAM matches. Live replacement/play requires canonical
 production bodies, independently of the source class and owner check envelope.
-Every `proof*` constructor records explicit diagnostic admission, even when all
-supplied bodies happen to be canonical. That provenance is sticky through clones
-and root selection; clearing a check policy is not promotion.
+Every `proof*` constructor records explicit diagnostic admission, even when raw
+records name canonical functions. That provenance is sticky through clones and
+root selection; clearing a check policy is not promotion.
 
-`from_entries` and manual registration do not grant production approval either.
+Only the trusted production branch of `Dispatcher::resolve_entry` mints a sealed
+`SelectedEntry` with canonical authority. The opaque handle binds the static
+payload, function id, value/framed form and origin together; callers cannot
+construct or mutate it, attach a free token, or reconstruct authority from its
+read-only payload. `TranslatedEntry<'a>` is a borrowed execution payload only:
+an ephemeral continuation can invoke it immediately without gaining admission.
+
+All caller-supplied tables resolve as explicit candidates, **even when a table
+aliases the exact production static data or names the same Rust function**.
+Neither function-code addresses nor promoted/constant data addresses establish
+canonical identity. `from_entries` is consequently a bounded diagnostic route,
+not an alternative promotion mechanism. Canonical partial callers use `filtered`
+or consume a production-resolved `SelectedEntry` in manual value registration.
+Manual framed registration accepts a function id and resolves the exact active
+dispatcher selection; it never compares caller-supplied function pointers or
+adapts the entry form.
+
 Every effective hook and callee overlay, including an **unhooked** pending callee,
-must match the canonical production id, entry form and function body. Host-side
-instrumentation and derived fixture continuations remain diagnostic. Existing
-class, ABI, canonical-address and exit-contract checks still apply; matching a
-function pointer is not permission to override those contracts.
+must have production authority for live replacement. Host instrumentation and
+derived fixture continuations remain diagnostic. Existing class, ABI,
+canonical-address and exit-contract checks remain independent requirements.
 
 `Host::new` rejects an ineligible replacement registry before ROM parsing;
 `from_rom` rejects before device/timing preparation. Both frame entry points and
@@ -1725,10 +1740,12 @@ For a mixed proof overlay, use
 `HookRegistry::proof_with_frames(revision, legacy, framed)` or
 `proof_filtered_with_frames(revision, legacy, framed, root_ids)`. Tables are
 borrowed statics; selecting entry hooks never removes pending/proven callees.
-The bounded counterpart is `from_entries(revision, legacy, framed)`. Native
-startup uses `Dispatcher::native_with_frames(roots, legacy, framed)` and checks
-both forms throughout the complete dependency closure; it never falls back to
-the original. Do not use a proof-only wrapper that changes the entry contract.
+The bounded diagnostic counterpart is `from_entries(revision, legacy, framed)`;
+raw table aliases never gain production authority. Native startup uses
+`Dispatcher::native_with_frames(roots, legacy, framed)` and checks both forms
+throughout the complete dependency closure; it never falls back to the original.
+Custom native resolution is still a custom selection, not production admission.
+Do not use a proof-only wrapper that changes the entry contract.
 
 Promote a framed callee only with every affected production caller migrated and
 proven in the same cutover. Until then the complete framed body remains pending,

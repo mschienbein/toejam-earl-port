@@ -14,15 +14,15 @@ pub struct FramedTranslation {
     pub function: FramedTranslationFn,
 }
 
-/// The effective implementation of one function identity. Registries reject
-/// conflicting entries rather than choosing between two different contracts.
+/// Borrowed execution payload. This is not production-admission authority:
+/// callers may construct a temporary payload for immediate diagnostic execution.
 #[derive(Clone, Copy)]
-pub enum TranslatedEntry {
-    Values(Translation),
-    Framed(FramedTranslation),
+pub enum TranslatedEntry<'a> {
+    Values(&'a Translation),
+    Framed(&'a FramedTranslation),
 }
 
-impl TranslatedEntry {
+impl TranslatedEntry<'_> {
     pub const fn id(self) -> FunctionId {
         match self {
             Self::Values(translation) => translation.id,
@@ -99,14 +99,61 @@ impl TranslatedEntry {
     }
 }
 
-impl From<Translation> for TranslatedEntry {
-    fn from(translation: Translation) -> Self {
+/// Immutable selection from a dispatcher. Only trusted production resolution
+/// grants canonical origin; extracting its raw payload cannot recreate authority.
+///
+/// A raw execution payload cannot be wrapped into a canonical selection:
+/// ```compile_fail
+/// use tje_game::{Dispatcher, SelectedEntry, ids};
+/// let raw = Dispatcher::hybrid().resolve_entry(ids::ABS).unwrap().unwrap().entry();
+/// let _: SelectedEntry = raw.into();
+/// ```
+/// Nor can a caller attach an origin flag to its chosen payload:
+/// ```compile_fail
+/// use tje_game::{Dispatcher, SelectedEntry, ids};
+/// let raw = Dispatcher::hybrid().resolve_entry(ids::ABS).unwrap().unwrap().entry();
+/// let _ = SelectedEntry { entry: raw, canonical_production: true };
+/// ```
+#[derive(Clone, Copy)]
+pub struct SelectedEntry {
+    entry: TranslatedEntry<'static>,
+    canonical_production: bool,
+}
+
+impl SelectedEntry {
+    pub const fn id(self) -> FunctionId {
+        self.entry.id()
+    }
+
+    pub const fn entry(self) -> TranslatedEntry<'static> {
+        self.entry
+    }
+
+    pub const fn is_canonical_production(self) -> bool {
+        self.canonical_production
+    }
+
+    pub fn invoke_values(
+        self,
+        context: &mut dyn Context,
+        arguments: &[u32],
+    ) -> Result<Option<u32>> {
+        self.entry.invoke_values(context, arguments)
+    }
+
+    pub fn invoke_prepared(self, context: &mut dyn Context) -> Result<Option<u32>> {
+        self.entry.invoke_prepared(context)
+    }
+}
+
+impl<'a> From<&'a Translation> for TranslatedEntry<'a> {
+    fn from(translation: &'a Translation) -> Self {
         Self::Values(translation)
     }
 }
 
-impl From<FramedTranslation> for TranslatedEntry {
-    fn from(translation: FramedTranslation) -> Self {
+impl<'a> From<&'a FramedTranslation> for TranslatedEntry<'a> {
+    fn from(translation: &'a FramedTranslation) -> Self {
         Self::Framed(translation)
     }
 }
@@ -141,27 +188,31 @@ impl Dispatcher {
 
     /// Resolve the effective entry. An explicit overlay replaces a proven body,
     /// but two candidates within either layer are an error, never ROM fallback.
-    pub fn resolve_entry(self, id: FunctionId) -> Result<Option<TranslatedEntry>> {
+    pub fn resolve_entry(self, id: FunctionId) -> Result<Option<SelectedEntry>> {
         let mut overrides = self
             .translations
             .iter()
             .filter(|entry| entry.id == id)
-            .copied()
             .map(TranslatedEntry::Values)
             .chain(
                 self.framed_translations
                     .iter()
                     .filter(|entry| entry.id == id)
-                    .copied()
                     .map(TranslatedEntry::Framed),
             );
         let entry = overrides.next();
         if overrides.next().is_some() {
             return Err(FrameError::ConflictingEntries(id).into());
         }
-        if entry.is_some() {
-            return Ok(entry);
+        if let Some(entry) = entry {
+            return Ok(Some(SelectedEntry {
+                entry,
+                canonical_production: false,
+            }));
         }
+        // Every public constructor sets this private catalogue to either the
+        // committed SUBSYSTEMS or empty. Caller tables always use the explicit
+        // override route above, even when their data happens to alias production.
         let mut proven = self
             .subsystems
             .iter()
@@ -169,13 +220,11 @@ impl Dispatcher {
                 owner
                     .translations
                     .iter()
-                    .copied()
                     .map(TranslatedEntry::Values)
                     .chain(
                         owner
                             .framed_translations
                             .iter()
-                            .copied()
                             .map(TranslatedEntry::Framed),
                     )
             })
@@ -184,12 +233,15 @@ impl Dispatcher {
         if proven.next().is_some() {
             return Err(FrameError::ConflictingEntries(id).into());
         }
-        Ok(entry)
+        Ok(entry.map(|entry| SelectedEntry {
+            entry,
+            canonical_production: true,
+        }))
     }
 
-    pub fn framed_translation(self, id: FunctionId) -> Option<FramedTranslation> {
-        match self.resolve_entry(id) {
-            Ok(Some(TranslatedEntry::Framed(translation))) => Some(translation),
+    pub fn framed_translation(self, id: FunctionId) -> Option<&'static FramedTranslation> {
+        match self.resolve_entry(id).ok().flatten()?.entry() {
+            TranslatedEntry::Framed(translation) => Some(translation),
             _ => None,
         }
     }

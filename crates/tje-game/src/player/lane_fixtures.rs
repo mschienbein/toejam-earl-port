@@ -86,10 +86,13 @@ fn main() {
         let script = Arc::new(session_script(&input_path));
         let rom = fs::read(format!("roms/{name}.bin")).unwrap();
         let mut registry = HookRegistry::proof(revision, pending).unwrap();
-        for &translation in tje_game::player::TRANSLATIONS {
+        for translation in tje_game::player::TRANSLATIONS {
             let class = tje_game::execution_class(translation.id).unwrap();
             registry
-                .register_translation_with_execution(translation, class)
+                .register_translation_with_execution(
+                    tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
+                    class,
+                )
                 .unwrap();
         }
         let mut checked = Host::new(&rom, Mode::Check, registry.clone()).unwrap();

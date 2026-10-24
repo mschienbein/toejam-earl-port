@@ -10,7 +10,8 @@ use crate::{
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use tje_game::execution::{CallCeiling, ExecutionClass, ProofEnvelope};
 use tje_game::{
-    Context, Dispatcher, FramedTranslation, FunctionId, TranslatedEntry, Translation,
+    Context, Dispatcher, FramedTranslation, FunctionId, SelectedEntry, TranslatedEntry,
+    Translation,
     exits::{self, EntryOutcome, ExitContract},
 };
 use tje_rom::Revision;
@@ -19,8 +20,9 @@ pub type HookFn = fn(&mut HookContext<'_>) -> Result<Option<u32>>;
 #[derive(Clone, Copy)]
 enum Body {
     Host(HookFn),
-    Game(Translation),
-    Framed(FramedTranslation),
+    Game(SelectedEntry),
+    Framed(SelectedEntry),
+    Continuation(tje_game::TranslationFn),
 }
 /// Production metadata is borrowed without allocation. Authored instrumentation
 /// contracts are owned and shared across registry clones without leaking memory.
@@ -112,6 +114,19 @@ impl Hook {
         result.map_err(|error| context.protect_host_timing_failure(error))
     }
 
+    fn execute_value_body(
+        &self,
+        context: &mut HookContext<'_>,
+        function: tje_game::TranslationFn,
+    ) -> tje_game::Result<Option<u32>> {
+        let mut arguments = [0; 16];
+        let count = usize::from(self.symbol.abi.argument_count);
+        for (index, argument) in arguments[..count].iter_mut().enumerate() {
+            *argument = context.argument_u32(index as u32);
+        }
+        function(context, &arguments[..count])
+    }
+
     fn execute_body(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
         if let Some((frame, expected_sp)) = self.frame_state {
             let sp = context.stack_pointer()?;
@@ -145,17 +160,16 @@ impl Hook {
                     return Err(error);
                 }
             },
-            Body::Framed(translation) => {
-                TranslatedEntry::Framed(translation).invoke_prepared(context)
+            Body::Framed(selected) => selected.invoke_prepared(context),
+            Body::Game(selected) => {
+                let TranslatedEntry::Values(translation) = selected.entry() else {
+                    return Err(HostError::Metadata(
+                        "value hook has a framed selection".into(),
+                    ));
+                };
+                self.execute_value_body(context, translation.function)
             }
-            Body::Game(translation) => {
-                let mut arguments = [0; 16];
-                let count = usize::from(self.symbol.abi.argument_count);
-                for (index, argument) in arguments[..count].iter_mut().enumerate() {
-                    *argument = context.argument_u32(index as u32);
-                }
-                (translation.function)(context, &arguments[..count])
-            }
+            Body::Continuation(function) => self.execute_value_body(context, function),
         };
         let result = exits::validate_at(
             self.symbol.id,
@@ -193,10 +207,7 @@ impl Hook {
             .checkpoint_at(self.symbol.address(revision), stage)
             .ok_or_else(|| HostError::Metadata("not a reviewed main-loop continuation".into()))?;
         let mut hook = self.clone();
-        hook.body = Body::Game(Translation {
-            id: self.symbol.id,
-            function,
-        });
+        hook.body = Body::Continuation(function);
         // Replacing a body invalidates canonical approval independently of the
         // inherited constructor provenance and owner execution/check policy.
         hook.body_provenance = BodyProvenance::CandidateOverride;
@@ -278,18 +289,24 @@ impl HookRegistry {
         }
         let mut registry = Self::empty(revision);
         let all = subsystems.is_empty() && functions.is_empty();
-        for &translation in tje_game::translations() {
+        for translation in tje_game::translations() {
             let symbol = translation.id.metadata();
             if all || subsystems.contains(&symbol.subsystem) || functions.contains(&translation.id)
             {
-                registry.register_translation(translation)?;
+                let selected = dispatcher.resolve_entry(translation.id)?.ok_or_else(|| {
+                    HostError::Metadata("missing production value selection".into())
+                })?;
+                registry.register_selected(selected)?;
             }
         }
-        for &translation in tje_game::framed_translations() {
+        for translation in tje_game::framed_translations() {
             let symbol = translation.id.metadata();
             if all || subsystems.contains(&symbol.subsystem) || functions.contains(&translation.id)
             {
-                registry.register_framed_translation(translation)?;
+                let selected = dispatcher.resolve_entry(translation.id)?.ok_or_else(|| {
+                    HostError::Metadata("missing production framed selection".into())
+                })?;
+                registry.register_selected(selected)?;
             }
         }
         Ok(registry)
@@ -301,8 +318,8 @@ impl HookRegistry {
         Self::from_entries(revision, translations, &[])
     }
 
-    /// Bounded bodies/callees. Supplied entries are not production approval:
-    /// live replacement requires the canonical production form and function.
+    /// Bounded diagnostic bodies/callees. Raw table aliases remain candidates;
+    /// production authority is minted only by the trusted production lookup.
     pub fn from_entries(
         revision: Revision,
         translations: &'static [Translation],
@@ -314,11 +331,16 @@ impl HookRegistry {
         registry
             .admission
             .record_dispatcher_entries(translations, framed);
-        for &translation in translations {
-            registry.register_translation(translation)?;
-        }
-        for &translation in framed {
-            registry.register_framed_translation(translation)?;
+        for id in translations
+            .iter()
+            .map(|entry| entry.id)
+            .chain(framed.iter().map(|entry| entry.id))
+        {
+            let selected = registry
+                .dispatcher
+                .resolve_entry(id)?
+                .ok_or_else(|| HostError::Metadata("missing custom selection".into()))?;
+            registry.register_selected(selected)?;
         }
         Ok(registry)
     }
@@ -371,19 +393,17 @@ impl HookRegistry {
         registry
             .admission
             .record_dispatcher_entries(pending, framed);
-        for translation in pending
+        for id in pending
             .iter()
-            .copied()
-            .map(TranslatedEntry::Values)
-            .chain(framed.iter().copied().map(TranslatedEntry::Framed))
+            .map(|entry| entry.id)
+            .chain(framed.iter().map(|entry| entry.id))
         {
-            if functions.is_empty() || functions.contains(&translation.id()) {
-                match translation {
-                    TranslatedEntry::Values(entry) => registry.register_translation(entry)?,
-                    TranslatedEntry::Framed(entry) => {
-                        registry.register_framed_translation(entry)?
-                    }
-                }
+            if functions.is_empty() || functions.contains(&id) {
+                let selected = registry
+                    .dispatcher
+                    .resolve_entry(id)?
+                    .ok_or_else(|| HostError::Metadata("missing proof selection".into()))?;
+                registry.register_selected(selected)?;
             }
         }
         Ok(registry)
@@ -404,34 +424,22 @@ impl HookRegistry {
         Ok(registry)
     }
 
-    fn register_translation(&mut self, translation: Translation) -> Result<()> {
-        let symbol = translation.id.metadata();
-        let class = tje_game::execution_class(translation.id).ok_or_else(|| {
+    fn register_selected(&mut self, selected: SelectedEntry) -> Result<()> {
+        let class = tje_game::execution_class(selected.id()).ok_or_else(|| {
             HostError::Metadata(format!(
                 "{} has no unique reviewed execution class",
-                symbol.name
+                selected.id().metadata().name,
             ))
         })?;
-        self.insert_execution(
-            HookSymbol::Generated(symbol),
-            class,
-            Body::Game(translation),
-        )
+        self.insert_selected(selected, class)
     }
 
-    fn register_framed_translation(&mut self, translation: FramedTranslation) -> Result<()> {
-        let symbol = translation.id.metadata();
-        let class = tje_game::execution_class(translation.id).ok_or_else(|| {
-            HostError::Metadata(format!(
-                "{} has no unique reviewed execution class",
-                symbol.name
-            ))
-        })?;
-        self.insert_execution(
-            HookSymbol::Generated(symbol),
-            class,
-            Body::Framed(translation),
-        )
+    fn insert_selected(&mut self, selected: SelectedEntry, class: ExecutionClass) -> Result<()> {
+        let body = match selected.entry() {
+            TranslatedEntry::Values(_) => Body::Game(selected),
+            TranslatedEntry::Framed(_) => Body::Framed(selected),
+        };
+        self.insert_execution(HookSymbol::Generated(selected.id().metadata()), class, body)
     }
     fn insert(&mut self, symbol: HookSymbol, atomic_capable: bool, body: Body) -> Result<()> {
         if !atomic_capable {
@@ -613,40 +621,36 @@ impl HookRegistry {
         )
     }
 
-    /// A generated entry retains its reviewed class. A supplied body that is not
-    /// canonical production remains diagnostic, not an approval by registration.
+    /// Consume an inseparable dispatcher selection with its original authority.
+    /// Extracting a raw record or copying a function cannot create this handle.
     pub fn register_translation_with_execution(
         &mut self,
-        translation: Translation,
+        selected: SelectedEntry,
         execution_class: ExecutionClass,
     ) -> Result<()> {
-        self.insert_execution(
-            HookSymbol::Generated(translation.id.metadata()),
-            execution_class,
-            Body::Game(translation),
-        )
+        if !matches!(selected.entry(), TranslatedEntry::Values(_)) {
+            return Err(HostError::Metadata(
+                "value registration requires a value selection".into(),
+            ));
+        }
+        self.insert_selected(selected, execution_class)
     }
+    /// Register the exact active framed selection by id, retaining its origin.
+    /// No caller-supplied function/ref comparison or entry-form adaptation occurs.
     pub fn register_framed_translation_with_execution(
         &mut self,
-        translation: FramedTranslation,
+        function: FunctionId,
         execution_class: ExecutionClass,
     ) -> Result<()> {
-        let same_body = matches!(
-            self.dispatcher.resolve_entry(translation.id)?,
-            Some(TranslatedEntry::Framed(entry))
-                if std::ptr::fn_addr_eq(entry.function, translation.function)
-        );
-        if !same_body || tje_game::execution_class(translation.id) != Some(execution_class) {
-            return Err(HostError::Metadata(format!(
-                "framed hook {} must use its dispatcher body and reviewed execution class",
-                translation.id.metadata().name
-            )));
+        let selected = self.dispatcher.resolve_entry(function)?.ok_or_else(|| {
+            HostError::Metadata("framed registration has no active selection".into())
+        })?;
+        if !matches!(selected.entry(), TranslatedEntry::Framed(_)) {
+            return Err(HostError::Metadata(
+                "framed registration requires the active framed dispatcher selection".into(),
+            ));
         }
-        self.insert_execution(
-            HookSymbol::Generated(translation.id.metadata()),
-            execution_class,
-            Body::Framed(translation),
-        )
+        self.insert_selected(selected, execution_class)
     }
     pub(crate) fn ensure_replacement_admission(&self) -> Result<()> {
         self.admission.ensure_replacement()
@@ -805,10 +809,15 @@ mod tests {
             );
             for translation in PENDING {
                 let resolved = registry.dispatcher().translation(translation.id).unwrap();
-                assert!(std::ptr::fn_addr_eq(
-                    resolved.function,
-                    translation.function
-                ));
+                assert!(std::ptr::eq(resolved, translation));
+                assert!(
+                    !registry
+                        .dispatcher()
+                        .resolve_entry(translation.id)
+                        .unwrap()
+                        .unwrap()
+                        .is_canonical_production()
+                );
             }
             for translation in tje_game::translations() {
                 assert!(registry.dispatcher().translation(translation.id).is_some());
@@ -860,7 +869,15 @@ mod tests {
             assert_eq!(root.symbol.id, ids::PRE_GENERATE_RANDOMS);
             assert!(registry.at(ids::ABS.metadata().address(revision)).is_none());
             let callee = registry.dispatcher().framed_translation(ids::ABS).unwrap();
-            assert!(std::ptr::fn_addr_eq(callee.function, FRAMED[0].function));
+            assert!(std::ptr::eq(callee, &FRAMED[0]));
+            assert!(
+                !registry
+                    .dispatcher()
+                    .resolve_entry(ids::ABS)
+                    .unwrap()
+                    .unwrap()
+                    .is_canonical_production()
+            );
             // A framed override is effective instead of the proven value body.
             assert!(registry.dispatcher().translation(ids::ABS).is_none());
             assert!(
@@ -988,8 +1005,9 @@ mod tests {
 
     #[test]
     fn generated_class_overrides_and_live_strict_dispatch_fail_before_effects() {
-        let entry = *tje_game::translations()
-            .find(|entry| entry.id == ids::CLEAR_COLOUR_RAM)
+        let entry = Dispatcher::hybrid()
+            .resolve_entry(ids::CLEAR_COLOUR_RAM)
+            .unwrap()
             .unwrap();
         let mut registry = HookRegistry::empty(Revision::Rev02);
         assert!(

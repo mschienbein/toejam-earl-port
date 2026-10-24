@@ -30,7 +30,7 @@ pub mod speech;
 pub mod sprites;
 pub mod timing;
 pub mod ui;
-pub use framed_entry::{FramedTranslation, FramedTranslationFn, TranslatedEntry};
+pub use framed_entry::{FramedTranslation, FramedTranslationFn, SelectedEntry, TranslatedEntry};
 pub use metadata::ids;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -680,9 +680,9 @@ impl Dispatcher {
     }
     /// Effective legacy value entry only. Use `resolve_entry` for capability
     /// checks or dispatch, since a framed overlay replaces this form completely.
-    pub fn translation(self, id: FunctionId) -> Option<Translation> {
-        match self.resolve_entry(id) {
-            Ok(Some(TranslatedEntry::Values(translation))) => Some(translation),
+    pub fn translation(self, id: FunctionId) -> Option<&'static Translation> {
+        match self.resolve_entry(id).ok().flatten()?.entry() {
+            TranslatedEntry::Values(translation) => Some(translation),
             _ => None,
         }
     }
@@ -735,7 +735,7 @@ impl Dispatcher {
     fn invoke_translated(
         self,
         context: &mut dyn Context,
-        entry: TranslatedEntry,
+        entry: SelectedEntry,
         arguments: Option<&[u32]>,
     ) -> Result<u32> {
         context.check_mmio_contract()?;
@@ -747,7 +747,7 @@ impl Dispatcher {
                 callee: class,
             });
         }
-        if arguments.is_some() && matches!(entry, TranslatedEntry::Framed(_)) {
+        if arguments.is_some() && matches!(entry.entry(), TranslatedEntry::Framed(_)) {
             return Err(call_frame::FrameError::PreparedEntryRequired(entry.id()).into());
         }
         let ceiling = context.enter_call_ceiling(entry.id())?;

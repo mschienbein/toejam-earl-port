@@ -349,14 +349,14 @@ pub fn enter(
         .dispatcher()
         .resolve_entry(entry)?
         .ok_or(Error::Untranslated(entry))?;
-    enter_body(context, entry, arguments, translation)
+    enter_body(context, entry, arguments, translation.entry())
 }
 
 fn enter_body(
     context: &mut dyn Context,
     entry: FunctionId,
     arguments: &[u32],
-    body: crate::TranslatedEntry,
+    body: crate::TranslatedEntry<'_>,
 ) -> Result<EntryOutcome> {
     context.check_mmio_contract()?;
     let class = crate::execution_class(entry).ok_or(Error::Unclassified(entry))?;
@@ -454,7 +454,7 @@ impl MainLoopContinuation {
             context,
             self.entry,
             &[],
-            crate::TranslatedEntry::Values(crate::Translation {
+            crate::TranslatedEntry::Values(&crate::Translation {
                 id: self.entry,
                 function: bodies.body(self.stage),
             }),

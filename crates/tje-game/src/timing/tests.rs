@@ -118,8 +118,8 @@ impl TimingSource for NeverInspect {
         panic!("default must not finish a source")
     }
 }
-fn entry() -> TranslatedEntry {
-    TranslatedEntry::Framed(FramedTranslation {
+fn entry() -> TranslatedEntry<'static> {
+    TranslatedEntry::Framed(&FramedTranslation {
         id: ids::WAIT_FOR_NEXT_V_BLANK,
         function: crate::core::wait_for_next_vblank_framed,
     })

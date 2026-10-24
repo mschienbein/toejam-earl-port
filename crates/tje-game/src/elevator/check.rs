@@ -830,7 +830,10 @@ fn main() {
                     && tje_game::execution_class(entry.id) == Some(ExecutionClass::Atomic)
             }) {
                 registry
-                    .register_translation_with_execution(*translation, ExecutionClass::Atomic)
+                    .register_translation_with_execution(
+                        tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
+                        ExecutionClass::Atomic,
+                    )
                     .unwrap();
             }
             registry
