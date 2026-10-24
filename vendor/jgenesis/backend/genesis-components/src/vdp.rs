@@ -574,6 +574,80 @@ pub struct Vdp {
 }
 
 impl Vdp {
+    /// TJE passive checkpoint. Exhaustive patterns make new state fields require
+    /// an explicit decision here instead of silently weakening quiet-state checks.
+    pub fn hybrid_checkpoint(&self) -> debug::HybridVdpCheckpoint {
+        let Self {
+            frame_buffer: _,
+            cram_dots: _,
+            vram: _,
+            cram: _,
+            vsram: _,
+            fifo,
+            dma_latency,
+            pending_fifo_writes,
+            timing_mode: _,
+            control_port,
+            state,
+            sprite_state: _,
+            registers: _,
+            debug_register: _,
+            latched_registers: _,
+            latched_h_scroll: _,
+            latched_full_screen_v_scroll: _,
+            cached_sprite_attributes: _,
+            latched_sprite_attributes: _,
+            bg_buffers: _,
+            sprite_buffers: _,
+            interlaced_sprite_buffers: _,
+            config: _,
+            color_tables: _,
+            vdp_event_times: _,
+            vdp_event_idx: _,
+        } = self;
+        let ControlPort {
+            mode: _,
+            location_bits: _,
+            location: _,
+            control_address: _,
+            data_port_address: _,
+            write_flag,
+            dma_active,
+        } = control_port;
+        let InternalState {
+            v_interrupt_pending: _,
+            h_interrupt_pending: _,
+            v_interrupt_enabled_latch: _,
+            h_interrupt_enabled_latch: _,
+            h_interrupt_counter: _,
+            latched_hv_counter: _,
+            v_border_forgotten: _,
+            top_border: _,
+            last_scroll_b_palettes: _,
+            scanline: _,
+            scanline_mclk_cycles: _,
+            pixel: _,
+            in_vblank: _,
+            pending_writes: pending_dma_port_writes,
+            display_enable_pending: _,
+            data_port_read_wait,
+            vram_fill_data: _,
+            vram_copy_odd_slot: _,
+            interlaced_frame: _,
+            interlaced_odd: _,
+            frame_h_resolution: _,
+        } = state;
+        debug::HybridVdpCheckpoint {
+            fifo_len: fifo.len(),
+            pending_fifo_writes: pending_fifo_writes.len(),
+            pending_dma_port_writes: pending_dma_port_writes.len(),
+            dma_active: *dma_active,
+            dma_latency_slots: *dma_latency,
+            data_port_read_wait: *data_port_read_wait,
+            control_word_pending: *write_flag == ControlWriteFlag::Second,
+        }
+    }
+
     // TJE hybrid inspection: borrows do not copy or alter VDP state.
     pub fn hybrid_memories(&self) -> (&[u8], &[u16], &[u16]) {
         (self.vram.as_ref(), self.cram.as_ref(), self.vsram.as_ref())

@@ -96,5 +96,7 @@ pub use timing::survey as timing_survey;
 pub use api::{GenesisEmulator, GenesisError, GenesisResult};
 // TJE hybrid access: expose only the bus type and opt-in observation events.
 #[cfg(feature = "emulator")]
-pub use bus::{GenesisBus, HybridAccess, HybridExceptionBoundary, HybridWrite};
+pub use bus::{
+    GenesisBus, HybridAccess, HybridBusCheckpoint, HybridExceptionBoundary, HybridWrite,
+};
 pub use genesis_config::{GenesisButton, GenesisInputs, GenesisJoypadState};

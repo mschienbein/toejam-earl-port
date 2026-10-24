@@ -180,6 +180,25 @@ pub struct HybridExceptionBoundary {
     pub boundary: m68000_emu::ExceptionBoundary,
 }
 
+/// Passive queue/stall checkpoint; no MMIO read or pending-write flush.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HybridBusCheckpoint {
+    pub pending_byte_writes: usize,
+    pub pending_word_writes: usize,
+    pub m68k_wait_cpu_cycles: u32,
+    /// Fractional Z80 bus-stall rounding phase (0..9), not outstanding debt.
+    pub m68k_wait_counter: u8,
+    /// CPU refresh phase modulo REFRESH_INTERVAL (128 CPU cycles), not debt.
+    pub m68k_refresh_counter: u32,
+    pub vdp_owns_bus: bool,
+    pub z80_halt: bool,
+    pub m68k_reset: bool,
+    pub z80_bus_requested: bool,
+    pub z80_reset: bool,
+    pub interrupt_level: u8,
+    pub cpu_halt: bool,
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisBus {
     #[partial_clone(partial)]
@@ -224,6 +243,68 @@ pub struct GenesisBus {
 }
 
 impl GenesisBus {
+    /// Snapshot actual scalar state by borrow. New fields force explicit review.
+    pub fn hybrid_checkpoint(&self) -> HybridBusCheckpoint {
+        let Self {
+            cartridge: _,
+            memory: _,
+            vdp: _,
+            psg: _,
+            ym2612: _,
+            input: _,
+            z80_bank: _,
+            z80_signals,
+            pending_writes,
+            cycles,
+            timing_mode: _,
+            open_bus: _,
+            m68k_opcode: _,
+            m68k_reset,
+            hybrid_writes: _,
+            hybrid_accesses: _,
+            timing_survey: _,
+            native_writes: _,
+            native_cpu_accesses: _,
+            native_ram_writes: _,
+            hybrid_cpu_accesses: _,
+            hybrid_exception_boundaries: _,
+            hybrid_dma_all_sources: _,
+            hybrid_functional: _,
+            hybrid_functional_violation: _,
+        } = self;
+        let PendingWrites { byte, word } = pending_writes;
+        let Z80Signals { busreq, reset } = z80_signals;
+        let CycleCounters {
+            m68k_divider: _,
+            m68k_divider_u32: _,
+            max_wait_cpu_cycles: _,
+            m68k_wait_cpu_cycles,
+            m68k_wait_counter,
+            m68k_mclk_cycles: _,
+            z80_mclk_cycles: _,
+            ym2612_mclk_cycles: _,
+            last_ym2612_drain_mclk: _,
+            psg_mclk_cycles: _,
+            m68k_refresh_counter,
+            vdp_owns_bus,
+            z80_halt,
+        } = cycles;
+        HybridBusCheckpoint {
+            pending_byte_writes: byte.len(),
+            pending_word_writes: word.len(),
+            m68k_wait_cpu_cycles: *m68k_wait_cpu_cycles,
+            m68k_wait_counter: *m68k_wait_counter,
+            m68k_refresh_counter: *m68k_refresh_counter,
+            vdp_owns_bus: *vdp_owns_bus,
+            z80_halt: *z80_halt,
+            m68k_reset: *m68k_reset,
+            z80_bus_requested: *busreq,
+            z80_reset: *reset,
+            interrupt_level: m68000_emu::BusInterface::interrupt_level(self),
+            cpu_halt: m68000_emu::BusInterface::halt(self),
+        }
+    }
+
     pub fn new(
         timing_mode: TimingMode,
         cartridge: Option<Cartridge>,
@@ -1098,5 +1179,58 @@ impl z80_emu::BusInterface for GenesisBus {
     #[inline]
     fn reset(&self) -> bool {
         self.z80_signals.reset
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    #[test]
+    fn pending_and_stall_checkpoint_never_flushes_or_changes_any_state() {
+        let mut bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
+        bus.pending_writes.byte.push((0xff1001, 0xab));
+        bus.pending_writes.word.push((0xff1002, 0xcdef));
+        bus.cycles.m68k_wait_cpu_cycles = 333;
+        bus.cycles.m68k_wait_counter = 9;
+        bus.cycles.m68k_refresh_counter = 107;
+        bus.cycles.vdp_owns_bus = true;
+        bus.cycles.z80_halt = true;
+        bus.m68k_reset = false;
+        bus.z80_signals = Z80Signals { busreq: true, reset: false };
+        bus.hybrid_accesses = Some(Vec::new());
+        bus.hybrid_cpu_accesses = Some(Vec::new());
+        let before = bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap();
+        for _ in 0..8 {
+            let checkpoint = bus.hybrid_checkpoint();
+            assert_eq!(checkpoint.pending_byte_writes, 1);
+            assert_eq!(checkpoint.pending_word_writes, 1);
+            assert_eq!(checkpoint.m68k_wait_cpu_cycles, 333);
+            assert_eq!(checkpoint.m68k_wait_counter, 9);
+            assert_eq!(checkpoint.m68k_refresh_counter, 107);
+            assert!(checkpoint.vdp_owns_bus);
+            assert!(checkpoint.z80_halt);
+            assert!(!checkpoint.m68k_reset);
+            assert!(checkpoint.z80_bus_requested);
+            assert!(!checkpoint.z80_reset);
+            assert_eq!(checkpoint.interrupt_level, m68000_emu::BusInterface::interrupt_level(&bus));
+            assert_eq!(checkpoint.cpu_halt, m68000_emu::BusInterface::halt(&bus));
+        }
+        assert_eq!(bus.memory.read_main_ram::<true>(0xff1002), 0);
+        assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
+    }
+
+    #[test]
+    fn checkpoint_reports_real_memory_dma_halt_without_completing_it() {
+        let mut bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
+        for value in [0x8114, 0x9301, 0x9400, 0x9500, 0x9600, 0x977f, 0x4000, 0x0080] {
+            bus.vdp.write_control(value);
+        }
+        assert!(bus.vdp.timing_dma_active());
+        let before = bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap();
+        for _ in 0..8 {
+            assert!(bus.hybrid_checkpoint().cpu_halt);
+        }
+        assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
     }
 }

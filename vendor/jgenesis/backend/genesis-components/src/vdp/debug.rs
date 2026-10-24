@@ -16,6 +16,22 @@ use std::ops::Range;
 pub const HYBRID_VDP_DIFFERENCE_LIMIT: usize = 16;
 const HYBRID_VDP_VALUE_LIMIT: usize = 256;
 
+/// Passive checkpoint scalars. Reading these never acknowledges an interrupt,
+/// resets a command latch, completes a FIFO entry or advances the VDP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HybridVdpCheckpoint {
+    pub fifo_len: u8,
+    pub pending_fifo_writes: usize,
+    /// DATA/CONTROL writes deferred by a running memory DMA, not FIFO entries.
+    pub pending_dma_port_writes: usize,
+    pub dma_active: bool,
+    /// Remaining source-read-slot attempts, not master clocks. The hardware
+    /// model decrements this before its FIFO-full and refresh-slot checks.
+    pub dma_latency_slots: u8,
+    pub data_port_read_wait: bool,
+    pub control_word_pending: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct VdpDifferenceLocation {
     pub component: &'static str,
@@ -708,4 +724,65 @@ fn parse_gen_color(gen_color: u16, modifier: ColorModifier, tables: &ColorTables
     let g = ((gen_color >> 5) & 0x07) as u8;
     let b = ((gen_color >> 9) & 0x07) as u8;
     colors::gen_to_rgba(r, g, b, 255, modifier, tables)
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use crate::GenesisEmulatorConfigExt;
+    use genesis_config::GenesisEmulatorConfig;
+    use jgenesis_common::frontend::TimingMode;
+
+    fn vdp() -> Vdp {
+        Vdp::new(TimingMode::Ntsc, GenesisEmulatorConfig::default().to_vdp_config(false))
+    }
+
+    #[test]
+    fn quiet_checkpoint_is_scalar_and_does_not_change_encoded_state() {
+        let vdp = vdp();
+        let before = bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap();
+        for _ in 0..8 {
+            assert_eq!(
+                vdp.hybrid_checkpoint(),
+                HybridVdpCheckpoint {
+                    fifo_len: 0,
+                    pending_fifo_writes: 0,
+                    pending_dma_port_writes: 0,
+                    dma_active: false,
+                    dma_latency_slots: 0,
+                    data_port_read_wait: false,
+                    control_word_pending: false,
+                }
+            );
+        }
+        assert_eq!(before, bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap());
+    }
+
+    #[test]
+    fn busy_checkpoint_keeps_fifo_read_wait_dma_and_half_command_unchanged() {
+        let mut vdp = vdp();
+        vdp.write_control(0x4000);
+        vdp.write_control(0);
+        for value in 0..5 {
+            vdp.write_data(value);
+        }
+        vdp.write_control(0x4000);
+        vdp.control_port.dma_active = true;
+        vdp.dma_latency = 7;
+        vdp.state.data_port_read_wait = true;
+        vdp.state.pending_writes.push(vdp::PendingWrite::Control(0x8104));
+        vdp.state.pending_writes.push(vdp::PendingWrite::Data(0x1234));
+        let before = bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap();
+        for _ in 0..8 {
+            let checkpoint = vdp.hybrid_checkpoint();
+            assert_eq!(checkpoint.fifo_len, 4);
+            assert_eq!(checkpoint.pending_fifo_writes, 1);
+            assert_eq!(checkpoint.pending_dma_port_writes, 2);
+            assert!(checkpoint.dma_active);
+            assert_eq!(checkpoint.dma_latency_slots, 7);
+            assert!(checkpoint.data_port_read_wait);
+            assert!(checkpoint.control_word_pending);
+        }
+        assert_eq!(before, bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap());
+    }
 }
