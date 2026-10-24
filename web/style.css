@@ -9,7 +9,7 @@ section, details { margin-block: 1rem; }
 #drop-zone label { display: block; font-weight: 650; margin-bottom: .5rem; }
 #screen { position: relative; overflow: hidden; background: #000; width: 100%; aspect-ratio: 10 / 7; }
 canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; outline-offset: -2px; }
-canvas.linear-filter { image-rendering: auto; }
+canvas.smooth-filter { image-rendering: auto; }
 #screen:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; }
 .toolbar { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; margin-top: .8rem; }
 button, select, input::file-selector-button { font: inherit; border: 1px solid #60738c; border-radius: .25rem; padding: .35rem .6rem; background: #233245; color: #eef3fa; cursor: pointer; }

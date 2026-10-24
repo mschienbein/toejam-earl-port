@@ -1,0 +1,3664 @@
+{
+  "version": 1,
+  "policy": {
+    "native_par": {
+      "h32": "8/7",
+      "h40": "32/35",
+      "doubled_height": "multiply PAR by 2 when source height >= 448"
+    },
+    "integer": "largest integer source-line factor fitting corrected width and source height; below 1 use fit",
+    "fit": "min(target width / corrected source width, target height / source height)",
+    "rounding": "f64 intermediate math, fractional extent, floor centered origins, f32 only at GPU boundary",
+    "tolerance": 0.0001
+  },
+  "vectors": [
+    {
+      "name": "256x224-native-integer-small",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "256x224-native-integer-source-sized",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        14,
+        256.0,
+        196.0
+      ]
+    },
+    {
+      "name": "256x224-native-integer-window",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        61,
+        64,
+        877.7142857142857,
+        672.0
+      ]
+    },
+    {
+      "name": "256x224-native-integer-large",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        603,
+        72,
+        2633.1428571428573,
+        2016.0
+      ]
+    },
+    {
+      "name": "256x224-native-integer-odd",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        56,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "256x224-native-integer-exact",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        2048,
+        1568
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        2048,
+        1568
+      ]
+    },
+    {
+      "name": "256x224-native-fit-small",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "256x224-native-fit-source-sized",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        14,
+        256.0,
+        196.0
+      ]
+    },
+    {
+      "name": "256x224-native-fit-window",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        17,
+        1000.0,
+        765.625
+      ]
+    },
+    {
+      "name": "256x224-native-fit-large",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        509,
+        0,
+        2821.2244897959185,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x224-native-fit-odd",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        34,
+        0,
+        732.734693877551,
+        561.0
+      ]
+    },
+    {
+      "name": "256x224-native-fit-exact",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        2048,
+        1568
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        2048,
+        1568
+      ]
+    },
+    {
+      "name": "256x224-square-integer-small",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        22,
+        0,
+        114.28571428571429,
+        100.0
+      ]
+    },
+    {
+      "name": "256x224-square-integer-source-sized",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256.0,
+        224.0
+      ]
+    },
+    {
+      "name": "256x224-square-integer-window",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        116,
+        64,
+        768.0,
+        672.0
+      ]
+    },
+    {
+      "name": "256x224-square-integer-large",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        768,
+        72,
+        2304.0,
+        2016.0
+      ]
+    },
+    {
+      "name": "256x224-square-integer-odd",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        144,
+        56,
+        512.0,
+        448.0
+      ]
+    },
+    {
+      "name": "256x224-square-integer-exact",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256,
+        224
+      ]
+    },
+    {
+      "name": "256x224-square-fit-small",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        22,
+        0,
+        114.28571428571429,
+        100.0
+      ]
+    },
+    {
+      "name": "256x224-square-fit-source-sized",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256.0,
+        224.0
+      ]
+    },
+    {
+      "name": "256x224-square-fit-window",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        42,
+        0,
+        914.2857142857143,
+        800.0
+      ]
+    },
+    {
+      "name": "256x224-square-fit-large",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        685,
+        0,
+        2468.5714285714284,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x224-square-fit-odd",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        79,
+        0,
+        641.1428571428571,
+        561.0
+      ]
+    },
+    {
+      "name": "256x224-square-fit-exact",
+      "source": [
+        256,
+        224
+      ],
+      "target": [
+        256,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256,
+        224
+      ]
+    },
+    {
+      "name": "320x224-native-integer-small",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "320x224-native-integer-source-sized",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        13,
+        0,
+        292.57142857142856,
+        224.0
+      ]
+    },
+    {
+      "name": "320x224-native-integer-window",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        61,
+        64,
+        877.7142857142857,
+        672.0
+      ]
+    },
+    {
+      "name": "320x224-native-integer-large",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        603,
+        72,
+        2633.1428571428573,
+        2016.0
+      ]
+    },
+    {
+      "name": "320x224-native-integer-odd",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        56,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "320x224-native-integer-exact",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        10240,
+        7840
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        10240,
+        7840
+      ]
+    },
+    {
+      "name": "320x224-native-fit-small",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "320x224-native-fit-source-sized",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        13,
+        0,
+        292.57142857142856,
+        224.0
+      ]
+    },
+    {
+      "name": "320x224-native-fit-window",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        17,
+        1000.0,
+        765.625
+      ]
+    },
+    {
+      "name": "320x224-native-fit-large",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        509,
+        0,
+        2821.2244897959185,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x224-native-fit-odd",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        34,
+        0,
+        732.734693877551,
+        561.0
+      ]
+    },
+    {
+      "name": "320x224-native-fit-exact",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        10240,
+        7840
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        10240,
+        7840
+      ]
+    },
+    {
+      "name": "320x224-square-integer-small",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        8,
+        0,
+        142.85714285714286,
+        100.0
+      ]
+    },
+    {
+      "name": "320x224-square-integer-source-sized",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320.0,
+        224.0
+      ]
+    },
+    {
+      "name": "320x224-square-integer-window",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        20,
+        64,
+        960.0,
+        672.0
+      ]
+    },
+    {
+      "name": "320x224-square-integer-large",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        480,
+        72,
+        2880.0,
+        2016.0
+      ]
+    },
+    {
+      "name": "320x224-square-integer-odd",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        80,
+        56,
+        640.0,
+        448.0
+      ]
+    },
+    {
+      "name": "320x224-square-integer-exact",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320,
+        224
+      ]
+    },
+    {
+      "name": "320x224-square-fit-small",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        8,
+        0,
+        142.85714285714286,
+        100.0
+      ]
+    },
+    {
+      "name": "320x224-square-fit-source-sized",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320.0,
+        224.0
+      ]
+    },
+    {
+      "name": "320x224-square-fit-window",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        50,
+        1000.0,
+        700.0
+      ]
+    },
+    {
+      "name": "320x224-square-fit-large",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        377,
+        0,
+        3085.714285714286,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x224-square-fit-odd",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        801.0,
+        560.7
+      ]
+    },
+    {
+      "name": "320x224-square-fit-exact",
+      "source": [
+        320,
+        224
+      ],
+      "target": [
+        320,
+        224
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320,
+        224
+      ]
+    },
+    {
+      "name": "256x448-native-integer-small",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "256x448-native-integer-source-sized",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        126,
+        256.0,
+        196.0
+      ]
+    },
+    {
+      "name": "256x448-native-integer-window",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        207,
+        176,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-native-integer-large",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        749,
+        184,
+        2340.5714285714284,
+        1792.0
+      ]
+    },
+    {
+      "name": "256x448-native-integer-odd",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        56,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-native-integer-exact",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        4096,
+        3136
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        4096,
+        3136
+      ]
+    },
+    {
+      "name": "256x448-native-fit-small",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "256x448-native-fit-source-sized",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        126,
+        256.0,
+        196.0
+      ]
+    },
+    {
+      "name": "256x448-native-fit-window",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        17,
+        1000.0,
+        765.625
+      ]
+    },
+    {
+      "name": "256x448-native-fit-large",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        509,
+        0,
+        2821.2244897959185,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x448-native-fit-odd",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        34,
+        0,
+        732.734693877551,
+        561.0
+      ]
+    },
+    {
+      "name": "256x448-native-fit-exact",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        4096,
+        3136
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        4096,
+        3136
+      ]
+    },
+    {
+      "name": "256x448-square-integer-small",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        51,
+        0,
+        57.142857142857146,
+        100.0
+      ]
+    },
+    {
+      "name": "256x448-square-integer-source-sized",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256.0,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-square-integer-window",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        372,
+        176,
+        256.0,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-square-integer-large",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        1408,
+        184,
+        1024.0,
+        1792.0
+      ]
+    },
+    {
+      "name": "256x448-square-integer-odd",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        272,
+        56,
+        256.0,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-square-integer-exact",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256,
+        448
+      ]
+    },
+    {
+      "name": "256x448-square-fit-small",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        51,
+        0,
+        57.142857142857146,
+        100.0
+      ]
+    },
+    {
+      "name": "256x448-square-fit-source-sized",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256.0,
+        448.0
+      ]
+    },
+    {
+      "name": "256x448-square-fit-window",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        271,
+        0,
+        457.14285714285717,
+        800.0
+      ]
+    },
+    {
+      "name": "256x448-square-fit-large",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        1302,
+        0,
+        1234.2857142857142,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x448-square-fit-odd",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        240,
+        0,
+        320.57142857142856,
+        561.0
+      ]
+    },
+    {
+      "name": "256x448-square-fit-exact",
+      "source": [
+        256,
+        448
+      ],
+      "target": [
+        256,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256,
+        448
+      ]
+    },
+    {
+      "name": "320x448-native-integer-small",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "320x448-native-integer-source-sized",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        101,
+        320.0,
+        245.0
+      ]
+    },
+    {
+      "name": "320x448-native-integer-window",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        207,
+        176,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-native-integer-large",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        749,
+        184,
+        2340.5714285714284,
+        1792.0
+      ]
+    },
+    {
+      "name": "320x448-native-integer-odd",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        56,
+        585.1428571428571,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-native-integer-exact",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        20480,
+        15680
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        20480,
+        15680
+      ]
+    },
+    {
+      "name": "320x448-native-fit-small",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        14,
+        0,
+        130.6122448979592,
+        100.0
+      ]
+    },
+    {
+      "name": "320x448-native-fit-source-sized",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        101,
+        320.0,
+        245.0
+      ]
+    },
+    {
+      "name": "320x448-native-fit-window",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        17,
+        1000.0,
+        765.625
+      ]
+    },
+    {
+      "name": "320x448-native-fit-large",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        509,
+        0,
+        2821.2244897959185,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x448-native-fit-odd",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        34,
+        0,
+        732.734693877551,
+        561.0
+      ]
+    },
+    {
+      "name": "320x448-native-fit-exact",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        20480,
+        15680
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        20480,
+        15680
+      ]
+    },
+    {
+      "name": "320x448-square-integer-small",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        44,
+        0,
+        71.42857142857143,
+        100.0
+      ]
+    },
+    {
+      "name": "320x448-square-integer-source-sized",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320.0,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-square-integer-window",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        340,
+        176,
+        320.0,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-square-integer-large",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        1280,
+        184,
+        1280.0,
+        1792.0
+      ]
+    },
+    {
+      "name": "320x448-square-integer-odd",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        240,
+        56,
+        320.0,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-square-integer-exact",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320,
+        448
+      ]
+    },
+    {
+      "name": "320x448-square-fit-small",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        44,
+        0,
+        71.42857142857143,
+        100.0
+      ]
+    },
+    {
+      "name": "320x448-square-fit-source-sized",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320.0,
+        448.0
+      ]
+    },
+    {
+      "name": "320x448-square-fit-window",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        214,
+        0,
+        571.4285714285714,
+        800.0
+      ]
+    },
+    {
+      "name": "320x448-square-fit-large",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        1148,
+        0,
+        1542.857142857143,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x448-square-fit-odd",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        200,
+        0,
+        400.7142857142857,
+        561.0
+      ]
+    },
+    {
+      "name": "320x448-square-fit-exact",
+      "source": [
+        320,
+        448
+      ],
+      "target": [
+        320,
+        448
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320,
+        448
+      ]
+    },
+    {
+      "name": "256x240-native-integer-small",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "256x240-native-integer-source-sized",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        15,
+        256.0,
+        210.0
+      ]
+    },
+    {
+      "name": "256x240-native-integer-window",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        61,
+        40,
+        877.7142857142857,
+        720.0
+      ]
+    },
+    {
+      "name": "256x240-native-integer-large",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x240-native-integer-odd",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        40,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "256x240-native-integer-exact",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        2048,
+        1680
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        2048,
+        1680
+      ]
+    },
+    {
+      "name": "256x240-native-fit-small",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "256x240-native-fit-source-sized",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        15,
+        256.0,
+        210.0
+      ]
+    },
+    {
+      "name": "256x240-native-fit-window",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        12,
+        0,
+        975.2380952380952,
+        800.0
+      ]
+    },
+    {
+      "name": "256x240-native-fit-large",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x240-native-fit-odd",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        58,
+        0,
+        683.8857142857142,
+        561.0
+      ]
+    },
+    {
+      "name": "256x240-native-fit-exact",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        2048,
+        1680
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        2048,
+        1680
+      ]
+    },
+    {
+      "name": "256x240-square-integer-small",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        26,
+        0,
+        106.66666666666667,
+        100.0
+      ]
+    },
+    {
+      "name": "256x240-square-integer-source-sized",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256.0,
+        240.0
+      ]
+    },
+    {
+      "name": "256x240-square-integer-window",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        116,
+        40,
+        768.0,
+        720.0
+      ]
+    },
+    {
+      "name": "256x240-square-integer-large",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        768,
+        0,
+        2304.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x240-square-integer-odd",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        144,
+        40,
+        512.0,
+        480.0
+      ]
+    },
+    {
+      "name": "256x240-square-integer-exact",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256,
+        240
+      ]
+    },
+    {
+      "name": "256x240-square-fit-small",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        26,
+        0,
+        106.66666666666667,
+        100.0
+      ]
+    },
+    {
+      "name": "256x240-square-fit-source-sized",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256.0,
+        240.0
+      ]
+    },
+    {
+      "name": "256x240-square-fit-window",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        73,
+        0,
+        853.3333333333334,
+        800.0
+      ]
+    },
+    {
+      "name": "256x240-square-fit-large",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        768,
+        0,
+        2304.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x240-square-fit-odd",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        101,
+        0,
+        598.4,
+        561.0
+      ]
+    },
+    {
+      "name": "256x240-square-fit-exact",
+      "source": [
+        256,
+        240
+      ],
+      "target": [
+        256,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256,
+        240
+      ]
+    },
+    {
+      "name": "320x240-native-integer-small",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "320x240-native-integer-source-sized",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        13,
+        0,
+        292.57142857142856,
+        240.0
+      ]
+    },
+    {
+      "name": "320x240-native-integer-window",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        61,
+        40,
+        877.7142857142857,
+        720.0
+      ]
+    },
+    {
+      "name": "320x240-native-integer-large",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x240-native-integer-odd",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        40,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "320x240-native-integer-exact",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        10240,
+        8400
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        10240,
+        8400
+      ]
+    },
+    {
+      "name": "320x240-native-fit-small",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "320x240-native-fit-source-sized",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        13,
+        0,
+        292.57142857142856,
+        240.0
+      ]
+    },
+    {
+      "name": "320x240-native-fit-window",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        12,
+        0,
+        975.2380952380952,
+        800.0
+      ]
+    },
+    {
+      "name": "320x240-native-fit-large",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x240-native-fit-odd",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        58,
+        0,
+        683.8857142857142,
+        561.0
+      ]
+    },
+    {
+      "name": "320x240-native-fit-exact",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        10240,
+        8400
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        10240,
+        8400
+      ]
+    },
+    {
+      "name": "320x240-square-integer-small",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        13,
+        0,
+        133.33333333333334,
+        100.0
+      ]
+    },
+    {
+      "name": "320x240-square-integer-source-sized",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320.0,
+        240.0
+      ]
+    },
+    {
+      "name": "320x240-square-integer-window",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        20,
+        40,
+        960.0,
+        720.0
+      ]
+    },
+    {
+      "name": "320x240-square-integer-large",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        480,
+        0,
+        2880.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x240-square-integer-odd",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        80,
+        40,
+        640.0,
+        480.0
+      ]
+    },
+    {
+      "name": "320x240-square-integer-exact",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320,
+        240
+      ]
+    },
+    {
+      "name": "320x240-square-fit-small",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        13,
+        0,
+        133.33333333333334,
+        100.0
+      ]
+    },
+    {
+      "name": "320x240-square-fit-source-sized",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320.0,
+        240.0
+      ]
+    },
+    {
+      "name": "320x240-square-fit-window",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        25,
+        1000.0,
+        750.0
+      ]
+    },
+    {
+      "name": "320x240-square-fit-large",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        480,
+        0,
+        2880.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x240-square-fit-odd",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        26,
+        0,
+        748.0,
+        561.0
+      ]
+    },
+    {
+      "name": "320x240-square-fit-exact",
+      "source": [
+        320,
+        240
+      ],
+      "target": [
+        320,
+        240
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320,
+        240
+      ]
+    },
+    {
+      "name": "256x480-native-integer-small",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "256x480-native-integer-source-sized",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        135,
+        256.0,
+        210.0
+      ]
+    },
+    {
+      "name": "256x480-native-integer-window",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        207,
+        160,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-native-integer-large",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        749,
+        120,
+        2340.5714285714284,
+        1920.0
+      ]
+    },
+    {
+      "name": "256x480-native-integer-odd",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        40,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-native-integer-exact",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        4096,
+        3360
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        4096,
+        3360
+      ]
+    },
+    {
+      "name": "256x480-native-fit-small",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "256x480-native-fit-source-sized",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        135,
+        256.0,
+        210.0
+      ]
+    },
+    {
+      "name": "256x480-native-fit-window",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        12,
+        0,
+        975.2380952380952,
+        800.0
+      ]
+    },
+    {
+      "name": "256x480-native-fit-large",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x480-native-fit-odd",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        58,
+        0,
+        683.8857142857142,
+        561.0
+      ]
+    },
+    {
+      "name": "256x480-native-fit-exact",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        4096,
+        3360
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        4096,
+        3360
+      ]
+    },
+    {
+      "name": "256x480-square-integer-small",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        53,
+        0,
+        53.333333333333336,
+        100.0
+      ]
+    },
+    {
+      "name": "256x480-square-integer-source-sized",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256.0,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-square-integer-window",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        372,
+        160,
+        256.0,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-square-integer-large",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        1408,
+        120,
+        1024.0,
+        1920.0
+      ]
+    },
+    {
+      "name": "256x480-square-integer-odd",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        272,
+        40,
+        256.0,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-square-integer-exact",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        256,
+        480
+      ]
+    },
+    {
+      "name": "256x480-square-fit-small",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        53,
+        0,
+        53.333333333333336,
+        100.0
+      ]
+    },
+    {
+      "name": "256x480-square-fit-source-sized",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256.0,
+        480.0
+      ]
+    },
+    {
+      "name": "256x480-square-fit-window",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        286,
+        0,
+        426.6666666666667,
+        800.0
+      ]
+    },
+    {
+      "name": "256x480-square-fit-large",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        1344,
+        0,
+        1152.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "256x480-square-fit-odd",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        250,
+        0,
+        299.2,
+        561.0
+      ]
+    },
+    {
+      "name": "256x480-square-fit-exact",
+      "source": [
+        256,
+        480
+      ],
+      "target": [
+        256,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        256,
+        480
+      ]
+    },
+    {
+      "name": "320x480-native-integer-small",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "320x480-native-integer-source-sized",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        108,
+        320.0,
+        262.5
+      ]
+    },
+    {
+      "name": "320x480-native-integer-window",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        207,
+        160,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-native-integer-large",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        749,
+        120,
+        2340.5714285714284,
+        1920.0
+      ]
+    },
+    {
+      "name": "320x480-native-integer-odd",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        107,
+        40,
+        585.1428571428571,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-native-integer-exact",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        20480,
+        16800
+      ],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        20480,
+        16800
+      ]
+    },
+    {
+      "name": "320x480-native-fit-small",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        19,
+        0,
+        121.9047619047619,
+        100.0
+      ]
+    },
+    {
+      "name": "320x480-native-fit-source-sized",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        108,
+        320.0,
+        262.5
+      ]
+    },
+    {
+      "name": "320x480-native-fit-window",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        12,
+        0,
+        975.2380952380952,
+        800.0
+      ]
+    },
+    {
+      "name": "320x480-native-fit-large",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        603,
+        0,
+        2633.1428571428573,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x480-native-fit-odd",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        58,
+        0,
+        683.8857142857142,
+        561.0
+      ]
+    },
+    {
+      "name": "320x480-native-fit-exact",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        20480,
+        16800
+      ],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        20480,
+        16800
+      ]
+    },
+    {
+      "name": "320x480-square-integer-small",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        46,
+        0,
+        66.66666666666667,
+        100.0
+      ]
+    },
+    {
+      "name": "320x480-square-integer-source-sized",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320.0,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-square-integer-window",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        340,
+        160,
+        320.0,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-square-integer-large",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        1280,
+        120,
+        1280.0,
+        1920.0
+      ]
+    },
+    {
+      "name": "320x480-square-integer-odd",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        240,
+        40,
+        320.0,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-square-integer-exact",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "integer",
+      "expected": [
+        0,
+        0,
+        320,
+        480
+      ]
+    },
+    {
+      "name": "320x480-square-fit-small",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        160,
+        100
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        46,
+        0,
+        66.66666666666667,
+        100.0
+      ]
+    },
+    {
+      "name": "320x480-square-fit-source-sized",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320.0,
+        480.0
+      ]
+    },
+    {
+      "name": "320x480-square-fit-window",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        1000,
+        800
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        233,
+        0,
+        533.3333333333334,
+        800.0
+      ]
+    },
+    {
+      "name": "320x480-square-fit-large",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        1200,
+        0,
+        1440.0,
+        2160.0
+      ]
+    },
+    {
+      "name": "320x480-square-fit-odd",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        801,
+        561
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        213,
+        0,
+        374.0,
+        561.0
+      ]
+    },
+    {
+      "name": "320x480-square-fit-exact",
+      "source": [
+        320,
+        480
+      ],
+      "target": [
+        320,
+        480
+      ],
+      "pixel_shape": "square",
+      "scale": "fit",
+      "expected": [
+        0,
+        0,
+        320,
+        480
+      ]
+    }
+  ]
+}

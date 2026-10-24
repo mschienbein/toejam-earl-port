@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startServer } from './serve.mjs';
-import { installUxFixtures, verifyEmptyUx, verifyLoadedUx, verifyRestoredUx } from './verify-ux.mjs';
+import { installUxFixtures, verifyDisplayProfiles, verifyEmptyUx, verifyLoadedUx, verifyRestoredUx } from './verify-ux.mjs';
 
 const rom = process.argv[2] ?? process.env.TJE_REV02_ROM;
 assert(rom, 'Supply a private ROM path; no ROM is shipped with the frontend.');
@@ -50,6 +50,7 @@ async function hold(key, start, duration = 8) {
 
 let result;
 try {
+  const displayProfiles = await verifyDisplayProfiles({ browser, url: `${origin}${basePath}?backend=${backend}`, artifacts, backend, disableWebgpu });
   const response = await page.goto(`${origin}${basePath}?backend=${backend}`);
   assert.equal(response.headers()['cross-origin-opener-policy'], undefined);
   assert.equal(response.headers()['cross-origin-embedder-policy'], undefined);
@@ -168,7 +169,7 @@ try {
   assert.equal((await metrics()).compilation.cacheHit, false, 'Forget must remove the generated engine too, so re-import builds it again');
   assert.deepEqual(errors, []);
   assert(requests.every(request => request.method === 'GET' && request.url.startsWith(origin)), 'ROM/network privacy: only local static GETs are allowed');
-  result = { run: result, cold, reload: reloaded, ux, rememberedRomAndCode: true, corruptStoredRomRecovery: true, evictedCodeCacheRebuilt: true, reset: true, forget: true, dragDrop: true, browser: browser.version(), headed: process.env.TJE_WEB_HEADED === '1', disableWebgpu, errors, requests };
+  result = { run: result, cold, reload: reloaded, displayProfiles, ux, rememberedRomAndCode: true, corruptStoredRomRecovery: true, evictedCodeCacheRebuilt: true, reset: true, forget: true, dragDrop: true, browser: browser.version(), headed: process.env.TJE_WEB_HEADED === '1', disableWebgpu, errors, requests };
   await writeFile(`${artifacts}/${backend}-result.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {

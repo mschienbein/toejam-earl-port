@@ -1,4 +1,4 @@
-import init, { CompiledCartridge, WebGame } from './pkg/tje_web.js';
+import init, { CompiledCartridge, VideoFilter, WebGame } from './pkg/tje_web.js';
 import { AudioStream } from './audio.js';
 import { Inputs } from './input.js';
 import { ControlSettings } from './controls.js';
@@ -7,6 +7,7 @@ import { cartridgeStore, readSettings, saveSettings } from './storage.js';
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
 const settings = settingsState.settings;
+const videoFilters = { sharp: VideoFilter.Sharp, nearest: VideoFilter.Nearest, linear: VideoFilter.Linear };
 const audio = new AudioStream();
 let canvas = $('canvas');
 let game;
@@ -106,6 +107,10 @@ function snapshot() {
 // no test-only stepping path: tests operate the actual controls and device clock.
 Object.defineProperty(window, 'tje', { value: Object.freeze({ get metrics() { return snapshot(); } }) });
 
+function renderVideo() {
+  return game.render(canvas.width, canvas.height, settings.pixelShape === 'native', settings.scale === 'integer', videoFilters[settings.filter]);
+}
+
 function resize() {
   const rect = canvas.getBoundingClientRect();
   const dpr = Math.min(devicePixelRatio || 1, 3);
@@ -114,7 +119,7 @@ function resize() {
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   videoDirty = true;
-  if (loaded && !running) game.render(width, height, settings.scale === 'integer', settings.filter === 'linear');
+  if (loaded && !running) renderVideo();
 }
 
 function frame(now) {
@@ -147,7 +152,7 @@ function frame(now) {
       // memory.buffer is looked up after every step: wasm memory can grow.
       audio.push(new Float32Array(wasm.memory.buffer, game.audio_ptr(), game.audio_len()));
     }
-    if ((steps > 0 || videoDirty) && game.render(canvas.width, canvas.height, settings.scale === 'integer', settings.filter === 'linear')) {
+    if ((steps > 0 || videoDirty) && renderVideo()) {
       presented++;
       videoDirty = false;
     }
@@ -358,12 +363,13 @@ function persistSettings() {
 
 function updateSettings() {
   settings.volume = Number($('volume').value) / 100;
+  settings.pixelShape = $('pixel-shape').value;
   settings.scale = $('scale').value;
   settings.filter = $('filter').value;
   settings.p2 = $('p2').checked;
   $('volume-value').value = `${$('volume').value}%`;
   $('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
-  canvas.classList.toggle('linear-filter', settings.filter === 'linear');
+  canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest');
   audio.setVolume(settings.volume);
   persistSettings();
   resize();
@@ -372,11 +378,12 @@ $('settings-notice').textContent = settingsState.notice;
 $('volume').value = String(settings.volume * 100);
 $('volume-value').value = `${$('volume').value}%`;
 $('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
+$('pixel-shape').value = settings.pixelShape;
 $('scale').value = settings.scale;
 $('filter').value = settings.filter;
 $('p2').checked = settings.p2;
-canvas.classList.toggle('linear-filter', settings.filter === 'linear');
-for (const id of ['volume', 'scale', 'filter', 'p2']) $(id).addEventListener('input', updateSettings);
+canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest');
+for (const id of ['volume', 'pixel-shape', 'scale', 'filter', 'p2']) $(id).addEventListener('input', updateSettings);
 
 let fullscreenReturnFocus;
 function toggleFullscreen() {

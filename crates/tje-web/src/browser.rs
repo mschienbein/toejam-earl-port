@@ -93,6 +93,14 @@ impl CompiledCartridge {
     }
 }
 
+#[wasm_bindgen]
+#[derive(Clone, Copy)]
+pub enum VideoFilter {
+    Sharp = 0,
+    Nearest = 1,
+    Linear = 2,
+}
+
 /// One browser session, with no global emulator or DOM ownership.
 #[wasm_bindgen]
 pub struct WebGame {
@@ -191,15 +199,23 @@ impl WebGame {
         &mut self,
         width: u32,
         height: u32,
+        native_pixels: bool,
         integer_scale: bool,
-        linear_filter: bool,
+        filter: VideoFilter,
     ) -> Result<bool, JsValue> {
         let Some(cartridge) = &self.cartridge else {
             return Ok(false);
         };
         let (pixels, size) = cartridge.engine.frame_buffer();
         self.video
-            .render(pixels, size, width, height, integer_scale, linear_filter)
+            .render(
+                pixels,
+                size,
+                jgenesis_common::frontend::FrameSize { width, height },
+                native_pixels,
+                integer_scale,
+                filter,
+            )
             .map_err(js_error)
     }
 

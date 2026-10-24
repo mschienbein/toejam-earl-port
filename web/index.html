@@ -38,10 +38,16 @@
         <button id="reset" type="button" disabled>Reset</button>
         <button id="fullscreen" type="button" aria-keyshortcuts="F" aria-pressed="false" aria-controls="screen">Fullscreen (F)</button>
         <label for="volume">Volume <input id="volume" type="range" min="0" max="100" value="70" aria-valuetext="70 percent"><output id="volume-value" for="volume">70%</output></label>
-        <label for="scale">Scaling <select id="scale"><option value="integer">Integer pixels</option><option value="fit">Fit</option></select></label>
-        <label for="filter">Filter <select id="filter"><option value="nearest">Nearest pixels</option><option value="linear">Linear / smooth</option></select></label>
+        <label for="pixel-shape">Pixel shape <select id="pixel-shape" aria-describedby="display-help"><option value="native">Native (NTSC)</option><option value="square">Square pixels</option></select></label>
+        <label for="scale">Scaling <select id="scale" aria-describedby="display-help"><option value="integer">Integer</option><option value="fit">Fit (non-integer)</option></select></label>
+        <label for="filter">Filter <select id="filter" aria-describedby="display-help"><option value="sharp">Sharp bilinear</option><option value="nearest">Nearest pixels</option><option value="linear">Linear / smooth</option></select></label>
         <label for="p2"><input id="p2" type="checkbox"> Player 2 keyboard connected</label>
       </div>
+      <p id="display-help" class="small">Native (NTSC) keeps the original display shape; Square pixels keeps the raw framebuffer shape.
+        Integer uses the largest whole vertical line multiple that fits, including Native’s fractional horizontal stretch.
+        Smaller windows fall back to Fit without cropping. Fit fills the available space while preserving the chosen pixel shape.
+        Sharp bilinear keeps pixel interiors crisp and blends stretched edges; nearest and linear remain available.
+        New settings default to Native, Integer and Sharp bilinear. Previously saved display choices are kept.</p>
       <p id="status" role="status" aria-live="polite" aria-atomic="true">Loading WebAssembly and graphics…</p>
       <p id="metrics" class="small"></p>
       <p id="settings-notice" class="small" role="status"></p>

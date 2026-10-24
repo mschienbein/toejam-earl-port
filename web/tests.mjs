@@ -119,12 +119,52 @@ test('legacy settings migrate once without losing volume/scaling/P2 choices', ()
   assert.equal(result.settings.version, SETTINGS_VERSION);
   assert.equal(result.settings.volume, 0.45);
   assert.equal(result.settings.scale, 'fit');
+  assert.equal(result.settings.pixelShape, 'square');
   assert.equal(result.settings.p2, true);
-  assert.equal(result.settings.filter, 'nearest');
+  assert.equal(result.settings.filter, 'sharp');
   assert.match(result.notice, /migrated/);
   assert.equal(storage.getItem('tje-settings-v1'), null);
   assert.equal(JSON.parse(storage.getItem(SETTINGS_KEY)).version, SETTINGS_VERSION);
   assert.equal(readSettings(storage).notice, '');
+});
+
+test('fresh and unset display settings use Native integer with sharp bilinear', () => {
+  for (const value of [null, { version: 2, volume: 0.4 }, { version: SETTINGS_VERSION }]) {
+    const storage = memoryStorage(value ? [[SETTINGS_KEY, JSON.stringify(value)]] : []);
+    const settings = readSettings(storage).settings;
+    assert.equal(settings.pixelShape, 'native');
+    assert.equal(settings.scale, 'integer');
+    assert.equal(settings.filter, 'sharp');
+  }
+});
+
+test('each explicitly stored old display mode and filter retains its shape on migration and reload', () => {
+  for (const version of [undefined, 2]) {
+    for (const scale of ['integer', 'fit']) {
+      for (const filter of ['nearest', 'linear']) {
+        const key = version === undefined ? 'tje-settings-v1' : SETTINGS_KEY;
+        const storage = memoryStorage([[key, JSON.stringify({ version, scale, filter })]]);
+        const first = readSettings(storage).settings;
+        assert.equal(first.pixelShape, 'square');
+        assert.equal(first.scale, scale);
+        assert.equal(first.filter, filter);
+        assert.deepEqual(readSettings(storage).settings, first);
+      }
+    }
+  }
+});
+
+test('all new pixel-shape and scale combinations round-trip independently', () => {
+  for (const pixelShape of ['native', 'square']) {
+    for (const scale of ['integer', 'fit']) {
+      const storage = memoryStorage();
+      saveSettings({ ...defaultSettings(), pixelShape, scale }, storage);
+      const restored = readSettings(storage).settings;
+      assert.equal(restored.pixelShape, pixelShape);
+      assert.equal(restored.scale, scale);
+      assert.equal(restored.filter, 'sharp');
+    }
+  }
 });
 
 test('versioned mappings, filters and device choices persist; malformed/future versions recover without destructive migration', () => {

@@ -8,6 +8,9 @@
 #[cfg(any(target_arch = "wasm32", test))]
 mod input;
 
+#[cfg(any(target_arch = "wasm32", test))]
+mod viewport;
+
 #[cfg(any(feature = "replay-observer", feature = "reference-export"))]
 pub mod observation;
 
@@ -17,4 +20,4 @@ mod browser;
 mod video;
 
 #[cfg(target_arch = "wasm32")]
-pub use browser::{CompiledCartridge, WebGame};
+pub use browser::{CompiledCartridge, VideoFilter, WebGame};

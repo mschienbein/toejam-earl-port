@@ -1,6 +1,6 @@
 //! Native-only controls/settings UI; it consumes no backend-specific state.
 use crate::{
-    config::{Filter, Scale, Settings, Storage},
+    config::{Filter, PixelShape, Scale, Settings, Storage},
     input::{GameButton, Input, PadPress},
 };
 use std::path::PathBuf;
@@ -329,14 +329,37 @@ impl Overlay {
     ) {
         ui.heading("Video");
         ui.horizontal(|ui| {
+            ui.label("Pixel shape");
             actions.settings_changed |= ui
-                .selectable_value(&mut settings.scale, Scale::Integer, "Integer pixels")
+                .selectable_value(
+                    &mut settings.pixel_shape,
+                    PixelShape::Native,
+                    "Native (NTSC)",
+                )
                 .changed();
             actions.settings_changed |= ui
-                .selectable_value(&mut settings.scale, Scale::Fit, "NTSC aspect fit")
+                .selectable_value(
+                    &mut settings.pixel_shape,
+                    PixelShape::Square,
+                    "Square pixels",
+                )
                 .changed();
         });
         ui.horizontal(|ui| {
+            ui.label("Scale mode");
+            actions.settings_changed |= ui
+                .selectable_value(&mut settings.scale, Scale::Integer, "Integer")
+                .changed();
+            actions.settings_changed |= ui
+                .selectable_value(&mut settings.scale, Scale::Fit, "Fit (non-integer)")
+                .changed();
+        });
+        ui.small("Integer keeps whole source-line multiples at the chosen pixel shape; windows too small for 1× use Fit.");
+        ui.horizontal(|ui| {
+            ui.label("Filter");
+            actions.settings_changed |= ui
+                .selectable_value(&mut settings.filter, Filter::Sharp, "Sharp bilinear")
+                .changed();
             actions.settings_changed |= ui
                 .selectable_value(&mut settings.filter, Filter::Nearest, "Nearest")
                 .changed();

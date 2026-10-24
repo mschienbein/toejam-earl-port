@@ -6482,7 +6482,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "f8699e4a645bc2ea2ce64ad5f43f7914419f6de84334d37145f964858a2d7b06",
+  "source_fingerprint": "69072d390bd2cbb078c593f14710aca239c07809ce0c1ac33723c1038ffca96b",
   "targets": [
     "x86_64-unknown-linux-gnu"
   ]

@@ -1,18 +1,24 @@
 import { defaultPlayer, normalizePlayer } from './input.js';
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, scale: 'integer', filter: 'nearest', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
 }
 
 export function normalizeSettings(value) {
   const result = defaultSettings();
   if (Number.isFinite(value?.volume)) result.volume = Math.max(0, Math.min(1, value.volume));
   if (value?.scale === 'fit') result.scale = 'fit';
-  if (value?.filter === 'linear') result.filter = 'linear';
+  if (['native', 'square'].includes(value?.pixelShape)) result.pixelShape = value.pixelShape;
+  else if (value && value.version !== SETTINGS_VERSION && ['integer', 'fit'].includes(value.scale)) {
+    // Both old browser modes used square pixels. Preserve an explicitly saved
+    // choice; an unset mode opts into the new Native + integer default.
+    result.pixelShape = 'square';
+  }
+  if (['sharp', 'nearest', 'linear'].includes(value?.filter)) result.filter = value.filter;
   result.p2 = value?.p2 === true;
   result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
   return result;
@@ -31,7 +37,7 @@ export function readSettings(storage) {
     if (value && (legacy !== null || value.version !== SETTINGS_VERSION)) {
       try {
         saveSettings(settings, storage);
-        return { settings, persistable: true, notice: 'Previous settings migrated; your volume, scaling and player-2 choice were kept.' };
+        return { settings, persistable: true, notice: 'Previous settings migrated; your saved display, volume and control choices were kept.' };
       } catch (error) {
         return { settings, persistable: false, notice: `Previous settings were kept for this visit, but migration could not be saved: ${error.message ?? error}.` };
       }

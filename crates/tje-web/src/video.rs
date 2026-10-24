@@ -1,5 +1,8 @@
 use jgenesis_common::frontend::{Color, FrameSize};
 use web_sys::HtmlCanvasElement;
+use wgpu::util::DeviceExt;
+
+use crate::{VideoFilter, viewport::viewport};
 
 pub struct Video {
     surface: wgpu::Surface<'static>,
@@ -8,7 +11,7 @@ pub struct Video {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     texture: wgpu::Texture,
-    bind_groups: [wgpu::BindGroup; 2],
+    bind_groups: [wgpu::BindGroup; 3],
     size: FrameSize,
     max_dimension: u32,
     backend: &'static str,
@@ -30,8 +33,20 @@ struct VertexOutput {
 }
 @group(0) @binding(0) var image: texture_2d<f32>;
 @group(0) @binding(1) var image_sampler: sampler;
+@group(0) @binding(2) var<uniform> options: vec4<u32>;
 @fragment fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(image, image_sampler, input.uv);
+    var uv = input.uv;
+    if options.x == 0u {
+        // Sharp-bilinear: preserve flat texel interiors, blending only at an
+        // edge's destination-pixel footprint. No intermediate texture/pass.
+        let dimensions = vec2<f32>(textureDimensions(image));
+        let pixel = uv * dimensions;
+        let prescale = max(floor(1.0 / fwidth(pixel) + 0.0001), vec2<f32>(1.0));
+        let region = 0.5 - 0.5 / prescale;
+        let offset = fract(pixel) - 0.5;
+        uv = (floor(pixel) + 0.5 + (offset - clamp(offset, -region, region)) * prescale) / dimensions;
+    }
+    return textureSample(image, image_sampler, uv);
 }
 "#;
 
@@ -142,7 +157,7 @@ impl Video {
         pipeline: &wgpu::RenderPipeline,
         target_format: wgpu::TextureFormat,
         size: FrameSize,
-    ) -> (wgpu::Texture, [wgpu::BindGroup; 2]) {
+    ) -> (wgpu::Texture, [wgpu::BindGroup; 3]) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("VDP RGBA framebuffer"),
             size: wgpu::Extent3d {
@@ -162,10 +177,10 @@ impl Video {
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
-        // Prebuild both choices when the source texture changes. Switching a
+        // Prebuild all choices when the source texture changes. Switching a
         // setting only selects a bind group; no sampler/texture allocation.
         let bind_groups = std::array::from_fn(|index| {
-            let filter = if index == 0 {
+            let filter = if index == VideoFilter::Nearest as usize {
                 wgpu::FilterMode::Nearest
             } else {
                 wgpu::FilterMode::Linear
@@ -175,6 +190,11 @@ impl Video {
                 mag_filter: filter,
                 min_filter: filter,
                 ..Default::default()
+            });
+            let options = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Framebuffer filter mode"),
+                contents: bytemuck::cast_slice(&[index as u32, 0, 0, 0]),
+                usage: wgpu::BufferUsages::UNIFORM,
             });
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Framebuffer and sampler"),
@@ -188,6 +208,10 @@ impl Video {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: options.as_entire_binding(),
+                    },
                 ],
             })
         });
@@ -198,11 +222,12 @@ impl Video {
         &mut self,
         pixels: &[Color],
         size: FrameSize,
-        width: u32,
-        height: u32,
+        target: FrameSize,
+        native_pixels: bool,
         integer_scale: bool,
-        linear_filter: bool,
+        filter: VideoFilter,
     ) -> Result<bool, String> {
+        let FrameSize { width, height } = target;
         if width == 0 || height == 0 {
             return Ok(false);
         }
@@ -265,23 +290,18 @@ impl Video {
                 })],
                 ..Default::default()
             });
-            let mut scale =
-                (width as f32 / size.width as f32).min(height as f32 / size.height as f32);
-            if integer_scale && scale >= 1.0 {
-                scale = scale.floor();
-            }
-            let view_width = size.width as f32 * scale;
-            let view_height = size.height as f32 * scale;
+            let [x, y, view_width, view_height] =
+                viewport(size, width, height, native_pixels, integer_scale);
             pass.set_viewport(
-                ((width as f32 - view_width) * 0.5).floor(),
-                ((height as f32 - view_height) * 0.5).floor(),
-                view_width,
-                view_height,
+                x as f32,
+                y as f32,
+                view_width as f32,
+                view_height as f32,
                 0.0,
                 1.0,
             );
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_groups[usize::from(linear_filter)], &[]);
+            pass.set_bind_group(0, &self.bind_groups[filter as usize], &[]);
             pass.draw(0..3, 0..1);
         }
         self.queue.submit([encoder.finish()]);

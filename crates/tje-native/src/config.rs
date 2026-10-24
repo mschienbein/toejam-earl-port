@@ -10,9 +10,17 @@ use std::{
 };
 use winit::keyboard::KeyCode;
 
-const SETTINGS_VERSION: u32 = 2;
+const SETTINGS_VERSION: u32 = 3;
 fn legacy_version() -> u32 {
     1
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, ValueEnum, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PixelShape {
+    #[default]
+    Native,
+    Square,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, ValueEnum, PartialEq, Eq)]
@@ -27,6 +35,7 @@ pub enum Scale {
 #[serde(rename_all = "lowercase")]
 pub enum Filter {
     #[default]
+    Sharp,
     Nearest,
     Linear,
 }
@@ -86,6 +95,7 @@ pub struct Settings {
     #[serde(default = "legacy_version")]
     pub version: u32,
     pub window_scale: u32,
+    pub pixel_shape: PixelShape,
     pub scale: Scale,
     pub filter: Filter,
     pub fullscreen: bool,
@@ -104,8 +114,9 @@ impl Default for Settings {
         Self {
             version: SETTINGS_VERSION,
             window_scale: 3,
+            pixel_shape: PixelShape::Native,
             scale: Scale::Integer,
-            filter: Filter::Nearest,
+            filter: Filter::Sharp,
             fullscreen: false,
             vsync: true,
             volume: 0.8,
@@ -119,6 +130,23 @@ impl Default for Settings {
 }
 
 impl Settings {
+    fn parse(contents: &str) -> Result<Self> {
+        let table: toml::Table = toml::from_str(contents)?;
+        let explicit_scale = table.contains_key("scale");
+        let explicit_shape = table.contains_key("pixel_shape");
+        let mut settings: Self = toml::Value::Table(table).try_into()?;
+        if settings.version < 3 && explicit_scale && !explicit_shape {
+            // Old Integer used square pixels, whereas old Fit corrected the
+            // NTSC aspect. An absent mode adopts the new Native + Integer default.
+            settings.pixel_shape = match settings.scale {
+                Scale::Integer => PixelShape::Square,
+                Scale::Fit => PixelShape::Native,
+            };
+        }
+        settings.migrate()?;
+        Ok(settings)
+    }
+
     fn migrate(&mut self) -> Result<()> {
         ensure!(
             (1..=SETTINGS_VERSION).contains(&self.version),
@@ -156,6 +184,9 @@ impl Settings {
                 .find(|&key| !occupied(key))
                 .context("no free settings shortcut in legacy configuration")?;
             }
+            self.version = 2;
+        }
+        if self.version == 2 {
             self.version = SETTINGS_VERSION;
         }
         self.validate()
@@ -387,16 +418,15 @@ impl Storage {
         } else {
             &path
         };
-        let mut settings: Settings = match fs::read_to_string(source) {
+        let settings = match fs::read_to_string(source) {
             Ok(contents) => {
-                toml::from_str(&contents).with_context(|| format!("read {}", source.display()))?
+                Settings::parse(&contents).with_context(|| format!("read {}", source.display()))?
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Settings::default());
             }
             Err(error) => return Err(error).with_context(|| format!("read {}", source.display())),
         };
-        settings.migrate()?;
         if source != &path {
             self.save(&settings)?;
             fs::remove_file(source)
@@ -454,6 +484,57 @@ mod tests {
         restored = defaults;
         restored.version = 999;
         assert!(restored.migrate().is_err());
+    }
+
+    #[test]
+    fn display_defaults_and_legacy_explicit_choices_migrate_without_shape_changes() {
+        for version in ["", "version = 1\n", "version = 2\n"] {
+            let unset = Settings::parse(version).unwrap();
+            assert_eq!(unset.version, SETTINGS_VERSION);
+            assert_eq!(unset.pixel_shape, PixelShape::Native);
+            assert_eq!(unset.scale, Scale::Integer);
+            assert_eq!(unset.filter, Filter::Sharp);
+            for (scale, shape) in [
+                (Scale::Integer, PixelShape::Square),
+                (Scale::Fit, PixelShape::Native),
+            ] {
+                for filter in [Filter::Nearest, Filter::Linear] {
+                    let values = format!(
+                        "{version}scale = \"{}\"\nfilter = \"{}\"\n",
+                        if scale == Scale::Integer {
+                            "integer"
+                        } else {
+                            "fit"
+                        },
+                        if filter == Filter::Nearest {
+                            "nearest"
+                        } else {
+                            "linear"
+                        },
+                    );
+                    let migrated = Settings::parse(&values).unwrap();
+                    assert_eq!(migrated.version, SETTINGS_VERSION);
+                    assert_eq!(migrated.pixel_shape, shape);
+                    assert_eq!(migrated.scale, scale);
+                    assert_eq!(migrated.filter, filter);
+                    assert_eq!(
+                        Settings::parse(&toml::to_string(&migrated).unwrap()).unwrap(),
+                        migrated
+                    );
+                }
+            }
+        }
+        for pixel_shape in [PixelShape::Native, PixelShape::Square] {
+            for scale in [Scale::Integer, Scale::Fit] {
+                let settings = Settings {
+                    pixel_shape,
+                    scale,
+                    ..Settings::default()
+                };
+                let restored = Settings::parse(&toml::to_string(&settings).unwrap()).unwrap();
+                assert_eq!(restored, settings);
+            }
+        }
     }
 
     #[test]

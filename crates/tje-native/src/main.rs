@@ -7,7 +7,7 @@ mod video;
 use anyhow::{Context, Result, ensure};
 use audio::Audio;
 use clap::Parser;
-use config::{Filter, Scale, Settings, Storage};
+use config::{Filter, PixelShape, Scale, Settings, Storage};
 use input::{Input, InputScript};
 use loading::Loading;
 use overlay::{Info, Overlay};
@@ -47,8 +47,8 @@ Open Settings in the window (F1) to change keyboard/gamepad bindings, output and
 Keyboard P1: arrows, Z/X/C = A/B/C, Enter = Start.\n\
 Keyboard P2: W/S/A/D, G/H/J = A/B/C, Space = Start.\n\
 Gamepads: D-pad or left stick, west/south/east = A/B/C, Start; connection slots 0/1.\n\
-Hotkeys: Esc pause, F5 hard reset, F11 fullscreen, F6 integer/NTSC fit,\n\
-F7 nearest/linear, F8 vsync, F9 record (hard-resets on start), PageUp/PageDown volume.\n\
+Hotkeys: Esc pause, F5 hard reset, F11 fullscreen, F6 integer/fit,\n\
+F7 sharp-bilinear/nearest/linear, F8 vsync, F9 record (hard-resets on start), PageUp/PageDown volume.\n\
 F1 opens in-app settings; settings pause the game without adding recorded frames.\n\
 Recording stops on F9/reset/import/exit and saves controller-only sessions under user data.\n\
 --replay PATH replays controller sessions through the native engine; F5 restarts, F9 is disabled during replay.\n\
@@ -66,8 +66,13 @@ struct Args {
     /// Forget the remembered cartridge and private compiled cache; keep controls/settings.
     #[arg(long, conflicts_with_all = ["rom", "replay"])]
     forget_rom: bool,
+    /// Pixel shape: original Genesis NTSC aspect (default), or square pixels.
+    #[arg(long, value_enum)]
+    pixel_shape: Option<PixelShape>,
+    /// Largest whole source-line multiple (default), or fit the available area.
     #[arg(long, value_enum)]
     scale: Option<Scale>,
+    /// Sharp bilinear (default), nearest, or linear pixel filtering.
     #[arg(long, value_enum)]
     filter: Option<Filter>,
     #[arg(long)]
@@ -186,6 +191,9 @@ impl App {
                 )),
             ),
         };
+        if let Some(pixel_shape) = args.pixel_shape {
+            settings.pixel_shape = pixel_shape;
+        }
         if let Some(scale) = args.scale {
             settings.scale = scale;
         }
@@ -232,8 +240,13 @@ impl App {
         println!("CONFIG {}", storage.config_directory.display());
         println!("CACHE {}", storage.cache_directory.display());
         println!(
-            "SETTINGS scale={:?} filter={:?} fullscreen={} vsync={} volume={}",
-            settings.scale, settings.filter, settings.fullscreen, settings.vsync, settings.volume
+            "SETTINGS pixel_shape={:?} scale={:?} filter={:?} fullscreen={} vsync={} volume={}",
+            settings.pixel_shape,
+            settings.scale,
+            settings.filter,
+            settings.fullscreen,
+            settings.vsync,
+            settings.volume
         );
         let now = Instant::now();
         let applied = LiveSettings::from(&settings);
@@ -533,7 +546,8 @@ impl App {
         }
         self.applied = next;
         println!(
-            "SETTINGS applied scale={:?} filter={:?} vsync={} fullscreen={} window_scale={} volume={} focus_pause={}",
+            "SETTINGS applied pixel_shape={:?} scale={:?} filter={:?} vsync={} fullscreen={} window_scale={} volume={} focus_pause={}",
+            self.settings.pixel_shape,
             self.settings.scale,
             next.filter,
             next.vsync,
@@ -658,8 +672,9 @@ impl App {
             println!("HOTKEY scale={:?}", self.settings.scale);
         } else if key == hotkeys.filter {
             self.settings.filter = match self.settings.filter {
+                Filter::Sharp => Filter::Nearest,
                 Filter::Nearest => Filter::Linear,
-                Filter::Linear => Filter::Nearest,
+                Filter::Linear => Filter::Sharp,
             };
             println!("HOTKEY filter={:?}", self.settings.filter);
         } else if key == hotkeys.vsync {
@@ -840,6 +855,7 @@ impl App {
             .unwrap_or(now + Duration::from_secs(3600));
         self.video.as_mut().unwrap().present(
             self.window.as_ref().unwrap(),
+            self.settings.pixel_shape,
             self.settings.scale,
             self.backend.is_some(),
             frame,

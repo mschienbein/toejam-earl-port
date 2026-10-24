@@ -48,6 +48,15 @@ uploaded. A downloaded web ZIP must be served on HTTPS or localhost; opening
 `index.html` directly will not work. Its on-page controls list the browser-specific
 bindings.
 
+The browser's **Pixel shape** and **Scaling** controls are independent: choose
+**Native (NTSC)** or **Square pixels**, each with **Integer** or **Fit (non-integer)**.
+New settings use Native plus the largest whole vertical line multiple that fits;
+the horizontal stretch keeps the original NTSC shape. **Sharp bilinear** is the
+default filter, with nearest and linear still available. Previously saved browser
+display choices retain their square-pixel shape, scale mode and explicit filter.
+Press **F** or use the fullscreen button to toggle fullscreen without changing
+these choices.
+
 See [docs/RELEASING.md](docs/RELEASING.md) for runtime dependencies, checksum
 verification, unsigned-package warnings, local native/web builds and the
 maintainer release procedure. Release workflows run only for `v*` tags or an

@@ -32,10 +32,10 @@ used to hide a slow network filesystem.
 then closes Settings. The pause screen also has a Settings button. Settings apply
 immediately and are saved; there is no Apply/restart step.
 
-- **Video / audio:** integer-pixel or NTSC aspect-correct fit, nearest/linear
-  filtering, vsync, fullscreen, logical-pixel window scale, volume, audio output
-  and pause-on-focus-loss. Window dimensions and UI respect OS high-DPI scaling;
-  integer game scaling remains an integer number of physical pixels.
+- **Video / audio:** independent **Pixel shape** and **Scale mode**, sharp-bilinear/
+  nearest/linear filtering, vsync, fullscreen, logical-pixel window scale, volume,
+  audio output and pause-on-focus-loss. Window dimensions and UI respect OS
+  high-DPI scaling; integer game scaling uses whole physical source-line multiples.
 - **Controls:** select either player, enable/disable the controller, choose a pad
   slot or Keyboard only, and set a stick deadzone. Click a keyboard/gamepad binding
   and press the new control; Clear removes that source. Pad captures accept mapped
@@ -55,6 +55,29 @@ immediately and are saved; there is no Apply/restart step.
   game or ending a recording. No-device startup remains playable and displays
   the recovery status. Device-rate changes update the backend resampler and flush
   stale queued sound.
+
+## Pixel shape and scaling
+
+The default is **Native (NTSC) + Integer + Sharp bilinear**. Pixel shape can also
+be **Square pixels**, and either shape supports **Fit (non-integer)**. Native uses
+the Genesis NTSC pixel aspect ratio: H32 (256-wide) is 8/7 and H40 (320-wide) is
+32/35; doubled-height interlace buffers multiply that ratio by two. Square uses
+1:1 pixels, including doubled-height buffers. There is no widescreen/extended view.
+
+Integer chooses the largest whole vertical source-line factor that fits **both**
+the corrected width and source height. The width is that factor × source width ×
+pixel aspect, so horizontal stretching can be fractional without sacrificing crisp
+integer-height scanlines. If even 1× cannot fit, it falls back to Fit, preserving
+the chosen shape without cropping. Fit fills the available area at the same aspect.
+Viewport extents stay fractional; centered offsets are rounded down. Desktop and
+browser tests consume the shared [viewport vectors](tests/data/viewport-vectors.json)
+(H32/H40, 224/240 lines, doubled heights, exact/odd/small/large targets).
+
+Sharp bilinear keeps pixel interiors sharp and blends fractional boundaries without
+nearest-neighbor's uneven horizontal pixel widths. Nearest and Linear remain
+selectable. F6 toggles Integer/Fit **without changing pixel shape**; F7 cycles Sharp
+bilinear → Nearest → Linear. CLI overrides are `--pixel-shape native|square`,
+`--scale integer|fit` and `--filter sharp|nearest|linear`.
 
 Keyboard defaults: P1 arrows, Z/X/C, Enter; P2 W/S/A/D, G/H/J, Space. A/B/C on pads
 are west/south/east, with D-pad/left stick and Start. Hotkeys: Escape pause, F5
@@ -78,7 +101,11 @@ child and is never loaded from the working directory or next to an arbitrary ROM
 Existing
 `config.toml` files in the old data directory migrate only after the new file was
 saved successfully. Version-1 settings preserve controls; version-2 adds UI,
-focus/audio and persistent pad-slot preferences. Unsupported/invalid configuration
+focus/audio and persistent pad-slot preferences. Version 3 separates pixel shape
+from scale: an explicitly stored old Integer choice migrates to Square + Integer;
+old Fit migrates to Native + Fit. An unset mode adopts Native + Integer. Explicit
+Nearest/Linear choices are retained; an unset filter adopts Sharp bilinear.
+Unsupported/invalid configuration
 opens the settings screen with defaults and an error, leaving the original file
 untouched until a deliberate settings change/default reset is saved.
 `--data-dir PATH` isolates data/configuration and a `cache/` child for portable/test runs.

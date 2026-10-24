@@ -2,8 +2,9 @@ use anyhow::{Context, Result, bail};
 use std::sync::Arc;
 use tje_native::{
     backend::VideoFrame,
-    config::{Filter, Scale},
+    config::{Filter, PixelShape, Scale},
 };
+use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
 
 pub struct Video {
@@ -16,6 +17,7 @@ pub struct Video {
     texture: wgpu::Texture,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    filter_uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     ui_renderer: egui_wgpu::Renderer,
     pub presented: u64,
@@ -107,6 +109,16 @@ impl Video {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -144,7 +156,12 @@ impl Video {
         });
         let texture = texture(&device, 320, 224);
         let sampler = sampler(&device, filter);
-        let bind_group = bind_group(&device, &layout, &texture, &sampler);
+        let filter_uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("pixel filter mode"),
+            contents: bytemuck::cast_slice(&filter_flags(filter)),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let bind_group = bind_group(&device, &layout, &texture, &sampler, &filter_uniform);
         let ui_renderer = egui_wgpu::Renderer::new(
             &device,
             config.format,
@@ -160,6 +177,7 @@ impl Video {
             texture,
             layout,
             sampler,
+            filter_uniform,
             bind_group,
             ui_renderer,
             presented: 0,
@@ -190,13 +208,30 @@ impl Video {
 
     pub fn set_filter(&mut self, filter: Filter) {
         self.sampler = sampler(&self.device, filter);
-        self.bind_group = bind_group(&self.device, &self.layout, &self.texture, &self.sampler);
+        self.queue.write_buffer(
+            &self.filter_uniform,
+            0,
+            bytemuck::cast_slice(&filter_flags(filter)),
+        );
+        self.bind_group = bind_group(
+            &self.device,
+            &self.layout,
+            &self.texture,
+            &self.sampler,
+            &self.filter_uniform,
+        );
     }
 
     pub fn upload(&mut self, frame: VideoFrame<'_>) {
         if self.texture.width() != frame.width || self.texture.height() != frame.height {
             self.texture = texture(&self.device, frame.width, frame.height);
-            self.bind_group = bind_group(&self.device, &self.layout, &self.texture, &self.sampler);
+            self.bind_group = bind_group(
+                &self.device,
+                &self.layout,
+                &self.texture,
+                &self.sampler,
+                &self.filter_uniform,
+            );
         }
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -218,6 +253,7 @@ impl Video {
     pub fn present(
         &mut self,
         window: &Window,
+        pixel_shape: PixelShape,
         scale: Scale,
         has_game: bool,
         mut ui: crate::overlay::Frame,
@@ -228,7 +264,7 @@ impl Video {
                     .update_texture(&self.device, &self.queue, *id, delta);
             }
         }
-        let result = self.present_inner(window, scale, has_game, &ui);
+        let result = self.present_inner(window, pixel_shape, scale, has_game, &ui);
         for id in &ui.textures.free {
             self.ui_renderer.free_texture(id);
         }
@@ -239,6 +275,7 @@ impl Video {
     fn present_inner(
         &mut self,
         window: &Window,
+        pixel_shape: PixelShape,
         scale: Scale,
         has_game: bool,
         ui: &crate::overlay::Frame,
@@ -297,9 +334,10 @@ impl Video {
                     self.config.height,
                     self.texture.width(),
                     self.texture.height(),
+                    pixel_shape,
                     scale,
                 );
-                pass.set_viewport(x, y, width, height, 0.0, 1.0);
+                pass.set_viewport(x as f32, y as f32, width as f32, height as f32, 0.0, 1.0);
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.draw(0..3, 0..1);
@@ -351,7 +389,7 @@ fn texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
 fn sampler(device: &wgpu::Device, filter: Filter) -> wgpu::Sampler {
     let filter = match filter {
         Filter::Nearest => wgpu::FilterMode::Nearest,
-        Filter::Linear => wgpu::FilterMode::Linear,
+        Filter::Sharp | Filter::Linear => wgpu::FilterMode::Linear,
     };
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("pixel filter"),
@@ -361,11 +399,16 @@ fn sampler(device: &wgpu::Device, filter: Filter) -> wgpu::Sampler {
     })
 }
 
+fn filter_flags(filter: Filter) -> [u32; 4] {
+    [u32::from(filter == Filter::Sharp), 0, 0, 0]
+}
+
 fn bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     texture: &wgpu::Texture,
     sampler: &wgpu::Sampler,
+    filter_uniform: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("VDP pixels and filter"),
@@ -381,35 +424,44 @@ fn bind_group(
                 binding: 1,
                 resource: wgpu::BindingResource::Sampler(sampler),
             },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: filter_uniform.as_entire_binding(),
+            },
         ],
     })
 }
 
+/// Shared with the browser via tests/data/viewport-vectors.json. Only the GPU
+/// boundary converts to f32, keeping floor/fit decisions deterministic.
 fn viewport(
     window_width: u32,
     window_height: u32,
     width: u32,
     height: u32,
+    pixel_shape: PixelShape,
     scale: Scale,
-) -> [f32; 4] {
-    let ww = window_width as f32;
-    let wh = window_height as f32;
-    let w = width as f32;
-    let h = height as f32;
-    let (display_width, display_height) = match scale {
-        Scale::Integer if ww >= w && wh >= h => {
-            let factor = (ww / w).min(wh / h).floor();
-            (w * factor, h * factor)
+) -> [f64; 4] {
+    let ww = f64::from(window_width);
+    let wh = f64::from(window_height);
+    let w = f64::from(width);
+    let h = f64::from(height);
+    // Genesis NTSC pixel aspect: H32=8/7, H40=32/35. An interlaced
+    // doubled-height buffer needs the corresponding doubled PAR.
+    let par = match pixel_shape {
+        PixelShape::Native => {
+            let normal_par = if width < 300 { 8.0 / 7.0 } else { 32.0 / 35.0 };
+            normal_par * if height >= 448 { 2.0 } else { 1.0 }
         }
-        _ => {
-            // Genesis NTSC pixel aspect: H32=8/7, H40=32/35. An interlaced
-            // doubled-height buffer needs the corresponding doubled PAR.
-            let par = if width < 300 { 8.0 / 7.0 } else { 32.0 / 35.0 }
-                * if height >= 448 { 2.0 } else { 1.0 };
-            let factor = (ww / (w * par)).min(wh / h);
-            (w * par * factor, h * factor)
-        }
+        PixelShape::Square => 1.0,
     };
+    let fit = (ww / (w * par)).min(wh / h);
+    let factor = match scale {
+        Scale::Integer if fit >= 1.0 => fit.floor(),
+        _ => fit,
+    };
+    let display_width = w * par * factor;
+    let display_height = h * factor;
     [
         ((ww - display_width) / 2.0).floor(),
         ((wh - display_height) / 2.0).floor(),
@@ -422,15 +474,51 @@ fn viewport(
 mod tests {
     use super::*;
 
+    #[derive(serde::Deserialize)]
+    struct Vectors {
+        version: u32,
+        vectors: Vec<Vector>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Vector {
+        name: String,
+        source: [u32; 2],
+        target: [u32; 2],
+        pixel_shape: PixelShape,
+        scale: Scale,
+        expected: [f64; 4],
+    }
+
     #[test]
-    fn integer_scaling_and_small_window_fit() {
-        assert_eq!(
-            viewport(1000, 800, 320, 224, Scale::Integer),
-            [20.0, 64.0, 960.0, 672.0]
-        );
-        let [x, y, w, h] = viewport(160, 100, 320, 224, Scale::Integer);
-        assert!(x >= 0.0 && y >= 0.0 && w <= 160.0 && h <= 100.0);
-        let [_, _, w, h] = viewport(1000, 800, 320, 224, Scale::Fit);
-        assert!((w / h - (320.0 * 32.0 / 35.0 / 224.0)).abs() < 0.0001);
+    fn shared_viewport_vectors() {
+        let data: Vectors =
+            serde_json::from_str(include_str!("../tests/data/viewport-vectors.json")).unwrap();
+        assert_eq!(data.version, 1);
+        assert_eq!(data.vectors.len(), 192);
+        for vector in data.vectors {
+            let actual = viewport(
+                vector.target[0],
+                vector.target[1],
+                vector.source[0],
+                vector.source[1],
+                vector.pixel_shape,
+                vector.scale,
+            );
+            for (actual, expected) in actual.into_iter().zip(vector.expected) {
+                assert!(
+                    (actual - expected).abs() < 0.0001,
+                    "{}: {actual} != {expected}",
+                    vector.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_filter_enables_sharp_bilinear_only() {
+        assert_eq!(filter_flags(Filter::default()), [1, 0, 0, 0]);
+        assert_eq!(filter_flags(Filter::Nearest), [0; 4]);
+        assert_eq!(filter_flags(Filter::Linear), [0; 4]);
     }
 }
