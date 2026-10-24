@@ -1201,6 +1201,15 @@ pub struct HybridInstructionCounts {
     pub last_instruction: Option<HybridExecutedInstruction>,
 }
 
+impl HybridInstructionCounts {
+    /// TJE hybrid: a scoped progress observer restores the existing owner's
+    /// pause state without resetting any accumulated instruction counts.
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct HybridExecutedInstruction {

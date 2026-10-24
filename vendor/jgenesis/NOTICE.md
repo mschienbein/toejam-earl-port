@@ -85,6 +85,11 @@ or `TJE native` in code:
 - `cpu/m68000-emu/src/core/instructions/{bits,load}.rs`: mark CLR's read-before-write and memory-to-register MOVEM's terminal read discarded, not semantic stack dependencies; still perform the original reads.
 - `cpu/m68000-emu/src/core.rs` and `core/instructions/controlflow.rs`: observe successfully entered/returned exception frames and accepted vector identities without changing CPU behavior/timing; native RTE finalizers notify the same observer. A rendered frame alone is not a safe fixture-call boundary.
 - `backend/genesis-core/src/bus.rs`: the reviewed zero-count DMA proof can opt into all-source DMA observations, including ROM/open-bus beats, through a default-off flag. The actual read and device effects still occur once; ordinary emulation/checks retain their existing RAM-only observer. The host restores the flag and trace across the entire root on success or error.
+- `cpu/m68000-emu/src/core.rs`: opt-in actual opcode-attempt/exception counters
+  stay outside physical/save-state equality. The read-only pause-state query lets
+  a whole-call ledger temporarily observe real ticks without resetting an existing
+  live observer. A newly installed diagnostic observer remains paused afterward;
+  its presence and counts do not alter architectural state or emulated timing.
 
 Additional `TJE hybrid` check-contract extensions (disabled by default):
 

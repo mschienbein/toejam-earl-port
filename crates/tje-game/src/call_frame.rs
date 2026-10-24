@@ -295,10 +295,9 @@ impl OutgoingArguments {
         } else {
             context.call_original_entry(id, class)
         };
-        let result = match context.check_mmio_contract() {
-            Ok(()) => result,
-            Err(error) => Err(error),
-        };
+        let result = crate::exits::validate_call(id, result.map(Some), context.revision());
+        let result = Error::after_contract_check(result, context.check_mmio_contract())
+            .map(|value| value.expect("exact-stack RTS callee returns its D0"));
         if result
             .as_ref()
             .is_err_and(|error| error.preserves_call_frame())
@@ -369,10 +368,7 @@ pub fn call_at(
     context.check_mmio_contract()?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let result = outgoing.call(context, dispatcher, id, site);
-    let result = match context.check_mmio_contract() {
-        Ok(()) => result,
-        Err(error) => Err(error),
-    };
+    let result = Error::after_contract_check(result, context.check_mmio_contract());
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

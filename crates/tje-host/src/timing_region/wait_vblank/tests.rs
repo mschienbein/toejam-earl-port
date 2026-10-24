@@ -122,6 +122,7 @@ fn capture_with(
         frame: 0,
         inputs: inputs.at(0).unwrap(),
         poller: Some(inputs),
+        ..WaitClock::default()
     };
     let entry = tje_game::ids::WAIT_FOR_NEXT_V_BLANK
         .metadata()

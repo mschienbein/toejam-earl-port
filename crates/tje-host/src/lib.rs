@@ -8,7 +8,9 @@
 //! retain their device effects but are not software data dependencies.
 
 pub mod abi;
+mod call_clock;
 pub mod call_observation;
+pub use call_clock::CallClockRecord;
 pub mod catalogue;
 mod check_failure;
 pub use check_failure::{CheckFailure, CheckFailurePolicy};
@@ -53,6 +55,8 @@ pub enum HostError {
     HookRevisionMismatch { registry: Revision, rom: Revision },
     #[error(transparent)]
     Translation(#[from] tje_game::Error),
+    #[error(transparent)]
+    Clock(#[from] tje_game::execution::CallClockError),
     #[error("invalid metadata: {0}")]
     Metadata(String),
     #[error(
@@ -193,6 +197,8 @@ pub struct CheckReport {
     pub dependent_stack_reads: BTreeSet<StackReadSite>,
     pub dependent_equivalence: BTreeMap<String, dependent_equivalence::DependentEvidence>,
     pub time_aware: BTreeMap<String, check_projection::TimeAwareCheckSummary>,
+    /// Separate baseline/probe completions and failures under the same deadline.
+    pub call_clocks: Vec<CallClockRecord>,
     /// Private raw observations; never export cartridge-derived runtime traces.
     #[serde(skip)]
     pub last_time_aware: Option<check_projection::TimeAwareObservation>,
@@ -508,7 +514,12 @@ impl Host {
         let mut translated = self.fork();
         // The Rust outcome declares the finite original boundary, including
         // propagated resets, exception returns and persistent main-loop stages.
-        let translated_run = self.run_check_side(&mut translated, hook, CheckSide::Rust)?;
+        let translated_run = self.run_check_side(
+            &mut translated,
+            hook,
+            CheckSide::Rust,
+            call_clock::ClockRunPurpose::Baseline,
+        )?;
         let original_side = CheckSide::Original {
             boundary: exits::reference_boundary(
                 hook,
@@ -518,7 +529,12 @@ impl Host {
             )?,
             outcome: translated_run.outcome,
         };
-        let original_run = self.run_check_side(&mut original, hook, original_side)?;
+        let original_run = self.run_check_side(
+            &mut original,
+            hook,
+            original_side,
+            call_clock::ClockRunPurpose::Baseline,
+        )?;
         self.measurements.check_original_wait_frames += original_run.wait_frames;
         self.measurements.check_rust_wait_frames += translated_run.wait_frames;
         self.checks.calls += 1;
@@ -608,21 +624,42 @@ impl Host {
 
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
         let progresses_time = hook.execution_class != ExecutionClass::Atomic;
+        let entry_usage = self.wait_clock.call_clock.usage();
         let mut context = HookContext::new(
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
         );
         if progresses_time {
-            context = context.with_execution(hook.execution_class, self.wait_clock.clone());
+            context =
+                context.with_execution(hook.execution_class, std::mem::take(&mut self.wait_clock));
             context.time_audio = std::mem::take(&mut self.audio.samples);
         }
-        let result = hook.execute(&mut context).and_then(|outcome| {
+        let mut result = hook.execute(&mut context).and_then(|outcome| {
             exits::finish(&mut context, hook, outcome)?;
             Ok(outcome)
         });
         self.checks.nested_original_calls += context.nested_calls;
         if progresses_time {
+            let usage = context.wait_clock.call_clock.usage().since(entry_usage);
+            if let Err(error) = usage
+                && result.is_ok()
+            {
+                result = Err(HostError::Clock(error));
+            }
+            // Replacement/play has no per-call success journal. Only a cold
+            // failure allocates a diagnostic receipt; ledger enforcement stays.
+            if let (Err(error), Ok(usage)) = (&result, usage) {
+                self.checks.call_clocks.push(CallClockRecord::new(
+                    hook.symbol.name,
+                    "Rust",
+                    call_clock::ClockRunPurpose::Replacement,
+                    hook.clock_ceiling,
+                    usage,
+                    (context.cpu().pc(), context.cpu().stack_pointer()),
+                    Some(error.to_string()),
+                ));
+            }
             self.wait_clock = context.wait_clock;
             self.frame = self.wait_clock.frame;
             self.measurements.wait_video_frames += context.time_frames;
@@ -690,12 +727,30 @@ impl Host {
                 run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp, false)?;
             }
             ExecutionClass::TimeAware => {
-                run_original_timed(
+                let mut clock = self.wait_clock.clone();
+                let entry_usage = clock.call_clock.usage();
+                let scope = clock.enter_call_ceiling(hook.symbol.id, hook.clock_ceiling)?;
+                let run = run_original_timed(
                     &mut self.emulator,
-                    &mut self.wait_clock.clone(),
+                    &mut clock,
                     abi::CALL_SENTINEL,
                     cleanup_sp,
-                )?;
+                );
+                let cleanup = clock.leave_call_ceiling(scope);
+                let result = run.and_then(|_| cleanup.map(|_| ()));
+                self.checks.call_clocks.push(CallClockRecord::new(
+                    hook.symbol.name,
+                    "original",
+                    call_clock::ClockRunPurpose::FixtureReplay,
+                    hook.clock_ceiling,
+                    clock.call_clock.usage().since(entry_usage)?,
+                    (
+                        self.emulator.hybrid_cpu().pc(),
+                        self.emulator.hybrid_cpu().stack_pointer(),
+                    ),
+                    result.as_ref().err().map(ToString::to_string),
+                ));
+                result?;
             }
         }
         let (cpu, bus) = self.emulator.hybrid_parts();

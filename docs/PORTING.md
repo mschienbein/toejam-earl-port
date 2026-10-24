@@ -459,6 +459,66 @@ second time. A whole-session timing comparison refuses mismatched video boundari
 if a synchronous replacement has no intermediate snapshots; it never calls that
 partial observation stream a passing timing proof.
 
+### Whole-call operational ceilings
+
+`execution::CallClock` is a diagnostic resource ledger, not a game clock or a
+source-termination proof. It records actual scheduler ticks, reference opcode
+attempts (including faulting attempts), master-clock progress and video frames.
+IRQ recognition and idle pipeline ticks are not counted as executed opcodes;
+the existing CPU observer retains its separate exception and fault counters.
+`dispatch_steps` separately counts actual call-scope and wait-dispatch entries;
+it is never a CPU instruction count or a cycle charge. This last ceiling catches
+zero-time Rust rejection loops which repeatedly call the RNG. It is not general
+Rust preemption: a loop with no dispatch/wait requires its own reviewed finite
+source bound or an explicit work checkpoint.
+
+The generic tick ceiling remains **1,000,000**; its equally finite frame and
+dispatch-step ceilings do not promise one million frames of capacity. Ordinary
+`WaitRequest::max_ticks`, readiness predicates and input/recipe policy are
+unchanged. A request cannot renew its enclosing whole-call deadline.
+This shared ledger installs **no per-function extension** and promotes no pending
+translation. Its one-million-tick limit is an **operational ceiling**, not a bound
+on source execution or a timing charge. Authored diagnostic fixtures may supply an
+explicit primitive ceiling, but production registrations retain the generic one.
+Exhaustion reports **“ceiling exceeded”**, resource kind and FunctionId and fails
+closed. Being inside a ceiling never approves a call: real RTS/return PC/SP (or
+the existing typed exit), live RAM/ABI/SR, ordered effects and every existing
+device comparison must still pass.
+
+Root, nested and both kinds of dependency probe use the same resolved policy.
+A move-only LIFO `CallCeilingScope` tightens absolute deadlines with the minimum
+of parent and nested limits. Leaving restores only limits, not consumption;
+call_at, frame changes, stack-bank changes and original fallback cannot renew
+the root. An exhausted child remains a failure until root rejection, even if a
+caller attempts to hide its error. Original instructions inside an enclosing
+timed runner consume that same root ledger; nested original fallbacks and Rust
+dispatches cannot create fresh root capacity.
+Each required token is also bound to its provider's lazy, non-heap clock identity.
+Moving a provider preserves that identity; cloning a diagnostic fork never grants
+authority over the original's outstanding scopes. Foreign tokens fail before
+restoring any limit. The portable identity counter never wraps or reuses zero;
+exhaustion fails closed.
+
+
+`CheckReport::call_clocks` keeps separate original/Rust baseline, independence,
+dependent-seed/byte and fixture-replay records, including configured ceilings,
+consumed resources, actual exit PC/SP and failures. Replacement/play retains
+**error-only** cold receipts, never a growing per-call success journal. “Completed”
+means execution/scope completion, **not** equivalence approval.
+Missing clock capability fails before a TimeAware body executes. Supported
+frozen Functional proof contexts explicitly provide diagnostic scope support;
+they do not fabricate clock progress. Ordinary earlier MMIO/frame/invalid-exit
+errors retain priority. Fatal cleanup after a valid nonlocal transfer preserves
+its abandoned frame but cannot become an approved typed exit. Nested wrappers
+retain an already-failed transfer's first cause even if a later sticky MMIO
+contract error is still present; fresh transfers still undergo all contract checks.
+
+These are diagnostic ceilings, not production pause timeouts. Exact held-button
+pause loops still require a resumable, cycle-charged per-effect contract.
+`GeneralMenuHandler` remains its ordinary VBlank-paced loop, not a busy-loop
+exception. A larger ceiling cannot waive controller read counts, ISR/device
+interleaving or any other existing mismatch.
+
 ### Exactly what a time-aware check proves
 
 The original runs to return with clocks active. Rust starts from an identical

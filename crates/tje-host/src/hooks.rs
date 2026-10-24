@@ -4,7 +4,7 @@ use crate::{
     catalogue::{FunctionCatalogue, FunctionSymbol},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
-use tje_game::execution::ExecutionClass;
+use tje_game::execution::{CallCeiling, ExecutionClass};
 use tje_game::{
     Context, Dispatcher, FramedTranslation, FunctionId, TranslatedEntry, Translation,
     exits::{self, EntryOutcome, ExitContract},
@@ -43,6 +43,7 @@ pub struct Hook {
     pub(crate) coverage_index: usize,
     body: Body,
     frame_state: Option<(tje_game::call_frame::FrameState, u32)>,
+    pub(crate) clock_ceiling: CallCeiling,
 }
 impl Hook {
     pub(crate) fn dependent_frame_sp(&self, current_sp: u32) -> u32 {
@@ -52,6 +53,27 @@ impl Hook {
 
     pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
         tje_game::Platform::check_mmio_contract(context)?;
+        let ceiling = context.enter_call_ceiling_contract(
+            self.symbol.id,
+            self.execution_class,
+            self.clock_ceiling,
+        )?;
+        let result = self.execute_body(context);
+        let cleanup = context.leave_call_ceiling_contract(ceiling);
+        match result {
+            Ok(EntryOutcome::Transfer(transfer)) => match cleanup {
+                Err(HostError::Clock(error)) => {
+                    Err(tje_game::Error::ClockAfterTransfer { transfer, error }.into())
+                }
+                Err(error) => Err(error),
+                Ok(()) => Ok(EntryOutcome::Transfer(transfer)),
+            },
+            Err(error) => Err(error),
+            Ok(outcome) => cleanup.map(|()| outcome),
+        }
+    }
+
+    fn execute_body(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
         if let Some((frame, expected_sp)) = self.frame_state {
             let sp = context.stack_pointer()?;
             let physical_sp = crate::abi::canonical_ram_address(sp);
@@ -91,14 +113,21 @@ impl Hook {
                 (translation.function)(context, &arguments[..count])
             }
         };
-        tje_game::Platform::check_mmio_contract(context)?;
-        Ok(exits::validate_at(
+        let result = exits::validate_at(
             self.symbol.id,
             self.exit_contract,
             self.symbol.address(context.revision()),
             result,
             context.revision(),
-        )?)
+        );
+        let check = tje_game::Platform::check_mmio_contract(context);
+        match result {
+            Ok(EntryOutcome::Transfer(transfer)) => match check {
+                Ok(()) => Ok(EntryOutcome::Transfer(transfer)),
+                Err(error) => Err(tje_game::Error::cleanup_after_transfer(transfer, error).into()),
+            },
+            result => Ok(tje_game::Error::after_contract_check(result, check)?),
+        }
     }
 
     pub(crate) fn continuation(
@@ -381,6 +410,7 @@ impl HookRegistry {
                 body,
                 frame_state: None,
                 dependent_proof: None,
+                clock_ceiling: CallCeiling::DEFAULT,
             },
         );
         Ok(())
@@ -435,6 +465,24 @@ impl HookRegistry {
             execution_class,
             Body::Host(function),
         )
+    }
+
+    /// Explicit authored diagnostic-fixture ceiling only. Production generated
+    /// registrations retain the generic ceiling; this adds no game policy.
+    pub fn register_clock_ceiling(
+        &mut self,
+        symbol: FunctionSymbol,
+        ceiling: CallCeiling,
+        function: HookFn,
+    ) -> Result<()> {
+        CallCeiling::new(ceiling.ticks, ceiling.frames).map_err(HostError::Clock)?;
+        let address = symbol.address(self.revision);
+        self.register_execution_contract(symbol, ExecutionClass::TimeAware, function)?;
+        self.hooks
+            .get_mut(&address)
+            .expect("inserted authored hook")
+            .clock_ceiling = ceiling;
+        Ok(())
     }
 
     /// Authored non-RTS fixtures state both their clock and control-flow contract.
@@ -690,6 +738,63 @@ mod tests {
                 )
                 .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn fresh_root_transfer_with_real_functional_mmio_failure_is_rejected_with_its_frame() {
+        fn body(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+            context.set_stack_pointer(0xff6000)?;
+            // The low status byte is fully driven; this exercises the real
+            // Functional status-read prohibition, not an absent open-bus source.
+            let _ = tje_game::Platform::read_device_u8(context, 0xc00005);
+            tje_game::exits::tail(ids::RESTART_FROM_RESET_ENTRY, ids::START).map_err(Into::into)
+        }
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut registry = HookRegistry::empty(revision);
+            registry
+                .register_exit_contract(
+                    ids::RESTART_FROM_RESET_ENTRY.metadata().clone(),
+                    ExecutionClass::Functional,
+                    exits::contract(ids::RESTART_FROM_RESET_ENTRY),
+                    body,
+                )
+                .unwrap();
+            let hook = registry
+                .at(ids::RESTART_FROM_RESET_ENTRY.metadata().address(revision))
+                .unwrap();
+            let mut emulator = genesis_core::GenesisEmulator::create(
+                None,
+                genesis_config::GenesisEmulatorConfig::default(),
+                &mut crate::sinks::NoCartridgeSaves,
+            );
+            emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+            {
+                let cpu = emulator.hybrid_parts().0;
+                cpu.set_status_register(0x2700);
+                crate::abi::set_sp(cpu, 0xff7000);
+            }
+            let mut context = HookContext::new(&mut emulator, revision, registry.dispatcher())
+                .with_execution(
+                    ExecutionClass::Functional,
+                    crate::execution::WaitClock::default(),
+                );
+            let error = hook.execute(&mut context).unwrap_err();
+            let HostError::Translation(error) = error else {
+                panic!("root transfer lost its typed failure: {error}");
+            };
+            assert!(matches!(
+                error,
+                tje_game::Error::CleanupAfterTransfer { .. }
+            ));
+            assert!(error.preserves_call_frame());
+            assert!(
+                error
+                    .to_string()
+                    .contains("functional contract observed VDP"),
+                "{error}",
+            );
+            assert_eq!(context.stack_pointer().unwrap(), 0xff6000);
         }
     }
 }

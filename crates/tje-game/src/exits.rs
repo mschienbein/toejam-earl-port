@@ -367,18 +367,41 @@ fn enter_body(
             callee: class,
         });
     }
-    if class != parent {
-        context.set_execution_class(class)?;
+    if !arguments.is_empty() && matches!(body, crate::TranslatedEntry::Framed(_)) {
+        return Err(crate::call_frame::FrameError::UnexpectedValueArguments {
+            id: entry,
+            count: arguments.len(),
+        }
+        .into());
+    }
+    let ceiling = context.enter_call_ceiling(entry)?;
+    if class != parent
+        && let Err(error) = context.set_execution_class(class)
+    {
+        let _ = context.leave_call_ceiling(ceiling);
+        return Err(error);
     }
     let result = body.invoke_entry(context, arguments);
+    let result = validate(entry, contract(entry), result, context.revision());
     let restore = if class != parent {
         context.set_execution_class(parent)
     } else {
         Ok(())
     };
-    context.check_mmio_contract()?;
-    restore?;
-    let outcome = validate(entry, contract(entry), result, context.revision())?;
+    let mmio = context.check_mmio_contract();
+    let ceiling = context.leave_call_ceiling(ceiling);
+    let outcome = match result {
+        Ok(EntryOutcome::Transfer(transfer)) => match mmio.and(restore).and(ceiling) {
+            Err(error) => return Err(Error::cleanup_after_transfer(transfer, error)),
+            Ok(()) => EntryOutcome::Transfer(transfer),
+        },
+        Err(error) if error.preserves_call_frame() => return Err(error),
+        Err(error) => return mmio.and(Err(error)),
+        Ok(outcome) => {
+            mmio.and(restore).and(ceiling)?;
+            outcome
+        }
+    };
     if let EntryOutcome::Returned(Some(value)) = outcome {
         context.set_data_register(0, value);
     }

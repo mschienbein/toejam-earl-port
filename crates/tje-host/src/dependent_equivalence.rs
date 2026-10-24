@@ -12,6 +12,7 @@ pub use zero_dma::{DmaSourceSummary, ZeroDmaRoot};
 use crate::{
     Host, HostError, Mode, Result, StackReadSite,
     abi::{OrderedWrite, canonical_ram_address},
+    call_clock::ClockRunPurpose,
     catalogue::{STACK_BOTTOM, STACK_TOP},
     exits,
     hooks::{Hook, HookRegistry},
@@ -555,11 +556,21 @@ impl Host {
                         value: [0x00, 0xff, 0x7f, 0x80][byte_index % 4],
                     }
                 };
+                let purpose = match probe {
+                    Probe::Seeded(index) => ClockRunPurpose::DependentSeed {
+                        seed: setting.config.seed,
+                        index,
+                    },
+                    Probe::Byte { address, value } => {
+                        ClockRunPurpose::DependentByte { address, value }
+                    }
+                    Probe::DmaFill(value) => ClockRunPurpose::DependentDmaFill { value },
+                };
                 let mut rust = self.fork();
                 perturb(&mut rust, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
                 let rust_run = self
-                    .run_check_side(&mut rust, hook, CheckSide::Rust)
+                    .run_check_side(&mut rust, hook, CheckSide::Rust, purpose)
                     .map_err(|error| format!("dependent Rust probe did not complete: {error}"))?;
                 evidence.rust_runs_completed += 1;
                 let boundary =
@@ -576,6 +587,7 @@ impl Host {
                             boundary,
                             outcome: rust_run.outcome,
                         },
+                        purpose,
                     )
                     .map_err(|error| {
                         format!("dependent original probe did not complete: {error}")

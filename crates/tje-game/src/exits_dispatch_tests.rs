@@ -8,6 +8,10 @@ struct DispatchContext {
     original_calls: usize,
     revision: Revision,
     frame: crate::call_frame::FrameState,
+    clock: crate::execution::CallClock,
+    cleanup_error: Option<(FunctionId, Error)>,
+    mmio_error: Option<Error>,
+    mmio_on_leave: Option<(FunctionId, Error)>,
 }
 impl DispatchContext {
     fn new(translations: &'static [crate::Translation]) -> Self {
@@ -20,6 +24,10 @@ impl DispatchContext {
             original_calls: 0,
             revision: Revision::Rev02,
             frame,
+            clock: crate::execution::CallClock::default(),
+            cleanup_error: None,
+            mmio_error: None,
+            mmio_on_leave: None,
         }
     }
 }
@@ -40,6 +48,9 @@ impl tje_mem::Platform for DispatchContext {
     }
 }
 impl Platform for DispatchContext {
+    fn check_mmio_contract(&self) -> Result<()> {
+        self.mmio_error.clone().map_or(Ok(()), Err)
+    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("unexpected device read");
     }
@@ -113,6 +124,32 @@ impl Context for DispatchContext {
     fn set_execution_class(&mut self, class: ExecutionClass) -> Result<()> {
         self.class = class;
         Ok(())
+    }
+    fn clocked_execution(&self) -> bool {
+        self.clock.active() || self.class != ExecutionClass::Atomic
+    }
+    fn enter_call_ceiling(
+        &mut self,
+        function: FunctionId,
+    ) -> Result<crate::execution::CallCeilingScope> {
+        self.clock
+            .enter(function, crate::execution::CallCeiling::DEFAULT)
+            .map_err(Error::Clock)
+    }
+    fn leave_call_ceiling(&mut self, scope: crate::execution::CallCeilingScope) -> Result<()> {
+        let injected = self
+            .cleanup_error
+            .take_if(|(function, _)| scope.function() == Some(*function))
+            .map(|(_, error)| error);
+        let sticky = self
+            .mmio_on_leave
+            .take_if(|(function, _)| scope.function() == Some(*function))
+            .map(|(_, error)| error);
+        self.clock.leave(scope).map_err(Error::Clock)?;
+        if let Some(error) = sticky {
+            self.mmio_error.get_or_insert(error);
+        }
+        injected.map_or(Ok(()), Err)
     }
     fn call_original(&mut self, _: FunctionId, _: &[u32]) -> Result<u32> {
         self.original_calls += 1;
@@ -202,15 +239,24 @@ fn untranslated_non_rts_entries_never_enter_the_rts_only_original_bridge() {
 }
 
 fn framed_caller(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    let outgoing = crate::call_frame::OutgoingArguments::push(context, &[0x11223344])?;
     let dispatcher = context.dispatcher();
-    outgoing.call(
-        context,
-        dispatcher,
-        ids::GAME_PROGRAM,
-        crate::call_frame::CallSite::new(0xffe012),
-    )?;
-    outgoing.release(context)?;
+    if context.data_register(5) == 1 {
+        dispatcher.call_at(
+            context,
+            ids::GAME_PROGRAM,
+            &[0x11223344],
+            crate::call_frame::CallSite::new(0xffe012),
+        )?;
+    } else {
+        let outgoing = crate::call_frame::OutgoingArguments::push(context, &[0x11223344])?;
+        outgoing.call(
+            context,
+            dispatcher,
+            ids::GAME_PROGRAM,
+            crate::call_frame::CallSite::new(0xffe012),
+        )?;
+        outgoing.release(context)?;
+    }
     context.set_data_register(7, 0xbad);
     Ok(Some(0xfeed))
 }
@@ -240,24 +286,25 @@ fn ordinary_error(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     Err(Error::Platform("authored ordinary call failure".into()))
 }
 
+static FRAMED_TRANSFER_BODIES: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::START,
+        function: framed_caller,
+    },
+    crate::Translation {
+        id: ids::GAME_PROGRAM,
+        function: framed_transfer,
+    },
+    crate::Translation {
+        id: ids::DISABLE_ALL_INTERRUPTS,
+        function: atomic_scope_marker,
+    },
+];
+
 #[test]
 fn framed_transfer_keeps_child_frame_and_abandons_caller_cleanup_in_both_revisions() {
-    static BODIES: &[crate::Translation] = &[
-        crate::Translation {
-            id: ids::START,
-            function: framed_caller,
-        },
-        crate::Translation {
-            id: ids::GAME_PROGRAM,
-            function: framed_transfer,
-        },
-        crate::Translation {
-            id: ids::DISABLE_ALL_INTERRUPTS,
-            function: atomic_scope_marker,
-        },
-    ];
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut context = DispatchContext::new(BODIES);
+        let mut context = DispatchContext::new(FRAMED_TRANSFER_BODIES);
         context.revision = revision;
         let parent_sp = context.stack_pointer().unwrap();
         let parent_frame = context.frame;
@@ -286,6 +333,94 @@ fn framed_transfer_keeps_child_frame_and_abandons_caller_cleanup_in_both_revisio
 }
 
 #[test]
+fn clock_and_arbitrary_cleanup_failure_never_approve_a_transfer_or_unwind_it() {
+    use crate::execution::{CallClockError, ClockResource};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for cleanup in [
+            Error::Clock(CallClockError::InvalidScope),
+            Error::Clock(CallClockError::CeilingExceeded {
+                function: ids::GAME_PROGRAM,
+                resource: ClockResource::Ticks,
+                ceiling: 1,
+                consumed: 2,
+            }),
+            Error::Platform("authored class restore failure".into()),
+        ] {
+            let mut context = DispatchContext::new(FRAMED_TRANSFER_BODIES);
+            context.revision = revision;
+            context.cleanup_error = Some((ids::GAME_PROGRAM, cleanup.clone()));
+            let parent_sp = context.stack_pointer().unwrap();
+            let error = crate::call(&mut context, ids::START, &[]).unwrap_err();
+            assert!(error.preserves_call_frame());
+            match &error {
+                Error::ClockAfterTransfer { error, .. } => {
+                    assert_eq!(Error::Clock(*error), cleanup)
+                }
+                Error::CleanupAfterTransfer { error, .. } => assert_eq!(error.as_ref(), &cleanup),
+                other => panic!("cleanup became a valid or ordinary return: {other:?}"),
+            }
+            assert_eq!(context.stack_pointer().unwrap(), 0xff6000);
+            assert_eq!(context.read_u32(0xff6000), 0x89abcdef);
+            assert_eq!(context.read_u32(parent_sp - 8), 0xffe012);
+            assert_eq!(context.frame.entry_sp, parent_sp - 8);
+            assert_eq!(context.inner.data[7], 0);
+            assert!(validate(ids::START, contract(ids::START), Err(error), revision).is_err());
+        }
+    }
+}
+
+#[test]
+fn nested_sticky_contract_errors_keep_first_failure_and_abandoned_frame() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for typed_root in [false, true] {
+            for high_level_call_at in [false, true] {
+                for first in [
+                    Some(Error::Clock(crate::execution::CallClockError::InvalidScope)),
+                    Some(Error::Platform(
+                        "authored first class restore failure".into(),
+                    )),
+                    None,
+                ] {
+                    let mut context = DispatchContext::new(FRAMED_TRANSFER_BODIES);
+                    context.revision = revision;
+                    context.inner.data[5] = u32::from(high_level_call_at);
+                    context.cleanup_error = first.clone().map(|error| (ids::GAME_PROGRAM, error));
+                    let sticky = Error::Platform("authored later sticky MMIO failure".into());
+                    context.mmio_on_leave = Some((ids::GAME_PROGRAM, sticky.clone()));
+                    let parent_sp = context.stack_pointer().unwrap();
+                    let error = if typed_root {
+                        enter(&mut context, ids::START, &[]).unwrap_err()
+                    } else {
+                        crate::call(&mut context, ids::START, &[]).unwrap_err()
+                    };
+                    let expected = first.unwrap_or(sticky);
+                    match &error {
+                        Error::ClockAfterTransfer { error, .. } => {
+                            assert_eq!(Error::Clock(*error), expected);
+                        }
+                        Error::CleanupAfterTransfer { error, .. } => {
+                            assert_eq!(error.as_ref(), &expected);
+                        }
+                        other => {
+                            panic!("nested cleanup became an ordinary or accepted exit: {other:?}")
+                        }
+                    }
+                    assert!(error.preserves_call_frame());
+                    assert_eq!(context.stack_pointer().unwrap(), 0xff6000);
+                    assert_eq!(context.read_u32(0xff6000), 0x89abcdef);
+                    assert_eq!(context.read_u32(parent_sp - 8), 0xffe012);
+                    assert_eq!(context.frame.entry_sp, parent_sp - 8);
+                    assert_eq!(context.inner.data[7], 0);
+                    assert!(
+                        validate(ids::START, contract(ids::START), Err(error), revision).is_err()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn ordinary_framed_errors_restore_bookkeeping_and_leave_cleanup_to_caller() {
     static BODIES: &[crate::Translation] = &[crate::Translation {
         id: ids::ABS,
@@ -294,6 +429,10 @@ fn ordinary_framed_errors_restore_bookkeeping_and_leave_cleanup_to_caller() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut context = DispatchContext::new(BODIES);
         context.revision = revision;
+        context.cleanup_error = Some((
+            ids::ABS,
+            Error::Clock(crate::execution::CallClockError::InvalidScope),
+        ));
         let parent_sp = context.stack_pointer().unwrap();
         let parent_frame = context.frame;
         let outgoing = crate::call_frame::OutgoingArguments::push(&mut context, &[7]).unwrap();

@@ -111,6 +111,19 @@ pub enum Error {
     },
     Arithmetic(ArithmeticTrap),
     Frame(call_frame::FrameError),
+    Clock(execution::CallClockError),
+    /// A nonlocal transfer still abandons its materialized frame when a clock
+    /// capability error prevents approving that transfer.
+    ClockAfterTransfer {
+        transfer: exits::ControlTransfer,
+        error: execution::CallClockError,
+    },
+    /// Arbitrary fatal cleanup errors retain a nonlocal transfer's abandoned
+    /// frame and original cause. Boxing is confined to this recursive error path.
+    CleanupAfterTransfer {
+        transfer: exits::ControlTransfer,
+        error: Box<Error>,
+    },
     /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
     ControlTransfer(exits::ControlTransfer),
     OpenBus(open_bus::OpenBusError),
@@ -132,6 +145,19 @@ impl fmt::Display for Error {
             }
             Self::Arithmetic(trap) => write!(formatter, "68000 arithmetic exception: {trap:?}"),
             Self::Frame(error) => write!(formatter, "emulated call frame: {error:?}"),
+            Self::Clock(error) => error.fmt(formatter),
+            Self::ClockAfterTransfer { transfer, error } => write!(
+                formatter,
+                "{error} during control transfer from {}: {:?}",
+                transfer.entry.metadata().name,
+                transfer.exit,
+            ),
+            Self::CleanupAfterTransfer { transfer, error } => write!(
+                formatter,
+                "{error} during control transfer from {}: {:?}",
+                transfer.entry.metadata().name,
+                transfer.exit,
+            ),
             Self::ControlTransfer(transfer) => write!(
                 formatter,
                 "control transfer from {}: {:?}",
@@ -143,7 +169,15 @@ impl fmt::Display for Error {
         }
     }
 }
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Clock(error) | Self::ClockAfterTransfer { error, .. } => Some(error),
+            Self::CleanupAfterTransfer { error, .. } => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
 impl From<ArithmeticTrap> for Error {
     fn from(value: ArithmeticTrap) -> Self {
         Self::Arithmetic(value)
@@ -159,11 +193,50 @@ impl From<open_bus::OpenBusError> for Error {
         Self::OpenBus(value)
     }
 }
+impl From<execution::CallClockError> for Error {
+    fn from(value: execution::CallClockError) -> Self {
+        Self::Clock(value)
+    }
+}
 impl Error {
     /// Ordinary errors unwind suspended call bookkeeping; the exit layer marks
     /// non-returning control transfers so their live frame is not unwound.
     pub fn preserves_call_frame(&self) -> bool {
-        matches!(self, Self::ControlTransfer(_))
+        matches!(
+            self,
+            Self::ControlTransfer(_)
+                | Self::ClockAfterTransfer { .. }
+                | Self::CleanupAfterTransfer { .. }
+        )
+    }
+
+    /// Reject cleanup after an already-validated transfer without unwinding its
+    /// abandoned frame. This constructs a failure, never an approved exit.
+    pub fn cleanup_after_transfer(transfer: exits::ControlTransfer, error: Error) -> Self {
+        match error {
+            Self::Clock(error) => Self::ClockAfterTransfer { transfer, error },
+            error => Self::CleanupAfterTransfer {
+                transfer,
+                error: Box::new(error),
+            },
+        }
+    }
+
+    /// Apply a post-call contract check after validating any fresh transfer.
+    /// Already-failed transfers retain their first cause and frame ownership;
+    /// a newly failing check converts a fresh transfer into a rejection.
+    pub fn after_contract_check<T>(result: Result<T>, check: Result<()>) -> Result<T> {
+        match (result, check) {
+            (
+                Err(error @ (Self::ClockAfterTransfer { .. } | Self::CleanupAfterTransfer { .. })),
+                _,
+            ) => Err(error),
+            (Err(Self::ControlTransfer(transfer)), Err(error)) => {
+                Err(Self::cleanup_after_transfer(transfer, error))
+            }
+            (result, Ok(())) => result,
+            (_, Err(error)) => Err(error),
+        }
     }
 }
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -320,6 +393,29 @@ pub trait Context: Bus + Platform {
                 caller: self.execution_class(),
                 callee: class,
             })
+        }
+    }
+    /// The outer clock envelope survives temporary Atomic callee scoping.
+    /// A clock-capable implementation overrides this independently of its
+    /// currently selected execution class.
+    fn clocked_execution(&self) -> bool {
+        false
+    }
+    fn enter_call_ceiling(&mut self, function: FunctionId) -> Result<execution::CallCeilingScope> {
+        if self.clocked_execution()
+            || execution_class(function).ok_or(Error::Unclassified(function))?
+                != execution::ExecutionClass::Atomic
+        {
+            Err(execution::CallClockError::Unavailable.into())
+        } else {
+            Ok(execution::CallCeilingScope::not_required())
+        }
+    }
+    fn leave_call_ceiling(&mut self, scope: execution::CallCeilingScope) -> Result<()> {
+        if scope.is_required() || self.clocked_execution() {
+            Err(execution::CallClockError::Unavailable.into())
+        } else {
+            Ok(())
         }
     }
     fn call_original(&mut self, function: FunctionId, arguments: &[u32]) -> Result<u32>;
@@ -531,9 +627,20 @@ impl Dispatcher {
                     callee: class,
                 });
             }
+            let ceiling = context.enter_call_ceiling(id)?;
             let result = context.call_original_with_execution(id, arguments, class);
-            context.check_mmio_contract()?;
-            result
+            let result = exits::validate_call(id, result.map(Some), context.revision());
+            let result = Error::after_contract_check(result, context.check_mmio_contract())
+                .map(|value| value.expect("RTS-only original returned its D0"));
+            let cleanup = context.leave_call_ceiling(ceiling);
+            match result {
+                Err(Error::ControlTransfer(transfer)) => match cleanup {
+                    Err(error) => Err(Error::cleanup_after_transfer(transfer, error)),
+                    Ok(()) => Err(Error::ControlTransfer(transfer)),
+                },
+                Err(error) => Err(error),
+                Ok(value) => cleanup.map(|()| value),
+            }
         } else {
             Err(Error::Untranslated(id))
         }
@@ -560,33 +667,42 @@ impl Dispatcher {
                 callee: class,
             });
         }
+        if arguments.is_some() && matches!(entry, TranslatedEntry::Framed(_)) {
+            return Err(call_frame::FrameError::PreparedEntryRequired(entry.id()).into());
+        }
+        let ceiling = context.enter_call_ceiling(entry.id())?;
         let scoped = parent != class;
-        if scoped {
-            context.set_execution_class(class)?;
+        if scoped && let Err(error) = context.set_execution_class(class) {
+            let _ = context.leave_call_ceiling(ceiling);
+            return Err(error);
         }
         let result = match arguments {
             Some(arguments) => entry.invoke_values(context, arguments),
             None => entry.invoke_prepared(context),
         };
-        let result = match context.check_mmio_contract() {
-            Ok(()) => exits::validate_call(entry.id(), result, context.revision()),
-            Err(error) => Err(error),
-        }
-        .map(|value| {
-            if let Some(value) = value {
-                context.set_data_register(0, value);
-            }
-            context.data_register(0)
-        });
+        let result = exits::validate_call(entry.id(), result, context.revision());
+        let result =
+            Error::after_contract_check(result, context.check_mmio_contract()).map(|value| {
+                if let Some(value) = value {
+                    context.set_data_register(0, value);
+                }
+                context.data_register(0)
+            });
         let restore = if scoped {
             context.set_execution_class(parent)
         } else {
             Ok(())
         };
-        context.check_mmio_contract()?;
-        match (result, restore) {
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            (Ok(value), Ok(())) => Ok(value),
+        let mmio = context.check_mmio_contract();
+        let ceiling = context.leave_call_ceiling(ceiling);
+        match result {
+            Err(Error::ControlTransfer(transfer)) => match mmio.and(restore).and(ceiling) {
+                Err(error) => Err(Error::cleanup_after_transfer(transfer, error)),
+                Ok(()) => Err(Error::ControlTransfer(transfer)),
+            },
+            Err(error) if error.preserves_call_frame() => Err(error),
+            Err(error) => mmio.and(Err(error)),
+            Ok(value) => mmio.and(restore).and(ceiling).map(|()| value),
         }
     }
 

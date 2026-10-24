@@ -317,8 +317,13 @@ fn all_source_observer_restores_flag_and_trace_after_a_failed_root() {
         value: 0x1234,
     }]);
     assert!(
-        host.run_check_side(&mut fork, &hook, CheckSide::Rust)
-            .is_err()
+        host.run_check_side(
+            &mut fork,
+            &hook,
+            CheckSide::Rust,
+            crate::call_clock::ClockRunPurpose::Baseline
+        )
+        .is_err()
     );
     assert!(!fork.hybrid_bus().hybrid_dma_all_sources);
     assert_eq!(

@@ -14,6 +14,7 @@ struct Fixture {
     class: ExecutionClass,
     kills: Vec<u32>,
     strings: Vec<(u32, Vec<u8>)>,
+    clock: crate::execution::CallClock,
 }
 impl Fixture {
     fn new(revision: Revision) -> Self {
@@ -27,6 +28,7 @@ impl Fixture {
             class: ExecutionClass::TimeAware,
             kills: Vec::new(),
             strings: Vec::new(),
+            clock: crate::execution::CallClock::default(),
         }
     }
 }
@@ -102,6 +104,23 @@ impl Context for Fixture {
     fn set_execution_class(&mut self, value: ExecutionClass) -> Result<()> {
         self.class = value;
         Ok(())
+    }
+    fn clocked_execution(&self) -> bool {
+        self.clock.active() || self.class != ExecutionClass::Atomic
+    }
+    fn enter_call_ceiling(
+        &mut self,
+        function: FunctionId,
+    ) -> Result<crate::execution::CallCeilingScope> {
+        self.clock
+            .enter(function, crate::execution::CallCeiling::DEFAULT)
+            .map_err(crate::Error::Clock)
+    }
+    fn leave_call_ceiling(&mut self, scope: crate::execution::CallCeilingScope) -> Result<()> {
+        self.clock
+            .leave(scope)
+            .map(|_| ())
+            .map_err(crate::Error::Clock)
     }
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid_with(&[])

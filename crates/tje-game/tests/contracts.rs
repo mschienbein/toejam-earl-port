@@ -12,6 +12,8 @@ struct Fixture {
     ports: Vec<(u32, u16, bool)>,
     execution: ExecutionClass,
     original_class: Option<ExecutionClass>,
+    /// Explicit frozen diagnostic clock provider for these ROM-free fixtures.
+    clock: Option<tje_game::execution::CallClock>,
 }
 impl Fixture {
     fn new(dispatcher: Dispatcher) -> Self {
@@ -25,6 +27,7 @@ impl Fixture {
             ports: Vec::new(),
             execution: ExecutionClass::Atomic,
             original_class: None,
+            clock: Some(tje_game::execution::CallClock::default()),
         }
     }
 }
@@ -89,6 +92,37 @@ impl Context for Fixture {
     fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
         self.execution = class;
         Ok(())
+    }
+    fn clocked_execution(&self) -> bool {
+        self.clock
+            .as_ref()
+            .is_some_and(tje_game::execution::CallClock::active)
+    }
+    fn enter_call_ceiling(
+        &mut self,
+        function: FunctionId,
+    ) -> tje_game::Result<tje_game::execution::CallCeilingScope> {
+        if let Some(clock) = &mut self.clock {
+            clock
+                .enter(function, tje_game::execution::CallCeiling::DEFAULT)
+                .map_err(Error::Clock)
+        } else if tje_game::execution_class(function) == Some(ExecutionClass::Atomic) {
+            Ok(tje_game::execution::CallCeilingScope::not_required())
+        } else {
+            Err(tje_game::execution::CallClockError::Unavailable.into())
+        }
+    }
+    fn leave_call_ceiling(
+        &mut self,
+        scope: tje_game::execution::CallCeilingScope,
+    ) -> tje_game::Result<()> {
+        if let Some(clock) = &mut self.clock {
+            clock.leave(scope).map(|_| ()).map_err(Error::Clock)
+        } else if scope.is_required() {
+            Err(tje_game::execution::CallClockError::Unavailable.into())
+        } else {
+            Ok(())
+        }
     }
     fn call_original_with_execution(
         &mut self,
@@ -281,4 +315,85 @@ fn production_classes_scope_rust_and_original_calls_and_restore_on_errors() {
         residual.call(&mut context, wait, &[]),
         Err(Error::ExecutionUnavailable { .. })
     ));
+}
+
+#[test]
+fn a_time_aware_root_without_clock_capability_fails_before_effects() {
+    fn forbidden_effect(context: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+        context.write_u8(0xff9000, 0x55);
+        Ok(None)
+    }
+    static BODY: &[tje_game::Translation] = &[tje_game::Translation {
+        id: ids::WAIT_FOR_NEXT_V_BLANK,
+        function: forbidden_effect,
+    }];
+    let mut fixture = Fixture::new(Dispatcher::hybrid_with(BODY));
+    fixture.execution = ExecutionClass::TimeAware;
+    fixture.clock = None;
+    assert_eq!(
+        tje_game::call(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]),
+        Err(Error::Clock(
+            tje_game::execution::CallClockError::Unavailable
+        )),
+    );
+    assert_eq!(fixture.read_u8(0xff9000), 0);
+    assert!(fixture.original_calls.is_empty());
+    assert!(fixture.ports.is_empty());
+}
+
+#[test]
+fn zero_time_rng_rejection_expires_work_without_repairing_rng_outputs() {
+    use tje_game::execution::{CallCeiling, CallClockError, ClockResource};
+    fn reject_forever(context: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+        loop {
+            let value = tje_game::call(context, ids::GET_RANDOM_NUMBER, &[])?;
+            context.write_u16(0xff9000, value as u16);
+        }
+    }
+    // An authored unbounded callback using the actual pure-Rust RNG, not a
+    // cartridge-equivalence fixture for the overridden wait identity.
+    static BODY: &[tje_game::Translation] = &[
+        tje_game::Translation {
+            id: ids::WAIT_FOR_NEXT_V_BLANK,
+            function: reject_forever,
+        },
+        tje_game::Translation {
+            id: ids::GET_RANDOM_NUMBER,
+            function: tje_game::map::get_random_number,
+        },
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut fixture = Fixture::new(Dispatcher::hybrid_with(BODY));
+        fixture.memory = AddressSpace::new(vec![0; 64], revision);
+        fixture.execution = ExecutionClass::TimeAware;
+        ram::g_rng_state(revision).write(&mut fixture, 1);
+        let root = fixture
+            .clock
+            .as_mut()
+            .unwrap()
+            .enter(
+                ids::WAIT_FOR_NEXT_V_BLANK,
+                CallCeiling::new(4, 100).unwrap(),
+            )
+            .unwrap();
+        let error = tje_game::call(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Clock(CallClockError::CeilingExceeded {
+                resource: ClockResource::DispatchSteps,
+                ..
+            })
+        ));
+        let expected = tje_game::map::park_miller(tje_game::map::park_miller(1));
+        assert_eq!(ram::g_rng_state(revision).read(&fixture), expected);
+        assert_eq!(fixture.read_u16(0xff9000), expected as u16);
+        let clock = fixture.clock.as_mut().unwrap();
+        assert!(clock.leave(root).is_err());
+        let usage = clock.usage();
+        assert_eq!(usage.dispatch_steps, 4);
+        assert_eq!(usage.ticks, 0);
+        assert_eq!(usage.instructions, 0);
+        assert_eq!(usage.master_clocks, 0);
+        assert_eq!(usage.frames, 0);
+    }
 }

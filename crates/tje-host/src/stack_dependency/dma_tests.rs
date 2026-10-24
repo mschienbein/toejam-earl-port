@@ -305,7 +305,14 @@ fn timeaware_endpoint_normalization_is_inside_both_root_audits() {
                 },
             ] {
                 let mut fork = check.emulator.partial_clone();
-                let run = check.run_check_side(&mut fork, &hook, side).unwrap();
+                let run = check
+                    .run_check_side(
+                        &mut fork,
+                        &hook,
+                        side,
+                        crate::call_clock::ClockRunPurpose::Baseline,
+                    )
+                    .unwrap();
                 assert_eq!(
                     run.audit.uninitialized_reads.len(),
                     if initialized { 0 } else { 2 },

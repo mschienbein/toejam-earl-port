@@ -405,6 +405,33 @@ impl<'a> HookContext<'a> {
         }
     }
 
+    pub(crate) fn enter_call_ceiling_contract(
+        &mut self,
+        function: FunctionId,
+        class: ExecutionClass,
+        ceiling: tje_game::execution::CallCeiling,
+    ) -> Result<tje_game::execution::CallCeilingScope> {
+        if class == ExecutionClass::TimeAware && !self.timed_execution {
+            return Err(HostError::Clock(
+                tje_game::execution::CallClockError::Unavailable,
+            ));
+        }
+        if class == ExecutionClass::Atomic
+            && !self.timed_execution
+            && !self.wait_clock.call_clock.active()
+        {
+            return Ok(tje_game::execution::CallCeilingScope::not_required());
+        }
+        self.wait_clock.enter_call_ceiling(function, ceiling)
+    }
+
+    pub(crate) fn leave_call_ceiling_contract(
+        &mut self,
+        scope: tje_game::execution::CallCeilingScope,
+    ) -> Result<()> {
+        self.wait_clock.leave_call_ceiling(scope).map(|_| ())
+    }
+
     /// Merge real IRQ/recipe accesses into the existing active-frame audit.
     /// A wait must never reset initialized bytes or replace the frame identity.
     fn merge_clock_run(&mut self, run: ClockRun) {
@@ -685,6 +712,24 @@ impl<'a> HookContext<'a> {
                 contract.name, self.execution_class
             )));
         }
+        let ceiling = self.enter_call_ceiling_contract(
+            contract.id,
+            execution_class,
+            tje_game::execution::CallCeiling::DEFAULT,
+        )?;
+        let result = self.call_original_with_execution_contract_inner(contract, arguments);
+        let cleanup = self.leave_call_ceiling_contract(ceiling);
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => cleanup.map(|()| value),
+        }
+    }
+
+    fn call_original_with_execution_contract_inner(
+        &mut self,
+        contract: &tje_game::FunctionMetadata,
+        arguments: &[u32],
+    ) -> Result<u32> {
         let address = contract.address(self.revision);
         self.emulator.hybrid_bus_mut().apply_pending_writes();
         self.flush_audit_accesses();
@@ -751,6 +796,17 @@ impl<'a> HookContext<'a> {
                 self.execution_class
             )));
         }
+        let ceiling =
+            self.enter_call_ceiling_contract(id, class, tje_game::execution::CallCeiling::DEFAULT)?;
+        let result = self.call_original_prepared_inner(id);
+        let cleanup = self.leave_call_ceiling_contract(ceiling);
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => cleanup.map(|()| value),
+        }
+    }
+
+    fn call_original_prepared_inner(&mut self, id: FunctionId) -> Result<u32> {
         let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
         let return_pc = self.read_u32(entry_sp);
         let return_sp = entry_sp.wrapping_add(4);
@@ -920,6 +976,10 @@ impl tje_game::Platform for HookContext<'_> {
         self.check_mmio_contract()?;
         self.flush_audit_accesses();
         let result = (|| {
+            self.wait_clock
+                .call_clock
+                .dispatch_step()
+                .map_err(tje_game::Error::Clock)?;
             if self.execution_class == ExecutionClass::Atomic {
                 return Err(tje_game::Error::Platform(
                     "an atomic function cannot wait".into(),
@@ -1072,6 +1132,31 @@ impl tje_game::Context for HookContext<'_> {
     }
     fn execution_class(&self) -> ExecutionClass {
         self.execution_class
+    }
+    fn clocked_execution(&self) -> bool {
+        self.timed_execution || self.wait_clock.call_clock.active()
+    }
+    fn enter_call_ceiling(
+        &mut self,
+        function: FunctionId,
+    ) -> tje_game::Result<tje_game::execution::CallCeilingScope> {
+        let class =
+            tje_game::execution_class(function).ok_or(tje_game::Error::Unclassified(function))?;
+        self.enter_call_ceiling_contract(function, class, tje_game::execution::CallCeiling::DEFAULT)
+            .map_err(|error| match error {
+                HostError::Clock(error) => tje_game::Error::Clock(error),
+                other => tje_game::Error::Platform(other.to_string()),
+            })
+    }
+    fn leave_call_ceiling(
+        &mut self,
+        scope: tje_game::execution::CallCeilingScope,
+    ) -> tje_game::Result<()> {
+        self.leave_call_ceiling_contract(scope)
+            .map_err(|error| match error {
+                HostError::Clock(error) => tje_game::Error::Clock(error),
+                other => tje_game::Error::Platform(other.to_string()),
+            })
     }
     fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
         if !self.execution_ceiling.permits(class) {

@@ -187,6 +187,46 @@ fn genuine_dependence_is_coupled_not_independent_or_informational() {
 }
 
 #[test]
+fn coupled_time_aware_probes_share_the_root_ceiling_and_keep_separate_receipts() {
+    use crate::call_clock::ClockRunPurpose;
+    use tje_game::execution::CallCeiling;
+    let mut proven = host(PROGRAM, correct, true);
+    let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+    symbol.name = "AuthoredDependent";
+    symbol.addresses = [CODE; 2];
+    symbol.sizes = [2 * PROGRAM.len() as u32; 2];
+    symbol.abi.argument_count = 0;
+    let mut registry = HookRegistry::empty(Revision::Rev02);
+    registry
+        .register_clock_ceiling(symbol, CallCeiling::new(100, 10).unwrap(), correct)
+        .unwrap();
+    registry.set_authored_dependent_proof(
+        CODE,
+        ProofSetting {
+            contract: &SYNTHETIC,
+            config: DependentProofConfig::default(),
+        },
+    );
+    proven.registry = registry;
+    proven.checks = CheckReport::registered(&proven.registry);
+    assert_eq!(proven.check_fixture(CODE, &[]).unwrap(), 0x1234);
+    let mut coupled = proven.checks.call_clocks.iter().filter(|run| {
+        matches!(
+            run.purpose,
+            ClockRunPurpose::DependentSeed { .. } | ClockRunPurpose::DependentByte { .. },
+        )
+    });
+    assert_eq!(coupled.clone().count(), 48);
+    assert!(coupled.all(|run| run.completed
+        && run.configured_tick_ceiling == 100
+        && run.configured_frame_ceiling == 10
+        && run.configured_dispatch_step_ceiling == 100));
+    let evidence = &proven.checks.dependent_equivalence["AuthoredDependent"];
+    assert_eq!(evidence.original_runs_completed, 24);
+    assert_eq!(evidence.rust_runs_completed, 24);
+}
+
+#[test]
 fn offset_width_mirror_and_redundant_write_mutants_fail() {
     for (function, detail) in [
         (wrong_offset as HookFn, "outside the reviewed"),
@@ -599,6 +639,21 @@ impl Context for MutantContext<'_> {
     }
     fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
         self.inner.set_execution_class(class)
+    }
+    fn clocked_execution(&self) -> bool {
+        self.inner.clocked_execution()
+    }
+    fn enter_call_ceiling(
+        &mut self,
+        function: FunctionId,
+    ) -> tje_game::Result<tje_game::execution::CallCeilingScope> {
+        self.inner.enter_call_ceiling(function)
+    }
+    fn leave_call_ceiling(
+        &mut self,
+        scope: tje_game::execution::CallCeilingScope,
+    ) -> tje_game::Result<()> {
+        self.inner.leave_call_ceiling(scope)
     }
     fn call_original(&mut self, id: FunctionId, args: &[u32]) -> tje_game::Result<u32> {
         self.inner.call_original(id, args)

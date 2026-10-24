@@ -88,7 +88,12 @@ fn complete_source_scope_covers_pre_entry_normalization_and_restores_success() {
         value: 0x4e73,
     }]);
     let run = host
-        .run_check_side(&mut fork, &hook, CheckSide::Rust)
+        .run_check_side(
+            &mut fork,
+            &hook,
+            CheckSide::Rust,
+            crate::call_clock::ClockRunPurpose::Baseline,
+        )
         .unwrap();
     assert!(
         run.audit

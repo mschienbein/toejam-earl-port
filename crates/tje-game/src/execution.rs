@@ -3,6 +3,11 @@
 //! These classes describe a logic proof, not a cycle-equivalence promise. Native
 //! platforms implement the same conditions using their frame/device scheduler.
 
+mod call_clock;
+pub use call_clock::{
+    CallCeiling, CallCeilingScope, CallClock, CallClockError, ClockResource, ClockUsage,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExecutionClass {
     /// No peripheral/interrupt progress is needed or observed.

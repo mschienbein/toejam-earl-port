@@ -287,9 +287,9 @@ fn missing_source_then_error(context: &mut HookContext<'_>) -> Result<Option<u32
 
 #[test]
 fn poisoned_mmio_cannot_be_finalized_as_a_terminal_transfer() {
-    for body in [
-        missing_source_then_transfer as crate::hooks::HookFn,
-        missing_source_then_error,
+    for (body, transfers) in [
+        (missing_source_then_transfer as crate::hooks::HookFn, true),
+        (missing_source_then_error, false),
     ] {
         let revision = Revision::Rev02;
         let mut emulator = machine(revision, &[0x60fe]);
@@ -297,10 +297,16 @@ fn poisoned_mmio_cannot_be_finalized_as_a_terminal_transfer() {
         let mut context = HookContext::new(&mut emulator, revision, Dispatcher::hybrid_with(&[]));
         let before = (context.cpu().pc(), context.cpu().stack_pointer());
         let error = hook.execute(&mut context).unwrap_err();
-        assert!(
-            matches!(&error, HostError::Translation(tje_game::Error::OpenBus(_))),
-            "{error}"
-        );
+        match (&error, transfers) {
+            (HostError::Translation(tje_game::Error::CleanupAfterTransfer { error, .. }), true) => {
+                assert!(matches!(error.as_ref(), tje_game::Error::OpenBus(_)))
+            }
+            (HostError::Translation(tje_game::Error::OpenBus(_)), false) => {}
+            _ => panic!("poisoned MMIO lost its first cause or transfer ownership: {error}"),
+        }
+        if let HostError::Translation(error) = &error {
+            assert_eq!(error.preserves_call_frame(), transfers);
+        }
         let transfer = match tje_game::exits::terminal::<()>(ids::GET_RANDOM_NUMBER) {
             Err(tje_game::Error::ControlTransfer(transfer)) => transfer,
             other => panic!("expected authored transfer: {other:?}"),

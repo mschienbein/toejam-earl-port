@@ -16,7 +16,7 @@ use genesis_core::{GenesisEmulator, HybridAccess};
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use m68000_emu::BusInterface;
 use std::sync::Arc;
-use tje_game::execution::{WaitCondition, WaitRequest};
+use tje_game::execution::{CallClock, ClockUsage, WaitCondition, WaitRequest};
 
 /// Random-access input timeline: identical forks request the same video-frame
 /// sample. A live frontend can implement this with its frame-sampled controller
@@ -41,10 +41,13 @@ pub struct WaitClock {
     pub frame: u64,
     pub inputs: GenesisInputs,
     pub poller: Option<Arc<dyn WaitInputPoller>>,
+    pub(crate) call_clock: CallClock,
 }
 impl WaitClock {
     pub(crate) fn advance_frame(&mut self, emulator: &mut GenesisEmulator) -> Result<()> {
-        self.frame += 1;
+        self.frame = self.frame.checked_add(1).ok_or(HostError::Clock(
+            tje_game::execution::CallClockError::Overflow,
+        ))?;
         let poller = self.poller.as_ref().ok_or_else(|| {
             HostError::Input(format!(
                 "time-progressing call crossed video frame {} without an input timeline",
@@ -98,6 +101,67 @@ pub(crate) struct ClockRun {
     instructions: u64,
     previous_pc: Option<u32>,
     pub audio: Vec<[f64; 2]>,
+    reference_counting_before: Option<bool>,
+    reference_counter_total: u64,
+}
+
+impl ClockRun {
+    fn begin_reference_counting(
+        &mut self,
+        emulator: &mut GenesisEmulator,
+        scoped: bool,
+    ) -> Result<()> {
+        if !scoped {
+            return Ok(());
+        }
+        let cpu = emulator.hybrid_parts().0;
+        let previous = cpu
+            .hybrid_instruction_counts()
+            .map(|counts| counts.enabled());
+        self.reference_counting_before = Some(previous.unwrap_or(false));
+        if previous.is_none() {
+            cpu.hybrid_enable_instruction_counts();
+        } else {
+            cpu.hybrid_set_instruction_counting(true);
+        }
+        self.reference_counter_total = Self::reference_total(cpu)?;
+        Ok(())
+    }
+
+    fn reference_total(cpu: &m68000_emu::M68000) -> Result<u64> {
+        let counts = cpu.hybrid_instruction_counts().ok_or(HostError::Clock(
+            tje_game::execution::CallClockError::Unavailable,
+        ))?;
+        counts
+            .main_thread
+            .checked_add(counts.exception_handler)
+            .ok_or(HostError::Clock(
+                tje_game::execution::CallClockError::Overflow,
+            ))
+    }
+
+    fn reference_progress(&mut self, emulator: &GenesisEmulator) -> Result<u64> {
+        if self.reference_counting_before.is_none() {
+            return Ok(0);
+        }
+        let total = Self::reference_total(emulator.hybrid_cpu())?;
+        let progress = total
+            .checked_sub(self.reference_counter_total)
+            .ok_or(HostError::Clock(
+                tje_game::execution::CallClockError::NonMonotonicClock,
+            ))?;
+        self.reference_counter_total = total;
+        Ok(progress)
+    }
+
+    fn finish_reference_counting(&mut self, emulator: &mut GenesisEmulator) {
+        if let Some(previous) = self.reference_counting_before.take() {
+            emulator
+                .hybrid_parts()
+                .0
+                .hybrid_set_instruction_counting(previous);
+        }
+    }
 }
 
 // G src/core/error_trap.c and both revision linker maps: the original two-byte
@@ -248,6 +312,7 @@ fn timed_tick(
     run: &mut ClockRun,
     audio: &mut HeadlessAudio,
 ) -> Result<()> {
+    clock.call_clock.before_tick().map_err(HostError::Clock)?;
     let pc = emulator.hybrid_cpu().pc();
     let master_clock = emulator.hybrid_bus().cycles.m68k_mclk_cycles;
     let depth_before = emulator.hybrid_cpu().hybrid_exception_depth();
@@ -269,6 +334,24 @@ fn timed_tick(
         )
         .map_err(|error| HostError::Emulator(error.to_string()))?;
     run.ticks += 1;
+    let reference_instructions = run.reference_progress(emulator)?;
+    clock
+        .call_clock
+        .record(ClockUsage {
+            ticks: 1,
+            instructions: reference_instructions,
+            dispatch_steps: 0,
+            master_clocks: emulator
+                .hybrid_bus()
+                .cycles
+                .m68k_mclk_cycles
+                .checked_sub(master_clock)
+                .ok_or(HostError::Clock(
+                    tje_game::execution::CallClockError::NonMonotonicClock,
+                ))?,
+            frames: u64::from(effect == TickEffect::FrameRendered),
+        })
+        .map_err(HostError::Clock)?;
     let depth_after = emulator.hybrid_cpu().hybrid_exception_depth();
     if auditing && depth_after > depth_before {
         let vector = emulator
@@ -315,6 +398,7 @@ fn timed_tick(
             run,
         );
     }
+    clock.call_clock.check().map_err(HostError::Clock)?;
     Ok(())
 }
 
@@ -384,6 +468,7 @@ pub(crate) fn run_wait_with_audio(
     let mut audio = HeadlessAudio { samples };
     let mut handler_entered = false;
     let result = (|| {
+        run.begin_reference_counting(emulator, clock.call_clock.active())?;
         loop {
             let depth = emulator.hybrid_cpu().hybrid_exception_depth();
             let at_park = emulator.hybrid_cpu().pc() == PARK_PC
@@ -427,6 +512,7 @@ pub(crate) fn run_wait_with_audio(
     }
     bus.hybrid_cpu_accesses = saved_trace;
     run.audio = audio.samples;
+    run.finish_reference_counting(emulator);
     result?;
     Ok(run)
 }
@@ -477,6 +563,7 @@ pub(crate) fn run_original_timed_until_with_audio(
             "timed execution cannot use functional devices".into(),
         ));
     }
+    let root_is_scoped = clock.call_clock.active();
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
         audit.then(Vec::new),
@@ -488,6 +575,7 @@ pub(crate) fn run_original_timed_until_with_audio(
     };
     let mut audio = HeadlessAudio { samples };
     let result = (|| {
+        run.begin_reference_counting(emulator, clock.call_clock.active())?;
         let ordinary_return =
             boundary.sp.is_some() && boundary.source.is_none() && !boundary.entry_exception_return;
         let mut return_reached = false;
@@ -513,11 +601,12 @@ pub(crate) fn run_original_timed_until_with_audio(
             }
             // At the actual caller PC/SP, only IRQ recognition or real bus debt
             // can make ready false. Their ticks do not execute the caller opcode.
-            if run.ticks == MAX_TIMED_TICKS {
-                return Err(HostError::CallDidNotReturn {
-                    pc: emulator.hybrid_cpu().pc(),
-                    return_pc: boundary.pc,
-                });
+            if !root_is_scoped && run.ticks >= MAX_TIMED_TICKS {
+                return Err(HostError::Emulator(format!(
+                    "unscoped reference diagnostic tick ceiling exceeded: ceiling={MAX_TIMED_TICKS}, PC={:06X}, return={:06X}",
+                    emulator.hybrid_cpu().pc(),
+                    boundary.pc,
+                )));
             }
             timed_tick(emulator, clock, &mut run, &mut audio)?;
         }
@@ -525,6 +614,7 @@ pub(crate) fn run_original_timed_until_with_audio(
     })();
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
     run.audio = audio.samples;
+    run.finish_reference_counting(emulator);
     result?;
     Ok(run)
 }
@@ -555,6 +645,48 @@ mod tests {
             GenesisEmulatorConfig::default(),
             &mut NoCartridgeSaves,
         )
+    }
+
+    #[test]
+    fn scoped_counter_preserves_existing_counts_and_pause_ownership() {
+        for previous in [None, Some(false), Some(true)] {
+            let mut emulator = emulator_with_park_rom();
+            {
+                let (cpu, bus) = emulator.hybrid_parts();
+                cpu.set_status_register(0x2700);
+                set_sp(cpu, 0xff7ffc);
+                cpu.set_pc(0x100, bus);
+                if let Some(enabled) = previous {
+                    cpu.hybrid_enable_instruction_counts();
+                    cpu.execute_instruction(bus);
+                    cpu.hybrid_set_instruction_counting(enabled);
+                }
+            }
+            let before = emulator
+                .hybrid_cpu()
+                .hybrid_instruction_counts()
+                .map_or(0, |counts| counts.main_thread + counts.exception_handler);
+            let mut run = ClockRun::default();
+            run.begin_reference_counting(&mut emulator, true).unwrap();
+            {
+                let (cpu, bus) = emulator.hybrid_parts();
+                cpu.execute_instruction(bus);
+            }
+            assert_eq!(run.reference_progress(&emulator).unwrap(), 1);
+            run.finish_reference_counting(&mut emulator);
+            let counts = emulator.hybrid_cpu().hybrid_instruction_counts().unwrap();
+            assert_eq!(counts.enabled(), previous.unwrap_or(false));
+            assert_eq!(counts.main_thread + counts.exception_handler, before + 1);
+        }
+    }
+
+    #[test]
+    fn an_unscoped_runner_does_not_install_a_reference_counter() {
+        let mut emulator = emulator_with_park_rom();
+        let mut run = ClockRun::default();
+        run.begin_reference_counting(&mut emulator, false).unwrap();
+        run.finish_reference_counting(&mut emulator);
+        assert!(emulator.hybrid_cpu().hybrid_instruction_counts().is_none());
     }
 
     fn assert_whole_ram_visible_during_wait(emulator: &mut GenesisEmulator) {
@@ -874,6 +1006,7 @@ mod tests {
             frame: 0,
             inputs: initial,
             poller: Some(Arc::new(Timeline(script))),
+            ..WaitClock::default()
         };
         let mut emulator = GenesisEmulator::create(
             None,

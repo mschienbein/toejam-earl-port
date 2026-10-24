@@ -534,7 +534,12 @@ fn time_aware_pending_cartridge_dma_is_completed_before_rom_returns_to_live() {
         let live_before = machine_bytes(&host);
         let mut translated = host.fork();
         let rust = host
-            .run_check_side(&mut translated, &hook, CheckSide::Rust)
+            .run_check_side(
+                &mut translated,
+                &hook,
+                CheckSide::Rust,
+                crate::call_clock::ClockRunPurpose::Baseline,
+            )
             .unwrap();
         let mut original = host.fork();
         let reference = host
@@ -545,6 +550,7 @@ fn time_aware_pending_cartridge_dma_is_completed_before_rom_returns_to_live() {
                     boundary: crate::exits::ReferenceBoundary::returned(RETURN, sp + 4),
                     outcome: rust.outcome,
                 },
+                crate::call_clock::ClockRunPurpose::Baseline,
             )
             .unwrap();
         for fork in [&original, &translated] {
