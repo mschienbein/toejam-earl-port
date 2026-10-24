@@ -99,13 +99,15 @@ fn advance_palette(context: &mut dyn Context, palette_time: &mut u16, palette_fr
 }
 
 /// G/src/cutscenes/sega_logo.c:36 (`SEGAVideo`).
-/// TimeAware: inline frame-counter polling suspends on real IRQ completion, with
-/// SegaLogoVBlank consuming palette/sprite publications. REV 02 alone resets the
-/// counter before the unsigned palette deadline; no idle RNG draws are added.
+/// TimeAware: empty frame-equality polls suspend on real IRQ completion, while
+/// the palette deadline loop retains its repeated counter observations. REV 02
+/// alone resets the counter; no extra waits or idle RNG draws are inserted.
 pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let counter = ram::g_frame_counter(revision);
+    context.discard_u16(ram::g_sega_palette_upload_pending(revision).address())?;
     ram::g_sega_palette_upload_pending(revision).write(context, 0);
+    context.discard_u16(ram::g_sega_v_blank_sprite_updates_enabled(revision).address())?;
     ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 0);
     ram::g_v_blank_func(revision).write(
         context,
@@ -146,6 +148,7 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
     context.write_device_u16(0xc00004, u16::from(mode) | 0x8104);
     if revision == tje_mem::Revision::Rev02 {
+        context.discard_u16(counter.address())?;
         counter.write(context, 0);
     }
     let mut palette_time = counter.read(context);
@@ -153,13 +156,14 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let mut palette_frame = 0_i16;
     while u32::from(counter.read(context)) < u32::from(start_time) + 120 {
         advance_palette(context, &mut palette_time, &mut palette_frame);
-        let frame = counter.read(context);
-        context.wait_vblank_frame(counter.address(), frame)?;
     }
-    if ram::g_sega_rocket_pass_shown(revision).read(context) == 0 {
+    let rocket_pass_needed = ram::g_sega_rocket_pass_shown(revision).read(context) == 0;
+    if rocket_pass_needed {
         let frame = counter.read(context);
         context.wait_vblank_frame(counter.address(), frame)?;
+        context.discard_u16(ram::g_sega_v_blank_sprite_updates_enabled(revision).address())?;
         ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 0);
+        context.discard_u16(ram::g_sega_palette_upload_pending(revision).address())?;
         ram::g_sega_palette_upload_pending(revision).write(context, 0);
         call(context, ids::SEGA_LOGO_CREATE_TRADEMARK_ENTITY, &[])?;
         call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
@@ -210,6 +214,19 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     }
     let frame = counter.read(context);
     context.wait_vblank_frame(counter.address(), frame)?;
+    let callback = ram::g_v_blank_func(revision).address();
+    context.discard_u16(callback)?;
+    context.discard_u16(callback + 2)?;
     ram::g_v_blank_func(revision).write(context, Ptr::new(0));
+    // c_sega_logo.s:198: CLR.L leaves Z and preserves X. Without the rocket
+    // pass, the preceding zero-extended deadline addition always cleared X;
+    // otherwise X comes from the final original release-callee segment.
+    let status = context.status_register();
+    let extend = if rocket_pass_needed { status & 0x10 } else { 0 };
+    context.set_status_register((status & !0x1f) | extend | 4);
     Ok(None)
 }
+
+#[cfg(test)]
+#[path = "replay_prep_tests.rs"]
+mod replay_prep_tests;

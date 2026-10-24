@@ -8,6 +8,7 @@ pub fn sega_logo_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
     let revision = context.revision();
     let pending = ram::g_sega_palette_upload_pending(revision);
     if pending.read(context) != 0 {
+        context.discard_u16(pending.address())?;
         pending.write(context, 0);
         let palette = ram::g_sega_palette_upload_source(revision).read(context);
         call(
@@ -23,6 +24,14 @@ pub fn sega_logo_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
     call(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
     let counter = ram::g_frame_counter(revision);
     let current = counter.read(context);
-    counter.write(context, current.wrapping_add(1));
+    let next = current.wrapping_add(1);
+    counter.write(context, next);
+    // c_sega_logo_vblank.s:22: ADDQ.W sets all five CCR bits, including X.
+    let carry = u16::from(current == u16::MAX);
+    let overflow = u16::from(current == 0x7fff) << 1;
+    let negative = (next & 0x8000) >> 12;
+    let zero = u16::from(next == 0) << 2;
+    let flags = (carry << 4) | negative | zero | overflow | carry;
+    context.set_status_register((context.status_register() & !0x1f) | flags);
     Ok(None)
 }

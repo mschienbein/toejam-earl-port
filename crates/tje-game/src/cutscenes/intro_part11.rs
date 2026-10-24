@@ -31,6 +31,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     let mut advance_pressed = false;
+    context.discard_u16(state.address())?;
     state.write(context, 0);
     countdown.write(context, 51);
     actor.write(context, 1);
@@ -44,7 +45,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
             )?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
-            if advance_mask.read(context) != 0 {
+            if mask != 0 {
                 advance_pressed = true;
             }
             if advance_mask.read(context) == 0 {
@@ -235,6 +236,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         3,
                     ],
                 )?;
+                context.discard_u16(actor.address())?;
                 actor.write(context, 0);
                 countdown.write(context, 42);
             }
@@ -334,7 +336,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
                         7,
-                        rom::intro_large_player_part_seven_held_frame_sixteen(revision).address(),
+                        rom::intro_large_player_part_seven_held_frame_eighteen(revision).address(),
                         6,
                     ],
                 )?;
@@ -442,6 +444,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
+                context.discard_u16(actor.address())?;
                 actor.write(context, 0);
                 countdown.write(context, 85);
             }
@@ -460,5 +463,10 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     )?;
     call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    let interrupted = state.read(context) != -1;
+    // c_intro_part11.s:451-458: SNE; NEG.B; EXT.W/L leaves X on an abort,
+    // or Z on completion. The final EXT clears V/C and retains that X.
+    let flags = if interrupted { 0x10 } else { 4 };
+    context.set_status_register((context.status_register() & !0x1f) | flags);
+    Ok(Some(u32::from(interrupted)))
 }

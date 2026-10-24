@@ -344,6 +344,7 @@ pub fn intro_release_large_player_sprites_and_refresh(
             &[index],
         )?;
     }
+    context.discard_u8(ram::g_sprite_graphics_upload_pending(context.revision()).address())?;
     ram::g_sprite_graphics_upload_pending(context.revision()).write(context, 0);
     call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
     call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
