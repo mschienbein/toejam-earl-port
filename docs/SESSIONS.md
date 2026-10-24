@@ -620,3 +620,32 @@ separate evidence requirement and does not establish translated/native
 equivalence. This checkpoint does **not** certify a natural all-ten-pieces
 campaign, or a settled whole-corpus check-mode release gate.
 
+## Map → missing-ship-piece summary → gameplay regression
+
+`rev02-map-ship-exit.tje.json` and `rev00-map-ship-exit.tje.json` are
+2,400-frame, power-on controller recordings for the reported web-preview exit
+path. They use the existing fixed-world solo menu prefix through frame 1,039,
+then remain neutral until gameplay. There are no RAM writes or snapshots.
+
+The recorded P1 intervals are half-open video-frame ranges:
+
+| Frames | Input | Intended transition |
+| --- | --- | --- |
+| 1,800–1,808 | C | Gameplay → map |
+| 1,900–1,908 | A | Map → missing-ship-piece summary |
+| 2,050–2,066 | C | Acknowledge/release → restore gameplay |
+| 2,300–2,316 | Right | Continue playing after the exit |
+
+Default web/native keyboard equivalents are **C**, **Z**, **C**, then
+**Right Arrow**. On the map, A or B opens the ship summary; C instead returns
+directly to gameplay. The ship summary accepts any A/B/C press and its release,
+or times out after 240 game ticks. Start is not its acknowledgement button.
+The selecting player's inventory must be closed before opening the map.
+
+This is the missing-pieces overview (`ShowShipPieces(-1, player)`), not the
+piece-collection animation, a collected-piece claim, or the completed-ship
+ending. The proof receipt in `sessions/map-ship-exit-proofs.json` keeps the
+reference/reference and native-engine comparisons separate from frontend
+no-crash observations; determinism alone does not prove a translated hybrid
+replacement correct.
+

@@ -1,0 +1,215 @@
+{
+  "format": 1,
+  "revision": "rev00",
+  "start": {
+    "kind": "power_on"
+  },
+  "frames": 2400,
+  "tool": "tje-session/0.2.0",
+  "description": "Power-on, input-only map/ship-summary exit regression. Fixed-world ToeJam solo menu prefix follows the committed one-player recording through frame 1039, then neutral until frame 1800. Hold C at [1800,1808) to open the map; A at [1900,1908) to open the missing-rocketship-piece summary; C at [2050,2066) to acknowledge, release, and restore gameplay; Right at [2300,2316) proves continued play. No RAM recipes, snapshots or transplanted machine state. Masks/durations are recorded at the frontend pad boundary and replayed independently in both revisions.",
+  "runs": [
+    {
+      "frames": 360,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 112,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 112,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 7,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 79,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 1,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 79,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        258,
+        0
+      ]
+    },
+    {
+      "frames": 40,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        384,
+        0
+      ]
+    },
+    {
+      "frames": 858,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        320,
+        0
+      ]
+    },
+    {
+      "frames": 92,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 8,
+      "pads": [
+        272,
+        0
+      ]
+    },
+    {
+      "frames": 142,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        320,
+        0
+      ]
+    },
+    {
+      "frames": 234,
+      "pads": [
+        256,
+        0
+      ]
+    },
+    {
+      "frames": 16,
+      "pads": [
+        264,
+        0
+      ]
+    },
+    {
+      "frames": 84,
+      "pads": [
+        256,
+        0
+      ]
+    }
+  ]
+}

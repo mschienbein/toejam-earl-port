@@ -1,0 +1,308 @@
+{
+  "format": 1,
+  "scope": "Input-only map -> missing-ship-piece summary -> acknowledge/release -> gameplay regression. Every requested frame is compared without masks, skipped frames, projections or hash-only substitution. Reference/reference determinism and native/browser engine equality are distinct proof lanes; frontend smoke observations alone are not equality proofs.",
+  "source_commit": "112a132c14a705b15d907465606dfa25c27f7f55",
+  "original_hybrid_commit": "d14a46faee35f5ee3e4fffc9b68844683747d3b1",
+  "existing_dma_pending_write_fix": "82f30de68e1ab5505fa78d5c23a7014ded9be413",
+  "controller_hash_fields": [
+    "format",
+    "revision",
+    "start",
+    "frames",
+    "runs"
+  ],
+  "controller_hash_encoding": "UTF-8 JSON with sorted object keys and comma/colon separators, no trailing newline",
+  "input_intervals": [
+    {
+      "start": 1800,
+      "end": 1808,
+      "p1": "C"
+    },
+    {
+      "start": 1900,
+      "end": 1908,
+      "p1": "A"
+    },
+    {
+      "start": 2050,
+      "end": 2066,
+      "p1": "C"
+    },
+    {
+      "start": 2300,
+      "end": 2316,
+      "p1": "Right"
+    }
+  ],
+  "entries": [
+    {
+      "session": "sessions/rev02-map-ship-exit.tje.json",
+      "revision": "rev02",
+      "frames": 2400,
+      "file_sha256": "30dbea55841bacc30e50885edbb3f42624e432630ecc0d81abbe550acd439176",
+      "canonical_controller_sha256": "946d98bdc8101512c8a969faed15f147246d4f31338917f3b31ab5d22b268453",
+      "reference_reference": {
+        "session": "sessions/rev02-map-ship-exit.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 2400,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      },
+      "reference_executable_entry_counts": {
+        "DrawGameMap": 1,
+        "RestoreGameplayGraphics": 1,
+        "ShowMissingShipPieceSummary": 1,
+        "WaitForShipScreenAcknowledgement": 1,
+        "ShowShipPieces": 1
+      },
+      "native_reference": {
+        "architecture": "x86_64",
+        "audio_samples_compared": 1922351,
+        "cache_status": "Miss",
+        "chip_writes_compared": 49395,
+        "comparison": "byte equality, no projection or hashes",
+        "comparison_seconds": 20.137828324,
+        "difference": null,
+        "domains": [
+          "CPU registers",
+          "master-clock/scanline position",
+          "full work RAM",
+          "VRAM",
+          "CRAM",
+          "VSRAM",
+          "VDP registers",
+          "complete VDP serialized state",
+          "Z80 RAM",
+          "complete frame pixels",
+          "stereo f64 sample bits/counts",
+          "ordered timestamped chip writes"
+        ],
+        "engine_version": "0.1.0-clif137-abi1",
+        "format": 1,
+        "frames_compared": 2400,
+        "frontend": "tje-native",
+        "initial_state_equal": true,
+        "load_seconds": 12.056884071,
+        "native_code_bytes": 17158584,
+        "native_instruction_count": 56970,
+        "os": "linux",
+        "passed": true,
+        "requested_frames": 2400,
+        "revision": "REV 02",
+        "sample_rate": 48000,
+        "session": "sessions/rev02-map-ship-exit.tje.json"
+      },
+      "browser_reference": {
+        "framesCompared": 2400,
+        "requestedFrames": 2400,
+        "initialStateCompared": true,
+        "comparedBytes": 4461232737,
+        "comparison": "actual serialized canonical FrameState bytes, not hashes",
+        "elapsedMs": 32034,
+        "domains": [
+          "position",
+          "CPU",
+          "work RAM",
+          "VRAM",
+          "CRAM",
+          "VSRAM",
+          "VDP registers",
+          "complete VDP state",
+          "Z80 RAM",
+          "dimensions",
+          "full RGBA backing buffer",
+          "exact f64 audio bits/count",
+          "ordered timestamped YM2612/PSG writes with origin/PC"
+        ],
+        "reference": {
+          "frames": 2400,
+          "instructions": 31036199,
+          "reference": "vendored-jgenesis-portable-scalar",
+          "revision": "REV 02",
+          "schedulerSteps": 35702044
+        },
+        "browser": "141.0.7390.37",
+        "pageErrors": []
+      },
+      "shipping_linux_window_smoke": {
+        "passed": true,
+        "exit": 0,
+        "completed_frames": 2400,
+        "scheduler_ticks": 2400,
+        "replay_frame": 2400,
+        "wall_seconds_after_load": 40.047,
+        "reported_fps": 59.929148,
+        "gpu_backend": "Vulkan",
+        "screenshots": [1850, 1980, 2200, 2400],
+        "evidence": "scratch/CrashRepro/native-rev02/result.json"
+      },
+      "shipping_browser_smokes": [
+        {
+          "target": "local",
+          "kind": "engine",
+          "frames": 2400,
+          "engine": "cycle-exact WebAssembly (tje-wasm-2-ssa25)",
+          "backend": "webgl",
+          "browser": "141.0.7390.37",
+          "page_errors": [],
+          "evidence": "scratch/CrashRepro/local-engine-rev02/result.json"
+        },
+        {
+          "target": "https://mschienbein.github.io/toejam-earl-port/",
+          "kind": "engine",
+          "frames": 2400,
+          "engine": "cycle-exact WebAssembly (tje-wasm-2-ssa25)",
+          "backend": "webgl",
+          "browser": "141.0.7390.37",
+          "page_errors": [],
+          "evidence": "scratch/CrashRepro/live-old-rev02/result.json"
+        }
+      ],
+      "original_hybrid_reproduction": {
+        "crashed": true,
+        "completed_frames": 2068,
+        "failing_zero_based_input_frame": 2068,
+        "panic": "range end index 73 out of range for slice of length 10",
+        "location": "vendor/jgenesis/backend/genesis-components/src/vdp.rs:1878",
+        "primary_failure": "apply_pending_writes fixed-size scratch overflow",
+        "evidence": "scratch/CrashRepro/local-hybrid-rev02-diagnostic/"
+      }
+    },
+    {
+      "session": "sessions/rev00-map-ship-exit.tje.json",
+      "revision": "rev00",
+      "frames": 2400,
+      "file_sha256": "0311761bd0b8241e2bdda3233861c0640610ed486bfa87f013c71a71bf6e8204",
+      "canonical_controller_sha256": "f0312857a93b7a60795274dc6ef73f69cbc77278a8a4d99504e71b50b960c6d7",
+      "reference_reference": {
+        "session": "sessions/rev00-map-ship-exit.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 2400,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      },
+      "reference_executable_entry_counts": {
+        "DrawGameMap": 1,
+        "RestoreGameplayGraphics": 1,
+        "ShowMissingShipPieceSummary": 1,
+        "WaitForShipScreenAcknowledgement": 1,
+        "ShowShipPieces": 1
+      },
+      "native_reference": {
+        "architecture": "x86_64",
+        "audio_samples_compared": 1922351,
+        "cache_status": "Miss",
+        "chip_writes_compared": 49395,
+        "comparison": "byte equality, no projection or hashes",
+        "comparison_seconds": 19.395752764,
+        "difference": null,
+        "domains": [
+          "CPU registers",
+          "master-clock/scanline position",
+          "full work RAM",
+          "VRAM",
+          "CRAM",
+          "VSRAM",
+          "VDP registers",
+          "complete VDP serialized state",
+          "Z80 RAM",
+          "complete frame pixels",
+          "stereo f64 sample bits/counts",
+          "ordered timestamped chip writes"
+        ],
+        "engine_version": "0.1.0-clif137-abi1",
+        "format": 1,
+        "frames_compared": 2400,
+        "frontend": "tje-native",
+        "initial_state_equal": true,
+        "load_seconds": 10.650899815,
+        "native_code_bytes": 17151640,
+        "native_instruction_count": 56943,
+        "os": "linux",
+        "passed": true,
+        "requested_frames": 2400,
+        "revision": "REV 00",
+        "sample_rate": 48000,
+        "session": "sessions/rev00-map-ship-exit.tje.json"
+      },
+      "browser_reference": {
+        "framesCompared": 2400,
+        "requestedFrames": 2400,
+        "initialStateCompared": true,
+        "comparedBytes": 4461233717,
+        "comparison": "actual serialized canonical FrameState bytes, not hashes",
+        "elapsedMs": 30012.5,
+        "domains": [
+          "position",
+          "CPU",
+          "work RAM",
+          "VRAM",
+          "CRAM",
+          "VSRAM",
+          "VDP registers",
+          "complete VDP state",
+          "Z80 RAM",
+          "dimensions",
+          "full RGBA backing buffer",
+          "exact f64 audio bits/count",
+          "ordered timestamped YM2612/PSG writes with origin/PC"
+        ],
+        "reference": {
+          "frames": 2400,
+          "instructions": 31035126,
+          "reference": "vendored-jgenesis-portable-scalar",
+          "revision": "REV 00",
+          "schedulerSteps": 35701040
+        },
+        "browser": "141.0.7390.37",
+        "pageErrors": []
+      },
+      "shipping_linux_window_smoke": {
+        "passed": true,
+        "exit": 0,
+        "completed_frames": 2400,
+        "scheduler_ticks": 12951,
+        "replay_frame": 2400,
+        "wall_seconds_after_load": 216.120,
+        "reported_fps": 11.104917,
+        "timing_note": "Focus-loss pauses consume scheduler ticks but not replay input frames; no full-speed claim is made for this windowed run.",
+        "gpu_backend": "Vulkan",
+        "screenshots": [1850, 1980, 2200, 2400],
+        "evidence": "scratch/CrashRepro/native-rev00/result.json"
+      },
+      "shipping_browser_smokes": [
+        {
+          "target": "local",
+          "kind": "engine",
+          "frames": 2400,
+          "engine": "cycle-exact WebAssembly (tje-wasm-2-ssa25)",
+          "backend": "webgl",
+          "browser": "141.0.7390.37",
+          "page_errors": [],
+          "evidence": "scratch/CrashRepro/local-engine-rev00/result.json"
+        },
+        {
+          "target": "https://mschienbein.github.io/toejam-earl-port/",
+          "kind": "engine",
+          "frames": 2400,
+          "engine": "cycle-exact WebAssembly (tje-wasm-2-ssa25)",
+          "backend": "webgl",
+          "browser": "141.0.7390.37",
+          "page_errors": [],
+          "evidence": "scratch/CrashRepro/live-engine-rev00-network-retry/result.json"
+        }
+      ],
+      "original_hybrid_reproduction": {
+        "crashed": true,
+        "completed_frames": 2067,
+        "failing_zero_based_input_frame": 2067,
+        "panic": "range end index 73 out of range for slice of length 10",
+        "location": "vendor/jgenesis/backend/genesis-components/src/vdp.rs:1878",
+        "primary_failure": "apply_pending_writes fixed-size scratch overflow",
+        "evidence": "scratch/CrashRepro/local-hybrid-rev00-diagnostic/"
+      }
+    }
+  ]
+}
