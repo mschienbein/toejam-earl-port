@@ -309,8 +309,7 @@ pub fn ending_play_scrolling_credits(context: &mut dyn Context, _: &[u32]) -> Re
             continue;
         }
         countdown.write(context, 102);
-        let next = state.read(context).wrapping_add(1);
-        state.write(context, next);
+        let next = increment_word_and_reload(context, state);
         match next {
             1 => {
                 credit_page(context, base + 0x308, base + 0x324, 48)?;
@@ -641,6 +640,17 @@ fn increment(context: &mut dyn Context, word: tje_mem::Address<i16>) {
     word.write(context, next);
 }
 
+/// Matching c_ending.s:694-705,1184-1188,1193-1194: ADDQ.W followed by
+/// a separate MOVE.W consumes a fresh word read, not a cached RMW result.
+fn increment_word_and_reload<B: tje_mem::Bus + ?Sized>(
+    context: &mut B,
+    word: tje_mem::Address<i16>,
+) -> i16 {
+    let next = word.read(context).wrapping_add(1);
+    word.write(context, next);
+    word.read(context)
+}
+
 /// G/src/cutscenes/ending.c:466 (`EndingPlayBouncingRocketshipScene`).
 /// TimeAware. Matching c_ending.s:1116-1117 is LINK #-4 then MOVEM
 /// D2-D6/A2-A4. The ORIGINAL movement_frame word at -2(A6) is never initialized.
@@ -812,8 +822,7 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
         )?;
         scroll = scroll.wrapping_add(5);
         set_word_register(context, 6, scroll);
-        let next_state = state.read(context).wrapping_add(1);
-        state.write(context, next_state);
+        let next_state = increment_word_and_reload(context, state);
         viewport.release(context)?;
         if next_state & 1 != 0 {
             character_x = character_x.wrapping_sub(1);
@@ -822,8 +831,7 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
         character_y = character_y.wrapping_add(velocity_y);
         set_word_register(context, 2, character_y);
         // Read the actual residual local word, not an invented initial phase.
-        let phase = movement_frame.read(context).wrapping_add(1);
-        movement_frame.write(context, phase);
+        let phase = increment_word_and_reload(context, movement_frame);
         if i32::from(phase) % 9 == 0 {
             velocity_y = velocity_y.wrapping_add(acceleration_y);
             set_word_register(context, 4, velocity_y);
@@ -1117,3 +1125,7 @@ fn retained_ending_call(
     area.call(context, dispatcher, callee, site)?;
     Ok(area)
 }
+
+#[cfg(test)]
+#[path = "ending_access_tests.rs"]
+mod access_tests;
