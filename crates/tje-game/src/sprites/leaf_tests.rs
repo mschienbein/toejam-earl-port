@@ -6,6 +6,7 @@ use crate::{
     call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments},
     ids,
 };
+use std::{cell::RefCell, collections::VecDeque};
 use tje_mem::{Address, AddressSpace, Bus, Platform, Ptr, RenderPiece, Revision, ram, rom};
 
 struct Machine {
@@ -17,6 +18,11 @@ struct Machine {
     frame: FrameState,
     dispatcher: Dispatcher,
     forbidden_read: Option<u32>,
+    scripted_reads: RefCell<VecDeque<(u32, u8)>>,
+    trace_memory: bool,
+    memory_reads: RefCell<Vec<(u32, u8, u32, u32)>>,
+    memory_writes: Vec<(u32, u8, u32)>,
+    discarded_reads: Vec<(u32, u8, u16)>,
     writes: Vec<(u8, u16)>,
 }
 impl Machine {
@@ -33,6 +39,11 @@ impl Machine {
                 super::PENDING_FRAMED_TRANSLATIONS,
             ),
             forbidden_read: None,
+            scripted_reads: RefCell::new(VecDeque::new()),
+            trace_memory: false,
+            memory_reads: RefCell::new(Vec::new()),
+            memory_writes: Vec::new(),
+            discarded_reads: Vec::new(),
             writes: Vec::new(),
         }
     }
@@ -54,9 +65,23 @@ impl Bus for Machine {
             Some(address),
             "the source does not read this unused slot"
         );
-        self.memory.read_u8(address)
+        let value = if let Some((expected, value)) = self.scripted_reads.borrow_mut().pop_front() {
+            assert_eq!(address, expected, "source access order changed");
+            value
+        } else {
+            self.memory.read_u8(address)
+        };
+        if self.trace_memory {
+            self.memory_reads
+                .borrow_mut()
+                .push((address, value, self.sp, self.frame.entry_sp));
+        }
+        value
     }
     fn write_u8(&mut self, address: u32, value: u8) {
+        if self.trace_memory {
+            self.memory_writes.push((address, value, self.sp));
+        }
         self.memory.write_u8(address, value);
     }
 }
@@ -69,8 +94,14 @@ impl Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        let value = self.memory.read_u8(address);
+        self.discarded_reads.push((address, 1, u16::from(value)));
+        Ok(())
+    }
     fn discard_u16(&mut self, address: u32) -> Result<()> {
-        let _ = self.memory.read_u16(address);
+        let value = self.memory.read_u16(address);
+        self.discarded_reads.push((address, 2, value));
         Ok(())
     }
     fn read_device_u8(&mut self, _: u32) -> u8 {
@@ -720,6 +751,110 @@ fn guarded_frame_duration_predecrement_matches_every_byte_and_zero_test() {
 }
 
 #[test]
+fn frame_duration_rmw_consumes_a_fresh_byte_after_the_guard() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        let entity = ram::g_player_info(revision).at(39);
+        let address = entity.frame_duration().address();
+        for (operand, result, expired) in [(0, -1, false), (1, 0, true), (128, 127, false)] {
+            entity.frame_duration().write(&mut machine, 7);
+            machine
+                .scripted_reads
+                .borrow_mut()
+                .extend([(address, 1), (address, operand)]);
+            assert_eq!(
+                queue_update::tick_frame_duration(&mut machine, entity),
+                expired
+            );
+            assert!(machine.scripted_reads.borrow().is_empty());
+            assert_eq!(machine.memory.read_i8(address), result);
+        }
+        entity.frame_duration().write(&mut machine, 7);
+        machine.scripted_reads.borrow_mut().push_back((address, 0));
+        assert!(!queue_update::tick_frame_duration(&mut machine, entity));
+        assert!(machine.scripted_reads.borrow().is_empty());
+        assert_eq!(machine.memory.read_i8(address), 7);
+    }
+}
+
+#[test]
+fn queue_calls_use_source_returns_and_keep_inventory_arguments_live() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (split, inventory0, inventory1) in [(0, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0)] {
+            let mut machine = Machine::new(revision);
+            ram::g_split_screen_enabled(revision).write(&mut machine, split);
+            ram::g_player_inventory_open(revision)
+                .at(0)
+                .write(&mut machine, inventory0);
+            ram::g_player_inventory_open(revision)
+                .at(1)
+                .write(&mut machine, inventory1);
+            machine.trace_memory = true;
+            queue_update::update_and_queue_entity_sprites(&mut machine, &[]).unwrap();
+            let entry = ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
+                .metadata()
+                .address(revision);
+            let offsets = if inventory0 != 0 || inventory1 != 0 {
+                vec![0x16, 0x1c4, 0x1ce, 0x1e4, 0x1ec, 0x1f2]
+            } else {
+                vec![0x16, 0x1c4, 0x1ce, 0x1f2]
+            };
+            let mut returns = Vec::new();
+            for bytes in machine.memory_writes.windows(4) {
+                if bytes[1].0 == bytes[0].0 + 1
+                    && bytes[2].0 == bytes[0].0 + 2
+                    && bytes[3].0 == bytes[0].0 + 3
+                {
+                    let value =
+                        u32::from_be_bytes([bytes[0].1, bytes[1].1, bytes[2].1, bytes[3].1]);
+                    if offsets.iter().any(|offset| value == entry + offset) {
+                        returns.push((bytes[0].0, value - entry));
+                    }
+                }
+            }
+            let root_sp = 0xff8000;
+            let expected: Vec<_> = offsets
+                .iter()
+                .map(|offset| {
+                    let below_entry = match offset {
+                        0x16 | 0x1ce | 0x1e4 => 32,
+                        0x1ec => 36,
+                        _ => 28,
+                    };
+                    (root_sp - below_entry, *offset)
+                })
+                .collect();
+            assert_eq!(
+                returns, expected,
+                "{revision:?} split={split} inventory={inventory0}/{inventory1}"
+            );
+            let tail_read = machine
+                .memory_reads
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(address, _, _, origin)| {
+                    *address == ram::g_player_inventory_open(revision).at(0).address()
+                        && *origin == root_sp
+                })
+                .copied()
+                .unwrap();
+            assert_eq!(
+                tail_read.2,
+                root_sp - 28,
+                "TST.B precedes world-argument release"
+            );
+            assert_eq!(machine.sp, root_sp);
+            assert_eq!(machine.sr & 0x0f, 0, "final MOVE.B publishes NZVC=0");
+            assert_eq!(
+                ram::g_sprite_graphics_upload_pending(revision).read(&machine),
+                1
+            );
+        }
+    }
+}
+
+#[test]
 fn short_player_selectors_wrap_the_word_offset_before_address_addition() {
     let revision = Revision::Rev02;
     let mut machine = Machine::new(revision);
@@ -885,5 +1020,30 @@ fn upload_empty_and_no_work_return_flags_preserve_every_entry_x() {
                 assert!(machine.writes.is_empty());
             }
         }
+    }
+}
+
+#[test]
+fn queue_hold_clr_records_a_discarded_byte_before_zero_store() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        let entity = ram::g_player_info(revision).at(39);
+        let sequence = machine.buffer() + 7800;
+        machine.write_u8(sequence + 1, 0xfe);
+        entity.sequence().write(&mut machine, Ptr::new(sequence));
+        entity.draw_flags().write(&mut machine, 1);
+        entity.frame_duration().write(&mut machine, 1);
+        entity.frame_phase().write(&mut machine, 5);
+        entity.frame().write(&mut machine, 0);
+        entity.sprite_ready().write(&mut machine, 1);
+        queue_update::update_and_queue_entity_sprites(&mut machine, &[]).unwrap();
+        let discarded: Vec<_> = machine
+            .discarded_reads
+            .iter()
+            .copied()
+            .filter(|(address, _, _)| *address == entity.frame_duration().address())
+            .collect();
+        assert_eq!(discarded, [(entity.frame_duration().address(), 1, 5)]);
+        assert_eq!(entity.frame_duration().read(&machine), 0);
     }
 }
