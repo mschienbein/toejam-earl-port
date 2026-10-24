@@ -537,6 +537,50 @@ fn actual_root_start_witness_uses_relative_depth_and_rejects_every_extra_start()
 }
 
 #[test]
+fn original_control_keeps_discarded_values_and_reports_bounded_first_difference() {
+    // Synthetic observer/schema records, not CPU-accepted source/IRQ evidence.
+    let (baseline, mut a) = armed_witness();
+    let (probe, mut b) = armed_witness();
+    let left = a.audit.strict_control.as_mut().unwrap();
+    let right = b.audit.strict_control.as_mut().unwrap();
+    let before = left.events.len();
+    for index in 0..128_u32 {
+        left.observe(HybridAccess::Read {
+            address: 0xff1000 + 2 * index,
+            word: true,
+            value: index as u16,
+            purpose: ReadPurpose::Discarded,
+        });
+        right.observe(HybridAccess::Read {
+            address: 0xff1000 + 2 * index,
+            word: true,
+            value: if index == 64 { 0x1234 } else { index as u16 },
+            purpose: ReadPurpose::Discarded,
+        });
+    }
+    let domain = BTreeSet::from([0xff1080, 0xff1081]);
+    let mut progress = ProbeProgress::default();
+    let error = compare_original_control(
+        &baseline.emulator,
+        &probe.emulator,
+        &a,
+        &b,
+        &domain,
+        &mut progress,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("strict DMA baseline-to-original probe control:"));
+    assert!(error.contains(&format!("at event {}", before + 64)));
+    assert!(error.contains("purpose: Discarded"));
+    assert!(error.contains("value: 4660"));
+    assert!(error.contains("context left="));
+    assert!(error.len() < 3000, "never dump the complete control stream");
+    assert_eq!(progress.control_checks, 0);
+    assert!(progress.baseline_control.is_none());
+    assert!(progress.baseline_vdp_control.is_none());
+}
+
+#[test]
 fn probe_control_checks_only_actual_input_domain_and_retains_all_other_devices_audio_and_recipes() {
     let (baseline, a) = armed_witness();
     let (mut probe, mut b) = armed_witness();

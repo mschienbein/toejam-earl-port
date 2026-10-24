@@ -1272,6 +1272,10 @@ unsupported source-shape rejection, never a restart which could discard an
 observed CPU/IRQ/HostMutation counterexample or reuse earlier sensitivity.
 Attempt-work counters remain distinct from final qualified probe/sensitivity
 counters; the latter advance only after the complete stable-domain call passes.
+Failures distinguish baseline-to-original probe control from coupled-pair
+validation, retaining the first differing typed control event, both stream
+lengths and at most two neighbouring events on either side. This bounded
+diagnostic does not hide values or change equality or qualification.
 
 Receipts are labelled **finite probe evidence, not a formal proof**. Bounded
 `clocked_strict` evidence is separate from the legacy frozen counters, so old

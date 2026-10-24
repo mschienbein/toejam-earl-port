@@ -248,7 +248,8 @@ pub(super) fn compare_original_control(
     domain: &BTreeSet<u32>,
     progress: &mut ProbeProgress,
 ) -> std::result::Result<(), String> {
-    validate_pair(baseline, probe, baseline_run, probe_run)?;
+    validate_pair(baseline, probe, baseline_run, probe_run)
+        .map_err(|error| format!("strict DMA baseline-to-original probe control: {error}"))?;
     let (a, b) = (baseline.hybrid_bus(), probe.hybrid_bus());
     match (&a.native_cpu_accesses, &b.native_cpu_accesses) {
         (Some(a), Some(b)) if a == b => {}
@@ -733,10 +734,31 @@ pub(super) fn validate_pair(
         &original_run.audit.strict_control,
         &translated_run.audit.strict_control,
     ) {
-        (Some(a), Some(b)) if a == b => Ok(()),
-        _ => Err(
-            "strict DMA actual CPU/Z80/HostMutation/DMA chronology differs or is missing".into(),
-        ),
+        (Some(a), Some(b)) => {
+            let first_difference = a
+                .events
+                .iter()
+                .zip(&b.events)
+                .position(|(left, right)| left != right)
+                .or_else(|| {
+                    (a.events.len() != b.events.len()).then_some(a.events.len().min(b.events.len()))
+                });
+            if let Some(index) = first_difference {
+                let start = index.saturating_sub(2);
+                let end = index.saturating_add(3);
+                return Err(format!(
+                    "strict DMA actual CPU/Z80/HostMutation/DMA chronology differs at event {index}: left={:?}, right={:?}; lengths left={}, right={}; context left={:?}, right={:?}",
+                    a.events.get(index),
+                    b.events.get(index),
+                    a.events.len(),
+                    b.events.len(),
+                    &a.events[start..end.min(a.events.len())],
+                    &b.events[start..end.min(b.events.len())]
+                ));
+            }
+            Ok(())
+        }
+        _ => Err("strict DMA actual CPU/Z80/HostMutation/DMA chronology is missing".into()),
     }
 }
 
