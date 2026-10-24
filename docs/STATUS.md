@@ -1,5 +1,60 @@
 # Status (current entry first)
 
+## 2026-10-24: timing bridge integrated; 461 of 648 functions proven, all 648 written
+
+Branch `integrate/p0`.
+
+Every catalogued function now has a readable Rust body: 461 are proven and registered, and 187
+are written but held with an exact blocker each. The proven count fell because an independent
+review found sixteen Presents functions that had entered production without a whole-corpus
+pass; the candidate corpus showed ten of them failing, so all sixteen went back to pending. The
+review's second finding was closed: a proof registry can no longer run held bodies in
+replacement mode.
+
+Most held functions finish in zero time where the original takes real time, so an interrupt
+lands at a different instruction. The **timing bridge** now lets a readable Rust body consume
+the engine's reference-phase timing through a portable `TimingSource`, so the body spends
+exactly the original's time. Its first proofs:
+
+- `WaitForNextVBlank` matches on the canonical path in both revisions.
+- Four platform routines (both controller reads, the VRAM word copy including its 65,536-word
+  zero-count case, and the CRAM palette copy) pass the strict clocked comparison: 11,056 checks
+  per revision, no mismatches.
+
+Support for timed bodies that call other functions is next. It covers 165 of the 187 held
+functions.
+
+Check mode also gained, since the last entry:
+
+- typed execution contracts in every subsystem, with measured operational ceilings for the long
+  searches (twice the largest exact cost over the corpus);
+- a shared call clock;
+- a future-frame provenance watch;
+- auditing of DMA reads from work RAM;
+- passive capture of interrupt frames;
+- a strict zero-count DMA contract with a canonical proof in both revisions.
+
+Recorded sessions: 81 input-only recordings, 3,114,838 frames, each replaying exactly between
+two independent reference runs. They reach 638 of the 648 functions in each revision, all 25
+Earthling kinds, all 11 services and ranks 0 to 8. The ten never reached are eight static or
+exceptional entries and two audio retry paths. The ending is still reached only through the
+disclosed pause secret; the natural all-ten-pieces campaign stands at six pieces on REV 00 and
+eight on REV 02.
+
+Engine: native and browser replay 73 of these recordings (2,776,462 frames, 35.1 billion
+instructions) with no differences. Both frontends offer native NTSC or square pixels, integer
+or fit scaling, and default to integer scaling at the native aspect ratio. Release packages
+carry complete third-party notices. The public web preview now runs the engine build.
+
+Next:
+
+- timing-bridge support for calls into other functions;
+- timed bodies for the held functions, subsystem by subsystem, each admitted only after a
+  whole-corpus pass in both revisions;
+- the natural ending campaign;
+- crash and bug reports from the frontends;
+- release builds.
+
 ## 2026-10-23 (night): whole-corpus gate; 482 of 648 functions proven
 
 Branch `integrate/p0`.
