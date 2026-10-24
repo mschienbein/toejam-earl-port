@@ -458,13 +458,13 @@ inventing a downward elevator mode absent from the original.
 
 ## Latest content and rank checkpoint
 
-This measured **74-recording / 2,822,997-video-frame** content checkpoint
+This measured **76-recording / 2,881,090-video-frame** content checkpoint
 supersedes the historical 29-session coverage summary above. It combines
-50 inherited recordings (1,493,422 frames) with 24 new input-only recordings
-(1,329,575 frames); private bot experiments are not included.
+50 inherited recordings (1,493,422 frames) with 26 new input-only recordings
+(1,387,668 frames); private bot experiments are not included.
 
-The 24 new recordings have independent power-on **reference/reference** comparisons
-at every video frame: **1,329,575 compared frames**, no skipped lag ticks, and
+The 26 new recordings have independent power-on **reference/reference** comparisons
+at every video frame: **1,387,668 compared frames**, no skipped lag ticks, and
 `divergence: null` in every receipt. The
 [public proof index](../sessions/content-reference-proofs.json) preserves each
 actual compared session path and its receipt. Matching canonical controller
@@ -475,7 +475,7 @@ controller inputs.
 | Reference entry coverage | Observed | Still zero |
 | --- | ---: | ---: |
 | REV 00 | 635 / 648 | 13 |
-| REV 02 | 634 / 648 | 14 |
+| REV 02 | 636 / 648 | 12 |
 | Both revisions combined | 636 / 648 | 12 |
 
 In each revision the aggregate replay checklist now observes all **28 present
@@ -487,7 +487,7 @@ witnesses are not a single-game natural campaign.
 The four `rev00-content-final-display`, `rev02-content-final-display`,
 `rev00-content-final-two` and `rev02-content-final-two` continuations retain their
 explicitly disclosed original pause-secret ending prefixes. They are input-only,
-but are **not natural ten-piece evidence**. The other twenty new content/rank
+but are **not natural ten-piece evidence**. The other twenty-two new content/rank
 recordings use normal play.
 
 `rev00-content-full-inventory.tje.json` adds a real full-inventory ground-pickup
@@ -495,6 +495,13 @@ attempt (`HasSpeakerSpeech`) in 46,535 frames. Its ordinary game-over/restart an
 later play remain in the power-on controller history; no state is restored.
 The proof index also carries the renewed comparisons of the previous 23 files
 from the rebased runner; those controller files are byte-identical.
+
+The REV 02 counterparts `rev02-content-cupid-bounce.tje.json` (31,424 frames)
+and `rev02-content-singer-weak-target.tje.json` (26,669 frames) exercise the
+original bouncing-damage and free-timed-effect-slot entries respectively.
+The latter records funded P2 actually paying the singer near a weak native
+Earthling, not merely witnessing its definition. Both complete frame
+comparisons have `divergence: null`.
 
 These are observed reference executable-entry/content counts, not a claim that
 the remaining entries are unreachable. Reference/reference determinism is a

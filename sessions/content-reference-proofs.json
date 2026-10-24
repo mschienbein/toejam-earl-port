@@ -9,13 +9,13 @@
     "runs"
   ],
   "renaming_policy": "The actual receipt session path is preserved. Matching canonical controller digests prove that renamed public recordings contain exactly the compared revision, power-on start and controller history; descriptions/tool metadata are not controller inputs.",
-  "new_session_count": 24,
-  "new_frames": 1329575,
+  "new_session_count": 26,
+  "new_frames": 1387668,
   "inherited_session_count": 50,
   "inherited_frames": 1493422,
   "corpus_entries_hit": {
     "rev00": 635,
-    "rev02": 634
+    "rev02": 636
   },
   "corpus_union_entries_hit": 636,
   "inventory_entries": 648,
@@ -400,6 +400,38 @@
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 46535,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-cupid-bounce.tje.json",
+      "revision": "rev02",
+      "frames": 31424,
+      "file_sha256": "3212b5f8bc9b2d8564ae059db28c487662c05d92b16d5108effea443d316ba0d",
+      "canonical_controller_sha256": "bcb2e1093916096a66667bb465d45979b407a33b60a4c44d9700f93f321ea76f",
+      "compared_input_canonical_controller_sha256": "bcb2e1093916096a66667bb465d45979b407a33b60a4c44d9700f93f321ea76f",
+      "reference_reference": {
+        "session": "../rev02-cupid-air-contact.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 31424,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-singer-weak-target.tje.json",
+      "revision": "rev02",
+      "frames": 26669,
+      "file_sha256": "979ce5f177d15999cc7dc4ae80aa8e1c5d421c75d32df79370e2b92f049897e9",
+      "canonical_controller_sha256": "fdffa1d2715df96371c0dc9257551f3d1447cac0739a72e407eed4478b9f4855",
+      "compared_input_canonical_controller_sha256": "fdffa1d2715df96371c0dc9257551f3d1447cac0739a72e407eed4478b9f4855",
+      "reference_reference": {
+        "session": "../rev02-singer-weak-target.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 26669,
         "skipped_lag_ticks": [],
         "divergence": null
       }
