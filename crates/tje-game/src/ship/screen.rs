@@ -41,6 +41,7 @@ pub fn animate_ship_screen_palette(
         let lookup = rom::palette_fade_lookup(revision);
         let mut fade_step = 0_i16;
         for color in 0..16 {
+            context.discard_u16(palette.offset(color).address())?;
             palette.offset(color).write(context, 0);
             dispatcher.call_at(
                 context,
@@ -167,6 +168,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
         )?;
         initial_upload.release(context)?;
         if selected_piece >= 0 {
+            context.discard_u8(levels.at(i32::from(selected_piece)).address())?;
             levels.at(i32::from(selected_piece)).write(context, 0);
         }
         let frames = rom::intro_and_ship_animation_pointers(revision)
@@ -175,22 +177,30 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
             .address();
         frames_pointer.write(context, frames);
         pass.write(context, 0);
-        while pass.read(context) < 2 {
+        loop {
             ship_number.write(context, 0);
-            while ship_number.read(context) < 10 {
-                let ship = ship_number.read(context);
-                let collected = levels.at(i32::from(ship)).read(context) == 0;
-                if (pass.read(context) == 0 && !collected) || (pass.read(context) == 1 && collected)
+            loop {
+                if (pass.read(context) == 0
+                    && levels
+                        .at(i32::from(ship_number.read(context)))
+                        .read(context)
+                        != 0)
+                    || (pass.read(context) == 1
+                        && levels
+                            .at(i32::from(ship_number.read(context)))
+                            .read(context)
+                            == 0)
                 {
                     let next = ship_number.read(context).wrapping_add(1);
                     ship_number.write(context, next);
+                    if ship_number.read(context) >= 10 {
+                        break;
+                    }
                     continue;
                 }
+                let ship = ship_number.read(context);
                 let frames = Address::<Ptr<RenderFrame>>::new(frames_pointer.read(context));
-                let picture = frames
-                    .offset(i32::from(ship_number.read(context)))
-                    .read(context)
-                    .target();
+                let picture = frames.offset(i32::from(ship)).read(context).target();
                 context.set_address_register(4, picture.address());
                 tile_offset.write(context, 0);
                 part_number.write(context, 0);
@@ -278,9 +288,8 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                         .at(i32::from(index))
                         .write(context, value);
                 }
-                let next = base_tile
-                    .read(context)
-                    .wrapping_add(tile_offset.read(context) as u16);
+                let tiles = tile_offset.read(context) as u16;
+                let next = base_tile.read(context).wrapping_add(tiles);
                 base_tile.write(context, next);
                 dispatcher.call_at(
                     context,
@@ -290,22 +299,32 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                 )?;
                 let next = ship_number.read(context).wrapping_add(1);
                 ship_number.write(context, next);
+                if ship_number.read(context) >= 10 {
+                    break;
+                }
             }
             let next = pass.read(context).wrapping_add(1);
             pass.write(context, next);
+            if pass.read(context) >= 2 {
+                break;
+            }
         }
         // This final array subscript is long arithmetic in the matching output.
         let last = sprites.offset(i32::from(sprite_number.read(context)) - 1);
+        context.discard_u8(last.link().address())?;
         last.link().write(context, 0);
-        dispatcher.call_at(
+        let dma = OutgoingArguments::push(context, &[sprites.address(), 0xf800, 320])?;
+        dma.call(
             context,
+            dispatcher,
             ids::DMA_COPY_WORDS_TO_VRAM,
-            &[sprites.address(), 0xf800, 320],
             site(0x29e),
         )?;
         let enabled = mode.read(context) | 0x40;
         mode.write(context, enabled);
-        context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+        let command = 0x8104 | u16::from(mode.read(context));
+        dma.release(context)?;
+        context.write_vdp_control(command);
         if selected_piece >= 0 {
             let selected = OutgoingArguments::push(context, &[i32::from(selected_piece) as u32])?;
             selected.call(context, dispatcher, ids::SHOW_SHIP_PIECE_NAME, site(0x2d2))?;
@@ -320,7 +339,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
             )?;
         }
         ship_number.write(context, 0);
-        while ship_number.read(context) < 10 {
+        loop {
             if levels
                 .at(i32::from(ship_number.read(context)))
                 .read(context)
@@ -330,17 +349,24 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
             }
             let next = ship_number.read(context).wrapping_add(1);
             ship_number.write(context, next);
+            if ship_number.read(context) >= 10 {
+                break;
+            }
         }
         if ship_number.read(context) < 10 {
-            dispatcher.call_at(
+            let acknowledgement =
+                OutgoingArguments::push(context, &[i32::from(player_number) as u32])?;
+            acknowledgement.call(
                 context,
+                dispatcher,
                 ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
-                &[i32::from(player_number) as u32],
                 site(0x318),
             )?;
             let blanked = mode.read(context) & 0x3c;
             mode.write(context, blanked);
-            context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+            let command = 0x8104 | u16::from(mode.read(context));
+            acknowledgement.release(context)?;
+            context.write_vdp_control(command);
             dispatcher.call_at(context, ids::RESTORE_GAMEPLAY_GRAPHICS, &[], site(0x340))?;
             if ram::g_player_inventory_open(revision).at(0).read(context) != 0 {
                 dispatcher.call_at(

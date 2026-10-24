@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, LazyLock},
 };
-use tje_game::{Context, FunctionId, Translation, ids, ship, speech};
+use tje_game::{Context, FramedTranslation, FunctionId, Translation, ids, ship, speech};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Platform, Ptr, Revision, ram, rom};
 
@@ -14,42 +14,41 @@ fn registry(revision: Revision) -> HookRegistry {
     if pending.is_empty() {
         return HookRegistry::filtered(revision, &["ship", "speech"], &[]).unwrap();
     }
+    // Root filtering leaves pending body forms intact. Phase 2's modular
+    // envelope authenticates the real original callee segment at each call.
     static SELECTED: LazyLock<Vec<Translation>> = LazyLock::new(|| {
-        let pending = std::env::var("TJE_SHIP_PENDING").expect("explicit proof selection");
         ship::TRANSLATIONS
             .iter()
             .chain(speech::TRANSLATIONS)
             .chain(ship::PENDING_TRANSLATIONS)
             .chain(speech::PENDING_TRANSLATIONS)
-            .filter(|translation| {
-                pending
-                    .split(',')
-                    .any(|name| name == translation.id.metadata().name)
-            })
             .copied()
             .collect()
     });
-    let translations = &*SELECTED;
-    assert_eq!(
-        translations.len(),
-        pending.split(',').count(),
-        "explicit proof selection"
-    );
-    let mut registry = HookRegistry::proof(revision, translations).unwrap();
-    for translation in ship::TRANSLATIONS.iter().chain(speech::TRANSLATIONS) {
-        if !translations
+    static FRAMED: LazyLock<Vec<FramedTranslation>> = LazyLock::new(|| {
+        ship::PENDING_FRAMED_TRANSLATIONS
             .iter()
-            .any(|selected| selected.id == translation.id)
-        {
-            registry
-                .register_translation_with_execution(
-                    tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
-                    tje_game::execution_class(translation.id).unwrap(),
-                )
-                .unwrap();
-        }
-    }
-    registry
+            .chain(speech::PENDING_FRAMED_TRANSLATIONS)
+            .copied()
+            .collect()
+    });
+    let roots: Vec<_> = pending
+        .split(',')
+        .map(|name| {
+            SELECTED
+                .iter()
+                .find(|translation| name == translation.id.metadata().name)
+                .map(|translation| translation.id)
+                .or_else(|| {
+                    FRAMED
+                        .iter()
+                        .find(|translation| name == translation.id.metadata().name)
+                        .map(|translation| translation.id)
+                })
+                .unwrap_or_else(|| panic!("unknown ship/speech proof root {name}"))
+        })
+        .collect();
+    HookRegistry::proof_replayed_environment(revision, &SELECTED, &FRAMED, &roots).unwrap()
 }
 
 fn save(host: &Host, natural: &serde_json::Value) {
@@ -184,7 +183,12 @@ fn ship_speech_live_session_and_fixtures_both_revisions() {
             "ticks": boundary.ticks, "start_frame": boundary.start_frame,
             "end_frame": boundary.end_frame, "handlers_completed": boundary.handlers_completed,
         });
-        fixtures(&mut checked, &natural);
+        if std::env::var("TJE_SHIP_PENDING")
+            .unwrap_or_default()
+            .is_empty()
+        {
+            fixtures(&mut checked, &natural);
+        }
         for id in [
             ids::GENERATE_SPEECH,
             ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
@@ -198,8 +202,16 @@ fn ship_speech_live_session_and_fixtures_both_revisions() {
             ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
             ids::START_DIALOGUE,
             ids::UPDATE_SPEECH_AND_DIALOGUE,
+            ids::SHOW_SHIP_PIECES,
+            ids::ANIMATE_SHIP_SCREEN_PALETTE,
+            ids::SHIP_PIECE_ABILITY,
+            ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
+            ids::PLAY_SHIP_COMPLETION_SEQUENCE,
         ] {
-            if !tje_game::translations().any(|translation| translation.id == id) {
+            if registry(revision)
+                .at(id.metadata().address(revision))
+                .is_none()
+            {
                 continue;
             }
             candidate_fixtures(&mut checked, id).unwrap_or_else(|error| {
@@ -243,7 +255,16 @@ fn prepare_fixture_irqs(host: &mut Host) {
 
 fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
     let revision = host.revision();
+    let case = std::cell::Cell::new(0_usize);
     let check = |host: &mut Host, args: &[u32]| {
+        let index = case.get();
+        case.set(index + 1);
+        println!(
+            "REAL_STATE_FIXTURE revision={} function={} case={index} frame={} args={args:08x?}",
+            revision.name(),
+            id.metadata().name,
+            host.frame_count(),
+        );
         host.check_fixture(id.metadata().address(revision), args)
             .map(|_| ())
     };
@@ -364,6 +385,57 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                 check(host, &[1])?;
             }
         }
+        ids::SHIP_PIECE_ABILITY => {
+            let record = ram::g_earthling_banks(revision).at(0).at(0);
+            record.object().write(&mut host.context(), 0);
+            check(host, &[0, record.address()])?;
+            for (player, split) in [(0, 0), (1, 0), (1, 1)] {
+                prepare_collection_screen(host);
+                let mut c = host.context();
+                ram::g_split_screen_enabled(revision).write(&mut c, split);
+                ram::g_player_info(revision)
+                    .at(player)
+                    .level()
+                    .write(&mut c, 2);
+                record.kind().write(&mut c, 0);
+                record.object().write(&mut c, 6);
+                drop(c);
+                check(host, &[player as u32, record.address()])?;
+            }
+        }
+        ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE => {
+            // A complete all-zero assignment loops forever in the original.
+            // Do not turn it into a successful fixture with a synthetic exit.
+            for only_missing in [0, 4, 9] {
+                prepare_collection_screen(host);
+                let mut c = host.context();
+                for piece in 0..10 {
+                    ram::g_ship_piece_level_assignments(revision)
+                        .at(piece)
+                        .write(&mut c, if piece == only_missing { 2 } else { 0 });
+                }
+                // Keep one additional piece missing so the selected piece's
+                // removal takes the acknowledgement path, not the ending.
+                ram::g_ship_piece_level_assignments(revision)
+                    .at((only_missing + 1) % 10)
+                    .write(&mut c, 3);
+                drop(c);
+                check(host, &[])?;
+            }
+        }
+        ids::PLAY_SHIP_COMPLETION_SEQUENCE => {
+            for player in [0, 1] {
+                prepare_collection_screen(host);
+                for piece in 0..10 {
+                    ram::g_ship_piece_level_assignments(revision)
+                        .at(piece)
+                        .write(&mut host.context(), 0);
+                }
+                // Full 480-tick sound/ending/final-map chain, never a shortened
+                // timer, a mocked callee, or an IRQ-masked success.
+                check(host, &[player])?;
+            }
+        }
         ids::ANIMATE_SHIP_SCREEN_PALETTE => {
             // Explicit disabled-display/IRQ-masked boundary first: all local
             // palette bytes and retained call slots are still real RAM.
@@ -382,45 +454,10 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
             check(host, &[])?;
         }
         ids::SHOW_SHIP_PIECES => {
-            // A real repeating pad-A timeline lets the original acknowledgement
-            // press/release loop exit, without poking its timer or readiness.
-            let start = host.frame_count();
-            let mut timeline = InputScript::default();
-            for pulse in 0..30 {
-                timeline.holds.push(tje_host::input::InputHold {
-                    start: start + pulse * 6,
-                    end: start + pulse * 6 + 3,
-                    p1: vec![tje_host::input::Button::A],
-                    p2: vec![],
-                });
+            prepare_collection_screen(host);
+            for selected in [u32::MAX, 0, 9] {
+                check(host, &[selected, 2])?;
             }
-            host.set_wait_input_poller(Arc::new(timeline));
-            let mut c = host.context();
-            let mode = ram::g_mode2_reg_softcopy(revision).read(&c) | 0x60;
-            ram::g_mode2_reg_softcopy(revision).write(&mut c, mode);
-            ram::g_v_blank_func(revision).write(&mut c, Ptr::new(0));
-            ram::g_v_blank_graphics_enabled(revision).write(&mut c, 0);
-            ram::g_h_blank_graphics_enabled(revision).write(&mut c, 0);
-            ram::g_v_blank_graphics_paused(revision).write(&mut c, 0);
-            ram::g_v_blank_audio_input_override(revision).write(&mut c, 0);
-            let sr = c.status_register() & !0x0700;
-            c.set_status_register(sr);
-            c.write_vdp_control(0x8104 | u16::from(mode));
-            ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
-            ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
-            ram::g_player_inventory_open(revision)
-                .at(0)
-                .write(&mut c, 0);
-            ram::g_player_inventory_open(revision)
-                .at(1)
-                .write(&mut c, 0);
-            for piece in 0..10 {
-                ram::g_ship_piece_level_assignments(revision)
-                    .at(piece)
-                    .write(&mut c, 2);
-            }
-            drop(c);
-            check(host, &[u32::MAX, 2])?;
         }
         ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES => {
             prepare_fixture_irqs(host);
@@ -477,7 +514,7 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
         }
         ids::START_DIALOGUE => {
             prepare_fixture_irqs(host);
-            let mut queued_cases = 0;
+            let mut allocated_cases = 0;
             for dialogue in 0..58 {
                 for speaker in [0, 1, 6] {
                     let mut c = host.context();
@@ -501,14 +538,20 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                         .at(1)
                         .write(&mut c, 0);
                     drop(c);
+                    allocated_cases += usize::from(first_line_allocation(host, dialogue, speaker)?);
                     check(host, &[dialogue, speaker])?;
-                    queued_cases += usize::from(queued_speech(host));
                 }
             }
-            assert!(queued_cases > 0, "awake first-line allocation must execute");
-            println!("DIALOGUE_QUEUED {:?} cases={queued_cases}", revision);
+            assert!(
+                allocated_cases > 0,
+                "awake first-line allocation must execute"
+            );
+            println!(
+                "DIALOGUE_FIRST_LINE_ALLOCATED {:?} cases={allocated_cases}",
+                revision
+            );
             // The first-line path must also execute with a real upload wait;
-            // original GenerateSpeech remains the production fallback here.
+            // phase 2 records GenerateSpeech's authentic modular callee receipt.
             let mut c = host.context();
             ram::g_v_blank_graphics_enabled(revision).write(&mut c, 1);
             ram::g_v_blank_graphics_paused(revision).write(&mut c, 0);
@@ -531,8 +574,11 @@ fn candidate_fixtures(host: &mut Host, id: FunctionId) -> tje_host::Result<()> {
                 0
             );
             drop(c);
+            assert!(
+                first_line_allocation(host, 0, 0)?,
+                "real-wait first line must allocate"
+            );
             check(host, &[0, 0])?;
-            assert!(queued_speech(host), "real-wait dialogue must enqueue text");
         }
         ids::UPDATE_SPEECH_AND_DIALOGUE => {
             prepare_fixture_irqs(host);
@@ -742,22 +788,174 @@ fn prepare_speech_tick(host: &mut Host, residual: u32) {
     }
 }
 
-fn queued_speech(host: &Host) -> bool {
-    use genesis_core::HybridAccess;
-    use tje_host::check_projection::LogicEvent;
-    let Some(observation) = &host.checks.last_time_aware else {
-        return false;
+fn first_line_allocation(host: &mut Host, dialogue: u32, speaker: u32) -> tje_host::Result<bool> {
+    let revision = host.revision();
+    assert!(
+        registry(revision)
+            .at(ids::GENERATE_SPEECH.metadata().address(revision))
+            .is_some(),
+        "awake dialogue fixtures require GenerateSpeech among the selected roots",
+    );
+    let (speaker, text) = {
+        let c = host.context();
+        let descriptor = rom::dialogue_descriptors(revision).at(dialogue as i32);
+        let first = descriptor.first_speaker().read(&c);
+        let selected = if first <= 1 {
+            i32::from(first) as u32
+        } else {
+            speaker
+        };
+        (selected, descriptor.first_line().read(&c).address())
     };
-    let count = ram::g_sprite_tile_upload_queue_word_count(host.revision()).address();
-    let queued = |events: &[LogicEvent]| {
-        events.iter().any(|event| {
-            matches!(
-                event,
-                LogicEvent::Access {
-                    access: HybridAccess::Write { address, word: false, value }, ..
-                } if *address == count && *value == 2
-            )
-        })
+    if text == 0 {
+        return Ok(false);
+    }
+    // check_fixture restores the same authored entry state. A positive, checked
+    // GenerateSpeech result proves this allocating path and its exact Queue/
+    // Prepare calls. StartDialogue separately proves its modular callee call;
+    // neither assertion depends on the obsolete TimeAware trace projection.
+    println!(
+        "REAL_STATE_FIXTURE revision={} function=GenerateSpeech label=dialogue-first-line descriptor={dialogue} speaker={speaker}",
+        revision.name(),
+    );
+    let allocated = host.check_fixture(
+        ids::GENERATE_SPEECH.metadata().address(revision),
+        &[speaker, text, 1],
+    )?;
+    Ok(allocated as i16 != 0)
+}
+
+fn prepare_collection_screen(host: &mut Host) {
+    let revision = host.revision();
+    prepare_fixture_irqs(host);
+    let start = host.frame_count();
+    let mut timeline = InputScript {
+        p2_connected: true,
+        ..InputScript::default()
     };
-    queued(&observation.original) && queued(&observation.translated)
+    for pulse in 0..2400 {
+        timeline.holds.push(tje_host::input::InputHold {
+            start: start + pulse * 6,
+            end: start + pulse * 6 + 3,
+            p1: vec![tje_host::input::Button::A],
+            p2: vec![tje_host::input::Button::A],
+        });
+    }
+    host.set_wait_input_poller(Arc::new(timeline));
+    let mut c = host.context();
+    ram::g_v_blank_graphics_paused(revision).write(&mut c, 0);
+    ram::g_sprite_tile_buffer_offset(revision).write(&mut c, 0);
+    ram::g_sprite_tile_upload_queue_word_count(revision).write(&mut c, 0);
+    for player in 0..2 {
+        ram::g_player_inventory_open(revision)
+            .at(player)
+            .write(&mut c, 0);
+    }
+    for piece in 0..10 {
+        ram::g_ship_piece_level_assignments(revision)
+            .at(piece)
+            .write(&mut c, 2);
+    }
+}
+
+#[test]
+#[ignore = "requires private ROMs, an input-only session, explicit roots, and evidence directory"]
+fn ship_speech_natural_recording_both_revisions() {
+    assert!(
+        !std::env::var("TJE_SHIP_PENDING")
+            .expect("explicit proof roots")
+            .is_empty()
+    );
+    let path = PathBuf::from(std::env::var_os("TJE_SHIP_SESSION").expect("controller recording"));
+    let recording = tje_session::Session::from_json(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        recording.start,
+        tje_session::Start::PowerOn,
+        "recipes are not natural-session evidence"
+    );
+    let p2_connected = recording.runs.first().unwrap().2 & tje_session::CONNECTED != 0;
+    let mut script = InputScript {
+        p2_connected,
+        ..InputScript::default()
+    };
+    let mut start = 0;
+    for &tje_session::Run(count, first, second) in &recording.runs {
+        assert_ne!(first & tje_session::CONNECTED, 0, "P1 must stay connected");
+        assert_eq!(
+            second & tje_session::CONNECTED != 0,
+            p2_connected,
+            "connection changes require a dynamic poller"
+        );
+        let buttons = |mask| {
+            use tje_host::input::Button;
+            [
+                Button::Up,
+                Button::Down,
+                Button::Left,
+                Button::Right,
+                Button::A,
+                Button::B,
+                Button::C,
+                Button::Start,
+            ]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(bit, button)| (mask & (1_u16 << bit) != 0).then_some(button))
+            .collect()
+        };
+        script.holds.push(tje_host::input::InputHold {
+            start,
+            end: start + count,
+            p1: buttons(first),
+            p2: buttons(second),
+        });
+        start += count;
+    }
+    let script = Arc::new(script);
+    let frames = std::env::var("TJE_SHIP_FRAMES")
+        .map(|value| value.parse::<u64>().unwrap())
+        .unwrap_or(recording.frames);
+    assert!(
+        frames <= recording.frames,
+        "never invent recording tail inputs"
+    );
+    let mut failures = Vec::new();
+    for (revision, key) in [
+        (Revision::Rev02, "TJE_REV02_ROM"),
+        (Revision::Rev00, "TJE_REV00_ROM"),
+    ] {
+        let bytes = fs::read(std::env::var_os(key).unwrap()).unwrap();
+        let mut host = Host::new(&bytes, Mode::Check, registry(revision)).unwrap();
+        host.set_check_failure_policy(tje_host::CheckFailurePolicy::ContinueOriginal)
+            .unwrap();
+        host.set_wait_input_poller(script.clone());
+        while host.frame_count() < frames {
+            if let Err(error) = host.run_frame(script.at(host.frame_count())) {
+                save(
+                    &host,
+                    &serde_json::json!({
+                        "kind": "power-on-controller-recording",
+                        "session": path, "requested_frames": frames, "failure": error.to_string(),
+                    }),
+                );
+                panic!("{revision:?} {}: {error}", path.display());
+            }
+        }
+        save(
+            &host,
+            &serde_json::json!({
+                "kind": "power-on-controller-recording", "session": path,
+                "recorded_revision": recording.revision, "requested_frames": frames,
+                "cross_revision_controller_copy": tje_mem::Revision::from(recording.revision) != revision,
+                "coverage_rule": "unexercised roots remain zero-hit, never a passing proof",
+            }),
+        );
+        if host.checks.mismatches != 0 {
+            failures.push(format!(
+                "{revision:?}: {} rejected checks",
+                host.checks.mismatches
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

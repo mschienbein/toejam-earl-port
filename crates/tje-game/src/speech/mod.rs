@@ -33,20 +33,41 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 ];
 
 /// Complete bodies excluded from production until their timing proofs pass.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: ids::UPDATE_SPEECH_AND_DIALOGUE,
-        function: update_speech_and_dialogue,
-    },
-    crate::Translation {
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: ids::UPDATE_SPEECH_AND_DIALOGUE,
+    function: update_speech_and_dialogue,
+}];
+
+/// Pending entries retain the compiler's word/long/byte argument read widths.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
         id: ids::GENERATE_SPEECH,
-        function: generate_speech,
+        function: generate_speech_framed,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::START_DIALOGUE,
-        function: start_dialogue,
+        function: start_dialogue_framed,
     },
 ];
+
+fn generate_speech_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    let speaker = i32::from(frame.argument_word(0).read(context)) as u32;
+    let text = frame.argument_slot(1).read(context);
+    let replace = i32::from(frame.argument_byte(2).read(context)) as u32;
+    generate_speech(context, &[speaker, text, replace])
+}
+
+fn start_dialogue_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    let dialogue = i32::from(frame.argument_word(0).read(context)) as u32;
+    let speaker = i32::from(frame.argument_word(1).read(context)) as u32;
+    start_dialogue(context, &[dialogue, speaker])
+}
 
 pub static PENDING: &[crate::FunctionId] = &[
     // Strict owned Z80 mailbox read A0004A differs (FF/04) during the real

@@ -90,10 +90,13 @@ pub fn play_ship_completion_sequence(
         context.set_address_register(4, mode.address());
         context.set_address_register(3, ram::g_frame_counter(revision).address());
         context.set_address_register(2, ram::g_pcm_effect_cooldown_ticks(revision).address());
-        dispatcher.call_at(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1], site(0x2e))?;
+        let wait = OutgoingArguments::push(context, &[1])?;
+        wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x2e))?;
         let blanked = mode.read(context) & 0x3c;
         mode.write(context, blanked);
-        context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+        let command = 0x8104 | u16::from(mode.read(context));
+        wait.release(context)?;
+        context.write_vdp_control(command);
         dispatcher.call_at(
             context,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -101,7 +104,7 @@ pub fn play_ship_completion_sequence(
             site(0x56),
         )?;
         page.write(context, 0);
-        while page.read(context) < 4 {
+        loop {
             for row in 0..8 {
                 context.write_vdp_command(
                     0x5000_0003_u32
@@ -121,6 +124,9 @@ pub fn play_ship_completion_sequence(
             }
             let next = page.read(context).wrapping_add(1);
             page.write(context, next);
+            if page.read(context) >= 4 {
+                break;
+            }
         }
         for row in 0..28 {
             for column in 0..40 {
@@ -144,20 +150,25 @@ pub fn play_ship_completion_sequence(
                 }
             }
         }
+        context.discard_u16(ram::g_frame_counter(revision).address())?;
         ram::g_frame_counter(revision).write(context, 0);
+        context.discard_u8(ram::g_ship_background_animation_timer(revision).address())?;
         ram::g_ship_background_animation_timer(revision).write(context, 0);
         ram::g_ship_screen_state(revision)
             .background_frame()
             .write(context, 1);
-        dispatcher.call_at(
+        let background = OutgoingArguments::push(context, &[20])?;
+        background.call(
             context,
+            dispatcher,
             ids::ANIMATE_TRANSITION_BACKGROUND,
-            &[20],
             site(0x164),
         )?;
         let enabled = mode.read(context) | 0x40;
         mode.write(context, enabled);
-        context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+        let command = 0x8104 | u16::from(mode.read(context));
+        background.release(context)?;
+        context.write_vdp_control(command);
         // The source keeps PlaySound's two slots, then the effect slot, through
         // WaitForNextVBlank before performing the shared sixteen-byte cleanup.
         let noise = OutgoingArguments::push(context, &[6, 99])?;
@@ -233,6 +244,7 @@ pub fn play_ship_completion_sequence(
             } else if sound_stage.read(context) == 6
                 && ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
             {
+                context.discard_u8(ram::g_requested_music_selection(revision).address())?;
                 ram::g_requested_music_selection(revision).write(context, 0);
             }
         }
@@ -252,11 +264,13 @@ pub fn play_ship_completion_sequence(
                 &[other as u32],
                 site(0x2ae),
             )?;
+            context.discard_u8(ram::g_player_inventory_open(revision).at(other).address())?;
             ram::g_player_inventory_open(revision)
                 .at(other)
                 .write(context, 0);
         }
         dispatcher.call_at(context, ids::SELECT_SPRITE_CHAIN_START, &[0], site(0x2ca))?;
+        context.discard_u8(ram::g_split_screen_enabled(revision).address())?;
         ram::g_split_screen_enabled(revision).write(context, 0);
         dispatcher.call_at(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2], site(0x2dc))?;
         ram::g_player_powerups(revision).at(0).write(context, -1);
@@ -311,6 +325,7 @@ pub fn ship_piece_ability(context: &mut dyn Context, arguments: &[u32]) -> Resul
         let number = i32::from(ship_piece.object().read(context));
         dispatcher.call_at(context, ids::FREE_ENTITY, &[number as u32], site(0x54))?;
         ship_piece.kind().write(context, -1);
+        context.discard_u8(ship_piece.object().address())?;
         ship_piece.object().write(context, 0);
         // The original EXT.L immediately before the call makes all of D3 the
         // sign-extended selected piece, including the exhausted-search ten.

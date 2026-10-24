@@ -2,6 +2,8 @@
 
 mod background;
 mod collection;
+#[cfg(test)]
+mod replay_tests;
 mod screen;
 pub use background::{
     animate_ship_screen_background, animate_transition_background,
@@ -45,32 +47,8 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// Never registered by production or replacement mode.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
-        id: ids::ANIMATE_TRANSITION_BACKGROUND,
-        function: animate_transition_background,
-    },
-    crate::Translation {
-        id: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
-        function: animate_ship_screen_background,
-    },
-    crate::Translation {
         id: ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
         function: initialize_ship_screen_tilemap_and_palettes,
-    },
-    crate::Translation {
-        id: ids::SHOW_SHIP_PIECE_NAME,
-        function: show_ship_piece_name,
-    },
-    crate::Translation {
-        id: ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
-        function: wait_for_ship_screen_acknowledgement,
-    },
-    crate::Translation {
-        id: ids::PLAY_SHIP_COMPLETION_SEQUENCE,
-        function: play_ship_completion_sequence,
-    },
-    crate::Translation {
-        id: ids::SHIP_PIECE_ABILITY,
-        function: ship_piece_ability,
     },
     crate::Translation {
         id: ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
@@ -80,11 +58,84 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::ANIMATE_SHIP_SCREEN_PALETTE,
         function: animate_ship_screen_palette,
     },
-    crate::Translation {
+];
+
+/// Pending exact-width entries; no eager full-slot snapshot precedes the body.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
+        function: animate_ship_screen_background_framed,
+    },
+    crate::FramedTranslation {
+        id: ids::ANIMATE_TRANSITION_BACKGROUND,
+        function: animate_transition_background_framed,
+    },
+    crate::FramedTranslation {
+        id: ids::SHOW_SHIP_PIECE_NAME,
+        function: show_ship_piece_name_framed,
+    },
+    crate::FramedTranslation {
+        id: ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
+        function: wait_for_ship_screen_acknowledgement_framed,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAY_SHIP_COMPLETION_SEQUENCE,
+        function: play_ship_completion_sequence_framed,
+    },
+    crate::FramedTranslation {
+        id: ids::SHIP_PIECE_ABILITY,
+        function: ship_piece_ability_framed,
+    },
+    crate::FramedTranslation {
         id: ids::SHOW_SHIP_PIECES,
-        function: show_ship_pieces,
+        function: show_ship_pieces_framed,
     },
 ];
+
+fn incoming(context: &dyn Context) -> Result<crate::call_frame::FrameState> {
+    context
+        .frame_state()
+        .ok_or_else(|| crate::call_frame::FrameError::Unavailable.into())
+}
+
+fn animate_ship_screen_background_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let force = i32::from(incoming(context)?.argument_byte(0).read(context)) as u32;
+    animate_ship_screen_background(context, &[force])
+}
+
+fn animate_transition_background_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let background = i32::from(incoming(context)?.argument_word(0).read(context)) as u32;
+    animate_transition_background(context, &[background])
+}
+
+fn show_ship_piece_name_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let piece = i32::from(incoming(context)?.argument_word(0).read(context)) as u32;
+    show_ship_piece_name(context, &[piece])
+}
+
+fn wait_for_ship_screen_acknowledgement_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let player = i32::from(incoming(context)?.argument_word(0).read(context)) as u32;
+    wait_for_ship_screen_acknowledgement(context, &[player])
+}
+
+fn play_ship_completion_sequence_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let player = i32::from(incoming(context)?.argument_word(0).read(context)) as u32;
+    play_ship_completion_sequence(context, &[player])
+}
+
+fn ship_piece_ability_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = incoming(context)?;
+    let player = i32::from(frame.argument_word(0).read(context)) as u32;
+    let piece = frame.argument_slot(1).read(context);
+    ship_piece_ability(context, &[player, piece])
+}
+
+fn show_ship_pieces_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = incoming(context)?;
+    let piece = i32::from(frame.argument_word(0).read(context)) as u32;
+    let player = i32::from(frame.argument_word(1).read(context)) as u32;
+    show_ship_pieces(context, &[piece, player])
+}
 
 pub static PENDING: &[crate::FunctionId] = &[
     // Corpus REV00 final-menus frame5470: frame counter FF800F original01/Rust00;
