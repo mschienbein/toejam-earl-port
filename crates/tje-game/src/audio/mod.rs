@@ -12,16 +12,20 @@
 //! transitive caller `MusicUpdateSequencer` (`G/src/asm/sound.s:762-1053`).
 //! Their mailbox-lock retries require a running Z80, exclude Functional, and
 //! observe every bounded BUSACK poll and 24/124-iteration released-bus delay.
-//! Original TimeAware fallback executes those actual instructions. A Rust
-//! translation still needs a reviewed whole-loop primitive; generic waits do
-//! not preserve the read/retry counts. Retry fragments are not RTS entry hooks.
+//! All six remaining original entry bodies are written below but remain pending.
+//! The five mailbox entries require ClockedStrict's TimingSource to clock every
+//! original role, including no-I/O DBRA steps, or a reviewed whole-loop contract.
+//! A condition-only wait cannot preserve the read/retry counts. Retry fragments
+//! share their owner continuation and are not independent RTS entry hooks.
 
 use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{Ptr, ram, rom};
 
 mod channels;
 mod hardware;
+mod mailbox;
 pub mod templates;
+mod upload;
 
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
@@ -87,15 +91,52 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// The complete VM remains excluded from production: its main-thread YM
-/// transactions still differ under the reviewed TimeAware projection.
-pub static PENDING: &[crate::FunctionId] = &[ids::MUSIC_UPDATE_SEQUENCER];
+/// The VM and mailbox routines wait for ClockedStrict/TimingSource integration:
+/// main-thread YM/BUSACK/lock reads, 24/124 DBRA delays and IRQ cadence remain
+/// exact obligations. Their readable data/control bodies are not timing proof.
+/// Upload is Functional but awaits both-revision proof and CorpusCheck approval.
+pub static PENDING: &[crate::FunctionId] = &[
+    ids::MUSIC_UPDATE_SEQUENCER,
+    ids::LOAD_SOUND_DRIVER_TO_Z80,
+    ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+    ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+    ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+    ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+    ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
+];
 
-/// Pending bodies never enter the production dispatcher.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
-    id: ids::MUSIC_UPDATE_SEQUENCER,
-    function: templates::music_update_sequencer,
-}];
+/// Pending bodies never enter the production dispatcher. Fragment identities
+/// are retained for catalogue completeness, not approved as ordinary RTS hooks.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::MUSIC_UPDATE_SEQUENCER,
+        function: templates::music_update_sequencer,
+    },
+    crate::Translation {
+        id: ids::LOAD_SOUND_DRIVER_TO_Z80,
+        function: upload::load_sound_driver_to_z80,
+    },
+    crate::Translation {
+        id: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+        function: mailbox::audio_retry_pending_pcm_mailbox,
+    },
+    crate::Translation {
+        id: ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+        function: mailbox::audio_submit_pending_pcm_sample,
+    },
+    crate::Translation {
+        id: ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+        function: mailbox::audio_try_submit_sequencer_pcm_sample,
+    },
+    crate::Translation {
+        id: ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+        function: mailbox::audio_retry_pending_psg_mailbox,
+    },
+    crate::Translation {
+        id: ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
+        function: mailbox::audio_submit_pending_indexed_command,
+    },
+];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 /// The six W0 leaves have no callees; the copy/clear loops have fixed bounds.
