@@ -16,6 +16,9 @@ use serde::Serialize;
 use std::collections::BTreeSet;
 use tje_game::{call_frame::FrameLayout, execution::ExecutionClass, ids};
 
+mod discarded_read_value_variance;
+pub use discarded_read_value_variance::DiscardedReadValueVariance;
+
 pub(super) static CONTRACT: DependentContract = DependentContract {
     function: ids::DMA_COPY_WORDS_TO_VRAM,
     source: DependentSource::ClockedStrictWorkRamDma {
@@ -102,8 +105,10 @@ impl ControlLog {
 #[derive(Debug, Default, Serialize)]
 pub struct StrictDmaEvidence {
     pub qualification: &'static str,
+    pub probe_control_contract: &'static str,
     pub producer_history: &'static str,
     pub seed: u64,
+    pub proof_calls_started: u64,
     pub calls_proven: u64,
     pub calls_without_residual_reads: u64,
     pub calls_rejected: u64,
@@ -121,20 +126,44 @@ pub struct StrictDmaEvidence {
     pub vram_sensitive_pairs: u64,
     pub last_dependent_byte_count: usize,
     pub last_source: Option<super::zero_dma::DmaSourceSummary>,
+    pub discarded_read_journal_checks: u64,
+    pub discarded_read_value_variances: Vec<DiscardedReadValueVariance>,
+}
+
+#[derive(Clone, Copy)]
+struct ProofCallIdentity {
+    seed: u64,
+    ordinal: u64,
 }
 
 #[derive(Default)]
 pub(super) struct ProbeProgress {
+    identity: Option<ProofCallIdentity>,
     pub control_checks: u64,
     pub source_sensitive: u64,
     pub vram_sensitive: u64,
     baseline_control: Option<Vec<u8>>,
     baseline_vdp_control: Option<Vec<u8>>,
+    pub discarded_read_journal_checks: u64,
+    pub discarded_read_value_variances: Vec<DiscardedReadValueVariance>,
 }
 
 impl StrictDmaEvidence {
+    pub(super) fn begin_call(&mut self, seed: u64) -> std::result::Result<ProbeProgress, String> {
+        let ordinal = self
+            .proof_calls_started
+            .checked_add(1)
+            .ok_or("strict zero-DMA proof-call identity exhausted")?;
+        self.proof_calls_started = ordinal;
+        Ok(ProbeProgress {
+            identity: Some(ProofCallIdentity { seed, ordinal }),
+            ..Default::default()
+        })
+    }
+
     pub(super) fn merge(&mut self, other: DependentEvidence, progress: ProbeProgress) {
         self.qualification = "finite probe evidence, not a formal proof";
+        self.probe_control_contract = discarded_read_value_variance::CONTRACT;
         self.producer_history = "Consumer-only: all historical work-RAM producers must be preserved or supplied by exact cycle-engine state; native producer/ISR composition is not certified.";
         self.seed = other.seed;
         self.calls_proven += other.calls_proven;
@@ -148,6 +177,9 @@ impl StrictDmaEvidence {
         self.original_control_checks += progress.control_checks;
         self.source_sensitive_pairs += progress.source_sensitive;
         self.vram_sensitive_pairs += progress.vram_sensitive;
+        self.discarded_read_journal_checks += progress.discarded_read_journal_checks;
+        self.discarded_read_value_variances
+            .extend(progress.discarded_read_value_variances);
         if other.calls_proven != 0 {
             self.qualified_final_probe_pairs += other.probe_pairs_matched;
             self.qualified_source_sensitive_pairs += progress.source_sensitive;
@@ -246,15 +278,26 @@ pub(super) fn compare_original_control(
     baseline_run: &CheckRun,
     probe_run: &CheckRun,
     domain: &BTreeSet<u32>,
+    identity: super::Probe,
     progress: &mut ProbeProgress,
 ) -> std::result::Result<(), String> {
-    validate_pair(baseline, probe, baseline_run, probe_run)
-        .map_err(|error| format!("strict DMA baseline-to-original probe control: {error}"))?;
     let (a, b) = (baseline.hybrid_bus(), probe.hybrid_bus());
-    match (&a.native_cpu_accesses, &b.native_cpu_accesses) {
-        (Some(a), Some(b)) if a == b => {}
-        _ => return Err("strict DMA input changed original raw CPU/IRQ access control".into()),
+    let verified = discarded_read_value_variance::verify(
+        a.native_cpu_accesses.as_deref(),
+        b.native_cpu_accesses.as_deref(),
+        identity,
+        progress,
+    )?;
+    validate_pair_structure(baseline, probe, baseline_run, probe_run)
+        .map_err(|error| format!("strict DMA baseline-to-original probe control: {error}"))?;
+    match (
+        &baseline_run.audit.strict_control,
+        &probe_run.audit.strict_control,
+    ) {
+        (Some(a), Some(b)) => verified.compare_controls(a, b),
+        _ => Err("strict DMA actual CPU/Z80/HostMutation/DMA chronology is missing".into()),
     }
+    .map_err(|error| format!("strict DMA baseline-to-original probe control: {error}"))?;
     match (&a.native_ram_writes, &b.native_ram_writes) {
         (Some(a), Some(b)) if a == b => {}
         _ => return Err("strict DMA input changed original actual RAM commit control".into()),
@@ -266,7 +309,7 @@ pub(super) fn compare_original_control(
     if progress.baseline_control.is_none() {
         progress.baseline_control = Some(
             baseline
-                .hybrid_encode_non_vdp_main_ram_control()
+                .hybrid_encode_non_vdp_main_ram_control_without_cpu_journal()
                 .map_err(|error| format!("strict DMA original control encoding failed: {error}"))?,
         );
     }
@@ -275,7 +318,7 @@ pub(super) fn compare_original_control(
         .as_ref()
         .expect("captured control");
     let probe_control = probe
-        .hybrid_encode_non_vdp_main_ram_control()
+        .hybrid_encode_non_vdp_main_ram_control_without_cpu_journal()
         .map_err(|error| format!("strict DMA probe control encoding failed: {error}"))?;
     if original_control != &probe_control {
         return Err("strict DMA input changed original non-VDP CPU/Z80/audio/input/clock/provenance control".into());
@@ -699,7 +742,7 @@ fn root_dispatch_scope(
         && start.exception_depth == capture.entry_exception_depth
 }
 
-pub(super) fn validate_pair(
+fn validate_pair_structure(
     original: &GenesisEmulator,
     translated: &GenesisEmulator,
     original_run: &CheckRun,
@@ -730,6 +773,16 @@ pub(super) fn validate_pair(
     {
         return Err("strict DMA exact relative IRQ/read envelope differs".into());
     }
+    Ok(())
+}
+
+pub(super) fn validate_pair(
+    original: &GenesisEmulator,
+    translated: &GenesisEmulator,
+    original_run: &CheckRun,
+    translated_run: &CheckRun,
+) -> std::result::Result<(), String> {
+    validate_pair_structure(original, translated, original_run, translated_run)?;
     match (
         &original_run.audit.strict_control,
         &translated_run.audit.strict_control,
@@ -744,22 +797,26 @@ pub(super) fn validate_pair(
                     (a.events.len() != b.events.len()).then_some(a.events.len().min(b.events.len()))
                 });
             if let Some(index) = first_difference {
-                let start = index.saturating_sub(2);
-                let end = index.saturating_add(3);
-                return Err(format!(
-                    "strict DMA actual CPU/Z80/HostMutation/DMA chronology differs at event {index}: left={:?}, right={:?}; lengths left={}, right={}; context left={:?}, right={:?}",
-                    a.events.get(index),
-                    b.events.get(index),
-                    a.events.len(),
-                    b.events.len(),
-                    &a.events[start..end.min(a.events.len())],
-                    &b.events[start..end.min(b.events.len())]
-                ));
+                return Err(control_difference(a, b, index));
             }
             Ok(())
         }
         _ => Err("strict DMA actual CPU/Z80/HostMutation/DMA chronology is missing".into()),
     }
+}
+
+fn control_difference(a: &ControlLog, b: &ControlLog, index: usize) -> String {
+    let start = index.saturating_sub(2);
+    let end = index.saturating_add(3);
+    format!(
+        "strict DMA actual CPU/Z80/HostMutation/DMA chronology differs at event {index}: left={:?}, right={:?}; lengths left={}, right={}; context left={:?}, right={:?}",
+        a.events.get(index),
+        b.events.get(index),
+        a.events.len(),
+        b.events.len(),
+        &a.events[start..end.min(a.events.len())],
+        &b.events[start..end.min(b.events.len())]
+    )
 }
 
 #[cfg(test)]

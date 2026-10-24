@@ -359,6 +359,72 @@ impl GenesisBus {
         )
     }
 
+    /// TJE DiscardedReadValueVariance probe control view, by borrow only.
+    /// The caller first validates the complete actual CPU journal under that
+    /// named contract. Only its contents are excluded here; presence and length
+    /// and every other non-VDP/non-main-RAM field remain encoded.
+    pub(crate) fn hybrid_control_without_vdp_main_ram_cpu_journal(&self) -> impl Encode + '_ {
+        let Self {
+            cartridge,
+            memory,
+            vdp: _,
+            psg,
+            ym2612,
+            input,
+            z80_bank,
+            z80_signals,
+            pending_writes,
+            cycles,
+            timing_mode,
+            open_bus,
+            m68k_opcode,
+            m68k_reset,
+            hybrid_writes,
+            hybrid_accesses,
+            timing_survey,
+            native_writes,
+            native_cpu_accesses,
+            native_ram_writes,
+            hybrid_cpu_accesses,
+            hybrid_exception_boundaries,
+            hybrid_dma_all_sources,
+            hybrid_dma_capture,
+            hybrid_functional,
+            hybrid_functional_violation,
+        } = self;
+        (
+            (
+                cartridge,
+                memory.hybrid_control_without_main_ram(),
+                psg,
+                ym2612,
+                input,
+                z80_bank,
+                z80_signals,
+                pending_writes,
+                cycles,
+                timing_mode,
+                open_bus,
+                m68k_opcode,
+                m68k_reset,
+            ),
+            (
+                hybrid_writes,
+                hybrid_accesses,
+                timing_survey,
+                native_writes,
+                native_cpu_accesses.as_ref().map(Vec::len),
+                native_ram_writes,
+                hybrid_cpu_accesses,
+                hybrid_exception_boundaries,
+                hybrid_dma_all_sources,
+                hybrid_dma_capture,
+                hybrid_functional,
+                hybrid_functional_violation,
+            ),
+        )
+    }
+
     /// Snapshot actual scalar state by borrow. New fields force explicit review.
     pub fn hybrid_checkpoint(&self) -> HybridBusCheckpoint {
         let Self {
@@ -1441,6 +1507,14 @@ mod hybrid_control_tests {
         .unwrap()
     }
 
+    fn probe_control(bus: &GenesisBus) -> Vec<u8> {
+        bincode::encode_to_vec(
+            bus.hybrid_control_without_vdp_main_ram_cpu_journal(),
+            bincode::config::standard(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn every_included_bus_field_retains_its_control_and_observation_state() {
         type Mutation = (&'static str, fn(&mut GenesisBus));
@@ -1486,10 +1560,12 @@ mod hybrid_control_tests {
             ("violation", |b| b.hybrid_functional_violation = Some(7)),
         ];
         let baseline = control(&bus());
+        let probe_baseline = probe_control(&bus());
         for &(name, mutate) in mutations {
             let mut changed = bus();
             mutate(&mut changed);
             assert_ne!(baseline, control(&changed), "{name}");
+            assert_ne!(probe_baseline, probe_control(&changed), "{name}");
         }
     }
 

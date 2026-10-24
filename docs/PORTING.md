@@ -1309,6 +1309,31 @@ One typed topology record retains each actual DMA word's raw address in that
 control chronology, without compression across any boundary and without a data
 field. Actual values remain in the complete raw journal, never invented reads.
 
+The separately named **DiscardedReadValueVariance** contract applies only to
+strict **original-baseline to original-probe control** comparisons. The entire
+actual CPU-issued journal is verified first: only values of reads tagged
+`Discarded` by the CPU core (purpose 2) may differ. Kind, raw address, width,
+purpose, order and count remain exact; semantic/prefetch reads, writes and IRQ
+acknowledgements remain exact. Each duplicate chronological read must bind to
+its unique verified raw CPU ordinal on both sides, never an address search or
+a caller-authored Context purpose.
+
+`discarded_read_value_variances` retains both actual values, the actual
+configuration seed, checked per-proof-call attempt ordinal, seeded-index or
+collective-fill identity, raw CPU ordinal, raw address, width and purpose, plus
+a canonical RAM address only when the access is actually RAM. Attempt identity
+is allocated before proving, not from successful-call counts; exhaustion rejects
+without wrap. Re-enabling with another seed or repeating the same seed never
+relabels earlier rows. The aggregate `seed` is only the latest-attempt summary.
+Records survive a later rejection and do not themselves advance qualified
+counters. Only after
+the **whole** journal passes may the additive borrowed control view omit
+`native_cpu_accesses` contents; its Some/None and length and all other control
+fields remain encoded. The ordinary full view is unchanged. All other IRQ,
+control-projection, data-domain, write, audio and sensitivity requirements remain
+exact. Paired original/Rust reads stay bit-exact, as do every other comparator
+and the Frame/frozen policies; this is not a generic discarded-read mask.
+
 The VDP control view is deliberately a conservative superset: full FIFO stale
 words and InternalState data latches remain included. If a data-only case
 changes that view, it rejects for review rather than normalizing or silently

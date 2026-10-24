@@ -9,7 +9,7 @@ mod strict_zero_dma;
 mod zero_dma;
 pub use journal::DependentRead;
 pub(crate) use strict_zero_dma::ControlLog;
-pub use strict_zero_dma::StrictDmaEvidence;
+pub use strict_zero_dma::{DiscardedReadValueVariance, StrictDmaEvidence};
 pub use zero_dma::{DmaSourceSummary, ZeroDmaRoot};
 
 use crate::{
@@ -499,9 +499,19 @@ impl Host {
             ..DependentEvidence::default()
         };
         let mut sites = BTreeSet::new();
-        let mut strict_progress = setting
-            .is_clocked_strict()
-            .then(strict_zero_dma::ProbeProgress::default);
+        let mut strict_progress = if setting.is_clocked_strict() {
+            Some(
+                self.checks
+                    .dependent_equivalence
+                    .entry(hook.symbol.name.to_owned())
+                    .or_default()
+                    .clocked_strict
+                    .get_or_insert_with(Default::default)
+                    .begin_call(setting.config.seed)?,
+            )
+        } else {
+            None
+        };
         let result = self.prove_dependent(
             &mut Baselines {
                 original,
@@ -530,18 +540,19 @@ impl Host {
                 address: site.address,
             });
         }
-        let destination = self
-            .checks
-            .dependent_equivalence
-            .entry(hook.symbol.name.to_owned())
-            .or_default();
         if let Some(progress) = strict_progress {
-            destination
-                .clocked_strict
-                .get_or_insert_with(Default::default)
+            self.checks
+                .dependent_equivalence
+                .get_mut(hook.symbol.name)
+                .and_then(|entry| entry.clocked_strict.as_mut())
+                .expect("strict proof-call entry was reserved before execution")
                 .merge(evidence, progress);
         } else {
-            destination.merge(evidence);
+            self.checks
+                .dependent_equivalence
+                .entry(hook.symbol.name.to_owned())
+                .or_default()
+                .merge(evidence);
         }
         result
     }
@@ -766,6 +777,7 @@ impl Host {
                         baseline.original_run,
                         &original_run,
                         &bytes,
+                        probe,
                         progress,
                     )?;
                     progress.control_checks += 1;

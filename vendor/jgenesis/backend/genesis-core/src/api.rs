@@ -73,6 +73,27 @@ impl GenesisEmulator {
         )
     }
 
+    /// TJE strict baseline/probe control encoding after the caller has verified
+    /// the entire actual CPU journal under DiscardedReadValueVariance. Its
+    /// presence and length stay encoded; only that separately checked journal's
+    /// contents are excluded. The ordinary full control encoding is unchanged.
+    pub fn hybrid_encode_non_vdp_main_ram_control_without_cpu_journal(
+        &self,
+    ) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        let Self { m68k, z80, bus, timing_mode, audio_resampler, config } = self;
+        bincode::encode_to_vec(
+            (
+                m68k,
+                z80,
+                bus.hybrid_control_without_vdp_main_ram_cpu_journal(),
+                timing_mode,
+                audio_resampler,
+                config,
+            ),
+            bincode::config::standard(),
+        )
+    }
+
     // TJE hybrid accessors: retain the upstream instruction/timing loop.
     pub fn hybrid_parts(&mut self) -> (&mut M68000, &mut GenesisBus) {
         (&mut self.m68k, &mut self.bus)
@@ -532,12 +553,19 @@ mod hybrid_control_tests {
             ("config", |m| m.config.cheat_codes.push((0xff0010, 7))),
         ];
         let baseline = machine().hybrid_encode_non_vdp_main_ram_control().unwrap();
+        let probe_baseline =
+            machine().hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap();
         for &(name, mutate) in mutations {
             let mut changed = machine();
             mutate(&mut changed);
             assert_ne!(
                 baseline,
                 changed.hybrid_encode_non_vdp_main_ram_control().unwrap(),
+                "{name}"
+            );
+            assert_ne!(
+                probe_baseline,
+                changed.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap(),
                 "{name}"
             );
         }
@@ -553,5 +581,54 @@ mod hybrid_control_tests {
         machine.bus.vdp.write_control(0x4000);
         assert_eq!(baseline, machine.hybrid_encode_non_vdp_main_ram_control().unwrap());
         assert_ne!(before, bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap());
+    }
+
+    #[test]
+    fn probe_view_is_pure_and_excludes_only_cpu_journal_contents_not_presence_or_length() {
+        use crate::native::CpuAccess;
+        let mut machine = machine();
+        machine.bus.native_cpu_accesses =
+            Some(vec![CpuAccess::Read { address: 0xff1000, word: true, value: 0, purpose: 2 }]);
+        let before = bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap();
+        let full = machine.hybrid_encode_non_vdp_main_ram_control().unwrap();
+        let probe = machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap();
+        for _ in 0..8 {
+            assert_eq!(
+                probe,
+                machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap()
+            );
+            assert_eq!(
+                before,
+                bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap()
+            );
+        }
+        machine.bus.native_cpu_accesses.as_mut().unwrap()[0] =
+            CpuAccess::Read { address: 0xff1000, word: true, value: 0x1234, purpose: 2 };
+        assert_ne!(full, machine.hybrid_encode_non_vdp_main_ram_control().unwrap());
+        assert_eq!(
+            probe,
+            machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap()
+        );
+        machine
+            .bus
+            .native_cpu_accesses
+            .as_mut()
+            .unwrap()
+            .push(CpuAccess::AcknowledgeInterrupt { level: 6 });
+        assert_ne!(
+            probe,
+            machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap()
+        );
+        machine.bus.native_cpu_accesses = None;
+        let absent = machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap();
+        machine.bus.native_cpu_accesses = Some(Vec::new());
+        assert_ne!(
+            absent,
+            machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap()
+        );
+        assert_ne!(
+            probe,
+            machine.hybrid_encode_non_vdp_main_ram_control_without_cpu_journal().unwrap()
+        );
     }
 }

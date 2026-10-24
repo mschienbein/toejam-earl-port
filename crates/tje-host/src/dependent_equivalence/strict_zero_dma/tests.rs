@@ -537,7 +537,7 @@ fn actual_root_start_witness_uses_relative_depth_and_rejects_every_extra_start()
 }
 
 #[test]
-fn original_control_keeps_discarded_values_and_reports_bounded_first_difference() {
+fn paired_control_keeps_discarded_values_and_reports_bounded_first_difference() {
     // Synthetic observer/schema records, not CPU-accepted source/IRQ evidence.
     let (baseline, mut a) = armed_witness();
     let (probe, mut b) = armed_witness();
@@ -558,26 +558,95 @@ fn original_control_keeps_discarded_values_and_reports_bounded_first_difference(
             purpose: ReadPurpose::Discarded,
         });
     }
-    let domain = BTreeSet::from([0xff1080, 0xff1081]);
-    let mut progress = ProbeProgress::default();
-    let error = compare_original_control(
-        &baseline.emulator,
-        &probe.emulator,
-        &a,
-        &b,
-        &domain,
-        &mut progress,
-    )
-    .unwrap_err();
-    assert!(error.starts_with("strict DMA baseline-to-original probe control:"));
+    let error = validate_pair(&baseline.emulator, &probe.emulator, &a, &b).unwrap_err();
+    assert!(error.starts_with("strict DMA actual CPU/Z80/HostMutation/DMA chronology"));
     assert!(error.contains(&format!("at event {}", before + 64)));
     assert!(error.contains("purpose: Discarded"));
     assert!(error.contains("value: 4660"));
     assert!(error.contains("context left="));
     assert!(error.len() < 3000, "never dump the complete control stream");
+}
+
+#[test]
+fn variance_is_scoped_to_original_probe_control_while_paired_and_full_view_stay_exact() {
+    // Authored observer/schema state; actual core execution is proved separately.
+    let (mut baseline, mut a) = armed_witness();
+    let (mut probe, mut b) = armed_witness();
+    for (host, run, value) in [(&mut baseline, &mut a, 0), (&mut probe, &mut b, 0x1234)] {
+        host.emulator
+            .hybrid_bus_mut()
+            .native_cpu_accesses
+            .as_mut()
+            .unwrap()
+            .push(genesis_core::native::CpuAccess::Read {
+                address: 0xff1000,
+                word: true,
+                value,
+                purpose: 2,
+            });
+        run.audit
+            .strict_control
+            .as_mut()
+            .unwrap()
+            .observe(HybridAccess::Read {
+                address: 0xff1000,
+                word: true,
+                value,
+                purpose: ReadPurpose::Discarded,
+            });
+    }
+    probe
+        .emulator
+        .hybrid_bus_mut()
+        .memory
+        .write_main_ram_word(0xff1000, 0x1234);
+    assert_ne!(
+        baseline
+            .emulator
+            .hybrid_encode_non_vdp_main_ram_control()
+            .unwrap(),
+        probe
+            .emulator
+            .hybrid_encode_non_vdp_main_ram_control()
+            .unwrap(),
+    );
+    assert!(validate_pair(&baseline.emulator, &probe.emulator, &a, &b).is_err());
+    let mut receipt = StrictDmaEvidence::default();
+    let mut progress = receipt.begin_call(0x1234).unwrap();
+    compare_original_control(
+        &baseline.emulator,
+        &probe.emulator,
+        &a,
+        &b,
+        &BTreeSet::from([0xff1000, 0xff1001]),
+        super::super::Probe::Seeded(0),
+        &mut progress,
+    )
+    .unwrap();
+    assert_eq!(progress.discarded_read_journal_checks, 1);
+    assert_eq!(progress.discarded_read_value_variances.len(), 1);
     assert_eq!(progress.control_checks, 0);
-    assert!(progress.baseline_control.is_none());
-    assert!(progress.baseline_vdp_control.is_none());
+    receipt.merge(
+        DependentEvidence {
+            seed: 0x1234,
+            calls_rejected: 1,
+            ..Default::default()
+        },
+        progress,
+    );
+    assert_eq!(receipt.probe_control_contract, "DiscardedReadValueVariance");
+    assert_eq!(receipt.discarded_read_value_variances.len(), 1);
+    assert_eq!(receipt.proof_calls_started, 1);
+    assert_eq!(
+        receipt.discarded_read_value_variances[0].proof_call_ordinal,
+        1
+    );
+    assert_eq!(receipt.discarded_read_value_variances[0].seed, 0x1234);
+    assert_eq!(receipt.qualified_final_probe_pairs, 0);
+    assert_eq!(
+        receipt.discarded_read_value_variances[0].probe_value,
+        0x1234
+    );
 }
 
 #[test]
@@ -590,13 +659,14 @@ fn probe_control_checks_only_actual_input_domain_and_retains_all_other_devices_a
         .hybrid_bus_mut()
         .memory
         .write_main_ram_byte(0xff1000, 0xa5);
-    let mut progress = ProbeProgress::default();
+    let mut progress = StrictDmaEvidence::default().begin_call(0x1234).unwrap();
     compare_original_control(
         &baseline.emulator,
         &probe.emulator,
         &a,
         &b,
         &domain,
+        super::super::Probe::Seeded(0),
         &mut progress,
     )
     .unwrap();
@@ -612,6 +682,7 @@ fn probe_control_checks_only_actual_input_domain_and_retains_all_other_devices_a
             &a,
             &b,
             &domain,
+            super::super::Probe::Seeded(0),
             &mut progress
         )
         .unwrap_err()
@@ -630,6 +701,7 @@ fn probe_control_checks_only_actual_input_domain_and_retains_all_other_devices_a
             &a,
             &b,
             &domain,
+            super::super::Probe::Seeded(0),
             &mut progress
         )
         .is_err()
@@ -651,6 +723,7 @@ fn probe_control_checks_only_actual_input_domain_and_retains_all_other_devices_a
             &a,
             &b,
             &domain,
+            super::super::Probe::Seeded(0),
             &mut progress
         )
         .is_err(),
