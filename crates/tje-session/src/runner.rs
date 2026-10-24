@@ -1607,10 +1607,8 @@ mod tests {
             "tje-session-failure-{}-{nonce}.json",
             std::process::id()
         ));
-        let mut checks = tje_host::CheckReport {
-            nested_original_calls: 3,
-            ..Default::default()
-        };
+        let mut checks = tje_host::CheckReport::default();
+        checks.nested_original_calls = 3;
         checks.time_aware.insert(
             "AuthoredWait".into(),
             tje_host::check_projection::TimeAwareCheckSummary {

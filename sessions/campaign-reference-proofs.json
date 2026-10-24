@@ -1,0 +1,80 @@
+{
+  "format": 1,
+  "scope": "Natural REV02 single-game campaign evidence from input-only power-on playback: all27 levels0..26, all ten actual ship-piece pickups, full ending/scrolling credits and settled final-level display. Independent Reference/Reference comparison covers every video frame with no masks or skipped lag ticks. This does not claim a completed natural REV00 campaign or translated/native equivalence.",
+  "controller_hash_fields": [
+    "format",
+    "revision",
+    "start",
+    "frames",
+    "runs"
+  ],
+  "renaming_policy": "The actual compared session path is preserved. The committed recording was JSON-minified only to meet the public blob budget; every parsed field and controller input is unchanged. Matching canonical controller digests bind those identical inputs, while compared_file_sha256 preserves the exact bytes used for the receipt.",
+  "comparison_source_commit": "ba58b9a004398610e25377a993f68f9d089a14bc",
+  "prior_public_sessions": 81,
+  "prior_public_frames": 3114838,
+  "natural_session_count": 1,
+  "natural_frames": 519824,
+  "complete_public_sessions": 82,
+  "complete_public_frames": 3634662,
+  "coverage_scope": "Measured Reference union of the retained79-input content checkpoint, fresh replays of the two integrated map-exit recordings and this fresh natural campaign replay. The retained cohort is not relabelled as a fresh82-recording replay or translated/native equivalence proof.",
+  "inventory_entries": 648,
+  "corpus_entries_hit": {
+    "rev00": 638,
+    "rev02": 638
+  },
+  "corpus_union_entries_hit": 638,
+  "public_ship_piece_witnesses": {
+    "rev00": 2,
+    "rev02": 10
+  },
+  "entries": [
+    {
+      "session": "sessions/rev02-natural-campaign.tje.json",
+      "revision": "rev02",
+      "frames": 519824,
+      "file_sha256": "21dfaa69a0a0bada34b3f6d3fd77f319d0f592e75432fb850f79522ee234f3df",
+      "compared_file_sha256": "4a31a1d63508689b271bdf62e30814406705d585d9c9c92f81cf6e0d0e4693e9",
+      "canonical_controller_sha256": "3cee81c79f100ddc94a376ccbdea21698df6aecaea8f7b74aa837c733d4d3c4a",
+      "compared_input_canonical_controller_sha256": "3cee81c79f100ddc94a376ccbdea21698df6aecaea8f7b74aa837c733d4d3c4a",
+      "reference_reference": {
+        "session": "sessions/rev02-natural-campaign.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 519824,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      },
+      "reference_content": {
+        "level_coverage": {
+          "first": 0,
+          "last": 26,
+          "count": 27,
+          "all_visited": true
+        },
+        "ship_pieces_collected": {
+          "0": 4325,
+          "1": 45042,
+          "2": 299664,
+          "3": 340521,
+          "4": 376885,
+          "5": 392697,
+          "6": 450374,
+          "7": 473371,
+          "8": 497259,
+          "9": 512968
+        },
+        "milestones": {
+          "level_zero": 273888,
+          "fixed_world": 958,
+          "one_player": 958,
+          "game_over": null,
+          "pause": null,
+          "ending_started": 513643,
+          "ending_credits": 515670,
+          "ending_complete": 518602,
+          "final_level": 518623
+        }
+      }
+    }
+  ]
+}
