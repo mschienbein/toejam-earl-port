@@ -1,46 +1,86 @@
+use super::frames::{call_from, with_frame};
+use crate::call_frame::FrameLayout;
 use crate::{Context, Result, call, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/open_rocket_skates.c:11 (`OpenRocketSkates`).
+/// c_open_rocket_skates.s:4-67 (both revisions): the real MOVEM frame and
+/// source callsites preserve SetSprite's A1/D1/X; the tail publishes A0/D0/CCR.
 pub(super) fn open_rocket_skates(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    let state = Address::<ObjectState>::new(arguments[0]);
-    let player = i32::from(arguments[1] as i16);
-    let terrain = arguments[2] as u16;
-    let revision = context.revision();
-    let mut sprite = 1_i8;
-    call(context, ids::STOP_PLAYER, &[state.address()])?;
-    if state.height().read(context) > 0 {
-        state.acceleration_height().write(context, -32);
-    } else if state.animation_group_mask().read(context) & 0x800 != 0
-        || matches!(state.sprite_state().read(context), 3 | 7)
-    {
-        state.height().write(context, -16);
-        state.velocity_height().write(context, 256);
-        state.acceleration_height().write(context, 0);
-    }
-    if state.animation_group_mask().read(context) & 0x07b5_fffc != 0 {
-        sprite = state.sprite_state().read(context) & 3;
-    }
-    sprite += if terrain == 0x90 || state.height().read(context) > 0 {
-        104
-    } else if terrain == 0x80 {
-        100
-    } else {
-        92
-    };
-    call(context, ids::SET_SPRITE, &[state.address(), sprite as u32])?;
-    state.animation_motion_axes().write(context, 0);
-    let previous = ram::g_player_previous_processed_input(revision).at(player);
-    previous.write(context, previous.read(context) & 0xf0);
-    if state.height().read(context) >= 0 {
-        state
-            .draw_flags()
-            .write(context, state.draw_flags().read(context) | 0x40);
-    }
-    Ok(None)
+    with_frame(context, FrameLayout::movem(0, 0x1c, 4), |context, _| {
+        let state = Address::<ObjectState>::new(arguments[0]);
+        let player = i32::from(arguments[1] as i16);
+        let terrain = arguments[2] as u16;
+        let revision = context.revision();
+        context.set_address_register(2, state.address());
+        context.set_data_register(
+            3,
+            (context.data_register(3) & 0xffff_0000) | u32::from(player as u16),
+        );
+        context.set_data_register(
+            2,
+            (context.data_register(2) & 0xffff_0000) | u32::from(terrain),
+        );
+        context.set_data_register(4, 1);
+        let mut sprite = 1_i8;
+        call_from(
+            context,
+            ids::OPEN_ROCKET_SKATES,
+            ids::STOP_PLAYER,
+            &[state.address()],
+            0x1a,
+        )?;
+        if state.height().read(context) > 0 {
+            state.acceleration_height().write(context, -32);
+        } else if state.animation_group_mask().read(context) & 0x800 != 0
+            || matches!(state.sprite_state().read(context), 3 | 7)
+        {
+            state.height().write(context, -16);
+            state.velocity_height().write(context, 256);
+            state.acceleration_height().write(context, 0);
+        }
+        if state.animation_group_mask().read(context) & 0x07b5_fffc != 0 {
+            sprite = state.sprite_state().read(context) & 3;
+        }
+        sprite += if terrain == 0x90 || state.height().read(context) > 0 {
+            104
+        } else if terrain == 0x80 {
+            100
+        } else {
+            92
+        };
+        context.set_data_register(4, sprite as u32);
+        context.set_data_register(0, sprite as u32);
+        // ADDI.B cannot carry for the emitted bounded direction/base pairs;
+        // the following MOVE.B/EXT.W/EXT.L retain X and leave N/Z/V/C clear.
+        context.set_status_register(context.status_register() & !0x001f);
+        call_from(
+            context,
+            ids::OPEN_ROCKET_SKATES,
+            ids::SET_SPRITE,
+            &[state.address(), sprite as u32],
+            0x9c,
+        )?;
+        state.animation_motion_axes().write(context, 0);
+        context.set_data_register(0, player as u32);
+        let previous = ram::g_player_previous_processed_input(revision);
+        context.set_address_register(0, previous.address());
+        let previous = previous.at(player);
+        previous.write(context, previous.read(context) & 0xf0);
+        let height = state.height().read(context);
+        let flags = if height < 0 {
+            8
+        } else {
+            let draw_flags = state.draw_flags().read(context) | 0x40;
+            state.draw_flags().write(context, draw_flags);
+            if draw_flags & 0x80 != 0 { 8 } else { 0 }
+        };
+        context.set_status_register((context.status_register() & !0x000f) | flags);
+        Ok(None)
+    })
 }
 
 /// G/src/player/rocket_motion.c:16 (`PlayerUpdateRocketSkatesSprite`).

@@ -35,6 +35,9 @@ mod terrain;
 mod terrain_motion;
 mod update;
 
+#[cfg(test)]
+use crate::core::test_support as producer_test_context;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -588,14 +591,18 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
 ];
 /// G/src/player/entity_motion_terrain.c:303 (`StopPlayer`). Preserve the original
 /// interleaved velocity/acceleration store order, even on aliased addresses.
+/// c_entity_motion_terrain.s:640-648 (both revisions) leaves A0 at the object;
+/// the final CLR.W sets Z, clears N/V/C, and preserves X and SR control bits.
 pub fn stop_player(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let state = Address::<ObjectState>::new(arguments[0]);
+    context.set_address_register(0, state.address());
     state.velocity_x().write(context, 0);
     state.acceleration_x().write(context, 0);
     state.velocity_y().write(context, 0);
     state.acceleration_y().write(context, 0);
     state.velocity_height().write(context, 0);
     state.acceleration_height().write(context, 0);
+    context.set_status_register((context.status_register() & !0x000f) | 4);
     Ok(None)
 }
 /// G/src/player/start_motion_mode.c:5 (`PlayerInitializePhasedJumpMotion`).
@@ -811,4 +818,51 @@ pub fn get_level_zero_earthling_position(
     Address::<i16>::new(arguments[1]).write(context, x);
     Address::<i16>::new(arguments[2]).write(context, y);
     Ok(None)
+}
+
+#[cfg(test)]
+mod producer_tests {
+    use super::producer_test_context::{TestContext, Write};
+    use super::*;
+    use tje_mem::Revision;
+
+    #[test]
+    fn stop_player_publishes_only_a0_and_clr_flags_in_source_store_order() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            let player = ram::g_player_info(revision).at(0);
+            for ccr in 0..32 {
+                let data: [u32; 8] = std::array::from_fn(|index| 0xa55a0000 | index as u32);
+                let addresses: [u32; 8] =
+                    std::array::from_fn(|index| 0xffe000 + index as u32 * 0x100);
+                for (index, value) in data.into_iter().enumerate() {
+                    context.set_data_register(index, value);
+                }
+                for (index, value) in addresses.into_iter().enumerate() {
+                    context.set_address_register(index, value);
+                }
+                context.set_status_register(0x2700 | ccr);
+                context.writes.clear();
+                stop_player(&mut context, &[player.address()]).unwrap();
+                for (index, value) in data.into_iter().enumerate() {
+                    assert_eq!(context.data_register(index), value);
+                }
+                assert_eq!(context.address_register(0), player.address());
+                for (index, value) in addresses.into_iter().enumerate().skip(1) {
+                    assert_eq!(context.address_register(index), value);
+                }
+                assert_eq!(context.status_register(), 0x2704 | (ccr & 0x10));
+                let expected: Vec<_> = [6, 12, 8, 14, 10, 16]
+                    .into_iter()
+                    .flat_map(|offset| {
+                        [
+                            Write::Ram(player.address() + offset, 0),
+                            Write::Ram(player.address() + offset + 1, 0),
+                        ]
+                    })
+                    .collect();
+                assert_eq!(context.writes, expected);
+            }
+        }
+    }
 }

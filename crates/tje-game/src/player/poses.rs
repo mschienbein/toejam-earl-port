@@ -1,3 +1,5 @@
+use super::frames::{call_from, with_frame};
+use crate::call_frame::FrameLayout;
 use crate::{Context, Result, call, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
@@ -16,65 +18,100 @@ pub(super) fn next_random(context: &mut dyn Context) -> u16 {
 }
 
 /// G/src/player/active_present_falling_and_respawn.c:14 (`GetActivePresentSprite`).
+/// c_active_present_falling_and_respawn.s:4-107 (both revisions): preserve the
+/// real MOVEM frame, word-only D1 update, and the callee's volatile residues.
 pub(super) fn get_active_present_sprite(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let revision = context.revision();
-    let number = i32::from(player.entity_index().read(context));
-    let land = (if number == 0 {
-        ram::g_player1_terrain_underfoot(revision)
-    } else {
-        ram::g_player2_terrain_underfoot(revision)
-    })
-    .read(context)
-        & 0xf0;
-    let powerup = ram::g_player_powerups(revision).at(number);
-    let elevator = ram::g_player_elevator_flags(revision).at(number);
-    let sprite;
-    if powerup.read(context) == 2 {
-        sprite = if land == 0x80 {
-            77
-        } else if elevator.read(context) == 0 {
-            76
+    with_frame(context, FrameLayout::movem(0, 4, 0x0c), |context, _| {
+        let player = Address::<ObjectState>::new(arguments[0]);
+        let revision = context.revision();
+        let number = i32::from(player.entity_index().read(context));
+        context.set_address_register(1, player.address());
+        context.set_address_register(2, ram::g_player_powerups(revision).address());
+        context.set_address_register(3, ram::g_player_elevator_flags(revision).address());
+        context.set_data_register(
+            2,
+            (context.data_register(2) & 0xffff_0000) | u32::from(number as u16),
+        );
+        let land = (if number == 0 {
+            ram::g_player1_terrain_underfoot(revision)
         } else {
+            ram::g_player2_terrain_underfoot(revision)
+        })
+        .read(context)
+            & 0xf0;
+        context.set_data_register(
+            1,
+            (context.data_register(1) & 0xffff_0000) | u32::from(land),
+        );
+        let powerup = ram::g_player_powerups(revision).at(number);
+        let elevator = ram::g_player_elevator_flags(revision).at(number);
+        let sprite;
+        if powerup.read(context) == 2 {
+            sprite = if land == 0x80 {
+                77
+            } else if elevator.read(context) == 0 {
+                76
+            } else {
+                player.frame().write(context, -1);
+                0
+            };
+        } else if powerup.read(context) == 5 {
+            context.set_data_register(0, u32::from(land));
+            context.set_data_register(2, number as u32);
+            call_from(
+                context,
+                ids::GET_ACTIVE_PRESENT_SPRITE,
+                ids::OPEN_ROCKET_SKATES,
+                &[player.address(), number as u32, u32::from(land)],
+                0x80,
+            )?;
+            return finish_present_sprite(context, -1);
+        } else if land == 0x80 && player.height().read(context) == 0 {
+            sprite = 3;
+        } else if powerup.read(context) == 1 && elevator.read(context) == 0 {
+            sprite = 57;
+        } else if powerup.read(context) == 0 && elevator.read(context) == 0 {
+            if player.animation_group_mask().read(context) & 0x8000 != 0
+                && player.height().read(context) > 0
+            {
+                return finish_present_sprite(context, -1);
+            }
+            player
+                .draw_flags()
+                .write(context, player.draw_flags().read(context) | 0x40);
+            sprite = 4;
+        } else {
+            sprite = 0;
             player.frame().write(context, -1);
-            0
-        };
-    } else if powerup.read(context) == 5 {
-        call(
-            context,
-            ids::OPEN_ROCKET_SKATES,
-            &[player.address(), number as u32, u32::from(land)],
-        )?;
-        return Ok(Some(u32::MAX));
-    } else if land == 0x80 && player.height().read(context) == 0 {
-        sprite = 3;
-    } else if powerup.read(context) == 1 && elevator.read(context) == 0 {
-        sprite = 57;
-    } else if powerup.read(context) == 0 && elevator.read(context) == 0 {
-        if player.animation_group_mask().read(context) & 0x8000 != 0
-            && player.height().read(context) > 0
-        {
-            return Ok(Some(u32::MAX));
         }
-        player
-            .draw_flags()
-            .write(context, player.draw_flags().read(context) | 0x40);
-        sprite = 4;
+        player.velocity_x().write(context, 0);
+        player.velocity_y().write(context, 0);
+        if sprite != 4 {
+            player
+                .draw_flags()
+                .write(context, player.draw_flags().read(context) & !0x40);
+        }
+        finish_present_sprite(context, sprite)
+    })
+}
+
+/// The common MOVE.B/EXT.W/EXT.L return tail sets N/Z from the signed byte,
+/// clears V/C, and preserves the current X (including a real callee's result).
+fn finish_present_sprite(context: &mut dyn Context, sprite: i8) -> Result<Option<u32>> {
+    let result = i32::from(sprite) as u32;
+    context.set_data_register(0, result);
+    let flags = if sprite == 0 {
+        4
+    } else if sprite < 0 {
+        8
     } else {
-        sprite = 0;
-        player.frame().write(context, -1);
-    }
-    player.velocity_x().write(context, 0);
-    player.velocity_y().write(context, 0);
-    if sprite != 4 {
-        player
-            .draw_flags()
-            .write(context, player.draw_flags().read(context) & !0x40);
-    }
-    Ok(Some(sprite))
+        0
+    };
+    context.set_status_register((context.status_register() & !0x000f) | flags);
+    Ok(Some(result))
 }
 
 /// G/src/player/active_present_falling_and_respawn.c:193 (`PlayerUpdateTeetering`).
@@ -313,4 +350,35 @@ pub(super) fn player_update_present_completion_and_terrain_pose(
         call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     }
     Ok(None)
+}
+#[cfg(test)]
+mod producer_tests {
+    use super::super::producer_test_context::TestContext;
+    use super::*;
+    use tje_mem::Revision;
+
+    #[test]
+    fn return_tail_sign_extends_every_byte_and_preserves_each_entry_extend() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            for raw in 0..=255_u8 {
+                for ccr in 0..32 {
+                    context.set_data_register(0, 0xa55a1234);
+                    context.set_status_register(0x2700 | ccr);
+                    let result = finish_present_sprite(&mut context, raw as i8).unwrap();
+                    let expected = (raw as i8 as i32) as u32;
+                    assert_eq!(result, Some(expected));
+                    assert_eq!(context.data_register(0), expected);
+                    let flags = if expected == 0 {
+                        4
+                    } else if expected & 0x80000000 != 0 {
+                        8
+                    } else {
+                        0
+                    };
+                    assert_eq!(context.status_register(), 0x2700 | (ccr & 0x10) | flags);
+                }
+            }
+        }
+    }
 }
