@@ -6,6 +6,8 @@ use m68000_emu::BusInterface;
 use tje_game::{execution::CallCeiling, ids};
 use tje_rom::Revision;
 
+mod irq_boundaries;
+
 #[derive(Debug, Clone, Copy)]
 enum EntryPath {
     Call,

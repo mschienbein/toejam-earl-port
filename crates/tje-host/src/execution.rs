@@ -14,7 +14,7 @@ use crate::{
 use genesis_config::GenesisInputs;
 use genesis_core::{GenesisEmulator, HybridAccess};
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
-use m68000_emu::BusInterface;
+use m68000_emu::{BusInterface, HybridExecutedInstruction};
 use std::sync::Arc;
 use tje_game::execution::{CallCeilingScope, CallClock, ClockUsage, WaitCondition, WaitRequest};
 
@@ -114,6 +114,8 @@ pub(crate) struct ClockRun {
     pub logic_trace: LogicTrace,
     exception_base: u32,
     entry_boundary: Option<crate::exits::ReferenceBoundary>,
+    root_main_exited: bool,
+    entry_invocation: Option<InvocationFrame>,
     instructions: u64,
     previous_pc: Option<u32>,
     pub audio: Vec<[f64; 2]>,
@@ -122,12 +124,62 @@ pub(crate) struct ClockRun {
     nested_ceilings: Vec<OriginalCallCeiling>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct InvocationFrame {
+    function: tje_game::FunctionId,
+    entry_sp: u32,
+    return_pc: u32,
+    exception_depth: u32,
+}
+
+impl InvocationFrame {
+    fn capture(emulator: &GenesisEmulator, function: tje_game::FunctionId) -> Result<Self> {
+        let cpu = emulator.hybrid_cpu();
+        let entry_sp = cpu.stack_pointer();
+        Ok(Self {
+            function,
+            entry_sp,
+            return_pc: actual_return_pc(emulator, entry_sp)?,
+            exception_depth: cpu.hybrid_exception_depth(),
+        })
+    }
+
+    fn matches_entry(self, emulator: &GenesisEmulator) -> Result<bool> {
+        let cpu = emulator.hybrid_cpu();
+        if cpu.stack_pointer() != self.entry_sp
+            || cpu.hybrid_exception_depth() != self.exception_depth
+        {
+            return Ok(false);
+        }
+        Ok(actual_return_pc(emulator, self.entry_sp)? == self.return_pc)
+    }
+
+    fn at_return(self, emulator: &GenesisEmulator) -> bool {
+        let cpu = emulator.hybrid_cpu();
+        cpu.pc() == self.return_pc
+            && cpu.stack_pointer() == self.entry_sp.wrapping_add(4)
+            && cpu.hybrid_exception_depth() == self.exception_depth
+    }
+}
+
+fn actual_return_pc(emulator: &GenesisEmulator, sp: u32) -> Result<u32> {
+    let physical = canonical_ram_address(sp);
+    if sp & 1 != 0
+        || !(crate::catalogue::STACK_BOTTOM..=crate::catalogue::STACK_TOP - 4).contains(&physical)
+    {
+        return Err(HostError::Metadata(
+            "operational callee lacks its actual aligned work-RAM return frame".into(),
+        ));
+    }
+    let words = emulator.hybrid_bus().memory.hybrid_raw_main_ram();
+    let index = (physical & 0xffff) as usize / 2;
+    Ok((u32::from(words[index]) << 16) | u32::from(words[index + 1]))
+}
+
 #[derive(Debug)]
 struct OriginalCallCeiling {
     scope: CallCeilingScope,
-    return_pc: u32,
-    return_sp: u32,
-    exception_depth: u32,
+    invocation: InvocationFrame,
     returned: bool,
 }
 
@@ -145,6 +197,180 @@ impl Clone for CalleeScratch {
 }
 
 impl ClockRun {
+    fn meters_depth(&self, depth: u32) -> bool {
+        if self.root_main_exited {
+            // The caller boundary is outside the completed main segment. Real
+            // tail ISR calls still tighten its inherited physical-run clock.
+            depth > self.exception_base
+        } else {
+            depth >= self.exception_base
+        }
+    }
+
+    fn capture_entry_invocation(
+        &mut self,
+        emulator: &GenesisEmulator,
+        clock: &mut WaitClock,
+    ) -> Result<()> {
+        let ordinary = self.entry_boundary.is_some_and(|boundary| {
+            boundary.sp.is_some() && boundary.source.is_none() && !boundary.entry_exception_return
+        });
+        if ordinary
+            && clock.call_clock.active()
+            && let Some(revision) = clock.revision
+            && let Some((function, _)) =
+                operational_callee_at(revision, emulator.hybrid_cpu().pc())?
+        {
+            if !clock.call_clock.contains_scope(function) {
+                clock.call_clock.invalidate_scope();
+                return Err(HostError::Metadata(
+                    "operational root has no enclosing declared call scope".into(),
+                ));
+            }
+            self.entry_invocation = Some(InvocationFrame::capture(emulator, function)?);
+        }
+        Ok(())
+    }
+
+    fn observe_root_exit(
+        &mut self,
+        emulator: &GenesisEmulator,
+        instruction: Option<HybridExecutedInstruction>,
+    ) {
+        if self.root_main_exited {
+            return;
+        }
+        let Some(instruction) = instruction.filter(|step| step.completed_successfully) else {
+            return;
+        };
+        let Some(boundary) = self.entry_boundary else {
+            return;
+        };
+        if instruction.exception_depth != self.exception_base {
+            return;
+        }
+        let depth = emulator.hybrid_cpu().hybrid_exception_depth();
+        let owned = if boundary.entry_exception_return {
+            instruction.opcode == 0x4e73 && depth.checked_add(1) == Some(self.exception_base)
+        } else if boundary.sp.is_some() && boundary.source.is_none() {
+            instruction.opcode == 0x4e75 && depth == self.exception_base
+        } else {
+            // Explicit reviewed tail/call/terminal/main-loop checkpoints.
+            depth == self.exception_base
+        };
+        self.root_main_exited = owned
+            && boundary.reached(
+                emulator.hybrid_cpu(),
+                Some(instruction.pc),
+                self.instructions,
+            );
+    }
+
+    fn live_invocation(
+        &self,
+        emulator: &GenesisEmulator,
+        function: tje_game::FunctionId,
+    ) -> Result<bool> {
+        for nested in self.nested_ceilings.iter().rev() {
+            if !nested.returned
+                && nested.invocation.function == function
+                && nested.invocation.matches_entry(emulator)?
+            {
+                return Ok(true);
+            }
+        }
+        if !self.root_main_exited
+            && let Some(invocation) = self.entry_invocation
+            && invocation.function == function
+        {
+            return invocation.matches_entry(emulator);
+        }
+        Ok(false)
+    }
+
+    fn actual_instruction(
+        &self,
+        emulator: &GenesisEmulator,
+        progress: u64,
+        pc: u32,
+        opcode: u16,
+        depth: u32,
+    ) -> Result<Option<HybridExecutedInstruction>> {
+        if progress == 0 {
+            return Ok(None);
+        }
+        let instruction = emulator
+            .hybrid_cpu()
+            .hybrid_instruction_counts()
+            .and_then(|counts| counts.last_instruction);
+        if progress != 1
+            || instruction.is_none_or(|step| {
+                step.pc != pc || step.opcode != opcode || step.exception_depth != depth
+            })
+        {
+            return Err(HostError::Metadata(
+                "operational metering lacks one actual owned opcode receipt".into(),
+            ));
+        }
+        Ok(instruction)
+    }
+
+    fn meter_callee_entry(
+        &mut self,
+        emulator: &GenesisEmulator,
+        clock: &mut WaitClock,
+        instruction: Option<HybridExecutedInstruction>,
+        sp_before: u32,
+    ) -> Result<()> {
+        if !clock.call_clock.active() {
+            return Ok(());
+        }
+        let Some(revision) = clock.revision else {
+            return Ok(());
+        };
+        let cpu = emulator.hybrid_cpu();
+        let call = instruction.filter(|step| {
+            step.completed_successfully
+                && self.meters_depth(step.exception_depth)
+                && (step.opcode & 0xffc0 == 0x4e80 || step.opcode & 0xff00 == 0x6100)
+        });
+        if let Some(call) = call
+            && cpu.hybrid_exception_depth() != call.exception_depth
+        {
+            clock.call_clock.invalidate_scope();
+            return Err(HostError::Metadata(
+                "coalesced call/exception has no exact owned metering split".into(),
+            ));
+        }
+        if !self.meters_depth(cpu.hybrid_exception_depth()) {
+            return Ok(());
+        }
+        let Some((function, ceiling)) = operational_callee_at(revision, cpu.pc())? else {
+            return Ok(());
+        };
+        if call.is_some() {
+            if cpu.stack_pointer().wrapping_add(4) != sp_before {
+                clock.call_clock.invalidate_scope();
+                return Err(HostError::Metadata(
+                    "operational callee did not create its actual return frame".into(),
+                ));
+            }
+            let invocation = InvocationFrame::capture(emulator, function)?;
+            let scope = clock.enter_call_ceiling(function, ceiling)?;
+            self.nested_ceilings.push(OriginalCallCeiling {
+                scope,
+                invocation,
+                returned: false,
+            });
+        } else if !self.live_invocation(emulator, function)? {
+            clock.call_clock.invalidate_scope();
+            return Err(HostError::Metadata(format!(
+                "operational callee {function:?} reached by unsupported unmetered entry; no matching actual JSR/BSR invocation frame"
+            )));
+        }
+        Ok(())
+    }
+
     fn close_quiescent_callees(
         &mut self,
         emulator: &GenesisEmulator,
@@ -156,13 +382,15 @@ impl ClockRun {
             };
             let cpu = emulator.hybrid_cpu();
             let depth = cpu.hybrid_exception_depth();
-            let at_return = cpu.pc() == nested.return_pc && cpu.stack_pointer() == nested.return_sp;
-            if depth < nested.exception_depth || (depth == nested.exception_depth && !at_return) {
+            let at_return = nested.invocation.at_return(emulator);
+            if depth < nested.invocation.exception_depth
+                || (depth == nested.invocation.exception_depth && !at_return)
+            {
                 return Err(HostError::Metadata(
                     "an ISR escaped an operational callee's actual return boundary".into(),
                 ));
             }
-            if depth != nested.exception_depth || !native_resume_ready(emulator) {
+            if depth != nested.invocation.exception_depth || !native_resume_ready(emulator) {
                 return Ok(());
             }
             let nested = self
@@ -644,6 +872,10 @@ fn timed_tick(
     });
     entered?;
     let instructions = progress?;
+    let instruction = run
+        .actual_instruction(emulator, instructions, pc, opcode, depth_before)
+        .inspect_err(|_| clock.call_clock.invalidate_scope())?;
+    run.observe_root_exit(emulator, instruction);
     if auditing && depth_after < depth_before {
         let root_return = run.entry_boundary.is_some_and(|boundary| {
             boundary.entry_exception_return
@@ -681,50 +913,17 @@ fn timed_tick(
         timeline?;
     }
     clock.call_clock.check().map_err(HostError::Clock)?;
-    if ready && opcode == 0x4e75 {
+    if instruction.is_some_and(|step| step.completed_successfully && step.opcode == 0x4e75) {
         for nested in run.nested_ceilings.iter_mut().rev() {
-            if emulator.hybrid_cpu().pc() != nested.return_pc
-                || emulator.hybrid_cpu().stack_pointer() != nested.return_sp
-                || depth_after != nested.exception_depth
-            {
+            if !nested.invocation.at_return(emulator) {
                 break;
             }
             nested.returned = true;
         }
     }
-    if instructions != 0
-        && clock.call_clock.active()
-        && let Some(revision) = clock.revision
-        && let Some((id, ceiling)) = operational_callee_at(revision, emulator.hybrid_cpu().pc())?
-    {
-        if depth_before == depth_after && (opcode & 0xffc0 == 0x4e80 || opcode & 0xff00 == 0x6100) {
-            let sp = emulator.hybrid_cpu().stack_pointer();
-            if sp & 1 != 0
-                || sp.wrapping_add(4) != sp_before
-                || !(crate::catalogue::STACK_BOTTOM..=crate::catalogue::STACK_TOP - 4)
-                    .contains(&canonical_ram_address(sp))
-            {
-                return Err(HostError::Metadata(
-                    "operational callee did not create its actual work-RAM return frame".into(),
-                ));
-            }
-            let memory = &emulator.hybrid_bus().memory;
-            let return_pc = (u32::from(memory.read_main_ram_word(sp)) << 16)
-                | u32::from(memory.read_main_ram_word(sp.wrapping_add(2)));
-            let scope = clock.enter_call_ceiling(id, ceiling)?;
-            run.nested_ceilings.push(OriginalCallCeiling {
-                scope,
-                return_pc,
-                return_sp: sp_before,
-                exception_depth: depth_after,
-                returned: false,
-            });
-        } else if !clock.call_clock.contains_scope(id) {
-            clock.call_clock.invalidate_scope();
-            return Err(HostError::Metadata(format!(
-                "operational callee {id:?} reached by unsupported unmetered entry after opcode {opcode:04X}; no actual JSR/BSR return frame"
-            )));
-        }
+    if instructions != 0 || depth_after != depth_before {
+        run.meter_callee_entry(emulator, clock, instruction, sp_before)
+            .inspect_err(|_| clock.call_clock.invalidate_scope())?;
     }
     run.close_quiescent_callees(emulator, clock)?;
     Ok(())
@@ -967,6 +1166,8 @@ pub(crate) fn run_original_timed_until_with_audio(
     let mut audio = HeadlessAudio { samples };
     let result = (|| {
         run.begin_reference_counting(emulator, clock.call_clock.active())?;
+        run.capture_entry_invocation(emulator, clock)
+            .inspect_err(|_| clock.call_clock.invalidate_scope())?;
         let ordinary_return =
             boundary.sp.is_some() && boundary.source.is_none() && !boundary.entry_exception_return;
         let mut return_reached = false;
@@ -1898,9 +2099,8 @@ mod tests {
         let mut run = ClockRun::default();
         run.nested_ceilings.push(OriginalCallCeiling {
             scope: child,
-            return_pc: 0x100,
-            return_sp: sp,
-            exception_depth: 0,
+            invocation: InvocationFrame::capture(&emulator, tje_game::ids::WAIT_FOR_NEXT_V_BLANK)
+                .unwrap(),
             returned: false,
         });
         run.begin_reference_counting(&mut emulator, true).unwrap();

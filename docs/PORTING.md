@@ -512,9 +512,29 @@ scans the full catalogue. Root entries use their explicit resolved scope. A new
 unmetered entry reached inside a physical runner without a successful JSR/BSR
 fails closed, including branches, fallthrough and return-based entry; no return
 frame is invented. The boundary violation is sticky in the root ledger, so catching
-an original-call error cannot approve it. Reentry into an already protected
-ancestor/self scope, including
-an IRQ's actual RTE, retains its existing deadline without renewal.
+an original-call error cannot approve it. Reentry into a protected ancestor/self
+invocation, including an IRQ's actual RTE, requires its function id, raw active
+SP, exception depth and actual physical return-frame word to match. A scope name
+alone is not a call receipt. Resumption retains the existing token and absolute
+deadline; no RTE or loop reentry creates fresh capacity.
+
+The physical runner latches its checked root's **own successful** RTS/RTE only
+when the actual opcode receipt, owning depth, return PC/SP and declared boundary
+match (or when an explicit reviewed nonreturning boundary is reached). The
+completed main segment's outside caller boundary is not a new callee entry, even
+if its PC is a capped function's first instruction. This ownership latch persists
+through quiescent tail work. It does **not** waive real JSR/BSR calls in tail ISRs:
+those children still tighten the shared root ledger and close only after their
+own real return and debt.
+
+Meter creation uses the actual successful JSR/BSR opcode and work-RAM return
+frame, not a prefetched opcode or a readiness/PC coincidence. The child is opened
+before the next interrupt recognition/acceptance attempt, so an IRQ before its
+first instruction resumes the same physical invocation after RTE. The pinned
+reference CPU has one attempt per tick. A coalesced completed call/IRQ observation
+without an exact owned timing split fails closed; already-spent IRQ work cannot
+be omitted by starting a fresh child deadline afterwards. No CPU state, frame or
+readiness is repaired by these diagnostic ownership checks.
 
 The clock retains empty callee-meter storage across physical runs. All recursive
 machine calls share that growable storage, with no artificial recursion limit;
