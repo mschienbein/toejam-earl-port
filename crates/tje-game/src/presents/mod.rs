@@ -6,6 +6,7 @@ use tje_mem::{Address, ObjectState, ram, rom};
 mod dispatch;
 
 mod effects;
+mod expiry;
 mod hazard_frames;
 mod item_frames;
 mod items;
@@ -312,7 +313,7 @@ pub static PENDING: &[crate::Translation] = &[
     // smaller six-fixture passing receipt does not override this failure.
     crate::Translation {
         id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
-        function: items::present_try_end_active_powerup,
+        function: expiry::present_try_end_active_powerup,
     },
     // Redraw fixture fails strict main/ISR observations in both revisions:
     // REV02 Z80 A0004A operand0/1; REV00 missing/shifted vector28 boundary.

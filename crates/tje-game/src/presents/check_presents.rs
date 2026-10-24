@@ -26,6 +26,20 @@ fn candidate_hook(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>
     Ok((translation.function)(context, &arguments[..count])?)
 }
 
+fn expiry_register_registry(revision: Revision) -> HookRegistry {
+    let mut symbol = ids::PRESENT_TRY_END_ACTIVE_POWERUP.metadata().clone();
+    symbol.abi.strict_registers = true;
+    let mut registry = HookRegistry::empty(revision);
+    registry
+        .register_execution_contract(
+            symbol,
+            tje_game::execution::ExecutionClass::TimeAware,
+            candidate_hook,
+        )
+        .unwrap();
+    registry
+}
+
 fn registry(revision: Revision) -> HookRegistry {
     let mut registry = HookRegistry::filtered(revision, &["presents"], &[]).unwrap();
     for candidate in tje_game::presents::PENDING {
@@ -268,7 +282,18 @@ fn main() {
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
         let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
         let time_mode = args.get(3).is_some_and(|argument| argument == "time");
-        let registry = if frame_mode && !tje_game::presents::PENDING_FRAMES.is_empty() {
+        let expiry_register_mode = args.get(3).is_some_and(|argument| {
+            matches!(
+                argument.as_str(),
+                "expiry-registers" | "expiry-registers-primary"
+            )
+        });
+        let expiry_primary_only = args
+            .get(3)
+            .is_some_and(|argument| argument == "expiry-registers-primary");
+        let registry = if expiry_register_mode {
+            expiry_register_registry(revision)
+        } else if frame_mode && !tje_game::presents::PENDING_FRAMES.is_empty() {
             HookRegistry::proof(revision, tje_game::presents::PENDING_FRAMES).unwrap()
         } else if frame_mode {
             HookRegistry::filtered(
@@ -415,7 +440,23 @@ fn main() {
                 "completed_frames":settled.completed_frames.iter().enumerate().map(|(index,frame)| serde_json::json!({"index":index,"pc":frame.pc,"frame_counter":frame.frame_counter})).collect::<Vec<_>>(),
                 "all_completed_snapshots_reference_equal":true
             })).unwrap()).unwrap();
-            if frame_mode {
+            if expiry_register_mode {
+                let count = time_fixtures::expiry_registers(&mut host, !expiry_primary_only);
+                fs::write(
+                    evidence.join(format!("{name}-expiry-register-fixtures.json")),
+                    serde_json::to_vec_pretty(&serde_json::json!({
+                        "labelled_fixtures": count,
+                        "out_of_range_index_suite": !expiry_primary_only,
+                        "all_data_and_address_registers_compared": true,
+                        "full_status_register_compared": true,
+                        "interrupt_mask": 7,
+                        "timing_approval": false,
+                        "production_registration": false,
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            } else if frame_mode {
                 placement_frame_fixtures(&mut host);
             } else if time_mode {
                 let id = tje_game::functions()

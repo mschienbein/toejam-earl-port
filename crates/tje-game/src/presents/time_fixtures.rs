@@ -1,6 +1,6 @@
 //! Opt-in, labelled live-state TimeAware fixtures; never linked into the game.
 use crate::{fixture, prepare_effect_fixture};
-use tje_game::{FunctionId, ids};
+use tje_game::{Context, FunctionId, ids};
 use tje_host::Host;
 use tje_mem::{Ptr, ram};
 
@@ -342,4 +342,133 @@ pub fn run(host: &mut Host, id: FunctionId) {
         }
         _ => panic!("no TimeAware fixture for {}", id.metadata().name),
     }
+}
+
+/// Strict return-state fixtures, not timing approval. The settled game supplies
+/// the stack/devices; only labelled RAM inputs, entry GPRs and CCR are seeded.
+/// IRQs are masked so this isolates caller/producer CPU outputs from the pending
+/// main/ISR scheduling issue. The root remains TimeAware and unregistered.
+pub fn expiry_registers(host: &mut Host, include_word_indexes: bool) -> usize {
+    let cases = [
+        ("airborne-no-flight", 1, 1, 8, 0x10, 0),
+        ("airborne-falling", 1, 0x20, 8, 0x10, 0),
+        ("ground-falling", 0, 0x20, 8, 0x10, 0),
+        ("skates-airborne-no-flight", 1, 1, 8, 0x10, 5),
+        ("skates-falling", 0, 0x20, 8, 0x10, 5),
+        ("icarus-fall-north", 1, 0x8000, 60, 0x10, 0),
+        ("icarus-fall-east", 1, 0x8000, 61, 0x10, 0),
+        ("icarus-fall-south", 1, 0x8000, 62, 0x10, 0),
+        ("icarus-fall-west", 1, 0x8000, 63, 0x10, 0),
+        ("rocket-fall", 1, 0x0400_0000, 84, 0x10, 4),
+        ("stationary-actual-4631-shape", 0, 0x2000_0000, 0, 0x10, 7),
+        ("stationary-nonzero-state", 0, 0x2000_0000, 8, 0x10, 7),
+        ("no-refresh-predicate", 0, 0, 8, 0x10, 0),
+        ("inner-tube", 0, 0x0004_0000, 58, 0x10, 2),
+        ("state-77-splash", 0, 0, 77, 0x10, 2),
+        ("skates-water", 0, 0x0080_0000, 4, 0x80, 5),
+        ("icarus-water", 0, 0x8000, 61, 0x80, 0),
+        ("refresh-state-zero", 0, 1, 0, 0x10, 0),
+        ("refresh-state-four-water", 0, 1, 4, 0x80, 0),
+        ("refresh-state-76", 0, 1, 76, 0x10, 2),
+        ("refresh-state-three", 0, 1, 3, 0x10, 0),
+        ("refresh-state-seven", 0, 1, 7, 0x10, 0),
+        ("refresh-social", 0, 0x0040_0000, 8, 0x10, 0),
+        ("refresh-skates-dry", 0, 0x0080_0000, 8, 0x10, 5),
+        ("refresh-end-high-bit", 0, 0x0800_0000, 8, 0x10, 0),
+        ("refresh-end-middle-bit", 0, 0x0020_0000, 8, 0x10, 0),
+        ("refresh-end-low-bit", 0, 0x4000, 8, 0x10, 0),
+        ("refresh-icarus-dry", 0, 0x8000, 8, 0x10, 0),
+        ("negative-height", -1, 1, 0, 0x10, 0),
+    ];
+    let mut checked = 0;
+    for (label, height, groups, state, terrain, powerup) in cases {
+        for index in 0_i16..2 {
+            for seed in [0_u32, 0xa5a5_ffff, 0xdead_0001] {
+                for ccr in 0_u16..32 {
+                    common(host);
+                    expiry_register_fixture(
+                        host, label, index, height, groups, state, terrain, powerup, seed, ccr,
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    if !include_word_indexes {
+        return checked;
+    }
+    // ASL.W #7/ADDA.W aliases the object while the scalar powerup lookup remains
+    // long-indexed. Early falling avoids manufacturing any high-index HUD data.
+    for index in [i16::MIN, -512, -1, 2, 255, 256, 511, 512, 1024, i16::MAX] {
+        for seed in [0_u32, 0xa5a5_ffff, 0xdead_0001] {
+            for ccr in 0_u16..32 {
+                common(host);
+                expiry_register_fixture(
+                    host,
+                    "word-index-early-falling",
+                    index,
+                    0,
+                    0x20,
+                    8,
+                    0x10,
+                    0,
+                    seed,
+                    ccr,
+                );
+                checked += 1;
+            }
+        }
+    }
+    checked
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the labelled source-state fixture tuple"
+)]
+fn expiry_register_fixture(
+    host: &mut Host,
+    label: &str,
+    index: i16,
+    height: i16,
+    groups: u32,
+    state: i8,
+    terrain: u8,
+    powerup: i8,
+    seed: u32,
+    ccr: u16,
+) {
+    let revision = host.revision();
+    let player = ram::g_player_info(revision).at_word_index(index);
+    let mut context = host.context();
+    player.height().write(&mut context, height);
+    player.sprite_state().write(&mut context, state);
+    player.animation_group_mask().write(&mut context, groups);
+    player.entity_index().write(&mut context, index as i8);
+    ram::g_player1_terrain_underfoot(revision).write(&mut context, terrain);
+    ram::g_player2_terrain_underfoot(revision).write(&mut context, terrain);
+    ram::g_player_powerups(revision)
+        .at(i32::from(index))
+        .write(&mut context, powerup);
+    ram::g_pcm_effect_cooldown_ticks(revision).write(&mut context, 0);
+    ram::g_psg_effect_status(revision).write(&mut context, 0);
+    for register in 0..8 {
+        context.set_data_register(
+            register,
+            seed.rotate_left(register as u32 * 4) ^ (register as u32 * 0x1111_1111),
+        );
+    }
+    for register in 0..7 {
+        context.set_address_register(register, 0xff9000 + register as u32 * 0x100);
+    }
+    let status = (context.status_register() & !0x1f) | 0x0700 | ccr;
+    context.set_status_register(status);
+    drop(context);
+    host.check_fixture(
+        ids::PRESENT_TRY_END_ACTIVE_POWERUP
+            .metadata()
+            .address(revision),
+        &[i32::from(index) as u32],
+    )
+    .unwrap_or_else(|error| panic!("{label} index={index} seed={seed:08x} CCR={ccr:02x}: {error}"));
 }
