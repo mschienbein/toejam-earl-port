@@ -1,14 +1,20 @@
 use crate::{Context, FunctionId, Result, call, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom};
 
-fn can_interact(context: &dyn Context, player: Address<ObjectState>, extra: Option<i8>) -> bool {
-    let state = player.sprite_state().read(context);
-    state == 0
-        || state == 4
+fn can_interact(
+    context: &dyn tje_mem::Bus,
+    player: Address<ObjectState>,
+    extra: Option<i8>,
+) -> bool {
+    // c_nice_earthling_touch.s:223-235,429-444,670-682,848-862:
+    // each TST/CMPI reloads the byte. Do not cache an earlier observation across
+    // the intervening animation-group read or an environment update.
+    player.sprite_state().read(context) == 0
+        || player.sprite_state().read(context) == 4
         || player.animation_group_mask().read(context) & 0x2040_0000 != 0
-        || state == 76
-        || extra == Some(state)
-        || (state == 57 && player.velocity_y().read(context) == 0)
+        || player.sprite_state().read(context) == 76
+        || extra.is_some_and(|state| player.sprite_state().read(context) == state)
+        || (player.sprite_state().read(context) == 57 && player.velocity_y().read(context) == 0)
 }
 
 fn inline_text(context: &dyn Context, id: FunctionId) -> u32 {
@@ -495,4 +501,77 @@ pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
         object.frame().write(context, -1);
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod interaction_guard_tests {
+    use super::can_interact;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use tje_mem::{Address, Bus, ObjectState, Revision, ram};
+
+    struct ObservedPlayer {
+        player: Address<ObjectState>,
+        states: RefCell<VecDeque<u8>>,
+        reads: RefCell<Vec<(u32, u8)>>,
+    }
+
+    impl Bus for ObservedPlayer {
+        fn read_u8(&self, address: u32) -> u8 {
+            self.reads.borrow_mut().push((address, 1));
+            if address == self.player.sprite_state().address() {
+                self.states.borrow_mut().pop_front().expect("state read")
+            } else {
+                panic!("unexpected byte read {address:08x}");
+            }
+        }
+        fn read_u16(&self, address: u32) -> u16 {
+            self.reads.borrow_mut().push((address, 2));
+            assert_eq!(address, self.player.velocity_y().address());
+            0
+        }
+        fn read_u32(&self, address: u32) -> u32 {
+            self.reads.borrow_mut().push((address, 4));
+            assert_eq!(address, self.player.animation_group_mask().address());
+            0
+        }
+        fn write_u8(&mut self, address: u32, _: u8) {
+            panic!("unexpected guard write {address:08x}");
+        }
+    }
+
+    #[test]
+    fn every_emitted_state_comparison_observes_its_own_read() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let player = ram::g_player_info(revision).at(0);
+            for (states, extra, expected_reads) in [
+                (vec![1, 4], None, vec![1, 1]),
+                (vec![1, 1, 76], None, vec![1, 1, 4, 1]),
+                (vec![1, 1, 1, 57], None, vec![1, 1, 4, 1, 1, 2]),
+                (vec![1, 1, 1, 71], Some(71), vec![1, 1, 4, 1, 1]),
+                (vec![1, 1, 1, 69], Some(69), vec![1, 1, 4, 1, 1]),
+            ] {
+                let context = ObservedPlayer {
+                    player,
+                    states: RefCell::new(states.into()),
+                    reads: RefCell::new(Vec::new()),
+                };
+                assert!(can_interact(&context, player, extra));
+                assert!(context.states.borrow().is_empty());
+                let expected: Vec<_> = expected_reads
+                    .into_iter()
+                    .map(|width| {
+                        let address = match width {
+                            1 => player.sprite_state().address(),
+                            2 => player.velocity_y().address(),
+                            4 => player.animation_group_mask().address(),
+                            _ => unreachable!(),
+                        };
+                        (address, width)
+                    })
+                    .collect();
+                assert_eq!(*context.reads.borrow(), expected);
+            }
+        }
+    }
 }
