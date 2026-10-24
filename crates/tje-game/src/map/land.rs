@@ -1,6 +1,6 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
 use crate::{Context, Result, call, call_at, ids};
-use tje_mem::{ram, rom};
+use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/map/land_processing.c:43 (`AllocateEntityWithEviction`).
 pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
@@ -94,157 +94,181 @@ pub fn entity_release_one_by_priority(c: &mut dyn Context, _: &[u32]) -> Result<
 }
 
 /// G/src/map/land_processing.c:310 (`EntityStartLandPathAnimation`).
-pub fn entity_start_land_path_animation(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    let r = c.revision();
-    let camera = i32::from(args[0] as i16);
-    let x = args[1] as i16;
-    let y = args[2] as i16;
-    for animation in 0..8 {
-        let number = ram::g_land_path_animation_entities(r).at(animation).read(c);
-        let object = ram::g_player_info(r).at(i32::from(number));
-        if object.frame_duration().read(c) == 0 {
-            object.frame().write(c, -1);
-            object.frame_duration().write(c, 1);
-            object.x().write(c, x);
-            object.y().write(c, y);
-            if ram::g_land_path_traversal_direction(r).read(c) & 5 != 0 {
-                let delta = (super::random_generation::random(c)? % 97) as i16 + 16;
-                object.x().write(c, object.x().read(c).wrapping_add(delta));
-            } else {
-                let delta = (super::random_generation::random(c)? % 33) as i16 + 16;
-                object.y().write(c, object.y().read(c).wrapping_add(delta));
+pub fn entity_start_land_path_animation(c: &mut dyn Context) -> Result<Option<u32>> {
+    super::frame_support::in_frame(c, FrameLayout::movem(0, 0x1c, 0x04), |c, frame| {
+        let r = c.revision();
+        let camera = i32::from(frame.argument_word(0).read(c));
+        let x = frame.argument_word(1).read(c);
+        let y = frame.argument_word(2).read(c);
+        for animation in 0..8 {
+            c.set_data_register(4, (c.data_register(4) & 0xffff0000) | animation as u32);
+            let number = ram::g_land_path_animation_entities(r).at(animation).read(c);
+            let object = ram::g_player_info(r).at_word_index(i16::from(number));
+            c.set_address_register(2, object.address());
+            if object.frame_duration().read(c) == 0 {
+                object.frame().write(c, -1);
+                object.frame_duration().write(c, 1);
+                object.x().write(c, x);
+                object.y().write(c, y);
+                if ram::g_land_path_traversal_direction(r).read(c) & 5 != 0 {
+                    let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0x5c);
+                    let delta =
+                        (call_at(c, ids::GET_RANDOM_NUMBER, &[], site)? as u16 % 97) as i16 + 16;
+                    object.x().write(c, object.x().read(c).wrapping_add(delta));
+                } else {
+                    let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0x84);
+                    let delta =
+                        (call_at(c, ids::GET_RANDOM_NUMBER, &[], site)? as u16 % 33) as i16 + 16;
+                    object.y().write(c, object.y().read(c).wrapping_add(delta));
+                }
+                if ram::g_split_screen_enabled(r).read(c) == 0
+                    || ram::g_player_inventory_open(r).at(camera).read(c) == 0
+                {
+                    object
+                        .behavior_flags()
+                        .write(c, object.behavior_flags().read(c) & !0x40);
+                }
+                let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0xd2);
+                call_at(c, ids::PLAY_SOUND, &[16, 50], site)?;
+                break;
             }
-            if ram::g_split_screen_enabled(r).read(c) == 0
-                || ram::g_player_inventory_open(r).at(camera).read(c) == 0
-            {
-                object
-                    .behavior_flags()
-                    .write(c, object.behavior_flags().read(c) & !0x40);
-            }
-            call(c, ids::PLAY_SOUND, &[16, 50])?;
-            break;
         }
-    }
-    call(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-    Ok(None)
+        let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0xe6);
+        call_at(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[], site)?;
+        Ok(None)
+    })
 }
 
 /// G/src/map/land_processing.c:340 (`MapAnimateMetatilePathChange`).
-pub fn map_animate_metatile_path_change(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    let r = c.revision();
-    let camera = args[0] as i16;
-    let row = i32::from(args[1] as i16);
-    let column = i32::from(args[2] as i16);
-    let (map, first_row, first_column) = if camera == 0 {
-        (
-            ram::g_player1_level_map(r),
-            ram::g_camera1_tile_row_cursor(r).read(c),
-            ram::g_camera1_tile_column_cursor(r).read(c),
-        )
-    } else {
-        (
-            ram::g_player2_level_map(r),
-            ram::g_camera2_tile_row_cursor(r).read(c),
-            ram::g_camera2_tile_column_cursor(r).read(c),
-        )
-    };
-    // MULU #38 followed by ADDA.W, and a separately doubled word column.
-    let cell = map
-        .cast::<u16>()
-        .byte_offset(i32::from((row as i16).wrapping_mul(38)))
-        .byte_offset(i32::from((column as i16).wrapping_mul(2)))
-        .read(c);
-    let first_row = i32::from(first_row);
-    let first_column = i32::from(first_column);
-    let tile_row = i32::from(((row + 1) << 3) as i16);
-    let tile_column = i32::from(((column + 1) << 4) as i16);
-    if first_row > tile_row + 7
-        || tile_row > i32::from(ram::g_camera_column_upload_height(r).read(c)) + first_row - 1
-        || first_column > tile_column + 15
-        || tile_column > first_column + 44
-    {
-        return Ok(None);
-    }
-    if ram::g_land_path_traversal_direction(r).read(c) & 5 != 0 {
-        for step in 0..8 {
-            let (offset, effect) = if ram::g_land_path_traversal_direction(r).read(c) & 1 != 0 {
-                (7 - step, 5 - step)
-            } else {
-                (step, step + 2)
-            };
-            if first_row > tile_row + offset
-                || tile_row + offset
-                    > first_row + i32::from(ram::g_camera_column_upload_height(r).read(c)) - 1
-            {
-                continue;
-            }
-            call(
-                c,
-                ids::ENTITY_START_LAND_PATH_ANIMATION,
-                &[
-                    i32::from(camera) as u32,
-                    ((tile_column << 3) + 8) as u32,
-                    (((tile_row + effect) << 3) + 8) as u32,
-                ],
-            )?;
-            call(
-                c,
-                ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
-                &[
-                    u32::from(cell),
-                    tile_row as u32,
-                    tile_column as u32,
-                    offset as u32,
-                    i32::from(camera) as u32,
-                    first_column as u32,
-                ],
-            )?;
+pub fn map_animate_metatile_path_change(c: &mut dyn Context) -> Result<Option<u32>> {
+    // G matching asm:1099-1103 and1232-1252/1310-1330: real LINK12
+    // locals and a retained12-byte effect area underneath the24-byte queue area.
+    super::frame_support::in_frame(c, FrameLayout::link(12, 0x7c, 0x04), |c, frame| {
+        let r = c.revision();
+        let camera = frame.argument_word(0).read(c);
+        let row = frame.argument_word(1).read(c);
+        let column = frame.argument_word(2).read(c);
+        let tile_row = frame.local::<i16>(-2);
+        let tile_column = frame.local::<i16>(-4);
+        let first_row = frame.local::<i16>(-6);
+        let first_column = frame.local::<i16>(-8);
+        let cell = frame.local::<u16>(-10);
+        let (map, row_cursor, column_cursor) = if camera == 0 {
+            (
+                ram::g_player1_level_map(r),
+                ram::g_camera1_tile_row_cursor(r),
+                ram::g_camera1_tile_column_cursor(r),
+            )
+        } else {
+            (
+                ram::g_player2_level_map(r),
+                ram::g_camera2_tile_row_cursor(r),
+                ram::g_camera2_tile_column_cursor(r),
+            )
+        };
+        let value = map.at_word_index(row).at_word_index(column).read(c);
+        cell.write(c, value);
+        let value = row_cursor.read(c);
+        first_row.write(c, value);
+        let value = column_cursor.read(c);
+        first_column.write(c, value);
+        tile_row.write(c, ((i32::from(row) + 1) << 3) as i16);
+        tile_column.write(c, ((i32::from(column) + 1) << 4) as i16);
+        if i32::from(first_row.read(c)) > i32::from(tile_row.read(c)) + 7
+            || i32::from(tile_row.read(c))
+                > i32::from(ram::g_camera_column_upload_height(r).read(c))
+                    + i32::from(first_row.read(c))
+                    - 1
+            || i32::from(first_column.read(c)) > i32::from(tile_column.read(c)) + 15
+            || i32::from(tile_column.read(c)) > i32::from(first_column.read(c)) + 44
+        {
+            return Ok(None);
         }
-    } else {
-        for step in 0..16 {
-            let (offset, effect) = if ram::g_land_path_traversal_direction(r).read(c) & 8 != 0 {
-                (15 - step, 13 - step)
-            } else {
-                (step, step + 2)
-            };
-            if first_column > tile_column + offset || tile_column + offset > first_column + 44 {
-                continue;
+        let dispatcher = c.dispatcher();
+        if ram::g_land_path_traversal_direction(r).read(c) & 5 != 0 {
+            for step in 0..8_i16 {
+                let (offset, effect) = if ram::g_land_path_traversal_direction(r).read(c) & 1 != 0 {
+                    (7 - step, 5 - step)
+                } else {
+                    (step, step + 2)
+                };
+                if i32::from(first_row.read(c)) > i32::from(tile_row.read(c)) + i32::from(offset)
+                    || i32::from(tile_row.read(c)) + i32::from(offset)
+                        > i32::from(ram::g_camera_column_upload_height(r).read(c))
+                            + i32::from(first_row.read(c))
+                            - 1
+                {
+                    continue;
+                }
+                let values = [
+                    i32::from(camera) as u32,
+                    ((i32::from(tile_column.read(c)) << 3) + 8) as u32,
+                    (((i32::from(tile_row.read(c)) + i32::from(effect)) << 3) + 8) as u32,
+                ];
+                let effect_args = OutgoingArguments::push(c, &values)?;
+                let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x16a);
+                effect_args.call(c, dispatcher, ids::ENTITY_START_LAND_PATH_ANIMATION, site)?;
+                let values = [
+                    u32::from(cell.read(c)),
+                    i32::from(tile_row.read(c)) as u32,
+                    i32::from(tile_column.read(c)) as u32,
+                    i32::from(offset) as u32,
+                    i32::from(camera) as u32,
+                    i32::from(first_column.read(c)) as u32,
+                ];
+                let queue_args = OutgoingArguments::push(c, &values)?;
+                let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x19a);
+                queue_args.call(c, dispatcher, ids::MAP_QUEUE_VISIBLE_METATILE_ROW, site)?;
+                queue_args.release(c)?;
+                effect_args.release(c)?;
             }
-            call(
-                c,
-                ids::ENTITY_START_LAND_PATH_ANIMATION,
-                &[
+        } else {
+            for step in 0..16_i16 {
+                let (offset, effect) = if ram::g_land_path_traversal_direction(r).read(c) & 8 != 0 {
+                    (15 - step, 13 - step)
+                } else {
+                    (step, step + 2)
+                };
+                if i32::from(first_column.read(c))
+                    > i32::from(tile_column.read(c)) + i32::from(offset)
+                    || i32::from(tile_column.read(c)) + i32::from(offset)
+                        > i32::from(first_column.read(c)) + 44
+                {
+                    continue;
+                }
+                let values = [
                     i32::from(camera) as u32,
-                    (((tile_column + effect) << 3) + 12) as u32,
-                    ((tile_row << 3) + 8) as u32,
-                ],
-            )?;
-            call(
-                c,
-                ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
-                &[
-                    u32::from(cell),
-                    tile_row as u32,
-                    tile_column as u32,
-                    offset as u32,
+                    (((i32::from(tile_column.read(c)) + i32::from(effect)) << 3) + 12) as u32,
+                    ((i32::from(tile_row.read(c)) << 3) + 8) as u32,
+                ];
+                let effect_args = OutgoingArguments::push(c, &values)?;
+                let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x220);
+                effect_args.call(c, dispatcher, ids::ENTITY_START_LAND_PATH_ANIMATION, site)?;
+                let values = [
+                    u32::from(cell.read(c)),
+                    i32::from(tile_row.read(c)) as u32,
+                    i32::from(tile_column.read(c)) as u32,
+                    i32::from(offset) as u32,
                     i32::from(camera) as u32,
-                    first_row as u32,
-                ],
-            )?;
+                    i32::from(first_row.read(c)) as u32,
+                ];
+                let queue_args = OutgoingArguments::push(c, &values)?;
+                let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x250);
+                queue_args.call(c, dispatcher, ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN, site)?;
+                queue_args.release(c)?;
+                effect_args.release(c)?;
+            }
         }
-    }
-    Ok(None)
+        Ok(None)
+    })
 }
 
 /// G/src/map/land_processing.c:405 (`EntityReserveLandPathAnimations`).
-pub fn entity_reserve_land_path_animations(
-    c: &mut dyn Context,
-    args: &[u32],
-) -> Result<Option<u32>> {
+pub fn entity_reserve_land_path_animations(c: &mut dyn Context) -> Result<Option<u32>> {
     // Both matching listings: MOVEM D2-D4/A2 without LINK.
     let frame = LocalFrame::enter(c, FrameLayout::movem(0, 0x1c, 0x04))?;
     let r = c.revision();
-    let camera = i32::from(args[0] as i16);
+    let camera = i32::from(frame.argument_word(0).read(c));
     c.set_data_register(
         2,
         (c.data_register(2) & 0xffff_0000) | u32::from(camera as u16),
@@ -276,7 +300,8 @@ pub fn entity_reserve_land_path_animations(
         ram::g_land_path_animation_entities(r)
             .at(animation)
             .write(c, number as i8);
-        let object = ram::g_player_info(r).at(i32::from(number));
+        // Matching asm:1376-1379 uses ASL.W #7 then ADDA.W.
+        let object = ram::g_player_info(r).at_word_index(number);
         c.set_address_register(2, object.address());
         object.level().write(c, level);
         object.width().write(c, 32);
@@ -319,17 +344,40 @@ pub fn entity_reserve_land_path_animations(
     Ok(None)
 }
 
+/// G/src/map/land_processing.c:473-480; matching asm:1483-1498 performs
+/// three separate conditional byte reads, not one cached switch operand.
+fn advance_marked_position(c: &mut dyn Context, row: &mut i16, column: Address<i16>) {
+    let direction = ram::g_land_path_traversal_direction(c.revision());
+    if direction.read(c) == 2 {
+        column.write(c, column.read(c).wrapping_add(1));
+    } else if direction.read(c) == 8 {
+        column.write(c, column.read(c).wrapping_sub(1));
+    } else if direction.read(c) == 1 {
+        *row = row.wrapping_sub(1);
+    } else {
+        *row = row.wrapping_add(1);
+    }
+}
+
+/// G/src/map/land_processing.c:494; matching asm:1539-1540 loads player2
+/// first, then compares the player1 byte. The operand order is observable.
+fn marked_banks_share_level(c: &dyn Context) -> bool {
+    let r = c.revision();
+    let second = ram::g_player2_map_level(r).read(c);
+    second == ram::g_player1_map_level(r).read(c)
+}
+
 /// G/src/map/land_processing.c:445 (`MapAnimateMarkedLandPaths`).
 /// Both matching listings: LINK A6,#-32, MOVEM D2-D6/A2-A4; the saved
 /// durations occupy A6-32..A6-7, current_column A6-2 and object_number A6-4.
 /// The first reservation consumes entry D6.W and the unwritten column word.
 /// These residues are retained, not replaced by zero or the starting cell.
-pub fn map_animate_marked_land_paths(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(c, FrameLayout::link(32, 0x7c, 0x1c))?;
     let r = c.revision();
-    let mut camera = args[0] as i16;
-    let row = args[1] as i16;
-    let column = args[2] as i16;
+    let mut camera = frame.argument_word(0).read(c);
+    let row = frame.argument_word(1).read(c);
+    let column = frame.argument_word(2).read(c);
     let saved = frame.local::<i8>(-32);
     let current_column = frame.local::<i16>(-2);
     let object_number = frame.local::<i16>(-4);
@@ -398,15 +446,22 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context, args: &[u32]) -> Resul
                 let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x8a);
                 result = call_at(c, ids::MAP_CONSUME_PATH_CELL_DIRECTIONS, &arguments, site)? as i8;
                 if result != -1 {
+                    // Reload the real column slot after the consuming callee;
+                    // its original unchecked stores may alias this caller local.
+                    let animation_arguments = [
+                        i32::from(camera) as u32,
+                        i32::from(current_row) as u32,
+                        i32::from(current_column.read(c)) as u32,
+                    ];
                     let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0xae);
-                    call_at(c, ids::MAP_ANIMATE_METATILE_PATH_CHANGE, &arguments, site)?;
+                    call_at(
+                        c,
+                        ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
+                        &animation_arguments,
+                        site,
+                    )?;
                 }
-                match ram::g_land_path_traversal_direction(r).read(c) {
-                    2 => current_column.write(c, current_column.read(c).wrapping_add(1)),
-                    8 => current_column.write(c, current_column.read(c).wrapping_sub(1)),
-                    1 => current_row = current_row.wrapping_sub(1),
-                    _ => current_row = current_row.wrapping_add(1),
-                }
+                advance_marked_position(c, &mut current_row, current_column);
             }
         }
         for animation in 0..8 {
@@ -432,7 +487,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context, args: &[u32]) -> Resul
                 .at(animation)
                 .write(c, 0);
         }
-        if ram::g_player1_map_level(r).read(c) != ram::g_player2_map_level(r).read(c) {
+        if !marked_banks_share_level(c) {
             break;
         }
         if ram::g_split_screen_enabled(r).read(c) == 0 {
@@ -480,8 +535,22 @@ fn process_site(c: &dyn Context, branch: usize, operation: usize) -> CallSite {
     CallSite::new(sites[branch][operation])
 }
 
+/// G/src/map/land_processing.c:542-546/563-567/578-582. REV02's two
+/// CMPI.B instructions reread sprite_state unless the first comparison matches.
+fn path_change_can_fall(
+    c: &dyn Context,
+    terrain: Address<u8>,
+    object: Address<ObjectState>,
+) -> bool {
+    terrain.read(c) == 0x90
+        && object.height().read(c) == 0
+        && (c.revision() == tje_mem::Revision::Rev00
+            || (object.sprite_state().read(c) != 78 && object.sprite_state().read(c) != 79))
+        && object.animation_group_mask().read(c) & 0x8020 == 0
+}
+
 /// G/src/map/land_processing.c:527 (`ProcessLand`), including REV 02 whirlwind exclusions.
-pub fn process_land(c: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+pub fn process_land(c: &mut dyn Context) -> Result<Option<u32>> {
     // Both matching listings: MOVEM D2-D3/A2-A3 without LINK.
     let frame = LocalFrame::enter(c, FrameLayout::movem(0, 0x0c, 0x0c))?;
     let r = c.revision();
@@ -558,11 +627,7 @@ pub fn process_land(c: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         } else {
             ram::g_player2_terrain_underfoot(r)
         };
-        if terrain.read(c) == 0x90
-            && object.height().read(c) == 0
-            && (r == tje_mem::Revision::Rev00 || !matches!(object.sprite_state().read(c), 78 | 79))
-            && object.animation_group_mask().read(c) & 0x8020 == 0
-        {
+        if path_change_can_fall(c, terrain, object) {
             let stop = OutgoingArguments::push(c, &[object.address()])?;
             let site = process_site(c, branch, 4);
             stop.call(c, dispatcher, ids::STOP_PLAYER, site)?;
@@ -575,3 +640,7 @@ pub fn process_land(c: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     frame.leave(c)?;
     Ok(None)
 }
+
+#[cfg(test)]
+#[path = "land_replay_tests.rs"]
+mod replay_tests;

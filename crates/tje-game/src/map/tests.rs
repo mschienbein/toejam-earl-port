@@ -471,28 +471,30 @@ fn original_classes_are_complete_and_pending_entries_never_register() {
     }
     assert_eq!(
         PENDING.len(),
-        PENDING_TRANSLATIONS.len() + FRAME_PENDING_TRANSLATIONS.len()
+        PENDING_TRANSLATIONS.len()
+            + FRAME_PENDING_TRANSLATIONS.len()
+            + PENDING_FRAMED_TRANSLATIONS.len()
     );
     for id in PENDING {
         assert_eq!(
             PENDING_TRANSLATIONS
                 .iter()
                 .chain(FRAME_PENDING_TRANSLATIONS)
-                .filter(|entry| entry.id == *id)
+                .map(|entry| entry.id)
+                .chain(PENDING_FRAMED_TRANSLATIONS.iter().map(|entry| entry.id))
+                .filter(|entry| entry == id)
                 .count(),
             1
         );
     }
-    for entry in PENDING_TRANSLATIONS
+    for id in PENDING_TRANSLATIONS
         .iter()
         .chain(FRAME_PENDING_TRANSLATIONS)
+        .map(|entry| entry.id)
+        .chain(PENDING_FRAMED_TRANSLATIONS.iter().map(|entry| entry.id))
     {
-        assert!(
-            !TRANSLATIONS
-                .iter()
-                .any(|registered| registered.id == entry.id)
-        );
-        assert_eq!(entry.id.metadata().subsystem, "map");
+        assert!(!TRANSLATIONS.iter().any(|registered| registered.id == id));
+        assert_eq!(id.metadata().subsystem, "map");
     }
 }
 

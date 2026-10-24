@@ -390,40 +390,16 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: map_initialize_screen_sprites,
     },
     crate::Translation {
-        id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
-        function: entity_reserve_land_path_animations,
-    },
-    crate::Translation {
         id: ids::DRAW_MAP_CHARACTERS,
         function: draw_map_characters,
-    },
-    crate::Translation {
-        id: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
-        function: map_queue_visible_metatile_column,
-    },
-    crate::Translation {
-        id: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
-        function: map_queue_visible_metatile_row,
     },
     crate::Translation {
         id: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
         function: map_upload_cover_animation_frame,
     },
     crate::Translation {
-        id: ids::ENTITY_START_LAND_PATH_ANIMATION,
-        function: entity_start_land_path_animation,
-    },
-    crate::Translation {
         id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
         function: map_assign_transition_chain,
-    },
-    crate::Translation {
-        id: ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
-        function: map_animate_metatile_path_change,
-    },
-    crate::Translation {
-        id: ids::PROCESS_LAND,
-        function: process_land,
     },
     crate::Translation {
         id: ids::CHANGE_LEVEL,
@@ -442,12 +418,40 @@ pub static FRAME_PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: set_position_on_new_level,
     },
     crate::Translation {
+        id: ids::DRAW_GAME_MAP,
+        function: draw_game_map,
+    },
+];
+
+/// Canonical real-frame candidates; pending status grants no production hook.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+        function: map_queue_visible_metatile_row,
+    },
+    crate::FramedTranslation {
+        id: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+        function: map_queue_visible_metatile_column,
+    },
+    crate::FramedTranslation {
+        id: ids::ENTITY_START_LAND_PATH_ANIMATION,
+        function: entity_start_land_path_animation,
+    },
+    crate::FramedTranslation {
+        id: ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
+        function: map_animate_metatile_path_change,
+    },
+    crate::FramedTranslation {
+        id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
+        function: entity_reserve_land_path_animations,
+    },
+    crate::FramedTranslation {
         id: ids::MAP_ANIMATE_MARKED_LAND_PATHS,
         function: map_animate_marked_land_paths,
     },
-    crate::Translation {
-        id: ids::DRAW_GAME_MAP,
-        function: draw_game_map,
+    crate::FramedTranslation {
+        id: ids::PROCESS_LAND,
+        function: process_land,
     },
 ];
 
