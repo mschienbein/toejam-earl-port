@@ -122,7 +122,9 @@ impl Host {
         self.emulator
             .update_audio_output_frequency(u64::from(self.audio_sample_rate));
         self.audio.samples.clear();
+        let actual_capture_enabled = self.checks.actual_capture_enabled;
         self.checks = crate::CheckReport::registered(&self.registry);
+        self.checks.actual_capture_enabled = actual_capture_enabled;
         self.checks.future_frame_provenance = provenance;
         self.checks.failure_policy = self.check_failure_policy;
         self.measurements = Default::default();

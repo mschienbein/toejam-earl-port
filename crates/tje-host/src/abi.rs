@@ -154,16 +154,36 @@ pub(crate) fn run_original_atomic_scoped(
     boundary: ReferenceBoundary,
     stack: &mut StackAuditState,
 ) -> Result<AtomicRun> {
+    // The owner remains local until every Result cleanup has restored it.
+    let capture = stack.capture.take();
+    let capture_observer = capture
+        .as_deref()
+        .map(|capture| (capture, capture.entry_frame()));
     let (cpu, bus) = emulator.hybrid_parts();
     let owns_trace = bus.hybrid_cpu_accesses.is_none();
     if owns_trace {
         bus.hybrid_cpu_accesses = Some(Vec::new());
     }
-    let owns_boundaries = stack.provenance.is_some() && bus.hybrid_exception_boundaries.is_none();
+    let owns_boundaries = (stack.provenance.is_some() || capture.is_some())
+        && bus.hybrid_exception_boundaries.is_none();
     if owns_boundaries {
         bus.hybrid_exception_boundaries = Some(Vec::new());
     }
+    let previous_counting = capture.as_ref().map(|_| {
+        let previous = cpu
+            .hybrid_instruction_counts()
+            .map(|counts| counts.enabled());
+        if previous.is_none() {
+            cpu.hybrid_enable_instruction_counts();
+        } else {
+            cpu.hybrid_set_instruction_counting(true);
+        }
+        previous
+    });
     let mut observed = stack.empty_run();
+    if let Some((capture, frame)) = capture_observer {
+        capture.observe_native_batch_parts(cpu, bus, frame);
+    }
     stack.drain(bus, cpu.pc(), &mut observed);
     let mut audit = StackAuditBus { inner: bus };
     let result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
@@ -171,8 +191,15 @@ pub(crate) fn run_original_atomic_scoped(
         if let Some(branch) = &stack.provenance {
             branch.begin_cpu_step(cpu, audit.inner.cycles.m68k_mclk_cycles);
         }
+        if let Some((capture, frame)) = capture_observer {
+            capture.begin_cpu_step_parts(cpu, audit.inner, frame);
+        }
         let cycles = cpu.execute_instruction(audit);
         audit.inner.apply_pending_writes();
+        if let Some((capture, frame)) = capture_observer {
+            capture.finish_reference_cpu_step_parts(cpu, audit.inner, frame);
+            capture.observe_cpu_batch_parts(cpu, audit.inner, frame);
+        }
         stack.drain(audit.inner, pc, &mut observed);
         cycles
     });
@@ -182,6 +209,10 @@ pub(crate) fn run_original_atomic_scoped(
     if owns_boundaries {
         audit.inner.hybrid_exception_boundaries = None;
     }
+    if let Some(previous) = previous_counting {
+        cpu.hybrid_set_instruction_counting(previous.unwrap_or(false));
+    }
+    stack.capture = capture;
     let mut result = result?;
     result.append(observed);
     Ok(result)
@@ -224,6 +255,7 @@ pub(crate) struct StackAuditState {
     written: [u64; 512],
     capture_reads: bool,
     pub(crate) provenance: Option<crate::future_frame_watch::BranchProvenance>,
+    pub(crate) capture: Option<Box<crate::check_capture::RawCheckCapture>>,
 }
 
 impl StackAuditState {
@@ -233,6 +265,14 @@ impl StackAuditState {
             written: [0; 512],
             capture_reads,
             provenance: None,
+            capture: None,
+        }
+    }
+
+    pub(crate) fn physical_observers(&self) -> crate::execution::PhysicalObservers<'_> {
+        crate::execution::PhysicalObservers {
+            provenance: self.provenance.as_ref(),
+            capture: self.capture.as_deref(),
         }
     }
 
@@ -536,6 +576,13 @@ impl<'a> HookContext<'a> {
                     self.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
                 );
             }
+            if let Some(capture) = &stack.capture {
+                capture.observe_native_batch_parts(
+                    self.emulator.hybrid_cpu(),
+                    self.emulator.hybrid_bus(),
+                    self.wait_clock.frame,
+                );
+            }
             stack.drain(self.emulator.hybrid_bus_mut(), pc, self.audit.get_mut());
         }
     }
@@ -565,6 +612,21 @@ impl<'a> HookContext<'a> {
                     },
                     self.wait_clock.frame,
                     self.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                );
+            }
+            if let Some(capture) = &stack.capture {
+                capture.observe_native(
+                    genesis_core::HybridAccess::Read {
+                        address: address & 0xffffff,
+                        word,
+                        value,
+                        purpose,
+                    },
+                    crate::check_capture::AccessPoint::capture(
+                        self.emulator,
+                        self.wait_clock.frame,
+                    ),
+                    false,
                 );
             }
         }
@@ -608,6 +670,14 @@ impl<'a> HookContext<'a> {
             u16::from(bus.read_byte_tagged(address, purpose))
         };
         self.flush_audit_accesses();
+        if exact_operand
+            && let Some(capture) = self
+                .stack_audit
+                .as_ref()
+                .and_then(|stack| stack.capture.as_deref())
+        {
+            capture.mark_last_native_exact_read(address, word, value);
+        }
         self.record_logic_operand(
             genesis_core::HybridAccess::Read {
                 address: address & 0xffffff,
@@ -737,6 +807,29 @@ impl<'a> HookContext<'a> {
                             branch.observe_setup_write(address, value);
                         }
                     }
+                    if let Some(capture) = &stack.capture {
+                        let access = if self.observe_native_provenance {
+                            genesis_core::HybridAccess::Write {
+                                address,
+                                word: false,
+                                value: u16::from(value),
+                            }
+                        } else {
+                            genesis_core::HybridAccess::HostMutation {
+                                address,
+                                word: false,
+                                value: u16::from(value),
+                            }
+                        };
+                        capture.observe_native(
+                            access,
+                            crate::check_capture::AccessPoint::capture(
+                                self.emulator,
+                                self.wait_clock.frame,
+                            ),
+                            false,
+                        );
+                    }
                 }
             }
             _ => panic!("write_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
@@ -863,9 +956,10 @@ impl<'a> HookContext<'a> {
                 cleanup_sp,
                 std::mem::take(&mut self.time_audio),
                 self.stack_audit.is_some(),
-                self.stack_audit
-                    .as_ref()
-                    .and_then(|stack| stack.provenance.as_ref()),
+                self.stack_audit.as_ref().map_or_else(
+                    crate::execution::PhysicalObservers::default,
+                    StackAuditState::physical_observers,
+                ),
             )?;
             self.merge_clock_run(clock_run);
             AtomicRun::default()
@@ -945,9 +1039,10 @@ impl<'a> HookContext<'a> {
                 return_sp,
                 std::mem::take(&mut self.time_audio),
                 self.stack_audit.is_some(),
-                self.stack_audit
-                    .as_ref()
-                    .and_then(|stack| stack.provenance.as_ref()),
+                self.stack_audit.as_ref().map_or_else(
+                    crate::execution::PhysicalObservers::default,
+                    StackAuditState::physical_observers,
+                ),
             )?;
             self.merge_clock_run(run);
             AtomicRun::default()
@@ -1134,11 +1229,11 @@ impl tje_game::Platform for HookContext<'_> {
                 }
             }
             let observe = self.stack_audit.is_some();
-            let provenance = self
-                .stack_audit
-                .as_ref()
-                .and_then(|stack| stack.provenance.as_ref());
-            let result = if observe && self.time_audio.is_empty() && provenance.is_none() {
+            let observers = self.stack_audit.as_ref().map_or_else(
+                crate::execution::PhysicalObservers::default,
+                StackAuditState::physical_observers,
+            );
+            let result = if observe && self.time_audio.is_empty() && !observers.enabled() {
                 run_wait(self.emulator, &mut self.wait_clock, request)
             } else {
                 run_wait_with_audio(
@@ -1147,7 +1242,7 @@ impl tje_game::Platform for HookContext<'_> {
                     request,
                     std::mem::take(&mut self.time_audio),
                     observe,
-                    provenance,
+                    observers,
                 )
             };
             let run = result.map_err(Self::game_platform_error)?;

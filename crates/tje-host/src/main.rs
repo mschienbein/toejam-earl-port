@@ -32,6 +32,9 @@ struct Arguments {
     snapshot_dir: Option<PathBuf>,
     #[arg(long)]
     metrics: Option<PathBuf>,
+    /// Opt-in complete private check/IRQ observations; never commit this output.
+    #[arg(long, requires = "metrics")]
+    capture_checks: bool,
     /// Private final framebuffer as PPM. Never commit it.
     #[arg(long)]
     frame_out: Option<PathBuf>,
@@ -149,6 +152,9 @@ fn main() -> Result<()> {
         None
     };
     let mut host = Host::from_rom(rom, arguments.mode, registry)?;
+    if arguments.capture_checks {
+        host.set_check_capture(true)?;
+    }
     let start = Instant::now();
     let mut final_counter = 0;
     let mut run_error = None;
@@ -217,12 +223,13 @@ fn main() -> Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     if let Some(path) = arguments.metrics {
-        serde_json::to_writer_pretty(
-            BufWriter::new(File::create(path)?),
-            &serde_json::json!({
-                "summary": summary, "checks": host.checks, "measurements": host.measurements,
-            }),
-        )?;
+        let mut report = serde_json::json!({
+            "summary": summary, "checks": host.checks, "measurements": host.measurements,
+        });
+        if arguments.capture_checks {
+            report["actual_check_capture"] = serde_json::to_value(host.actual_check_capture())?;
+        }
+        serde_json::to_writer_pretty(BufWriter::new(File::create(path)?), &report)?;
     }
     if let Some(error) = run_error {
         return Err(error.into());
@@ -247,6 +254,33 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_capture_cli_is_explicit_and_requires_private_metrics_output() {
+        assert!(
+            !Arguments::try_parse_from(["tje-host", "--rom", "authored.bin"])
+                .unwrap()
+                .capture_checks
+        );
+        assert!(
+            Arguments::try_parse_from(["tje-host", "--rom", "authored.bin", "--capture-checks"])
+                .is_err()
+        );
+        let arguments = Arguments::try_parse_from([
+            "tje-host",
+            "--rom",
+            "authored.bin",
+            "--capture-checks",
+            "--metrics",
+            "/tmp/authored-capture.json",
+        ])
+        .unwrap();
+        assert!(arguments.capture_checks);
+        assert_eq!(
+            arguments.metrics,
+            Some(PathBuf::from("/tmp/authored-capture.json"))
+        );
+    }
 
     #[test]
     fn unresolved_zero_mismatch_provenance_is_pending_not_a_clean_cli_success() {

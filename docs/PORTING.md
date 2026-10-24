@@ -611,6 +611,55 @@ even if their declared class is still Functional. A clocked dependent extension
 requires separate review and proof; its mandatory zero-count case is not omitted.
 
 
+### Passive actual IRQ capture
+
+`Host::set_check_capture(true)` is an explicit **check-mode-only diagnostic**
+switch. It changes no execution class, comparison rule, hook registration or
+promotion. It is off by default, must be enabled before both fork executions,
+and cannot reconstruct history when enabled late. The headless CLI exposes
+`--capture-checks`, requiring `--metrics`; keep that output private, preferably
+under `/tmp`. It contains cartridge-derived runtime observations and must never
+be committed or distributed.
+
+The records distinguish an actually completed zero-IRQ side from `NotExecuted`
+after its counterpart fails. Each baseline retains its own side, purpose, origin
+and result; failed speculative probes are separately labelled and cannot
+overwrite baseline evidence. An earlier producer's provenance invalidation never
+receives the current reader's capture. Reset starts a new capture report while
+preserving the opt-in configuration and existing provenance archives.
+
+Only indexed **actual accepted-entry and successful architectural-RTE markers**
+create boundary records. Pending levels, a ready PC and rendered frames are not
+acceptance evidence. The observer records complete 25-word CPU checkpoints,
+actual stack images, stack/call opcode receipts (including failed attempts),
+all RAM read purposes, native effects, Z80 commits, external mutations, DMA
+reads and ordered device accesses. The existing all-address CPU-issued journal
+also retains immutable-ROM fetches; it is kept distinct from actual RAM commits
+and timestamped chip dispatches. A sampled access checkpoint interval is not
+misreported as an exact bus-phase timestamp.
+
+Fresh pre-entry stack copies use an overinclusive trigger, not an entry oracle:
+an eligible request or the CPU's published latched-IRQ word, with actual wait
+debt zero and no halt, reset or frozen state. An eligible STOP wake is allowed.
+False-positive buffers are reused; accepted raw images are retained separately.
+No earlier recognition-stage image is substituted when a fresh snapshot is
+absent. Missing state, missing markers and out-of-known-stack activity remain
+explicitly unknown, never a fabricated frame or an observed zero count.
+
+Capture does **not** certify ownership of every byte between min/max SSP. The
+binding relative-frame rule admits only source-certified actual exception
+commits, MOVEM saves, JSR/BSR return slots, proven scalar C argument pushes, and
+actual LINK old-A6 / MOVE.L-register-to-`-(SP)` **prologue saves** in the certified
+ISR call tree. Arbitrary locals, spills, pointer arguments, host writes and
+numerically inferred pointer/A6 relocation are not covered. Saved values remain
+byte-exact; only a specifically reviewed interrupted-PC boundary relocation may
+differ. Full raw images and commit provenance are evidence separate from the
+watch's diff-byte subset. When both sides completed, capture also retains the
+other side's actual final bytes at each frame's same physical lanes (including
+Rust's old/current private bytes); this is not an inferred relative mapping or
+pairing. No certificate, normalization or commutation approval is issued by
+passive capture.
+
 ### Exactly what a time-aware check proves
 
 The original runs to return with clocks active. Rust starts from an identical

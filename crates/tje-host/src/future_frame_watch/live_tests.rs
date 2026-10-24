@@ -777,7 +777,10 @@ fn a_read_before_a_later_clock_ceiling_error_still_invalidates_the_earlier_produ
             machine,
             &mut clock,
             unreachable_boundary(),
-            Some(&branch),
+            crate::execution::PhysicalObservers {
+                provenance: Some(&branch),
+                capture: None,
+            },
         )
     });
     assert!(matches!(result, Err(crate::HostError::Clock(_))));
@@ -859,7 +862,10 @@ fn missing_inputs_and_partial_recipe_errors_keep_actual_progress_and_drain_parti
                 machine,
                 &mut clock,
                 unreachable_boundary(),
-                Some(&branch),
+                crate::execution::PhysicalObservers {
+                    provenance: Some(&branch),
+                    capture: None,
+                },
             )
         });
         assert!(
@@ -891,7 +897,10 @@ fn missing_inputs_and_partial_recipe_errors_keep_actual_progress_and_drain_parti
                     machine,
                     &mut clock,
                     unreachable_boundary(),
-                    Some(&branch),
+                    crate::execution::PhysicalObservers {
+                        provenance: Some(&branch),
+                        capture: None,
+                    },
                 )
             });
             assert!(matches!(result, Err(crate::HostError::Clock(_))));

@@ -98,7 +98,7 @@ fn original_interval(
         ReferenceBoundary::returned(0x106, sp),
         samples,
         false,
-        None,
+        crate::execution::PhysicalObservers::default(),
     );
     let cleanup = clock.leave_call_ceiling(root);
     let run = run.unwrap();
@@ -123,7 +123,7 @@ fn wait_interval(
         WaitRequest::interrupt(),
         samples,
         false,
-        None,
+        crate::execution::PhysicalObservers::default(),
     );
     let cleanup = clock.leave_call_ceiling(root);
     let run = run.unwrap();
@@ -259,7 +259,7 @@ fn warmed_timed_original_and_irq_callee_storage_allocates_zero_and_survives_erro
             }),
             samples,
             false,
-            None,
+            crate::execution::PhysicalObservers::default(),
         )
         .unwrap_err();
         assert!(error.to_string().contains("aligned RAM word"));

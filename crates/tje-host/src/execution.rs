@@ -63,6 +63,20 @@ impl WaitClock {
     }
 }
 
+/// Independent borrowed observers of the same physical stream. Neither owns the
+/// root, supplies a bus value, changes IRQ delivery or gains fork authority.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PhysicalObservers<'a> {
+    pub provenance: Option<&'a crate::future_frame_watch::BranchProvenance>,
+    pub capture: Option<&'a crate::check_capture::RawCheckCapture>,
+}
+
+impl PhysicalObservers<'_> {
+    pub(crate) fn enabled(self) -> bool {
+        self.provenance.is_some() || self.capture.is_some()
+    }
+}
+
 struct WaitRam<'a>(&'a mut GenesisEmulator);
 impl tje_mem::Bus for WaitRam<'_> {
     fn read_u8(&self, address: u32) -> u8 {
@@ -354,10 +368,14 @@ pub(crate) fn drain_accesses(
     emulator: &mut GenesisEmulator,
     pc: u32,
     master_clock: u64,
+    frame: u64,
     ym_busy_loop: bool,
     run: &mut ClockRun,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) {
+    let checkpoint = observers
+        .capture
+        .map(|_| crate::check_capture::CpuCheckpoint::capture(emulator, frame));
     let bus = emulator.hybrid_bus_mut();
     let boundaries = bus
         .hybrid_exception_boundaries
@@ -365,8 +383,11 @@ pub(crate) fn drain_accesses(
         .unwrap_or_default();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
         for access in accesses.drain(..) {
-            if let Some(branch) = provenance {
+            if let Some(branch) = observers.provenance {
                 branch.observe_stream(access, boundaries);
+            }
+            if let (Some(capture), Some(checkpoint)) = (observers.capture, checkpoint) {
+                capture.observe_stream(access, boundaries, checkpoint);
             }
             // Indexed payloads have now been consumed at their exact position.
             // Never retain an index after its owning payload buffer is cleared.
@@ -390,6 +411,9 @@ pub(crate) fn drain_accesses(
     }
     if let Some(boundaries) = &mut bus.hybrid_exception_boundaries {
         boundaries.clear();
+    }
+    if let Some(capture) = observers.capture {
+        capture.finish_access_batch(emulator, frame);
     }
 }
 
@@ -518,7 +542,7 @@ fn timed_tick(
     clock: &mut WaitClock,
     run: &mut ClockRun,
     audio: &mut HeadlessAudio,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) -> Result<()> {
     // Close only an already-observed RTS at a real quiescent boundary, before
     // charging or executing the first caller opcode. IRQ/bus debt remains child work.
@@ -538,8 +562,11 @@ fn timed_tick(
         run.instructions += 1;
     }
     let ym_busy_loop = auditing && ready && tight_ym_busy_loop(emulator, pc);
-    if let Some(branch) = provenance {
+    if let Some(branch) = observers.provenance {
         branch.begin_step(emulator.hybrid_cpu(), master_clock, clock.frame);
+    }
+    if let Some(capture) = observers.capture {
+        capture.begin_cpu_step(emulator, clock.frame);
     }
     let effect = emulator
         .tick(
@@ -549,8 +576,19 @@ fn timed_tick(
             &mut NoCartridgeSaves,
         )
         .map_err(|error| HostError::Emulator(error.to_string()));
+    if let Some(capture) = observers.capture {
+        capture.finish_reference_cpu_step(emulator, clock.frame);
+    }
     if effect.is_err() {
-        drain_accesses(emulator, pc, master_clock, ym_busy_loop, run, provenance);
+        drain_accesses(
+            emulator,
+            pc,
+            master_clock,
+            clock.frame,
+            ym_busy_loop,
+            run,
+            observers,
+        );
     }
     let effect = effect?;
     run.ticks += 1;
@@ -574,7 +612,15 @@ fn timed_tick(
     };
     // Even malformed boundary/counter evidence must not hide physical reads
     // already performed by this tick. Preserve the earlier boundary error.
-    drain_accesses(emulator, pc, master_clock, ym_busy_loop, run, provenance);
+    drain_accesses(
+        emulator,
+        pc,
+        master_clock,
+        clock.frame,
+        ym_busy_loop,
+        run,
+        observers,
+    );
     let progress = run.reference_progress(emulator).and_then(|instructions| {
         let master_clocks = emulator
             .hybrid_bus()
@@ -617,7 +663,7 @@ fn timed_tick(
     }
     if effect == TickEffect::FrameRendered {
         run.frames += 1;
-        if let Some(branch) = provenance {
+        if let Some(branch) = observers.provenance {
             branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
         }
         let timeline = clock.advance_frame(emulator);
@@ -627,9 +673,10 @@ fn timed_tick(
             emulator,
             emulator.hybrid_cpu().pc(),
             emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+            clock.frame,
             false,
             run,
-            provenance,
+            observers,
         );
         timeline?;
     }
@@ -699,7 +746,14 @@ pub(crate) fn run_wait(
     clock: &mut WaitClock,
     request: WaitRequest,
 ) -> Result<ClockRun> {
-    run_wait_with_audio(emulator, clock, request, Vec::new(), true, None)
+    run_wait_with_audio(
+        emulator,
+        clock,
+        request,
+        Vec::new(),
+        true,
+        crate::execution::PhysicalObservers::default(),
+    )
 }
 
 /// Replacement callers move their existing audio buffer through this operation;
@@ -710,7 +764,7 @@ pub(crate) fn run_wait_with_audio(
     request: WaitRequest,
     samples: Vec<[f64; 2]>,
     audit: bool,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
@@ -736,13 +790,13 @@ pub(crate) fn run_wait_with_audio(
     }
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
-        (audit || provenance.is_some()).then(Vec::new),
+        (audit || observers.enabled()).then(Vec::new),
     );
     let saved_boundaries = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
-        provenance.is_some().then(Vec::new),
+        observers.enabled().then(Vec::new),
     );
-    if let Some(branch) = provenance {
+    if let Some(branch) = observers.provenance {
         branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
     }
     emulator.hybrid_bus_mut().apply_pending_writes();
@@ -760,9 +814,10 @@ pub(crate) fn run_wait_with_audio(
         emulator,
         PARK_PC,
         emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        clock.frame,
         false,
         &mut run,
-        provenance,
+        observers,
     );
     let mut handler_entered = false;
     let result = (|| {
@@ -780,7 +835,7 @@ pub(crate) fn run_wait_with_audio(
             }
             handler_entered |= depth > run.exception_base;
             if at_park && depth == run.exception_base {
-                if let Some(branch) = provenance {
+                if let Some(branch) = observers.provenance {
                     branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
                 }
                 let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
@@ -788,9 +843,10 @@ pub(crate) fn run_wait_with_audio(
                     emulator,
                     PARK_PC,
                     emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                    clock.frame,
                     false,
                     &mut run,
-                    provenance,
+                    observers,
                 );
                 if satisfied && native_resume_ready(emulator) {
                     return Ok(());
@@ -804,13 +860,13 @@ pub(crate) fn run_wait_with_audio(
                     emulator.hybrid_cpu().pc()
                 )));
             }
-            timed_tick(emulator, clock, &mut run, &mut audio, provenance)?;
+            timed_tick(emulator, clock, &mut run, &mut audio, observers)?;
         }
     })();
     let (cpu, bus) = emulator.hybrid_parts();
     // A failure aborts the call; never pretend an interrupted ISR returned.
     if result.is_ok() {
-        if let Some(branch) = provenance {
+        if let Some(branch) = observers.provenance {
             branch.begin_native(clock.frame, bus.cycles.m68k_mclk_cycles);
         }
         cpu.set_pc(saved_pc, bus);
@@ -819,9 +875,10 @@ pub(crate) fn run_wait_with_audio(
         emulator,
         emulator.hybrid_cpu().pc(),
         emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        clock.frame,
         false,
         &mut run,
-        provenance,
+        observers,
     );
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
     emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
@@ -847,7 +904,7 @@ pub(crate) fn run_original_timed(
         return_sp,
         Vec::new(),
         true,
-        None,
+        crate::execution::PhysicalObservers::default(),
     )
 }
 
@@ -858,7 +915,7 @@ pub(crate) fn run_original_timed_with_audio(
     return_sp: u32,
     samples: Vec<[f64; 2]>,
     audit: bool,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) -> Result<ClockRun> {
     run_original_timed_until_with_audio(
         emulator,
@@ -866,7 +923,7 @@ pub(crate) fn run_original_timed_with_audio(
         crate::exits::ReferenceBoundary::returned(return_pc, return_sp),
         samples,
         audit,
-        provenance,
+        observers,
     )
 }
 
@@ -874,9 +931,9 @@ pub(crate) fn run_original_timed_until(
     emulator: &mut GenesisEmulator,
     clock: &mut WaitClock,
     boundary: crate::exits::ReferenceBoundary,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) -> Result<ClockRun> {
-    run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true, provenance)
+    run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true, observers)
 }
 
 pub(crate) fn run_original_timed_until_with_audio(
@@ -885,7 +942,7 @@ pub(crate) fn run_original_timed_until_with_audio(
     boundary: crate::exits::ReferenceBoundary,
     samples: Vec<[f64; 2]>,
     audit: bool,
-    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
+    observers: PhysicalObservers<'_>,
 ) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
@@ -895,11 +952,11 @@ pub(crate) fn run_original_timed_until_with_audio(
     let root_is_scoped = clock.call_clock.active();
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
-        (audit || provenance.is_some()).then(Vec::new),
+        (audit || observers.enabled()).then(Vec::new),
     );
     let saved_boundaries = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
-        provenance.is_some().then(Vec::new),
+        observers.enabled().then(Vec::new),
     );
     let mut run = ClockRun {
         exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
@@ -942,7 +999,7 @@ pub(crate) fn run_original_timed_until_with_audio(
                     boundary.pc,
                 )));
             }
-            timed_tick(emulator, clock, &mut run, &mut audio, provenance)?;
+            timed_tick(emulator, clock, &mut run, &mut audio, observers)?;
         }
         Ok(())
     })();
@@ -950,9 +1007,10 @@ pub(crate) fn run_original_timed_until_with_audio(
         emulator,
         emulator.hybrid_cpu().pc(),
         emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        clock.frame,
         false,
         &mut run,
-        provenance,
+        observers,
     );
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
     emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
@@ -1409,7 +1467,7 @@ mod tests {
             WaitRequest::vblank_frame(0xff8000, 0),
             samples,
             false,
-            None,
+            crate::execution::PhysicalObservers::default(),
         )
         .unwrap();
         assert_eq!(run.audio.as_ptr(), allocation);
@@ -1660,7 +1718,14 @@ mod tests {
             {
                 break;
             }
-            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+            timed_tick(
+                &mut emulator,
+                &mut clock,
+                &mut run,
+                &mut audio,
+                crate::execution::PhysicalObservers::default(),
+            )
+            .unwrap();
             if before_vblank
                 && emulator.hybrid_bus().interrupt_level() == 6
                 && let Some((mut checkpoint, previous_clock)) = previous.take()
@@ -1766,7 +1831,7 @@ mod tests {
             &mut clock,
             &mut ignored,
             &mut HeadlessAudio::default(),
-            None,
+            crate::execution::PhysicalObservers::default(),
         )
         .unwrap();
         // Pinned core recognizes in ten cycles; no caller opcode or frame yet.
@@ -1850,11 +1915,24 @@ mod tests {
             actual_rts_scope_fixture(&handler, 100, true);
         let before_d7 = emulator.hybrid_cpu().data_registers()[7];
         let mut audio = HeadlessAudio::default();
-        timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+        timed_tick(
+            &mut emulator,
+            &mut clock,
+            &mut run,
+            &mut audio,
+            crate::execution::PhysicalObservers::default(),
+        )
+        .unwrap();
         assert!(run.nested_ceilings.last().unwrap().returned);
         assert_eq!(emulator.hybrid_bus().interrupt_level(), 6);
         let error = loop {
-            match timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None) {
+            match timed_tick(
+                &mut emulator,
+                &mut clock,
+                &mut run,
+                &mut audio,
+                crate::execution::PhysicalObservers::default(),
+            ) {
                 Ok(()) => assert!(!run.nested_ceilings.is_empty()),
                 Err(error) => break error,
             }
@@ -1884,7 +1962,13 @@ mod tests {
         let before_d7 = emulator.hybrid_cpu().data_registers()[7];
         let mut audio = HeadlessAudio::default();
         let error = loop {
-            if let Err(error) = timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None) {
+            if let Err(error) = timed_tick(
+                &mut emulator,
+                &mut clock,
+                &mut run,
+                &mut audio,
+                crate::execution::PhysicalObservers::default(),
+            ) {
                 break error;
             }
             assert!(!run.nested_ceilings.is_empty());
@@ -1907,7 +1991,14 @@ mod tests {
         let before_d7 = emulator.hybrid_cpu().data_registers()[7];
         let mut audio = HeadlessAudio::default();
         while !run.nested_ceilings.is_empty() {
-            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+            timed_tick(
+                &mut emulator,
+                &mut clock,
+                &mut run,
+                &mut audio,
+                crate::execution::PhysicalObservers::default(),
+            )
+            .unwrap();
         }
         assert_eq!(emulator.hybrid_cpu().pc(), 0x100);
         assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
@@ -2074,7 +2165,7 @@ mod tests {
                 &mut WaitClock::default(),
                 &mut run,
                 &mut audio,
-                None,
+                crate::execution::PhysicalObservers::default(),
             )
             .unwrap();
         }
@@ -2109,7 +2200,15 @@ mod tests {
             },
         ]);
         let mut run = ClockRun::default();
-        drain_accesses(&mut emulator, PARK_PC, 0, false, &mut run, None);
+        drain_accesses(
+            &mut emulator,
+            PARK_PC,
+            0,
+            0,
+            false,
+            &mut run,
+            crate::execution::PhysicalObservers::default(),
+        );
         assert_eq!(run.accesses.len(), 3);
         assert!(matches!(
             run.logic_trace.events.as_slice(),

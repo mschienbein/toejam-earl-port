@@ -15,6 +15,7 @@ mod call_clock;
 pub mod call_observation;
 pub use call_clock::CallClockRecord;
 pub mod catalogue;
+pub mod check_capture;
 pub mod check_envelope;
 mod check_failure;
 pub use check_envelope::CheckForkRoute;
@@ -208,6 +209,10 @@ pub struct CheckReport {
     /// Private raw observations; never export cartridge-derived runtime traces.
     #[serde(skip)]
     pub last_time_aware: Option<check_projection::TimeAwareObservation>,
+    #[serde(skip)]
+    pub(crate) actual_capture_enabled: bool,
+    #[serde(skip)]
+    pub actual_capture: Option<Box<check_capture::CheckCaptureDiagnostic>>,
     /// Bounded field-level VDP evidence captured before the failing forks drop.
     pub last_vdp_mismatch: Option<diagnostics::VdpMismatchReport>,
     pub failure_policy: CheckFailurePolicy,
@@ -520,9 +525,23 @@ impl Host {
     }
 
     fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
+        if self.checks.actual_capture_enabled {
+            self.checks.actual_capture = Some(Box::new(
+                check_capture::CheckCaptureDiagnostic::new(hook.symbol.name),
+            ));
+        }
         // Do not copy this frame's accumulated event trace into either fork.
         let live_trace = self.emulator.hybrid_bus_mut().hybrid_writes.take();
         let result = self.check_hook_inner(hook);
+        if self.checks.actual_capture_enabled
+            && let Some(capture) = self.checks.actual_capture.as_deref_mut()
+        {
+            capture.comparison = Some(if result.is_ok() { "passed" } else { "failed" });
+            capture.comparison_error = result
+                .as_ref()
+                .err()
+                .map(|error| check_failure::bounded_detail(error.to_string()).0);
+        }
         self.emulator.hybrid_bus_mut().hybrid_writes = live_trace;
         result
     }
@@ -563,6 +582,11 @@ impl Host {
         self.checks.calls += 1;
         self.checks.record_function(hook, true);
         self.checks.nested_original_calls += translated_run.nested_calls;
+        if self.checks.actual_capture_enabled
+            && let Some(capture) = self.checks.actual_capture.as_deref_mut()
+        {
+            capture.attach_counterpart_frames(&original, &translated);
+        }
         if hook.check_route().uses_logic_projection() {
             let raw_writes_differ =
                 original.hybrid_bus().hybrid_writes != translated.hybrid_bus().hybrid_writes;

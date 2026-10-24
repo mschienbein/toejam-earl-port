@@ -552,6 +552,8 @@ impl Host {
                 detail: detail.clone(),
                 detail_truncated,
                 vdp_mismatch: None,
+                // This invalidates an earlier producer, not the current reader.
+                actual_capture: None,
             });
             first.get_or_insert_with(|| HostError::Mismatch {
                 frame: self.frame,
@@ -1034,7 +1036,10 @@ impl Host {
                 cleanup_sp,
                 Vec::new(),
                 true,
-                Some(provenance),
+                crate::execution::PhysicalObservers {
+                    provenance: Some(provenance),
+                    capture: None,
+                },
             )
         } else {
             crate::execution::run_original_timed(

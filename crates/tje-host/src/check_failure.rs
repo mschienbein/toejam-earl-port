@@ -26,6 +26,9 @@ pub struct CheckFailure {
     pub detail: String,
     pub detail_truncated: bool,
     pub vdp_mismatch: Option<VdpMismatchReport>,
+    /// Explicit opt-in private runtime evidence, never a distributable game asset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_capture: Option<Box<crate::check_capture::CheckCaptureDiagnostic>>,
 }
 
 pub(crate) fn bounded_detail(mut detail: String) -> (String, bool) {
@@ -122,6 +125,11 @@ impl Host {
             let detail = error.to_string();
             let trace_index = trace_index(&detail);
             let (detail, detail_truncated) = bounded_detail(detail);
+            let actual_capture = if self.checks.actual_capture_enabled {
+                self.checks.actual_capture.take()
+            } else {
+                None
+            };
             self.checks.failures.push(CheckFailure {
                 frame: self.frame,
                 function: hook.symbol.name.to_owned(),
@@ -137,6 +145,7 @@ impl Host {
                 detail,
                 detail_truncated,
                 vdp_mismatch,
+                actual_capture,
             });
         }
         // No frame retry, CPU rewrite, or extra tick here. The caller falls

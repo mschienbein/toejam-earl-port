@@ -78,6 +78,8 @@ impl Host {
                     .into(),
             ));
         }
+        let capture_enabled = self.checks.actual_capture_enabled;
+        let mut completed_capture = None;
         let mut receipt = None;
         let executed = self.execute_fork(fork, |emulator| {
             let entry_usage = clock.call_clock.usage();
@@ -94,6 +96,35 @@ impl Host {
             if let Some(branch) = &stack.provenance {
                 branch.begin_native(entry_frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
             }
+            let journal_lease = (capture_enabled && !route.is_strict())
+                .then(|| crate::check_capture::JournalLease::install(emulator.hybrid_bus_mut()));
+            if capture_enabled {
+                let declared_class = match hook.execution_class {
+                    ExecutionClass::Atomic => "Atomic",
+                    ExecutionClass::Functional => "Functional",
+                    ExecutionClass::TimeAware => "TimeAware",
+                };
+                let binding = crate::check_capture::CaptureBinding {
+                    function: hook.symbol.name.to_owned(),
+                    entry_pc: hook.symbol.address(revision),
+                    revision: match revision {
+                        tje_rom::Revision::Rev02 => "rev02",
+                        tje_rom::Revision::Rev00 => "rev00",
+                    },
+                    side: provenance_side,
+                    purpose: format!("{purpose:?}"),
+                    origin: format!("{origin:?}"),
+                    declared_class,
+                    proof_envelope: hook.proof_envelope.as_str(),
+                    actual_route: route.as_str(),
+                    explicit_proof_only_admission: hook.proof_only_admission(),
+                };
+                stack.capture = Some(Box::new(crate::check_capture::RawCheckCapture::new(
+                    binding,
+                    emulator,
+                    entry_frame,
+                )));
+            }
             let mut audit = stack.empty_run();
             let saved_trace = emulator
                 .hybrid_bus_mut()
@@ -101,10 +132,11 @@ impl Host {
                 .replace(Vec::new());
             let saved_boundaries = std::mem::replace(
                 &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
-                stack.provenance.is_some().then(Vec::new),
+                (stack.provenance.is_some() || stack.capture.is_some()).then(Vec::new),
             );
             let saved_all_dma = emulator.hybrid_bus().hybrid_dma_all_sources;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = route.is_strict()
+                || capture_enabled
                 || hook
                     .dependent_proof
                     .is_some_and(|setting| setting.captures_all_dma());
@@ -127,6 +159,17 @@ impl Host {
                 if route.is_strict() {
                     crate::check_envelope::install_strict_observers(emulator)?;
                 }
+                if let Some(capture) = stack_slot
+                    .as_ref()
+                    .and_then(|stack| stack.capture.as_deref())
+                {
+                    capture.mark_native_journal_scope();
+                    capture.observe_native_batch_parts(
+                        emulator.hybrid_cpu(),
+                        emulator.hybrid_bus(),
+                        clock.frame,
+                    );
+                }
                 stack_slot.as_mut().expect("root audit").drain(
                     emulator.hybrid_bus_mut(),
                     entry_pc,
@@ -140,7 +183,7 @@ impl Host {
                                 emulator,
                                 &mut clock,
                                 boundary,
-                                stack.provenance.as_ref(),
+                                stack.physical_observers(),
                             )?;
                             for (pc, access) in clock_run.accesses {
                                 stack.observe(pc, access, &mut audit);
@@ -188,6 +231,12 @@ impl Host {
                         }
                     }
                 };
+                if let Some(capture) = stack_slot
+                    .as_ref()
+                    .and_then(|stack| stack.capture.as_deref())
+                {
+                    capture.mark_main_end(emulator, clock.frame);
+                }
                 if route.uses_logic_projection() {
                     emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
                 }
@@ -199,6 +248,13 @@ impl Host {
                         emulator.hybrid_bus().cycles.m68k_mclk_cycles,
                     );
                 }
+                if let Some(capture) = &stack.capture {
+                    capture.observe_native_batch_parts(
+                        emulator.hybrid_cpu(),
+                        emulator.hybrid_bus(),
+                        clock.frame,
+                    );
+                }
                 stack.drain(emulator.hybrid_bus_mut(), checkpoint, &mut run.audit);
                 if dependent {
                     run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
@@ -207,6 +263,16 @@ impl Host {
                 }
                 Ok(run)
             })();
+            if let Some(capture) = stack_slot
+                .as_ref()
+                .and_then(|stack| stack.capture.as_deref())
+            {
+                capture.observe_native_batch_parts(
+                    emulator.hybrid_cpu(),
+                    emulator.hybrid_bus(),
+                    clock.frame,
+                );
+            }
             emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
             emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = saved_all_dma;
@@ -235,7 +301,19 @@ impl Host {
                     Err(_) => {}
                 }
             }
-            let provenance = stack_slot.and_then(|mut stack| stack.provenance.take());
+            let provenance = stack_slot.and_then(|mut stack| {
+                if let Some(capture) = stack.capture.take() {
+                    completed_capture = Some(Box::new((*capture).finish(
+                        emulator,
+                        clock.frame,
+                        result.as_ref().err().map(ToString::to_string),
+                    )));
+                }
+                stack.provenance.take()
+            });
+            if let Some(lease) = journal_lease {
+                lease.restore(emulator.hybrid_bus_mut());
+            }
             Ok((result, provenance))
         });
         let result = match executed {
@@ -248,6 +326,12 @@ impl Host {
         };
         if let Some(receipt) = receipt {
             self.checks.call_clocks.push(receipt);
+        }
+        if let Some(evidence) = completed_capture {
+            self.record_actual_check_capture(
+                evidence,
+                matches!(purpose, ClockRunPurpose::Baseline),
+            );
         }
         result
     }
