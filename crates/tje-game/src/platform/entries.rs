@@ -2,7 +2,7 @@
 use crate::{
     Context, Result, call_at,
     call_frame::{CallSite, FrameLayout, LocalFrame},
-    execution::WaitRequest,
+    execution::{WaitCondition, WaitRequest},
     exits, ids,
     open_bus::OpenBusSource,
 };
@@ -162,7 +162,12 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         if !busy {
             break;
         }
-        context.wait_until(WaitRequest::z80_busack())?;
+        // startup.s:60 tests bit 0 of the byte at A1, not a word/bit-8 poll.
+        context.wait_until(WaitRequest::new(WaitCondition::DeviceByte {
+            address: addresses[1],
+            mask: 1,
+            value: 0,
+        }))?;
     }
 
     for _ in 0..38 {
@@ -216,3 +221,7 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     context.set_status_register(0x2700);
     exits::tail(ids::START, ids::GAME_PROGRAM)
 }
+
+#[cfg(test)]
+#[path = "entry_access_tests.rs"]
+mod access_tests;
