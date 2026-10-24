@@ -79,10 +79,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::SET_CAMERA_POSITION,
         function: set_camera_position,
     },
-    crate::Translation {
-        id: ids::TRY_UPDATE_CAMERA_Y,
-        function: try_update_camera_y,
-    },
 ];
 
 /// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
@@ -94,6 +90,12 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::TRY_UPDATE_CAMERA_X,
         function: try_update_camera_x,
+    },
+    // REV 02 dentist-variant frame 9987: semantic Z80 RAM read A0004A is 2 in
+    // the original and 1 in Rust (trace 200); same Z80 phase blocker as X.
+    crate::Translation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: try_update_camera_y,
     },
     // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
     // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
