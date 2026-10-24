@@ -1,14 +1,45 @@
 use crate::{input, video::Video};
 use genesis_config::GenesisEmulatorConfig;
 use js_sys::{Function, Object, Reflect};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tje_engine_core::metadata::{compile_program_with_divider, game_metadata};
 use tje_engine_runtime::Engine;
 use tje_engine_wasmgen::{BrowserBackend, ENGINE_VERSION};
 use tje_mem::{AddressSpace, ram};
 use tje_native_platform::DeviceRuntime;
 use tje_rom::{Revision, Rom};
+use tje_session::report::{Build, EngineState};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = globalThis, js_name = tjeCaptureWasmPanic, catch)]
+    fn capture_wasm_panic(message: &str) -> Result<(), JsValue>;
+}
+
+fn install_panic_hook() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    static CAPTURING: AtomicBool = AtomicBool::new(false);
+    INSTALLED.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            if CAPTURING.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            // The JS callback uses only cached state, never a borrowed WebGame.
+            let _ = capture_wasm_panic(&info.to_string());
+            console_error_panic_hook::hook(info);
+        }))
+    });
+}
+
+#[wasm_bindgen]
+pub fn report_build() -> Result<String, JsValue> {
+    install_panic_hook();
+    let mut build = Build::current("web", ENGINE_VERSION);
+    build.version = env!("CARGO_PKG_VERSION").into();
+    serde_json::to_string(&build).map_err(js_error)
+}
 
 fn js_error(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
@@ -115,7 +146,7 @@ impl WebGame {
     /// Automatic backend fallback belongs to the page: a fresh canvas is needed
     /// when WebGPU initialization has already selected its canvas context type.
     pub async fn create(canvas: HtmlCanvasElement, backend: &str) -> Result<WebGame, JsValue> {
-        console_error_panic_hook::set_once();
+        install_panic_hook();
         Ok(Self {
             video: Video::new(canvas, backend).await.map_err(js_error)?,
             cartridge: None,
@@ -250,6 +281,64 @@ impl WebGame {
     }
     pub fn adapter(&self) -> String {
         self.video.adapter().to_owned()
+    }
+    /// ROM identity only: no raw cartridge, generated code or machine bytes.
+    pub fn report_identity(&self) -> Result<String, JsValue> {
+        let cartridge = self
+            .cartridge
+            .as_ref()
+            .ok_or_else(|| js_error("import a ROM first"))?;
+        serde_json::to_string(&tje_session::report::Cartridge::from(cartridge.revision))
+            .map_err(js_error)
+    }
+
+    pub fn report_state(&self) -> Result<String, JsValue> {
+        let cartridge = self
+            .cartridge
+            .as_ref()
+            .ok_or_else(|| js_error("import a ROM first"))?;
+        let devices = cartridge.engine.devices();
+        let memory = devices.memory();
+        let players = std::array::from_fn(|index| {
+            let player = ram::g_player_info(cartridge.revision).at(index as i32);
+            [
+                player.x().read(memory),
+                player.y().read(memory),
+                player.height().read(memory),
+            ]
+        });
+        serde_json::to_string(&EngineState {
+            frame: cartridge.engine.frame_count(),
+            pc: cartridge.engine.cpu().pc,
+            master_clock: devices.clock().to_string(),
+            players,
+        })
+        .map_err(js_error)
+    }
+
+    /// Called only after explicit screenshot consent. The JS cache survives a
+    /// subsequent panic without reentering this wasm-bindgen object.
+    pub fn report_pixels_ptr(&self) -> *const u8 {
+        self.cartridge
+            .as_ref()
+            .map_or(std::ptr::null(), |cartridge| {
+                cartridge.engine.frame_buffer().0.as_ptr().cast()
+            })
+    }
+    pub fn report_width(&self) -> u32 {
+        self.cartridge
+            .as_ref()
+            .map_or(0, |cartridge| cartridge.engine.frame_buffer().1.width)
+    }
+    pub fn report_height(&self) -> u32 {
+        self.cartridge
+            .as_ref()
+            .map_or(0, |cartridge| cartridge.engine.frame_buffer().1.height)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn debug_crash(&self) {
+        panic!("Forced browser playtest crash");
     }
 
     pub fn compilation(&self) -> Result<JsValue, JsValue> {

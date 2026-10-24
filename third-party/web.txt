@@ -414,6 +414,16 @@ Exact upstream source archive: https://crates.io/api/v1/crates/indexmap/2.14.2/d
   LICENSE-MIT: THIRD_PARTY_LICENSES/db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e.txt
   selected:MIT:db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e: THIRD_PARTY_LICENSES/db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e.txt
 
+itoa 1.0.18
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/itoa
+Exact upstream source archive: https://crates.io/api/v1/crates/itoa/1.0.18/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
 jgenesis-common 0.14.1
 Declared: GPL-3.0-only
 Selected: GPL-3.0-only
@@ -829,6 +839,16 @@ Exact upstream source archive: https://crates.io/api/v1/crates/serde_derive/1.0.
   LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
   selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
 
+serde_json 1.0.154
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/serde-rs/json
+Exact upstream source archive: https://crates.io/api/v1/crates/serde_json/1.0.154/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
 serde_spanned 1.1.2
 Declared: MIT OR Apache-2.0
 Selected: MIT
@@ -997,6 +1017,13 @@ Source: https://github.com/mschienbein/toejam-earl-port
   selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
 
 tje-rom 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-session 0.2.0
 Declared: GPL-3.0-only
 Selected: GPL-3.0-only
 Authors (upstream metadata): 
@@ -1296,4 +1323,13 @@ Source: https://github.com/trifectatechfoundation/zlib-rs
 Exact upstream source archive: https://crates.io/api/v1/crates/zlib-rs/0.6.8/download
   LICENSE: THIRD_PARTY_LICENSES/7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc.txt
   selected:Zlib:7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc: THIRD_PARTY_LICENSES/7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc.txt
+
+zmij 1.0.23
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/zmij
+Exact upstream source archive: https://crates.io/api/v1/crates/zmij/1.0.23/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
 

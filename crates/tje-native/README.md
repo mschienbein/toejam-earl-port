@@ -115,6 +115,61 @@ untouched until a deliberate settings change/default reset is saved.
 first-launch/settings tests without a cartridge. Captures and recorded game data
 must stay private; do not publish game screenshots or cartridge-derived content.
 
+## Local crash and bug reports
+
+Panics and fatal frontend errors automatically save a self-contained
+`reports/report-….tje-report.json` bundle in the OS-local **data** directory above.
+On the next launch a report offer can show that folder and open a prefilled issue
+on `mschienbein/toejam-earl-port`. **Nothing is uploaded, and GitHub is not contacted
+until you click the issue button.** Review the file, then attach it yourself
+(ZIP the JSON first if GitHub requires it). Never attach your ROM or compiled cache.
+Settings has **Report a bug…**, with a free-text note, for non-crashing problems.
+
+Bundles collect the build/commit/target, OS, verified ROM revision and SHA-1
+**only**, settings, error and available backtrace, and the last completed
+frame/PC/master-clock/player-position summary. They contain neither ROM bytes,
+generated code, audio, nor a machine-memory snapshot. A last-game-frame PNG is
+included **only after you opt in** in the report dialog; it contains copyrighted
+game graphics. That consent is remembered for future crashes and can be turned
+off in the same dialog. Notes, backtraces and settings may contain personal details;
+review them before sharing.
+
+An automatic controller-only ring records every played console frame, independently
+of F9. It holds **216,000 frames (864,000 raw input bytes; about one hour at 60 Hz)**,
+restarts on hard reset/import, and never advances while paused. Whenever it fits,
+the embedded `recording.session` is the existing tje-session format, continuous
+from power-on. If a frame fails mid-step, `recording.in_flight` identifies its input
+and that attempted frame is the session's last input. After overflow the report
+contains an explicitly non-replayable `input_tail`, not a misleading power-on
+session; the developer replay rejects it. Screenshot and report serialization add
+bounded overhead only when opted in / capturing a report. Saved reports are kept
+until you remove them from the report directory.
+When reporting a developer replay with an existing declared RAM recipe, its
+already-applied setup writes are preserved too; no live RAM is read into a report.
+
+Replay a downloaded complete native **or browser** report using your own matching
+cartridge and the shipping native engine:
+
+```sh
+cargo run --locked -p tje-native --bin toejam-earl -- \
+  --rom /private/rev02.bin --replay-report /private/report.tje-report.json
+```
+
+It exits at the recording's end and, for a completed-frame report, checks the
+captured frame/PC/master-clock/player summary (`REPORT_REPLAY_MATCH`). An unfinished
+frame is attempted to reproduce the fault instead. You can alternatively extract
+`recording.session` as JSON and use the ordinary `--replay PATH.tje.json` or
+`tje-session replay --rom … --session … --report …` developer runner.
+This is a diagnostic summary check, not a claim of full-machine byte equality.
+
+For actual capture testing **only debug builds** honor
+`TJE_DEBUG_CRASH_FRAME=240`; the native panic occurs after recording that completed
+frame. Browser debug builds expose a hidden `window.tje.debugCrash()` and optional
+`?debug-crash-frame=240` trigger; release builds contain no such Wasm method.
+The report schema/export boundary is transport-independent: a future approved
+upload adapter can consume the same bundle after explicit consent, but there is
+no server, account integration or automatic upload now.
+
 Linux development requires ALSA/udev headers and pkg-config as documented in
 `docs/TOOLCHAIN.md`; the overlay adds no GTK/desktop-portal requirement. WSLg uses
 `env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET` on the documented XWayland route.

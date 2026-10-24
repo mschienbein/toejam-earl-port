@@ -9,7 +9,8 @@
     "serve": "node serve.mjs",
     "verify": "node verify.mjs",
     "verify:replay": "node verify-replay.mjs",
-    "test": "node --test tests.mjs"
+    "verify:reports": "node verify-reports.mjs",
+    "test": "node --test tests.mjs report-tests.mjs"
   },
   "devDependencies": {
     "playwright": "1.56.1"

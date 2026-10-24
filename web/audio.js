@@ -43,7 +43,14 @@ export class AudioStream {
           this.node = new AudioWorkletNode(this.context, 'tje-cartridge-audio', {
             numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
           });
-          this.node.onprocessorerror = () => { this.failure = 'AudioWorklet processor failed.'; };
+          this.node.onprocessorerror = () => {
+            this.failure = 'AudioWorklet processor failed.';
+            this.onFailure?.(new Error(this.failure));
+          };
+          this.node.port.onmessageerror = () => {
+            this.failure = 'AudioWorklet message could not be deserialized.';
+            this.onFailure?.(new Error(this.failure));
+          };
           this.node.port.onmessage = ({ data }) => {
             if (data.type === 'recycle') {
               if (this.pool.length < 32) this.pool.push(data.buffer);

@@ -1,8 +1,9 @@
-import init, { CompiledCartridge, VideoFilter, WebGame } from './pkg/tje_web.js';
+import init, { CompiledCartridge, VideoFilter, WebGame, report_build } from './pkg/tje_web.js';
 import { AudioStream } from './audio.js';
 import { Inputs } from './input.js';
 import { ControlSettings } from './controls.js';
 import { cartridgeStore, readSettings, saveSettings } from './storage.js';
+import { Reports } from './reporting.js';
 
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
@@ -37,9 +38,33 @@ let presented = 0;
 let stalls = 0;
 let videoDirty = true;
 const histogram = new Uint32Array(101);
+const debugCrashFrame = Number(new URLSearchParams(location.search).get('debug-crash-frame'));
+const reports = new Reports({
+  settings,
+  onCrash: () => {
+    void pause('A playtest failure was captured locally. Download the report below; reload before playing again.');
+    $('play').disabled = $('reset').disabled = true;
+  },
+  onConsent: () => rememberReportFrame(),
+});
+audio.onFailure = error => { void reports.crash('audio_worklet', error); };
+
+function rememberReportFrame() {
+  if (reports.consent && loaded && !reports.crashed) {
+    const width = game.report_width();
+    const height = game.report_height();
+    // Exactly one stable pixel copy; exporting a Rust Vec would allocate/copy
+    // once in Wasm and then again at the JS boundary on every consented frame.
+    const pixels = new Uint8Array(wasm.memory.buffer, game.report_pixels_ptr(), width * height * 4).slice();
+    reports.rememberFrame(pixels, width, height, game.frames());
+  }
+}
 
 function status(message, nextState = state) {
   state = nextState;
+  reports.frontend.phase = state;
+  reports.frontend.paused = !running;
+  reports.frontend.focused = !document.hidden;
   document.body.dataset.state = state;
   $('status').textContent = message;
 }
@@ -62,6 +87,7 @@ function pause(message = 'Paused. Click Play to resume.', resumeWhenVisible = fa
 
 function errorMessage(error) {
   console.error(error);
+  void reports.crash('frontend_error', error);
   status(String(error?.message ?? error), 'error');
 }
 
@@ -80,6 +106,10 @@ function resetMeasurements() {
 }
 
 function snapshot() {
+  if (reports.crashed) {
+    return { state, frames: reports.engine?.frame ?? 0, revision, crashed: true,
+      reportId: reports.offer?.id ?? null, settings: structuredClone(settings) };
+  }
   const wallSeconds = activeSeconds + (running ? (performance.now() - activeSince) / 1000 : 0);
   let cumulative = 0;
   let p95 = 0;
@@ -105,7 +135,11 @@ function snapshot() {
 
 // Read-only observability for the local Playwright acceptance harness. There is
 // no test-only stepping path: tests operate the actual controls and device clock.
-Object.defineProperty(window, 'tje', { value: Object.freeze({ get metrics() { return snapshot(); } }) });
+Object.defineProperty(window, 'tje', { value: Object.freeze({
+  get metrics() { return snapshot(); },
+  // The Wasm method is absent from release builds; there is no release trigger.
+  get debugCrash() { return typeof game?.debug_crash === 'function' ? () => game.debug_crash() : undefined; },
+}) });
 
 function renderVideo() {
   return game.render(canvas.width, canvas.height, settings.pixelShape === 'native', settings.scale === 'integer', videoFilters[settings.filter]);
@@ -119,13 +153,17 @@ function resize() {
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   videoDirty = true;
-  if (loaded && !running) renderVideo();
+  if (loaded && !running && !reports.crashed) {
+    renderVideo();
+    rememberReportFrame();
+  }
 }
 
 function frame(now) {
   requestAnimationFrame(frame);
   try {
     inputs?.samplePads();
+    reports.frontend.ticks++;
     controls?.update();
     if (!running) return;
     if (audio.context.state !== 'running') {
@@ -143,7 +181,10 @@ function frame(now) {
       steps++;
       const [p1, p2, p2Connected] = inputs.poll(settings.p2);
       const started = performance.now();
+      reports.begin(p1, p2, p2Connected);
       game.step(p1, p2, p2Connected);
+      reports.complete(JSON.parse(game.report_state()));
+      if (debugCrashFrame > 0 && typeof game.debug_crash === 'function' && game.frames() >= debugCrashFrame) game.debug_crash();
       const elapsed = performance.now() - started;
       emulationMs += elapsed;
       maxFrameMs = Math.max(maxFrameMs, elapsed);
@@ -155,6 +196,7 @@ function frame(now) {
     if ((steps > 0 || videoDirty) && renderVideo()) {
       presented++;
       videoDirty = false;
+      rememberReportFrame();
     }
     if (now - lastStatus > 500) {
       lastStatus = now;
@@ -200,6 +242,8 @@ async function loadCartridge(bytes, name, origin) {
     revision = game.install(cartridge);
     source = origin;
     loaded = true;
+    reports.start(JSON.parse(game.report_identity()));
+    reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
     inputs.clear();
     const compilation = game.compilation();
@@ -255,7 +299,7 @@ async function tryAutomaticResume() {
 }
 
 async function startPlayback(automatic = false) {
-  if (!loaded || busy) return;
+  if (!loaded || busy || reports.crashed) return;
   busy = starting = true;
   const request = ++playbackVersion;
   $('play').setAttribute('aria-busy', 'true');
@@ -300,7 +344,9 @@ $('reset').addEventListener('click', async () => {
   busy = true;
   try {
     await pause();
+    reports.reset();
     game.reset();
+    reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
     resize();
     status('Cartridge reset. Click Play to start.', 'ready');
@@ -337,6 +383,7 @@ $('forget').addEventListener('click', async () => {
     await pause();
     const identity = game.unload();
     loaded = false;
+    reports.unload();
     revision = source = '';
     $('play').disabled = $('reset').disabled = true;
     await CompiledCartridge.forget_cached(identity);
@@ -418,6 +465,8 @@ document.addEventListener('visibilitychange', () => {
 async function boot() {
   if (!isSecureContext) throw new Error('Use HTTPS or localhost; WebGPU and AudioWorklet require a secure context.');
   wasm = await init();
+  reports.build = JSON.parse(report_build());
+  await reports.restore();
   const requested = new URLSearchParams(location.search).get('backend') ?? 'auto';
   if (!['auto', 'webgpu', 'webgl'].includes(requested)) throw new Error(`Unknown backend: ${requested}`);
   const candidates = requested === 'auto' ? ['webgpu', 'webgl'] : [requested];
@@ -435,6 +484,7 @@ async function boot() {
     }
   }
   if (!game) throw new Error(`No graphics backend is available. ${failures.join('; ')}`);
+  reports.frontend.backend = game.backend();
   inputs = new Inputs(settings.players);
   controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
   new ResizeObserver(resize).observe($('screen'));
@@ -454,5 +504,6 @@ async function boot() {
   $('rom').disabled = false;
   requestAnimationFrame(frame);
 }
+$('report-bug').addEventListener('click', () => { void pause('Paused to write a bug report.'); });
 
 boot().catch(errorMessage);

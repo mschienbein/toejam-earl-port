@@ -894,6 +894,29 @@
       "version": "2.14.2"
     },
     {
+      "authors": [
+        {
+          "name": "David Tolnay <dtolnay@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "itoa",
+      "repository": "https://github.com/dtolnay/itoa",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/itoa/1.0.18/download",
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f",
+        "LICENSE-MIT": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7",
+        "selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7"
+      },
+      "version": "1.0.18"
+    },
+    {
       "authors": [],
       "declared_license": "GPL-3.0-only",
       "name": "jgenesis-common",
@@ -1883,6 +1906,25 @@
     {
       "authors": [],
       "declared_license": "MIT OR Apache-2.0",
+      "name": "serde_json",
+      "repository": "https://github.com/serde-rs/json",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/serde_json/1.0.154/download",
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f",
+        "LICENSE-MIT": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7",
+        "selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7"
+      },
+      "version": "1.0.154"
+    },
+    {
+      "authors": [],
+      "declared_license": "MIT OR Apache-2.0",
       "name": "serde_spanned",
       "repository": "https://github.com/toml-rs/toml",
       "selected": [
@@ -2291,6 +2333,23 @@
         "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
       },
       "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
+      "name": "tje-session",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.2.0"
     },
     {
       "authors": [],
@@ -2942,11 +3001,33 @@
         "selected:Zlib:7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc": "7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc"
       },
       "version": "0.6.8"
+    },
+    {
+      "authors": [
+        {
+          "name": "David Tolnay <dtolnay@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "zmij",
+      "repository": "https://github.com/dtolnay/zmij",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/zmij/1.0.23/download",
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "LICENSE-MIT": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7",
+        "selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7"
+      },
+      "version": "1.0.23"
     }
   ],
   "format": 1,
   "graph": "web",
-  "notice_sha256": "1d1e9639097d65d06fd715c8c42d571d7ca5b1e5e534cfca71716230f61c1791",
+  "notice_sha256": "74c7075170c78711779b57ec4b4b2f24f02c048cc8b28f4038834edce998e82c",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
     "rust/COPYRIGHT-library-part-2.txt": "83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576",
@@ -2964,7 +3045,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "69072d390bd2cbb078c593f14710aca239c07809ce0c1ac33723c1038ffca96b",
+  "source_fingerprint": "276dccebe9035e6129968f941e0abda407a499aae829116db71b37ae53413d45",
   "targets": [
     "wasm32-unknown-unknown"
   ]

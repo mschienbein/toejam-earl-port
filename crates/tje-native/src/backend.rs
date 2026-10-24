@@ -14,7 +14,7 @@ pub struct VideoFrame<'a> {
     pub height: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Status {
     pub frame: u64,
     pub pc: u32,

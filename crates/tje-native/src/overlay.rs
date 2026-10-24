@@ -22,6 +22,7 @@ pub struct Actions {
     pub refresh_devices: bool,
     pub dismiss: bool,
     pub forget_rom: bool,
+    pub reporting: crate::reports::Actions,
 }
 
 pub struct Frame {
@@ -53,6 +54,7 @@ pub struct Overlay {
     tab: usize,
     player: usize,
     forget_confirmation: bool,
+    pub reports: crate::reports::Ui,
 }
 
 impl Overlay {
@@ -67,6 +69,7 @@ impl Overlay {
             tab: 0,
             player: 0,
             forget_confirmation: false,
+            reports: crate::reports::Ui::new(),
         }
     }
     pub fn initialize(&mut self, window: &Window) {
@@ -161,6 +164,7 @@ impl Overlay {
             && !info.paused
             && !self.open
             && self.message.is_none()
+            && !self.reports.visible()
             && !info.audio.starts_with("Audio unavailable")
         {
             return (
@@ -247,6 +251,7 @@ impl Overlay {
                         if let Some(message) = &self.message { ui.separator(); ui.colored_label(egui::Color32::YELLOW, message); }
                         ui.separator();
                         ui.label("Changes apply immediately and are saved. Conflicting controls are rejected, never silently stolen.");
+                        self.reports.controls(ui);
                         if ui.button("Restore default settings and controls").clicked() { actions.restore_defaults = true; self.pending = None; }
                     });
                 if self.open && !open { self.pending = None; }
@@ -257,6 +262,7 @@ impl Overlay {
                     if ui.button("Dismiss").clicked() { actions.dismiss = true; }
                 });
             }
+            self.reports.windows(&context, &mut actions.reporting);
         });
         let repaint_after = output
             .viewport_output

@@ -2,6 +2,7 @@ mod audio;
 mod loading;
 mod overlay;
 mod recording;
+mod reports;
 mod video;
 
 use anyhow::{Context, Result, ensure};
@@ -64,7 +65,7 @@ struct Args {
     #[arg(long)]
     data_dir: Option<PathBuf>,
     /// Forget the remembered cartridge and private compiled cache; keep controls/settings.
-    #[arg(long, conflicts_with_all = ["rom", "replay"])]
+    #[arg(long, conflicts_with_all = ["rom", "replay", "replay_report"])]
     forget_rom: bool,
     /// Pixel shape: original Genesis NTSC aspect (default), or square pixels.
     #[arg(long, value_enum)]
@@ -93,6 +94,9 @@ struct Args {
     /// Replay a versioned input-only session through the shipped native engine.
     #[arg(long)]
     replay: Option<PathBuf>,
+    /// Replay a downloaded playtest report; rejects an overflowed input tail.
+    #[arg(long, conflicts_with_all = ["replay", "input_script"])]
+    replay_report: Option<PathBuf>,
     /// Exit after this many console frames, only after presenting the last frame.
     #[arg(long)]
     run_frames: Option<u64>,
@@ -138,6 +142,10 @@ struct App {
     applied: LiveSettings,
     ui_repaint: Instant,
     preserve_config: bool,
+    reports: reports::Reporter,
+    expected_report_state: Option<tje_session::report::EngineState>,
+    #[cfg(debug_assertions)]
+    debug_crash_frame: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -169,7 +177,7 @@ fn effective_pause(
 }
 
 impl App {
-    fn new(args: Args) -> Result<Self> {
+    fn new(args: Args, reports: reports::Reporter) -> Result<Self> {
         ensure!(
             args.run_frames != Some(0),
             "--run-frames must be greater than zero"
@@ -226,7 +234,21 @@ impl App {
             .as_deref()
             .map(InputScript::load)
             .transpose()?;
-        let replay = args.replay.as_deref().map(Replay::load).transpose()?;
+        let (replay, expected_report_state) = if let Some(path) = &args.replay_report {
+            let bundle = tje_session::report::Bundle::from_json(&fs::read_to_string(path)?)?;
+            let recording = bundle
+                .recording
+                .context("report has no cartridge/input recording")?;
+            let session = recording.replay_session()?.clone();
+            let expected = if recording.in_flight.is_none() {
+                bundle.engine
+            } else {
+                None
+            };
+            (Some(Replay::new(session)?), expected)
+        } else {
+            (args.replay.as_deref().map(Replay::load).transpose()?, None)
+        };
         if let (Some(replay), Some(frames)) = (&replay, args.run_frames) {
             ensure!(
                 frames <= replay.frames(),
@@ -254,6 +276,27 @@ impl App {
         let mut overlay = Overlay::new();
         overlay.open = args.settings || config_error.is_some();
         overlay.message = config_error;
+        reports.settings(&settings)?;
+        overlay.reports.consent = reports.consent();
+        match reports.pending() {
+            Ok(Some(offer)) => {
+                overlay.reports.offer = Some(offer);
+                overlay.open |= args.replay_report.is_none();
+            }
+            Ok(None) => {}
+            Err(error) => {
+                overlay.show_error(format!("Could not read saved crash report: {error:#}"))
+            }
+        }
+        #[cfg(debug_assertions)]
+        let debug_crash_frame = std::env::var("TJE_DEBUG_CRASH_FRAME")
+            .ok()
+            .map(|value| {
+                value
+                    .parse::<u64>()
+                    .context("TJE_DEBUG_CRASH_FRAME must be a frame number")
+            })
+            .transpose()?;
         Ok(Self {
             args,
             storage,
@@ -283,6 +326,10 @@ impl App {
             applied,
             ui_repaint: now,
             preserve_config,
+            reports,
+            expected_report_state,
+            #[cfg(debug_assertions)]
+            debug_crash_frame,
         })
     }
 
@@ -348,6 +395,10 @@ impl App {
             rom.revision(),
             rom.bytes().len()
         );
+        self.reports.start(
+            rom.revision(),
+            self.replay.as_ref().map(|replay| &replay.session().start),
+        );
         self.loading = Some(Loading::start(
             rom,
             CacheConfig {
@@ -410,6 +461,8 @@ impl App {
                 );
                 println!("CLOCK fps={:.10} source=cycle-exact-native", backend.fps());
                 self.revision = Some(backend.revision());
+                self.reports
+                    .complete_frame(&backend.status(), backend.video());
                 self.backend = Some(backend);
                 if let Some(replay) = &mut self.replay {
                     replay.restart();
@@ -441,6 +494,7 @@ impl App {
         self.backend = None;
         self.replay = None;
         self.revision = None;
+        self.reports.unload();
         self.audio = None;
         self.storage.forget_rom()?;
         self.overlay.open = false;
@@ -482,6 +536,13 @@ impl App {
 
     fn sync_pause(&mut self) {
         let paused = self.is_paused();
+        self.reports.frontend(
+            paused,
+            self.focused,
+            self.tick,
+            self.loading.is_some(),
+            self.backend.is_some(),
+        );
         if paused != self.effective_paused {
             self.effective_paused = paused;
             if let Some(audio) = &mut self.audio {
@@ -557,6 +618,7 @@ impl App {
             self.settings.pause_on_focus_loss
         );
         self.sync_pause();
+        self.reports.settings(&self.settings)?;
         self.storage.save(&self.settings)
     }
 
@@ -639,8 +701,11 @@ impl App {
                 replay.restart();
             }
             self.stop_recording()?;
+            self.reports.reset();
             if let Some(backend) = &mut self.backend {
                 backend.reset();
+                self.reports
+                    .complete_frame(&backend.status(), backend.video());
             }
             if let Some(audio) = &self.audio {
                 audio.flush();
@@ -654,7 +719,10 @@ impl App {
             if self.recorder.active() {
                 self.stop_recording()?;
             } else if let (Some(backend), Some(revision)) = (&mut self.backend, self.revision) {
+                self.reports.reset();
                 backend.reset();
+                self.reports
+                    .complete_frame(&backend.status(), backend.video());
                 self.recorder.start(revision);
                 if let Some(audio) = &self.audio {
                     audio.flush();
@@ -721,22 +789,47 @@ impl App {
         }
         self.changes.clear();
         self.tick += 1;
+        self.reports.frontend(
+            self.is_paused(),
+            self.focused,
+            self.tick,
+            self.loading.is_some(),
+            self.backend.is_some(),
+        );
         if !self.is_paused()
             && let Some(backend) = &mut self.backend
         {
-            let (samples, controllers) = if let Some(replay) = &mut self.replay {
-                let frame = replay
-                    .advance(backend.as_mut())?
-                    .context("input replay ended before its advertised frame count")?;
-                (frame.audio, frame.controllers)
+            let controllers = if let Some(replay) = &self.replay {
+                replay
+                    .controllers()
+                    .context("input replay ended before its advertised frame count")?
             } else {
-                let controllers = self.input.controllers(&self.settings.players);
-                (backend.advance(controllers)?, controllers)
+                self.input.controllers(&self.settings.players)
+            };
+            self.reports.begin_frame(std::array::from_fn(|index| {
+                tje_session::encode_pad(controllers.connected[index], controllers.buttons[index])
+            }));
+            let samples = if let Some(replay) = &mut self.replay {
+                replay
+                    .advance(backend.as_mut())?
+                    .context("input replay ended before its advertised frame count")?
+                    .audio
+            } else {
+                backend.advance(controllers)?
             };
             self.audio.as_ref().unwrap().push(samples);
             self.recorder.frame(controllers)?;
             self.total_frames += 1;
             self.video.as_mut().unwrap().upload(backend.video());
+            self.reports
+                .complete_frame(&backend.status(), backend.video());
+            #[cfg(debug_assertions)]
+            if self.debug_crash_frame == Some(backend.status().frame) {
+                panic!(
+                    "Forced native playtest crash at frame {}",
+                    backend.status().frame
+                );
+            }
             if self.total_frames == 1
                 || self.total_frames.is_multiple_of(300)
                 || self.args.capture_frame.contains(&self.total_frames)
@@ -842,6 +935,46 @@ impl App {
             self.overlay
                 .show_error(format!("Could not forget cartridge: {error:#}"));
         }
+        if let Some(consent) = actions.reporting.consent {
+            if let Err(error) = self.reports.set_consent(consent) {
+                self.overlay
+                    .show_error(format!("Could not save screenshot preference: {error:#}"));
+            }
+            if let Some(backend) = &self.backend {
+                self.reports
+                    .remember_frame(backend.video(), backend.status().frame);
+            }
+        }
+        if let Some(note) = actions.reporting.capture {
+            match self.reports.bug(note) {
+                Ok(offer) => self.overlay.reports.offer = Some(offer),
+                Err(error) => self
+                    .overlay
+                    .show_error(format!("Could not save report bundle: {error:#}")),
+            }
+        }
+        if let Some(offer) = &self.overlay.reports.offer {
+            let result = if actions.reporting.issue {
+                reports::open(std::ffi::OsStr::new(&offer.issue_url))
+            } else if actions.reporting.folder {
+                reports::open(
+                    offer
+                        .path
+                        .parent()
+                        .unwrap_or(&self.storage.directory)
+                        .as_os_str(),
+                )
+            } else {
+                Ok(())
+            };
+            if let Err(error) = result {
+                self.overlay.show_error(format!("{error:#}"));
+            }
+        }
+        if actions.reporting.dismiss {
+            self.reports.dismiss_pending()?;
+            self.overlay.reports.offer = None;
+        }
         if was_open != self.overlay.open {
             self.input.clear_keys();
             if self.overlay.open {
@@ -880,6 +1013,21 @@ impl App {
             self.replay.as_ref().map(Replay::frame)
         );
         if let Some(backend) = &mut self.backend {
+            if let Some(expected) = &self.expected_report_state {
+                let actual = backend.status();
+                if actual.frame != expected.frame
+                    || actual.pc != expected.pc
+                    || actual.master_clock.to_string() != expected.master_clock
+                    || actual.players != expected.players
+                {
+                    self.error.get_or_insert_with(|| anyhow::anyhow!("captured report replay state differs: expected {expected:?}, actual {actual:?}"));
+                } else {
+                    println!(
+                        "REPORT_REPLAY_MATCH frame={} pc={:06X} master_clock={} players={:?}",
+                        actual.frame, actual.pc, actual.master_clock, actual.players
+                    );
+                }
+            }
             println!("BACKEND final={:?}", backend.status());
         }
         if let Some(audio) = &self.audio {
@@ -895,9 +1043,17 @@ impl App {
                 stats.queued
             );
         }
+        if let Some(error) = &self.error
+            && let Err(capture_error) = self.reports.error("frontend_exit", error)
+        {
+            eprintln!("Could not persist error report: {capture_error:#}");
+        }
     }
 
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: anyhow::Error) {
+        if let Err(capture_error) = self.reports.error("frontend_error", &error) {
+            eprintln!("Could not persist error report: {capture_error:#}");
+        }
         self.error = Some(error);
         event_loop.exit();
     }
@@ -1076,12 +1232,24 @@ fn capture(path: &Path, frame: VideoFrame<'_>) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let mut app = App::new(Args::parse())?;
-    EventLoop::new()?.run_app(&mut app)?;
-    if let Some(error) = app.error {
-        return Err(error);
+    let args = Args::parse();
+    let storage = Storage::new(args.data_dir.clone())?;
+    let reporter = reports::Reporter::new(&storage.directory);
+    reporter.install_hook();
+    let result = (|| {
+        let mut app = App::new(args, reporter.clone())?;
+        EventLoop::new()?.run_app(&mut app)?;
+        if let Some(error) = app.error {
+            return Err(error);
+        }
+        Ok(())
+    })();
+    if let Err(error) = &result
+        && let Err(capture_error) = reporter.error("main_exit", error)
+    {
+        eprintln!("Could not persist error report: {capture_error:#}");
     }
-    Ok(())
+    result
 }
 
 #[cfg(test)]

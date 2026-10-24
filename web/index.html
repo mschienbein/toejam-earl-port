@@ -66,6 +66,39 @@
       <button id="cancel-mapping" type="button" hidden>Cancel assignment (Escape)</button>
       <div id="player-controls"></div>
     </details>
+    <section aria-labelledby="reports-heading">
+      <h2 id="reports-heading">Playtest reports</h2>
+      <p>Crashes are saved locally in this browser’s IndexedDB, never uploaded. Reports contain the build/commit, browser/OS,
+        ROM revision and SHA-1 <strong>only (never ROM bytes or compiled code)</strong>, settings, error/stack, last completed
+        frame/state and controller-only inputs. The input ring holds 216,000 console frames (about one hour at 60 Hz).
+        It restarts on reset/import; while it fits, the existing tje-session recording is continuous from power-on.
+        After overflow the bundle explicitly contains a non-replayable input tail instead of claiming a power-on recording.</p>
+      <label for="report-screenshot"><input id="report-screenshot" type="checkbox">
+        Include the last game screenshot in reports — optional copyrighted game graphics, collected only with this consent.</label>
+      <p class="small">This consent is remembered for future crashes. Turn it off to stop collecting pixels.
+        Notes and settings may contain personal details; review the downloaded bundle before sharing it.</p>
+      <button id="report-bug" type="button">Report a bug</button>
+      <div id="bug-form" hidden>
+        <label for="report-note">What happened? Steps to reproduce and expected behavior</label>
+        <textarea id="report-note" rows="5" maxlength="16384"></textarea>
+        <button id="report-save" type="button">Save report bundle locally</button>
+      </div>
+      <div id="report-offer" hidden>
+        <p id="report-summary"></p>
+        <button id="report-download" type="button">Download report bundle</button>
+        <button id="report-issue" type="button">Open prefilled GitHub issue (network, only on click)</button>
+        <button id="report-dismiss" type="button">Dismiss offer (keep saved bundle)</button>
+        <p>Nothing is sent automatically. On this or the next visit, download the bundle, open the prefilled issue on
+          mschienbein/toejam-earl-port, and attach the reviewed JSON yourself (ZIP it first if GitHub requires it).
+          Never attach your ROM or generated-code cache. Browser storage can be evicted; download reports you want to keep.</p>
+      </div>
+      <p id="report-status" role="status" aria-live="polite"></p>
+      <p class="small">Developers can replay a complete downloaded bundle with
+        <code>toejam-earl --rom /private/rev02.bin --replay-report report.tje-report.json</code>.
+        The developer must supply the matching original cartridge. The CLI checks the captured frame/PC/clock/player summary;
+        an unfinished frame’s input is included to reproduce the error. Overflowed tails cannot replay deterministically.
+        The transport-independent bundle is the extension point for a future explicitly approved upload service; none exists now.</p>
+    </section>
     <details>
       <summary>Privacy and browser requirements</summary>
       <p>Use an up-to-date browser on HTTPS (or localhost). WebGPU is preferred; WebGL 2 is the automatic fallback.

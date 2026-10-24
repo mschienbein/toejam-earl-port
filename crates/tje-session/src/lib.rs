@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use tje_rom::Revision;
 
+pub mod report;
+
 pub const FORMAT_VERSION: u32 = 1;
 pub const TOOL_VERSION: &str = concat!("tje-session/", env!("CARGO_PKG_VERSION"));
 pub const CONNECTED: u16 = 1 << 8;
