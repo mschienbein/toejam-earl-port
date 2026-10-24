@@ -333,14 +333,13 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         };
         let timing = region.accept_instruction(timing).map_err(timing_error)?;
         let pipeline = timing.pipeline();
-        self.emulator
-            .hybrid_parts()
-            .0
-            .hybrid_finish_timing_instruction(
-                pipeline.pc,
-                pipeline.prefetch as u16,
-                pipeline.last_muldiv != 0,
-            );
+        let (cpu, bus) = self.emulator.hybrid_parts();
+        cpu.hybrid_finish_timing_instruction(
+            pipeline.pc,
+            pipeline.prefetch as u16,
+            pipeline.last_muldiv != 0,
+            bus,
+        );
         let before = self.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
         let cycles = timing.cycles();
         #[cfg(test)]

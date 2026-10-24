@@ -286,7 +286,7 @@ fn devices(rom: &[u8], reference: &GenesisEmulator) -> PlatformDevices {
     devices.enable_trace();
     devices.enable_ram_write_trace();
     let mut devices = PlatformDevices::from(devices);
-    devices.enable_instruction_trace();
+    devices.enable_exception_trace();
     devices
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -512,6 +512,8 @@ fn assert_native_service(
     let mut audio = Audio::default();
     let mut frame_yields = 0;
     let receipt = loop {
+        let before_clock = devices.clock();
+        let before_boundaries = devices.exception_trace().unwrap().len();
         let step = region
             .step_native_interrupt(&mut state, &mut devices, GenesisInputs::default())
             .unwrap();
@@ -537,6 +539,11 @@ fn assert_native_service(
                 .map(normalize)
                 .eq(actual.iter().copied())
         );
+        for boundary in &devices.exception_trace().unwrap()[before_boundaries..] {
+            assert_eq!(boundary.master_clock, before_clock);
+            assert!(boundary.master_clock < devices.clock());
+            assert!(boundary.bus_access_index <= actual.len());
+        }
         assert_eq!(
             devices.ram_write_trace().unwrap(),
             original.hybrid_bus().native_ram_writes.as_ref().unwrap()
@@ -566,6 +573,14 @@ fn assert_native_service(
     assert_eq!(receipt.scheduled_instructions(), expected_instructions);
     assert!(receipt.steps() >= expected_instructions + 2);
     assert!(receipt.master_clocks() > 0);
+    assert!(matches!(
+        devices
+            .exception_trace()
+            .unwrap()
+            .last()
+            .map(|entry| entry.boundary),
+        Some(tje_engine_core::ExceptionBoundary::Returned)
+    ));
     assert_eq!(region.usage().original_isr_instructions, 0);
     assert!(devices.vdp().hybrid_state_eq(&original.hybrid_bus().vdp));
     assert_eq!(
@@ -608,6 +623,7 @@ fn noop_false_rte_foreign_plan_zero_cycles_fake_bus_and_wrong_banks_never_mint_r
         let original = prepared(&rom);
         let mut state = cpu(&original);
         let initial_usp = state.usp;
+        let initial_ssp = state.ssp;
         let mut devices = devices(&rom, &original);
         let main = main_program(&rom);
         let mut handler = RustCounter {
@@ -621,9 +637,46 @@ fn noop_false_rte_foreign_plan_zero_cycles_fake_bus_and_wrong_banks_never_mint_r
             .unwrap();
         region.start_native_interrupt(token, &state).unwrap();
         let error = loop {
+            let before = state.clone();
+            let clock_before = devices.clock();
+            let marker_count = devices.exception_trace().unwrap().len();
+            let depth = devices
+                .exception_trace()
+                .unwrap()
+                .iter()
+                .fold(0_u32, |depth, marker| match marker.boundary {
+                    tje_engine_core::ExceptionBoundary::Entered { .. } => depth + 1,
+                    tje_engine_core::ExceptionBoundary::Returned => depth - 1,
+                });
+            let rejected_before_rte = (mutation == Mutation::FalseRte && before.pc != RTE_PC)
+                || (before.pc == RTE_PC
+                    && (before.usp != initial_usp
+                        || before.ssp != initial_ssp.wrapping_sub(6 * depth)));
+            let instructions_before = region.usage().scheduled_isr_instructions;
             match region.step_native_interrupt(&mut state, &mut devices, GenesisInputs::default()) {
                 Ok(step) => assert!(step.returned.is_none()),
-                Err(error) => break error,
+                Err(error) => {
+                    if rejected_before_rte {
+                        assert!(
+                            devices.exception_trace().unwrap()[marker_count..]
+                                .iter()
+                                .all(|entry| {
+                                    entry.boundary != tje_engine_core::ExceptionBoundary::Returned
+                                })
+                        );
+                        assert_eq!(devices.clock(), clock_before);
+                        assert_eq!(
+                            (state.pc, state.prefetch, state.usp, state.ssp),
+                            (before.pc, before.prefetch, before.usp, before.ssp),
+                            "pre-RTE validation cannot perform or repair a return",
+                        );
+                        assert_eq!(
+                            region.usage().scheduled_isr_instructions,
+                            instructions_before
+                        );
+                    }
+                    break error;
+                }
             }
         };
         assert!(matches!(
@@ -680,4 +733,76 @@ fn missing_native_body_and_callee_closure_fail_before_device_progress() {
         edges: Vec::new(),
     };
     assert!(NativeIsrProgram::compile(&rom, incomplete, 7).is_err());
+}
+
+#[test]
+fn actual_rte_marker_survives_proof_boundary_failure_but_not_an_architectural_fault() {
+    use tje_mem::Bus as MemoryBus;
+    for (target, successful_rte) in [(MAIN + 4, true), (MAIN + 1, false)] {
+        let rom = rom();
+        let original = prepared(&rom);
+        let mut state = cpu(&original);
+        let mut devices = devices(&rom, &original);
+        let main = main_program(&rom);
+        let mut handler = RustCounter {
+            program: native_program(&rom),
+            mutation: Mutation::None,
+            calls: 0,
+        };
+        let mut region = TimingRegion::begin_native(&main, &state, Some(&mut handler)).unwrap();
+        let token = region
+            .suspend_interrupt(&state, BoundaryAction::InterruptAdmission { level: 4 })
+            .unwrap();
+        region.start_native_interrupt(token, &state).unwrap();
+        for _ in 0..100_000 {
+            if state.pc == RTE_PC && state.sr & 0x2000 != 0 {
+                break;
+            }
+            let step = region
+                .step_native_interrupt(&mut state, &mut devices, GenesisInputs::default())
+                .unwrap();
+            assert!(step.returned.is_none());
+        }
+        assert_eq!(state.pc, RTE_PC);
+        let old_sp = state.ssp;
+        // Explicit fixture mutation AFTER a real admitted IRQ. This is not a
+        // source-game write, and it never patches the CPU's PC/SP to fit proof.
+        MemoryBus::write_u32(devices.memory_mut(), old_sp + 2, target);
+        let mut failed_at = None;
+        for _ in 0..1000 {
+            let old_clock = devices.clock();
+            let old_markers = devices.exception_trace().unwrap().len();
+            match region.step_native_interrupt(&mut state, &mut devices, GenesisInputs::default()) {
+                Ok(step) => assert!(step.returned.is_none()),
+                Err(_) => {
+                    failed_at = Some((old_clock, old_markers));
+                    break;
+                }
+            }
+        }
+        let (old_clock, old_markers) = failed_at.expect("the altered actual frame must reject");
+        let markers = &devices.exception_trace().unwrap()[old_markers..];
+        assert_eq!(
+            markers
+                .iter()
+                .any(|entry| entry.boundary == tje_engine_core::ExceptionBoundary::Returned),
+            successful_rte,
+        );
+        if successful_rte {
+            assert_eq!(state.pc, target);
+            assert_eq!(state.ssp, old_sp + 6);
+            assert_eq!(state.prefetch, u32::from(NOP));
+            assert_eq!(
+                devices.clock(),
+                old_clock,
+                "the later ownership error aborts before device advance"
+            );
+        } else {
+            assert_ne!(state.address_error, 0);
+            assert!(markers.iter().any(|entry| matches!(
+                entry.boundary,
+                tje_engine_core::ExceptionBoundary::Entered { vector: 3, .. }
+            )));
+        }
+    }
 }

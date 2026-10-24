@@ -12,10 +12,10 @@ mod exception;
 #[cfg(feature = "devices")]
 mod platform;
 
-pub use tje_engine_core::{Bus, CpuState, ReadKind, StepResult};
+pub use tje_engine_core::{Bus, CpuState, ExceptionBoundary, ReadKind, StepResult};
 
 #[cfg(feature = "devices")]
-pub use platform::{BusAccess, Engine, PlatformDevices, SampleRateError};
+pub use platform::{BusAccess, Engine, ExceptionObservation, PlatformDevices, SampleRateError};
 
 /// One original instruction, not an entire source-level function or basic block.
 /// Every successful call must leave PC and prefetch at the next original
@@ -202,6 +202,16 @@ impl<D: Devices, B: Backend> Machine<D, B> {
                     (cycles, StepKind::Instruction, Some(pc))
                 } else {
                     let result = self.backend.execute(&mut self.cpu, &mut self.devices)?;
+                    // The compiled RTE has completed all successful frame reads
+                    // and its return prefetch; peripherals have not advanced.
+                    if opcode == 0x4e73
+                        && result.vector == 0
+                        && result.cycles == 20
+                        && self.cpu.address_error == 0
+                    {
+                        self.devices
+                            .observe_exception_boundary(ExceptionBoundary::Returned);
+                    }
                     if result.vector != 0 {
                         self.devices.prepare_noninstruction();
                     }

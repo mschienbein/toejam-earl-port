@@ -9,6 +9,7 @@ enum Access {
     Read(u32, u8, u32),
     Write(u32, u8, u32),
     Ack(u8),
+    Boundary(ExceptionBoundary),
 }
 
 #[derive(Clone)]
@@ -21,6 +22,7 @@ struct TestDevices {
     wait: u32,
     clocks: u64,
     read_offset: u32,
+    boundaries: Vec<(ExceptionBoundary, u64)>,
 }
 
 impl TestDevices {
@@ -34,6 +36,7 @@ impl TestDevices {
             wait: 0,
             clocks: 0,
             read_offset: 0,
+            boundaries: Vec::new(),
         };
         result.poke_long(0, 0x8000);
         result.poke_long(4, 0x100);
@@ -90,6 +93,10 @@ impl Bus for TestDevices {
     fn set_read_offset_mclk(&mut self, offset: u32) {
         self.read_offset = offset;
     }
+    fn observe_exception_boundary(&mut self, boundary: ExceptionBoundary) {
+        self.accesses.push(Access::Boundary(boundary));
+        self.boundaries.push((boundary, self.clocks));
+    }
 }
 
 impl BusInterface for TestDevices {
@@ -119,6 +126,15 @@ impl BusInterface for TestDevices {
     fn acknowledge_interrupt(&mut self, level: u8) {
         self.accesses.push(Access::Ack(level));
         self.irq = 0;
+    }
+    fn observe_exception_boundary(&mut self, boundary: m68000_emu::ExceptionBoundary) {
+        let boundary = match boundary {
+            m68000_emu::ExceptionBoundary::Entered {
+                vector, handler, ..
+            } => ExceptionBoundary::Entered { vector, handler },
+            m68000_emu::ExceptionBoundary::Returned { .. } => ExceptionBoundary::Returned,
+        };
+        Bus::observe_exception_boundary(self, boundary);
     }
     fn halt(&self) -> bool {
         self.halt
@@ -330,6 +346,53 @@ fn supervisor_entry_and_rte_restore_the_user_stack_and_trace_bit() {
     assert_eq!(machine.cpu.ssp, 0x8000);
     assert_eq!(machine.cpu.sr, 0x8015);
     assert_eq!(machine.cpu.pc, 0x100);
+}
+
+#[test]
+fn successful_rte_boundary_is_after_frame_reads_before_the_device_advance() {
+    let (mut machine, mut cpu, mut bus) = pair(&[0x4e71, 0x4e71]);
+    machine.cpu.set_sr(0x2000);
+    cpu.set_status_register(0x2000);
+    machine.devices.irq = 6;
+    bus.irq = 6;
+    one(&mut machine, &mut cpu, &mut bus); // actual admission
+    one(&mut machine, &mut cpu, &mut bus); // actual accepted entry
+    let before = machine.devices.clocks;
+    one(&mut machine, &mut cpu, &mut bus); // actual RTE
+    assert_eq!(
+        machine.devices.boundaries.last(),
+        Some(&(ExceptionBoundary::Returned, before))
+    );
+    assert!(machine.devices.clocks > before);
+    let position = machine
+        .devices
+        .accesses
+        .iter()
+        .rposition(|access| matches!(access, Access::Boundary(ExceptionBoundary::Returned)))
+        .unwrap();
+    assert!(matches!(
+        machine.devices.accesses[position - 1],
+        Access::Read(0x100, 2, _)
+    ));
+}
+
+#[test]
+fn failed_privileged_rte_has_exception_entry_but_no_successful_return_marker() {
+    let (mut machine, mut cpu, mut bus) = pair(&[0x4e73, 0x4e71]);
+    machine.cpu.set_sr(0x0015);
+    cpu.set_status_register(0x0015);
+    one(&mut machine, &mut cpu, &mut bus);
+    assert!(
+        machine
+            .devices
+            .boundaries
+            .iter()
+            .all(|(boundary, _)| { *boundary != ExceptionBoundary::Returned })
+    );
+    assert!(matches!(
+        machine.devices.boundaries.last(),
+        Some((ExceptionBoundary::Entered { vector: 8, .. }, _))
+    ));
 }
 
 #[test]

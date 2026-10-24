@@ -232,6 +232,8 @@ impl TimingRegion<'_> {
                             devices.prepare_noninstruction();
                             let cycles = exception::return_from_exception(cpu, devices);
                             if cycles == 20 && cpu.address_error == 0 {
+                                devices
+                                    .observe_exception_boundary(crate::ExceptionBoundary::Returned);
                                 let frame =
                                     controller.frames.pop().ok_or(TimingError::WrongToken)?;
                                 if cpu.pc != frame.pc

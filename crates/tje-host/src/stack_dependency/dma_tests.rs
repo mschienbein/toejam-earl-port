@@ -311,6 +311,7 @@ fn timeaware_endpoint_normalization_is_inside_both_root_audits() {
                         &hook,
                         side,
                         crate::call_clock::ClockRunPurpose::Baseline,
+                        crate::future_frame_watch::ObservationOrigin::CheckFork,
                     )
                     .unwrap();
                 assert_eq!(

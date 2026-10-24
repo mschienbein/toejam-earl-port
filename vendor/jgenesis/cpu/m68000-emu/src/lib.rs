@@ -138,7 +138,7 @@ mod instruction_observation_tests {
         }
     }
 }
-pub use traits::{BusInterface, ReadPurpose};
+pub use traits::{BusInterface, ExceptionBoundary, ReadPurpose};
 
 #[cfg(test)]
 mod read_purpose_tests {

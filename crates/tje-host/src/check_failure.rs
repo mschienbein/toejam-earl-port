@@ -28,7 +28,7 @@ pub struct CheckFailure {
     pub vdp_mismatch: Option<VdpMismatchReport>,
 }
 
-fn bounded_detail(mut detail: String) -> (String, bool) {
+pub(crate) fn bounded_detail(mut detail: String) -> (String, bool) {
     if detail.len() <= FAILURE_DETAIL_LIMIT {
         return (detail, false);
     }
@@ -77,11 +77,19 @@ impl Host {
     }
 
     pub(super) fn check_live_hook(&mut self, hook: &Hook) -> Result<()> {
+        self.future_observer.natural_checks += 1;
+        let result = self.check_live_hook_inner(hook);
+        self.future_observer.natural_checks -= 1;
+        result
+    }
+
+    fn check_live_hook_inner(&mut self, hook: &Hook) -> Result<()> {
         if self.check_failure_policy == CheckFailurePolicy::FailFast {
             return self.check_hook(hook).map(|_| ());
         }
         let calls_before = self.checks.calls;
         let mismatches_before = self.checks.mismatches;
+        let earlier_approval_events = self.checks.failures.len();
         // The retained global report can be from a prior fixture of this same
         // function/frame. Only a report produced by this attempt belongs to its
         // failure; retain the prior report globally if this attempt has none.
@@ -102,7 +110,11 @@ impl Host {
                 self.checks.calls += 1;
                 self.checks.record_function(hook, true);
             }
-            if self.checks.mismatches == mismatches_before {
+            // A future read may invalidate earlier approvals before this
+            // attempt reaches comparison. Those events do not count as the
+            // current failed hook attempt, even when they name the same root.
+            let invalidated_earlier = (self.checks.failures.len() - earlier_approval_events) as u64;
+            if self.checks.mismatches - mismatches_before <= invalidated_earlier {
                 self.checks.record_mismatch(hook);
             }
             let entry_pc = hook.symbol.address(self.revision);

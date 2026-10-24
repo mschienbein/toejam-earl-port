@@ -203,6 +203,7 @@ impl Host {
     ) -> Result<T> {
         let mut saved = self.emulator.partial_clone();
         let terminal_entry = self.terminal_entry;
+        let provenance = self.begin_isolated_provenance();
         let result = execute(self);
         if let Some(cartridge) = saved.hybrid_bus_mut().cartridge.as_mut() {
             cartridge.take_rom_from(
@@ -215,7 +216,10 @@ impl Host {
         }
         self.emulator = saved;
         self.terminal_entry = terminal_entry;
-        result
+        let watched = self.finish_isolated_provenance(provenance);
+        let value = result?;
+        watched?;
+        Ok(value)
     }
 
     pub(crate) fn observe_live_instruction(&mut self, pc: u32) {
@@ -247,6 +251,7 @@ impl Host {
             .session_trace
             .as_ref()
             .is_some_and(|trace| trace.call_observer.is_some());
+        let watch_before = self.begin_live_frame_observation()?;
         if observing_calls {
             self.emulator
                 .hybrid_parts()
@@ -260,8 +265,10 @@ impl Host {
                 .0
                 .hybrid_set_instruction_counting(false);
         }
+        let provenance = self.finish_live_frame_observation(watch_before);
         let effect = effect?;
         self.observe_call_return(effect == TickEffect::FrameRendered)?;
+        provenance?;
         let vdp = &self.emulator.hybrid_bus().vdp;
         let blank_line = vdp
             .hybrid_registers()

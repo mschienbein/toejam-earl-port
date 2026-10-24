@@ -11,6 +11,15 @@ pub enum ReadPurpose {
     Prefetch,
 }
 
+/// TJE check observation at a successful architectural exception boundary.
+/// No register/RAM payload is copied into ordinary bus accesses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+pub enum ExceptionBoundary {
+    Entered { vector: u32, handler: u32, depth: u32 },
+    Returned { depth: u32 },
+}
+
 pub trait BusInterface {
     // Addresses are 32-bit internally but the 68000 only has a 24-bit address bus
     const ADDRESS_MASK: u32 = 0x00FF_FFFF;
@@ -56,6 +65,10 @@ pub trait BusInterface {
     fn interrupt_level(&self) -> u8;
 
     fn acknowledge_interrupt(&mut self, interrupt_level: u8);
+
+    /// Defaults to no code after monomorphization for unobserved buses.
+    #[inline]
+    fn observe_exception_boundary(&mut self, _boundary: ExceptionBoundary) {}
 
     fn halt(&self) -> bool;
 

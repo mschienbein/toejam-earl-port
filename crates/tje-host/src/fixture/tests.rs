@@ -55,6 +55,7 @@ pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
         terminal_entry: None,
         check_failure_policy: crate::CheckFailurePolicy::FailFast,
         disabled_check_roots: Default::default(),
+        future_observer: Default::default(),
         output: HeadlessOutput,
         audio: HeadlessAudio::default(),
         saves: NoCartridgeSaves,
@@ -539,6 +540,7 @@ fn time_aware_pending_cartridge_dma_is_completed_before_rom_returns_to_live() {
                 &hook,
                 CheckSide::Rust,
                 crate::call_clock::ClockRunPurpose::Baseline,
+                crate::future_frame_watch::ObservationOrigin::CheckFork,
             )
             .unwrap();
         let mut original = host.fork();
@@ -551,6 +553,7 @@ fn time_aware_pending_cartridge_dma_is_completed_before_rom_returns_to_live() {
                     outcome: rust.outcome,
                 },
                 crate::call_clock::ClockRunPurpose::Baseline,
+                crate::future_frame_watch::ObservationOrigin::CheckFork,
             )
             .unwrap();
         for fork in [&original, &translated] {

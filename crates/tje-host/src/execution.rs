@@ -81,7 +81,7 @@ impl tje_mem::Bus for WaitRam<'_> {
         bus.memory
             .write_main_ram::<false>(address, u16::from(value));
         if let Some(trace) = bus.hybrid_cpu_accesses.as_mut() {
-            trace.push(HybridAccess::Write {
+            trace.push(HybridAccess::HostMutation {
                 address,
                 word: false,
                 value: u16::from(value),
@@ -285,24 +285,46 @@ pub(crate) fn discharge_functional_wait(
     Ok(())
 }
 
-fn drain_accesses(
+pub(crate) fn drain_accesses(
     emulator: &mut GenesisEmulator,
     pc: u32,
     master_clock: u64,
     ym_busy_loop: bool,
     run: &mut ClockRun,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) {
     let bus = emulator.hybrid_bus_mut();
+    let boundaries = bus
+        .hybrid_exception_boundaries
+        .as_deref()
+        .unwrap_or_default();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
         for access in accesses.drain(..) {
+            if let Some(branch) = provenance {
+                branch.observe_stream(access, boundaries);
+            }
+            // Indexed payloads have now been consumed at their exact position.
+            // Never retain an index after its owning payload buffer is cleared.
+            if matches!(access, HybridAccess::ExceptionBoundary { .. }) {
+                continue;
+            }
             run.accesses.push((pc, access));
-            // VDP source reads belong to the root dependency journal. They are
-            // not CPU/ISR operand reads and must not enter the IRQ projection.
-            if !matches!(access, HybridAccess::DmaRead { .. }) {
+            // DMA and Z80 accesses/boundary markers remain in the chronological
+            // audit, never impersonating CPU/ISR operand accesses.
+            if !matches!(
+                access,
+                HybridAccess::DmaRead { .. }
+                    | HybridAccess::Z80Write { .. }
+                    | HybridAccess::HostMutation { .. }
+                    | HybridAccess::ExceptionBoundary { .. }
+            ) {
                 run.logic_trace
                     .access(pc, master_clock, access, ym_busy_loop);
             }
         }
+    }
+    if let Some(boundaries) = &mut bus.hybrid_exception_boundaries {
+        boundaries.clear();
     }
 }
 
@@ -311,6 +333,7 @@ fn timed_tick(
     clock: &mut WaitClock,
     run: &mut ClockRun,
     audio: &mut HeadlessAudio,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<()> {
     clock.call_clock.before_tick().map_err(HostError::Clock)?;
     let pc = emulator.hybrid_cpu().pc();
@@ -325,6 +348,9 @@ fn timed_tick(
         run.instructions += 1;
     }
     let ym_busy_loop = auditing && ready && tight_ym_busy_loop(emulator, pc);
+    if let Some(branch) = provenance {
+        branch.begin_step(emulator.hybrid_cpu(), master_clock, clock.frame);
+    }
     let effect = emulator
         .tick(
             &mut HeadlessOutput,
@@ -332,42 +358,55 @@ fn timed_tick(
             &mut Inputs(clock.inputs),
             &mut NoCartridgeSaves,
         )
-        .map_err(|error| HostError::Emulator(error.to_string()))?;
-    run.ticks += 1;
-    let reference_instructions = run.reference_progress(emulator)?;
-    clock
-        .call_clock
-        .record(ClockUsage {
-            ticks: 1,
-            instructions: reference_instructions,
-            dispatch_steps: 0,
-            master_clocks: emulator
-                .hybrid_bus()
-                .cycles
-                .m68k_mclk_cycles
-                .checked_sub(master_clock)
-                .ok_or(HostError::Clock(
-                    tje_game::execution::CallClockError::NonMonotonicClock,
-                ))?,
-            frames: u64::from(effect == TickEffect::FrameRendered),
-        })
-        .map_err(HostError::Clock)?;
-    let depth_after = emulator.hybrid_cpu().hybrid_exception_depth();
-    if auditing && depth_after > depth_before {
-        let vector = emulator
-            .hybrid_cpu()
-            .hybrid_last_exception_vector()
-            .ok_or_else(|| {
-                HostError::Metadata("accepted exception has no observed vector".into())
-            })?;
-        run.logic_trace.events.push(LogicEvent::ExceptionEntered {
-            vector,
-            handler: emulator.hybrid_cpu().pc(),
-            depth: depth_after - run.exception_base,
-            master_clock,
-        });
+        .map_err(|error| HostError::Emulator(error.to_string()));
+    if effect.is_err() {
+        drain_accesses(emulator, pc, master_clock, ym_busy_loop, run, provenance);
     }
-    drain_accesses(emulator, pc, master_clock, ym_busy_loop, run);
+    let effect = effect?;
+    run.ticks += 1;
+    let depth_after = emulator.hybrid_cpu().hybrid_exception_depth();
+    let entered = if auditing && depth_after > depth_before {
+        if let Some(vector) = emulator.hybrid_cpu().hybrid_last_exception_vector() {
+            run.logic_trace.events.push(LogicEvent::ExceptionEntered {
+                vector,
+                handler: emulator.hybrid_cpu().pc(),
+                depth: depth_after - run.exception_base,
+                master_clock,
+            });
+            Ok(())
+        } else {
+            Err(HostError::Metadata(
+                "accepted exception has no observed vector".into(),
+            ))
+        }
+    } else {
+        Ok(())
+    };
+    // Even malformed boundary/counter evidence must not hide physical reads
+    // already performed by this tick. Preserve the earlier boundary error.
+    drain_accesses(emulator, pc, master_clock, ym_busy_loop, run, provenance);
+    let progress = run.reference_progress(emulator).and_then(|instructions| {
+        let master_clocks = emulator
+            .hybrid_bus()
+            .cycles
+            .m68k_mclk_cycles
+            .checked_sub(master_clock)
+            .ok_or(HostError::Clock(
+                tje_game::execution::CallClockError::NonMonotonicClock,
+            ))?;
+        clock
+            .call_clock
+            .record(ClockUsage {
+                ticks: 1,
+                instructions,
+                dispatch_steps: 0,
+                master_clocks,
+                frames: u64::from(effect == TickEffect::FrameRendered),
+            })
+            .map_err(HostError::Clock)
+    });
+    entered?;
+    progress?;
     if auditing && depth_after < depth_before {
         let root_return = run.entry_boundary.is_some_and(|boundary| {
             boundary.entry_exception_return
@@ -387,7 +426,10 @@ fn timed_tick(
     }
     if effect == TickEffect::FrameRendered {
         run.frames += 1;
-        clock.advance_frame(emulator)?;
+        if let Some(branch) = provenance {
+            branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
+        }
+        let timeline = clock.advance_frame(emulator);
         // Timeline writes belong to this completed tick, not to a later IRQ
         // that happens to enter before the next ordinary instruction.
         drain_accesses(
@@ -396,7 +438,9 @@ fn timed_tick(
             emulator.hybrid_bus().cycles.m68k_mclk_cycles,
             false,
             run,
+            provenance,
         );
+        timeline?;
     }
     clock.call_clock.check().map_err(HostError::Clock)?;
     Ok(())
@@ -418,7 +462,7 @@ pub(crate) fn run_wait(
     clock: &mut WaitClock,
     request: WaitRequest,
 ) -> Result<ClockRun> {
-    run_wait_with_audio(emulator, clock, request, Vec::new(), true)
+    run_wait_with_audio(emulator, clock, request, Vec::new(), true, None)
 }
 
 /// Replacement callers move their existing audio buffer through this operation;
@@ -429,6 +473,7 @@ pub(crate) fn run_wait_with_audio(
     request: WaitRequest,
     samples: Vec<[f64; 2]>,
     audit: bool,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
@@ -440,7 +485,6 @@ pub(crate) fn run_wait_with_audio(
             "trace exceptions are not an interrupt-wait contract".into(),
         ));
     }
-    emulator.hybrid_bus_mut().apply_pending_writes();
     let saved_pc = emulator.hybrid_cpu().pc();
     let saved_sp = emulator.hybrid_cpu().stack_pointer();
     if !emulator
@@ -455,8 +499,16 @@ pub(crate) fn run_wait_with_audio(
     }
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
-        audit.then(Vec::new),
+        (audit || provenance.is_some()).then(Vec::new),
     );
+    let saved_boundaries = std::mem::replace(
+        &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
+        provenance.is_some().then(Vec::new),
+    );
+    if let Some(branch) = provenance {
+        branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
+    }
+    emulator.hybrid_bus_mut().apply_pending_writes();
     {
         let (cpu, bus) = emulator.hybrid_parts();
         cpu.set_pc(PARK_PC, bus);
@@ -466,6 +518,14 @@ pub(crate) fn run_wait_with_audio(
         ..ClockRun::default()
     };
     let mut audio = HeadlessAudio { samples };
+    drain_accesses(
+        emulator,
+        PARK_PC,
+        emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        false,
+        &mut run,
+        provenance,
+    );
     let mut handler_entered = false;
     let result = (|| {
         run.begin_reference_counting(emulator, clock.call_clock.active())?;
@@ -482,6 +542,9 @@ pub(crate) fn run_wait_with_audio(
             }
             handler_entered |= depth > run.exception_base;
             if at_park && depth == run.exception_base {
+                if let Some(branch) = provenance {
+                    branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
+                }
                 let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
                 drain_accesses(
                     emulator,
@@ -489,6 +552,7 @@ pub(crate) fn run_wait_with_audio(
                     emulator.hybrid_bus().cycles.m68k_mclk_cycles,
                     false,
                     &mut run,
+                    provenance,
                 );
                 if satisfied && native_resume_ready(emulator) {
                     return Ok(());
@@ -502,15 +566,27 @@ pub(crate) fn run_wait_with_audio(
                     emulator.hybrid_cpu().pc()
                 )));
             }
-            timed_tick(emulator, clock, &mut run, &mut audio)?;
+            timed_tick(emulator, clock, &mut run, &mut audio, provenance)?;
         }
     })();
     let (cpu, bus) = emulator.hybrid_parts();
     // A failure aborts the call; never pretend an interrupted ISR returned.
     if result.is_ok() {
+        if let Some(branch) = provenance {
+            branch.begin_native(clock.frame, bus.cycles.m68k_mclk_cycles);
+        }
         cpu.set_pc(saved_pc, bus);
     }
-    bus.hybrid_cpu_accesses = saved_trace;
+    drain_accesses(
+        emulator,
+        emulator.hybrid_cpu().pc(),
+        emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        false,
+        &mut run,
+        provenance,
+    );
+    emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
+    emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
     run.audio = audio.samples;
     run.finish_reference_counting(emulator);
     result?;
@@ -523,7 +599,15 @@ pub(crate) fn run_original_timed(
     return_pc: u32,
     return_sp: u32,
 ) -> Result<ClockRun> {
-    run_original_timed_with_audio(emulator, clock, return_pc, return_sp, Vec::new(), true)
+    run_original_timed_with_audio(
+        emulator,
+        clock,
+        return_pc,
+        return_sp,
+        Vec::new(),
+        true,
+        None,
+    )
 }
 
 pub(crate) fn run_original_timed_with_audio(
@@ -533,6 +617,7 @@ pub(crate) fn run_original_timed_with_audio(
     return_sp: u32,
     samples: Vec<[f64; 2]>,
     audit: bool,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<ClockRun> {
     run_original_timed_until_with_audio(
         emulator,
@@ -540,6 +625,7 @@ pub(crate) fn run_original_timed_with_audio(
         crate::exits::ReferenceBoundary::returned(return_pc, return_sp),
         samples,
         audit,
+        provenance,
     )
 }
 
@@ -547,8 +633,9 @@ pub(crate) fn run_original_timed_until(
     emulator: &mut GenesisEmulator,
     clock: &mut WaitClock,
     boundary: crate::exits::ReferenceBoundary,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<ClockRun> {
-    run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true)
+    run_original_timed_until_with_audio(emulator, clock, boundary, Vec::new(), true, provenance)
 }
 
 pub(crate) fn run_original_timed_until_with_audio(
@@ -557,6 +644,7 @@ pub(crate) fn run_original_timed_until_with_audio(
     boundary: crate::exits::ReferenceBoundary,
     samples: Vec<[f64; 2]>,
     audit: bool,
+    provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
@@ -566,7 +654,11 @@ pub(crate) fn run_original_timed_until_with_audio(
     let root_is_scoped = clock.call_clock.active();
     let saved_trace = std::mem::replace(
         &mut emulator.hybrid_bus_mut().hybrid_cpu_accesses,
-        audit.then(Vec::new),
+        (audit || provenance.is_some()).then(Vec::new),
+    );
+    let saved_boundaries = std::mem::replace(
+        &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
+        provenance.is_some().then(Vec::new),
     );
     let mut run = ClockRun {
         exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
@@ -608,11 +700,20 @@ pub(crate) fn run_original_timed_until_with_audio(
                     boundary.pc,
                 )));
             }
-            timed_tick(emulator, clock, &mut run, &mut audio)?;
+            timed_tick(emulator, clock, &mut run, &mut audio, provenance)?;
         }
         Ok(())
     })();
+    drain_accesses(
+        emulator,
+        emulator.hybrid_cpu().pc(),
+        emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+        false,
+        &mut run,
+        provenance,
+    );
     emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
+    emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
     run.audio = audio.samples;
     run.finish_reference_counting(emulator);
     result?;
@@ -979,6 +1080,7 @@ mod tests {
             WaitRequest::vblank_frame(0xff8000, 0),
             samples,
             false,
+            None,
         )
         .unwrap();
         assert_eq!(run.audio.as_ptr(), allocation);
@@ -1212,7 +1314,7 @@ mod tests {
             {
                 break;
             }
-            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio).unwrap();
+            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
         }
         assert_eq!(emulator.hybrid_bus().interrupt_level(), 6);
         let (cpu, bus) = emulator.hybrid_parts();
@@ -1301,6 +1403,7 @@ mod tests {
             &mut clock,
             &mut ignored,
             &mut HeadlessAudio::default(),
+            None,
         )
         .unwrap();
         // Pinned core recognizes in ten cycles; no caller opcode or frame yet.
@@ -1496,6 +1599,7 @@ mod tests {
                 &mut WaitClock::default(),
                 &mut run,
                 &mut audio,
+                None,
             )
             .unwrap();
         }
@@ -1530,7 +1634,7 @@ mod tests {
             },
         ]);
         let mut run = ClockRun::default();
-        drain_accesses(&mut emulator, PARK_PC, 0, false, &mut run);
+        drain_accesses(&mut emulator, PARK_PC, 0, false, &mut run, None);
         assert_eq!(run.accesses.len(), 3);
         assert!(matches!(
             run.logic_trace.events.as_slice(),

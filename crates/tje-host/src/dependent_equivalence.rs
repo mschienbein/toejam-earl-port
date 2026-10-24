@@ -570,7 +570,13 @@ impl Host {
                 perturb(&mut rust, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
                 let rust_run = self
-                    .run_check_side(&mut rust, hook, CheckSide::Rust, purpose)
+                    .run_check_side(
+                        &mut rust,
+                        hook,
+                        CheckSide::Rust,
+                        purpose,
+                        crate::future_frame_watch::ObservationOrigin::DependencyProbe,
+                    )
                     .map_err(|error| format!("dependent Rust probe did not complete: {error}"))?;
                 evidence.rust_runs_completed += 1;
                 let boundary =
@@ -588,6 +594,7 @@ impl Host {
                             outcome: rust_run.outcome,
                         },
                         purpose,
+                        crate::future_frame_watch::ObservationOrigin::DependencyProbe,
                     )
                     .map_err(|error| {
                         format!("dependent original probe did not complete: {error}")

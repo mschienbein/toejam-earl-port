@@ -321,7 +321,8 @@ fn all_source_observer_restores_flag_and_trace_after_a_failed_root() {
             &mut fork,
             &hook,
             CheckSide::Rust,
-            crate::call_clock::ClockRunPurpose::Baseline
+            crate::call_clock::ClockRunPurpose::Baseline,
+            crate::future_frame_watch::ObservationOrigin::CheckFork
         )
         .is_err()
     );

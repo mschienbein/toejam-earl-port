@@ -111,7 +111,7 @@ fn main() -> Result<()> {
             }
             for session in &sessions {
                 println!(
-                    "{} revision={} frames={} entries={}/{} ticks={} lag={} checked={} replaced={} mismatches={}",
+                    "{} revision={} frames={} entries={}/{} ticks={} lag={} checked={} replaced={} mismatches={} provenance={:?} pending={} invalidated={}",
                     session.session,
                     session.revision,
                     session.frames,
@@ -121,7 +121,10 @@ fn main() -> Result<()> {
                     session.lag_frames.len(),
                     session.checked_calls,
                     session.replaced_calls,
-                    session.mismatches
+                    session.mismatches,
+                    session.future_frame_provenance.status,
+                    session.future_frame_provenance.provisional,
+                    session.future_frame_provenance.invalidated,
                 );
             }
             let report_data = runner::Report::from_sessions(sessions);
@@ -129,7 +132,8 @@ fn main() -> Result<()> {
             runner::save_json(&report, &report_data)?;
             ensure!(
                 report_data.status == runner::ReportStatus::Complete,
-                "check replay completed with counted mismatches; report {}",
+                "check replay is {:?}: counted failures or unresolved future-frame provenance; report {}",
+                report_data.status,
                 report.display()
             );
         }

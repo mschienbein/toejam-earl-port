@@ -53,14 +53,21 @@ impl Host {
         hook: &Hook,
         side: CheckSide,
         purpose: ClockRunPurpose,
+        origin: crate::future_frame_watch::ObservationOrigin,
     ) -> Result<CheckRun> {
         let revision = self.revision;
         let dispatcher = self.registry.dispatcher();
         let mut clock = self.wait_clock.clone();
         let entry_frame = clock.frame;
         let dependent = hook.dependent_proof.is_some();
+        let provenance_side = match side {
+            CheckSide::Original { .. } => crate::future_frame_watch::Side::Original,
+            CheckSide::Rust => crate::future_frame_watch::Side::Rust,
+        };
+        // Even the reference fork is speculative; purpose is not authority.
+        let provenance = self.future_frame_branch(provenance_side, origin);
         let mut receipt = None;
-        let result = self.execute_fork(fork, |emulator| {
+        let executed = self.execute_fork(fork, |emulator| {
             let entry_usage = clock.call_clock.usage();
             let ceiling = if hook.execution_class == ExecutionClass::TimeAware {
                 Some(clock.enter_call_ceiling(hook.symbol.id, hook.clock_ceiling)?)
@@ -70,80 +77,99 @@ impl Host {
             let entry_sp = emulator.hybrid_cpu().stack_pointer();
             let entry_pc = emulator.hybrid_cpu().pc();
             let mut stack = crate::abi::StackAuditState::new(entry_sp, dependent);
+            stack.provenance = provenance;
+            if let Some(branch) = &stack.provenance {
+                branch.begin_native(entry_frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
+            }
             let mut audit = stack.empty_run();
-            // Observe normalization as well as the body while this fork owns
-            // its cartridge. Do not let a deferred DMA escape the root audit.
             let saved_trace = emulator
                 .hybrid_bus_mut()
                 .hybrid_cpu_accesses
                 .replace(Vec::new());
+            let saved_boundaries = std::mem::replace(
+                &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
+                stack.provenance.is_some().then(Vec::new),
+            );
             let saved_all_dma = emulator.hybrid_bus().hybrid_dma_all_sources;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = hook
                 .dependent_proof
                 .is_some_and(|setting| setting.captures_all_dma());
-            let result = (|| {
+            // Retain the branch on every execution error, including an error
+            // after a watched read. No early `?` may discard its rejection.
+            let mut stack_slot = Some(stack);
+            let result: Result<CheckRun> = (|| {
                 if hook.execution_class == ExecutionClass::Functional {
                     emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
                 }
-                stack.drain(emulator.hybrid_bus_mut(), entry_pc, &mut audit);
-                let (mut run, mut stack) = match side {
+                stack_slot.as_mut().expect("root audit").drain(
+                    emulator.hybrid_bus_mut(),
+                    entry_pc,
+                    &mut audit,
+                );
+                let mut run = match side {
                     CheckSide::Original { boundary, outcome } => {
+                        let stack = stack_slot.as_mut().expect("root audit");
                         let logic_trace = if hook.execution_class == ExecutionClass::TimeAware {
-                            let clock_run =
-                                run_original_timed_until(emulator, &mut clock, boundary)?;
+                            let clock_run = run_original_timed_until(
+                                emulator,
+                                &mut clock,
+                                boundary,
+                                stack.provenance.as_ref(),
+                            )?;
                             for (pc, access) in clock_run.accesses {
                                 stack.observe(pc, access, &mut audit);
                             }
                             clock_run.logic_trace
                         } else {
                             audit.append(crate::abi::run_original_atomic_scoped(
-                                emulator, boundary, &mut stack,
+                                emulator, boundary, stack,
                             )?);
                             LogicTrace::default()
                         };
-                        (
-                            CheckRun {
-                                audit,
-                                outcome,
-                                logic_trace,
-                                nested_calls: 0,
-                                wait_frames: clock.frame - entry_frame,
-                                dependent_writes: None,
-                                exact_device_reads: Vec::new(),
-                            },
-                            stack,
-                        )
+                        CheckRun {
+                            audit,
+                            outcome,
+                            logic_trace,
+                            nested_calls: 0,
+                            wait_frames: clock.frame - entry_frame,
+                            dependent_writes: None,
+                            exact_device_reads: Vec::new(),
+                        }
                     }
                     CheckSide::Rust => {
                         let mut context = HookContext::new(emulator, revision, dispatcher)
                             .with_execution(hook.execution_class, std::mem::take(&mut clock));
-                        context.enable_stack_audit(stack, audit);
-                        let outcome: Result<EntryOutcome> = (|| {
-                            let outcome = hook.execute(&mut context)?;
-                            exits::finish(&mut context, hook, outcome)?;
-                            Ok(outcome)
-                        })();
+                        context.enable_stack_audit(stack_slot.take().expect("root audit"), audit);
+                        let outcome: Result<EntryOutcome> =
+                            hook.execute(&mut context).and_then(|outcome| {
+                                exits::finish(&mut context, hook, outcome)?;
+                                Ok(outcome)
+                            });
                         clock = context.wait_clock;
+                        stack_slot = context.stack_audit.take();
                         let outcome = outcome?;
-                        let stack = context.stack_audit.take().expect("active root audit");
-                        (
-                            CheckRun {
-                                audit: context.audit.into_inner(),
-                                outcome,
-                                logic_trace: context.logic_trace.into_inner(),
-                                nested_calls: context.nested_calls,
-                                wait_frames: context.time_frames,
-                                dependent_writes: None,
-                                exact_device_reads: context.exact_device_reads,
-                            },
-                            stack,
-                        )
+                        CheckRun {
+                            audit: context.audit.into_inner(),
+                            outcome,
+                            logic_trace: context.logic_trace.into_inner(),
+                            nested_calls: context.nested_calls,
+                            wait_frames: context.time_frames,
+                            dependent_writes: None,
+                            exact_device_reads: context.exact_device_reads,
+                        }
                     }
                 };
                 if hook.execution_class == ExecutionClass::TimeAware {
                     emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
                 }
                 let checkpoint = emulator.hybrid_cpu().pc();
+                let stack = stack_slot.as_mut().expect("retained root audit");
+                if let Some(branch) = &stack.provenance {
+                    branch.begin_native(
+                        entry_frame + run.wait_frames,
+                        emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                    );
+                }
                 stack.drain(emulator.hybrid_bus_mut(), checkpoint, &mut run.audit);
                 if dependent {
                     run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
@@ -153,34 +179,45 @@ impl Host {
                 Ok(run)
             })();
             emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
+            emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = saved_all_dma;
             let cleanup =
                 ceiling.map_or(Ok(()), |scope| clock.leave_call_ceiling(scope).map(|_| ()));
-            let result = match result {
+            let mut result = match result {
                 Err(error) => Err(error),
                 Ok(run) => cleanup.map(|()| run),
             };
             if hook.execution_class == ExecutionClass::TimeAware {
-                let usage = clock
-                    .call_clock
-                    .usage()
-                    .since(entry_usage)
-                    .map_err(HostError::Clock)?;
-                receipt = Some(CallClockRecord::new(
-                    hook.symbol.name,
-                    side.name(),
-                    purpose,
-                    hook.clock_ceiling,
-                    usage,
-                    (
-                        emulator.hybrid_cpu().pc(),
-                        emulator.hybrid_cpu().stack_pointer(),
-                    ),
-                    result.as_ref().err().map(ToString::to_string),
-                ));
+                match clock.call_clock.usage().since(entry_usage) {
+                    Ok(usage) => {
+                        receipt = Some(CallClockRecord::new(
+                            hook.symbol.name,
+                            side.name(),
+                            purpose,
+                            hook.clock_ceiling,
+                            usage,
+                            (
+                                emulator.hybrid_cpu().pc(),
+                                emulator.hybrid_cpu().stack_pointer(),
+                            ),
+                            result.as_ref().err().map(ToString::to_string),
+                        ));
+                    }
+                    Err(error) if result.is_ok() => result = Err(HostError::Clock(error)),
+                    Err(_) => {}
+                }
             }
-            result
+            let provenance = stack_slot.and_then(|mut stack| stack.provenance.take());
+            Ok((result, provenance))
         });
+        let result = match executed {
+            Ok((result, provenance)) => {
+                // Merge before propagating an execution error.
+                let observed = self.merge_future_frame_branch(provenance);
+                result.and_then(|run| observed.map(|()| run))
+            }
+            Err(error) => Err(error),
+        };
         if let Some(receipt) = receipt {
             self.checks.call_clocks.push(receipt);
         }
@@ -249,6 +286,7 @@ impl Host {
                             xor_mask: mask,
                             byte: selected,
                         },
+                        crate::future_frame_watch::ObservationOrigin::DependencyProbe,
                     ) {
                         Ok(probe) => {
                             reads.extend(probe.audit.uninitialized_reads.iter().copied());

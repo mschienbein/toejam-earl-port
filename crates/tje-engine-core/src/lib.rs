@@ -64,6 +64,14 @@ pub enum ReadKind {
     Discarded = 2,
 }
 
+/// Optional observation after an actual architectural frame entry/return.
+/// This metadata never executes, delivers or repairs an interrupt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExceptionBoundary {
+    Entered { vector: u32, handler: u32 },
+    Returned,
+}
+
 /// Bus accesses occur in IR order. Writes may be deferred by the device layer
 /// until its instruction step has advanced; the compiler never coalesces them.
 pub trait Bus {
@@ -72,6 +80,8 @@ pub trait Bus {
     fn write8(&mut self, address: u32, value: u8);
     fn write16(&mut self, address: u32, value: u16);
     fn set_read_offset_mclk(&mut self, offset: u32);
+    #[inline]
+    fn observe_exception_boundary(&mut self, _boundary: ExceptionBoundary) {}
 }
 
 /// Native ABI: the continuation returns cycles in bits 0..31 and vector in

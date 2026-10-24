@@ -156,8 +156,13 @@ impl TimeAwareCheckSummary {
 }
 
 fn is_semantic(access: HybridAccess) -> bool {
-    !matches!(access, HybridAccess::DmaRead { .. })
-        && !matches!(access, HybridAccess::Read { purpose, .. } if purpose != ReadPurpose::Semantic)
+    !matches!(
+        access,
+        HybridAccess::DmaRead { .. }
+            | HybridAccess::Z80Write { .. }
+            | HybridAccess::HostMutation { .. }
+            | HybridAccess::ExceptionBoundary { .. }
+    ) && !matches!(access, HybridAccess::Read { purpose, .. } if purpose != ReadPurpose::Semantic)
 }
 
 fn is_device(access: HybridAccess) -> bool {
@@ -165,6 +170,9 @@ fn is_device(access: HybridAccess) -> bool {
         HybridAccess::Read { address, .. }
         | HybridAccess::Write { address, .. }
         | HybridAccess::DmaRead { address, .. } => address & 0xffffff,
+        HybridAccess::Z80Write { .. }
+        | HybridAccess::HostMutation { .. }
+        | HybridAccess::ExceptionBoundary { .. } => return false,
     };
     (0x800000..0xe00000).contains(&address)
 }
@@ -256,6 +264,11 @@ fn project(trace: &LogicTrace, entry_sp: u32) -> Result<Vec<Effect>, String> {
                 HybridAccess::Read { address, .. }
                 | HybridAccess::Write { address, .. }
                 | HybridAccess::DmaRead { address, .. } => address,
+                HybridAccess::Z80Write { .. }
+                | HybridAccess::HostMutation { .. }
+                | HybridAccess::ExceptionBoundary { .. } => {
+                    return false;
+                }
             };
             is_device(access)
                 || (is_semantic(access) && canonical_ram_address(address) >= live_start)
@@ -348,7 +361,10 @@ fn project(trace: &LogicTrace, entry_sp: u32) -> Result<Vec<Effect>, String> {
                         word,
                         value,
                     } => (address, word, value, true),
-                    HybridAccess::DmaRead { .. } => continue,
+                    HybridAccess::DmaRead { .. }
+                    | HybridAccess::Z80Write { .. }
+                    | HybridAccess::HostMutation { .. }
+                    | HybridAccess::ExceptionBoundary { .. } => continue,
                 };
                 let address = address & 0xffffff;
                 if address >= 0xe00000 {

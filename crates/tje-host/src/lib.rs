@@ -22,6 +22,7 @@ pub mod dependent_equivalence;
 pub mod execution;
 mod exits;
 pub mod fixture;
+pub mod future_frame_watch;
 pub mod hooks;
 pub mod input;
 mod open_bus;
@@ -31,8 +32,8 @@ mod sinks;
 mod stack_dependency;
 pub mod timing_region;
 
-use abi::{HookContext, OrderedWrite, run_original_atomic, set_sp};
-use execution::{WaitClock, WaitInputPoller, run_original_timed};
+use abi::{HookContext, OrderedWrite, set_sp};
+use execution::{WaitClock, WaitInputPoller};
 use genesis_config::{GenesisEmulatorConfig, GenesisInputs};
 use genesis_core::{GenesisEmulator, HybridWrite};
 use hooks::{Hook, HookRegistry};
@@ -207,6 +208,8 @@ pub struct CheckReport {
     pub failure_policy: CheckFailurePolicy,
     /// One bounded event per failed root; retained even if later live work fails.
     pub failures: Vec<CheckFailure>,
+    /// Pending frame-version obligations never constitute approved checks.
+    pub future_frame_provenance: future_frame_watch::ProvenanceReport,
 }
 
 impl CheckReport {
@@ -281,6 +284,7 @@ pub struct Host {
     terminal_entry: Option<tje_game::FunctionId>,
     check_failure_policy: CheckFailurePolicy,
     disabled_check_roots: BTreeSet<u32>,
+    future_observer: future_frame_watch::LiveObserverLease,
     output: HeadlessOutput,
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
@@ -334,6 +338,7 @@ impl Host {
             terminal_entry: None,
             check_failure_policy: CheckFailurePolicy::FailFast,
             disabled_check_roots: BTreeSet::new(),
+            future_observer: Default::default(),
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
@@ -366,11 +371,7 @@ impl Host {
         self.emulator.hybrid_cpu()
     }
     pub fn context(&mut self) -> HookContext<'_> {
-        HookContext::new(
-            &mut self.emulator,
-            self.revision,
-            self.registry.dispatcher(),
-        )
+        self.inspection_context()
     }
 
     /// Inspect the typed VDP registers directly; unlike the snapshot encoding,
@@ -386,6 +387,7 @@ impl Host {
     }
 
     pub fn run_frame(&mut self, inputs: GenesisInputs) -> Result<FrameSnapshot> {
+        self.observe_retained_native_prefix()?;
         self.wait_clock.frame = self.frame;
         self.wait_clock.inputs = inputs;
         let mut inputs = Inputs(inputs);
@@ -519,6 +521,7 @@ impl Host {
             hook,
             CheckSide::Rust,
             call_clock::ClockRunPurpose::Baseline,
+            crate::future_frame_watch::ObservationOrigin::CheckFork,
         )?;
         let original_side = CheckSide::Original {
             boundary: exits::reference_boundary(
@@ -534,6 +537,7 @@ impl Host {
             hook,
             original_side,
             call_clock::ClockRunPurpose::Baseline,
+            crate::future_frame_watch::ObservationOrigin::CheckFork,
         )?;
         self.measurements.check_original_wait_frames += original_run.wait_frames;
         self.measurements.check_rust_wait_frames += translated_run.wait_frames;
@@ -685,6 +689,7 @@ impl Host {
         arguments: &[u32],
         isolated_fixture: bool,
     ) -> Result<u32> {
+        self.observe_retained_native_prefix()?;
         self.require_fixture_boundary()?;
         let hook = self
             .registry
@@ -716,47 +721,12 @@ impl Host {
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
         self.check_hook(&hook)?;
-        match hook.execution_class {
-            ExecutionClass::Atomic => {
-                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp, false)?;
-            }
-            ExecutionClass::Functional => {
-                self.emulator
-                    .hybrid_bus_mut()
-                    .hybrid_set_functional_mode(true);
-                run_original_atomic(&mut self.emulator, abi::CALL_SENTINEL, cleanup_sp, false)?;
-            }
-            ExecutionClass::TimeAware => {
-                let mut clock = self.wait_clock.clone();
-                let entry_usage = clock.call_clock.usage();
-                let scope = clock.enter_call_ceiling(hook.symbol.id, hook.clock_ceiling)?;
-                let run = run_original_timed(
-                    &mut self.emulator,
-                    &mut clock,
-                    abi::CALL_SENTINEL,
-                    cleanup_sp,
-                );
-                let cleanup = clock.leave_call_ceiling(scope);
-                let result = run.and_then(|_| cleanup.map(|_| ()));
-                self.checks.call_clocks.push(CallClockRecord::new(
-                    hook.symbol.name,
-                    "original",
-                    call_clock::ClockRunPurpose::FixtureReplay,
-                    hook.clock_ceiling,
-                    clock.call_clock.usage().since(entry_usage)?,
-                    (
-                        self.emulator.hybrid_cpu().pc(),
-                        self.emulator.hybrid_cpu().stack_pointer(),
-                    ),
-                    result.as_ref().err().map(ToString::to_string),
-                ));
-                result?;
-            }
-        }
+        self.execute_fixture_original(&hook, cleanup_sp)?;
         let (cpu, bus) = self.emulator.hybrid_parts();
         let result = cpu.data_registers()[0];
         set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
+        self.observe_retained_native_prefix()?;
         Ok(result)
     }
 

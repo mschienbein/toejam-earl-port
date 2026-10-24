@@ -1,6 +1,8 @@
 //! The shipped peripheral adapter. No 68000 CPU object is stored or consulted.
 
-use crate::{Backend, Bus, CpuState, DeviceStep, Devices, Machine, ReadKind, exception};
+use crate::{
+    Backend, Bus, CpuState, DeviceStep, Devices, ExceptionBoundary, Machine, ReadKind, exception,
+};
 use genesis_config::GenesisInputs;
 use jgenesis_common::frontend::{Color, FrameSize};
 use std::fmt;
@@ -14,6 +16,7 @@ pub type Engine<B> = Machine<PlatformDevices, B>;
 pub struct PlatformDevices {
     devices: DeviceRuntime,
     instruction_trace: Option<Vec<BusAccess>>,
+    exception_trace: Option<Vec<ExceptionObservation>>,
 }
 
 /// Optional physical 68000 bus journal. Addresses are normalized to 24 bits;
@@ -36,11 +39,21 @@ pub enum BusAccess {
     },
 }
 
+/// Indexed architectural boundary, before the following peripheral advance.
+/// The index refers to the optional CPU bus journal, not RAM commit order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExceptionObservation {
+    pub master_clock: u64,
+    pub bus_access_index: usize,
+    pub boundary: ExceptionBoundary,
+}
+
 impl From<DeviceRuntime> for PlatformDevices {
     fn from(devices: DeviceRuntime) -> Self {
         Self {
             devices,
             instruction_trace: None,
+            exception_trace: None,
         }
     }
 }
@@ -57,16 +70,29 @@ impl PlatformDevices {
 
     pub fn disable_instruction_trace(&mut self) {
         self.instruction_trace = None;
+        self.exception_trace = None;
     }
 
     pub fn clear_instruction_trace(&mut self) {
         if let Some(trace) = &mut self.instruction_trace {
             trace.clear();
         }
+        if let Some(trace) = &mut self.exception_trace {
+            trace.clear();
+        }
     }
 
     pub fn instruction_trace(&self) -> Option<&[BusAccess]> {
         self.instruction_trace.as_deref()
+    }
+
+    pub fn enable_exception_trace(&mut self) {
+        self.enable_instruction_trace();
+        self.exception_trace.get_or_insert_with(Vec::new);
+    }
+
+    pub fn exception_trace(&self) -> Option<&[ExceptionObservation]> {
+        self.exception_trace.as_deref()
     }
 
     fn record(&mut self, access: BusAccess) {
@@ -159,6 +185,20 @@ impl Bus for PlatformDevices {
 
     fn set_read_offset_mclk(&mut self, offset: u32) {
         DeviceRuntime::set_read_offset_mclk(&mut self.devices, u64::from(offset));
+    }
+
+    fn observe_exception_boundary(&mut self, boundary: ExceptionBoundary) {
+        if let Some(trace) = &mut self.exception_trace {
+            trace.push(ExceptionObservation {
+                master_clock: self.devices.clock(),
+                bus_access_index: self
+                    .instruction_trace
+                    .as_ref()
+                    .expect("boundary bus trace")
+                    .len(),
+                boundary,
+            });
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, ResolvedAddress,
 };
-use crate::traits::BusInterface;
+use crate::traits::{BusInterface, ExceptionBoundary};
 
 const TRAP_VECTOR_OFFSET: u32 = 32;
 const OVERFLOW_VECTOR: u32 = 7;
@@ -104,6 +104,9 @@ impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
         self.jump_to_address(pc)?;
         // TJE hybrid observation: failed returns must leave the frame outstanding.
         self.cpu.hybrid_exception_returned();
+        self.bus.observe_exception_boundary(ExceptionBoundary::Returned {
+            depth: self.cpu.hybrid_exception_depth,
+        });
 
         Ok(20)
     }

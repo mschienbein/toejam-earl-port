@@ -682,6 +682,51 @@ producer and read-before-later-store cases, accept direct/original-callee
 initialization controls, cover CPU write issue → DMA old-value read → RAM commit,
 and assert both sides' endpoint-normalization reads remain in the root audit.
 
+### Future private-frame provenance is rejection-only
+
+An IRQ-commutation certifier can bind an extra future-read obligation with
+`Host::arm_future_frame_watch`. A `WatchReceipt` identifies the actual IRQ vector,
+handler, nesting depth, entry master clock and full interrupted CPU state, plus
+each differing byte's actual Original/Rust values. Its source witness must name
+actual CPU frame/save commits inside the declared stack region; an address below
+SP or an external/Z80 store is not a private-frame producer.
+
+The host matches that exact accepted IRQ and activates the byte debt only after
+its successful architectural RTE. Indexed boundary markers occur in-stream
+before peripheral advance, so later DMA in the same step cannot precede RTE by
+observer accident. Actual M68k commits establish the frame-producer witness;
+external/native/Z80 stores can update already witnessed values, never invent a
+missing save. Neither final-RAM reconstruction nor instruction-issue counts
+attest entry or return.
+
+Every later actual CPU read (semantic, discarded or prefetch) and VDP work-RAM
+DMA source read rejects unresolved debt and invalidates every dependent approval.
+`ReadPurpose` is unchanged. Original and Rust check forks, dependency probes,
+canonical replays and isolated fixture trajectories inherit independent watch
+snapshots. Only sticky rejections merge back: speculative writes, fixture
+restoration and one-sided stores do not make the retained game state equivalent.
+Inspection RAM peeks are not game reads; an original CPU callee invoked through
+that context is still observed. Timeline/setup mutations retain their external
+origin, including partial writes before an input error.
+
+Discharge requires both sides' **actual current** values to be attested equal
+before any read. Check mode has a persistent actual Original stream, not a
+persistent Rust shadow. It therefore cannot grant Rust-current authority or
+approve these debts. Numeric equality after an untranslated Original store,
+Rust language stack locals, unresolved end-of-campaign debt and reset archives
+remain **provisional / pending**, never promoted. The timing bridge is the
+separate route for native bodies whose real-time IRQ lands at the same point;
+this observer does not relocate or repair CPU/RAM/IRQ state.
+
+Finish a campaign with `Host::finish_future_frame_provenance`, retain the full
+private evidence in `CheckReport::future_frame_provenance`, and call
+`ProvenanceSummary::ensure_proof_eligible` before accepting a proof. This guard
+does not replace ordinary differential, coverage or source-review requirements.
+The headless host CLI and session replay/report consumers distinguish pending
+from failed and never return a clean success for either pending or invalidated
+provenance, even with zero game mismatches. Default-off Independent runs retain
+their existing success behavior.
+
 ### Opt-in equivalence for genuinely dependent residuals
 
 A source-backed frame does not by itself discharge a real dependence. Such a

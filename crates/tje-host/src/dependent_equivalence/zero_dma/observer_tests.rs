@@ -93,6 +93,7 @@ fn complete_source_scope_covers_pre_entry_normalization_and_restores_success() {
             &hook,
             CheckSide::Rust,
             crate::call_clock::ClockRunPurpose::Baseline,
+            crate::future_frame_watch::ObservationOrigin::CheckFork,
         )
         .unwrap();
     assert!(

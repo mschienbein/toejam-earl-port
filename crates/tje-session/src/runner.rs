@@ -827,6 +827,8 @@ pub struct ReplayReport {
     pub checked_calls: u64,
     pub replaced_calls: u64,
     pub mismatches: u64,
+    #[serde(default)]
+    pub future_frame_provenance: tje_host::future_frame_watch::ProvenanceSummary,
     pub entries_hit: usize,
     pub inventory_entries: usize,
     pub entry_counts: BTreeMap<String, u64>,
@@ -852,6 +854,7 @@ pub struct MissedEntry {
 pub enum ReportStatus {
     #[default]
     Complete,
+    Pending,
     Failed,
 }
 
@@ -879,8 +882,14 @@ impl Report {
             ..Self::default()
         };
         for session in &report.sessions {
-            if session.mismatches != 0 {
+            let provenance = session.future_frame_provenance;
+            if session.mismatches != 0
+                || provenance.invalidated != 0
+                || provenance.status == tje_host::future_frame_watch::ProvenanceStatus::Invalidated
+            {
                 report.status = ReportStatus::Failed;
+            } else if !provenance.is_proof_eligible() && report.status != ReportStatus::Failed {
+                report.status = ReportStatus::Pending;
             }
             for (name, count) in &session.entry_counts {
                 *report.union_entry_counts.entry(name.clone()).or_default() += count;
@@ -974,6 +983,7 @@ pub fn replay_report(
             .map(|count| count.calls_replaced)
             .sum(),
         mismatches: host.checks.mismatches,
+        future_frame_provenance: host.future_frame_provenance_outcome(),
         disabled_functions: host
             .checks
             .failures
@@ -1127,6 +1137,7 @@ pub fn replay(
         let snapshot = match host.run_frame(inputs(pads)) {
             Ok(snapshot) => snapshot,
             Err(error) => {
+                host.finish_future_frame_provenance();
                 let message = error.to_string();
                 let pc = host.cpu().pc();
                 let failure = ReplayFailure {
@@ -1169,6 +1180,7 @@ pub fn replay(
             reported_failures = host.checks.failures.len();
         }
     }
+    host.finish_future_frame_provenance();
     replay_report(path, &session, &host, coverage.content)
 }
 
@@ -1361,6 +1373,18 @@ pub fn compare(bytes: &[u8], path: &Path, second: Mode, ticks: bool) -> Result<C
                 queues[1].len()
             ),
         });
+    }
+    if result.divergence.is_none() {
+        reference
+            .finish_future_frame_provenance()
+            .ensure_proof_eligible()?;
+        candidate
+            .finish_future_frame_provenance()
+            .ensure_proof_eligible()?;
+        ensure!(
+            candidate.checks.mismatches == 0,
+            "comparison has counted check failures"
+        );
     }
     Ok(result)
 }
@@ -1671,9 +1695,8 @@ mod tests {
         assert!(!destination.exists());
     }
 
-    #[test]
-    fn continued_failures_remain_failed_when_reports_are_merged() {
-        let session = ReplayReport {
+    fn authored_report_session(mismatches: u64) -> ReplayReport {
+        ReplayReport {
             session: "authored.tje.json".into(),
             revision: "rev02".into(),
             mode: "check".into(),
@@ -1683,17 +1706,27 @@ mod tests {
             idle_random_draws: 0,
             checked_calls: 1,
             replaced_calls: 0,
-            mismatches: 1,
+            mismatches,
+            future_frame_provenance: Default::default(),
             entries_hit: 0,
             inventory_entries: 648,
             entry_counts: BTreeMap::new(),
             content: Content::new(),
-            disabled_functions: vec!["AuthoredFailed".into()],
+            disabled_functions: if mismatches == 0 {
+                Vec::new()
+            } else {
+                vec!["AuthoredFailed".into()]
+            },
             checks: Some(serde_json::json!({"by_function":{
-                "AuthoredFailed":{"calls_checked":1,"mismatches":1},
+                "AuthoredFailed":{"calls_checked":1,"mismatches":mismatches},
                 "AuthoredUntouched":{"calls_checked":0,"mismatches":0}
             }})),
-        };
+        }
+    }
+
+    #[test]
+    fn continued_failures_remain_failed_when_reports_are_merged() {
+        let session = authored_report_session(1);
         let report = Report::from_sessions(vec![session]);
         assert_eq!(report.status, ReportStatus::Failed);
         let value = serde_json::to_value(&report).unwrap();
@@ -1710,6 +1743,62 @@ mod tests {
         assert_eq!(
             Report::from_sessions(decoded.sessions).status,
             ReportStatus::Failed
+        );
+    }
+
+    #[test]
+    fn unresolved_or_invalidated_provenance_never_roundtrips_into_a_clean_session_report() {
+        use tje_host::future_frame_watch::{ProvenanceStatus, ProvenanceSummary};
+        let pending = ProvenanceSummary {
+            status: ProvenanceStatus::Provisional,
+            approvals: 1,
+            provisional: 1,
+            ..Default::default()
+        };
+        let invalidated = ProvenanceSummary {
+            status: ProvenanceStatus::Invalidated,
+            approvals: 1,
+            invalidated: 1,
+            ..Default::default()
+        };
+        for (summary, expected) in [
+            (pending, ReportStatus::Pending),
+            (invalidated, ReportStatus::Failed),
+        ] {
+            let mut session = authored_report_session(0);
+            session.future_frame_provenance = summary;
+            let full = serde_json::json!({
+                "summary": summary, "authored_full_evidence": {"bytes":[17,34],"entry_clock":1234},
+            });
+            session.checks.as_mut().unwrap()["future_frame_provenance"] = full.clone();
+            let report = Report::from_sessions(vec![session]);
+            assert_eq!(report.status, expected);
+            assert_eq!(
+                report.sessions[0].mismatches, 0,
+                "pending is not a fabricated game mismatch"
+            );
+            let encoded = serde_json::to_value(&report).unwrap();
+            assert_eq!(
+                encoded["sessions"][0]["checks"]["future_frame_provenance"],
+                full
+            );
+            let decoded: Report = serde_json::from_value(encoded).unwrap();
+            assert_eq!(Report::from_sessions(decoded.sessions).status, expected);
+        }
+        for pending_first in [false, true] {
+            let mut session = authored_report_session(0);
+            session.future_frame_provenance = pending;
+            let failed = authored_report_session(1);
+            let sessions = if pending_first {
+                vec![session, failed]
+            } else {
+                vec![failed, session]
+            };
+            assert_eq!(Report::from_sessions(sessions).status, ReportStatus::Failed);
+        }
+        assert_eq!(
+            Report::from_sessions(vec![authored_report_session(0)]).status,
+            ReportStatus::Complete
         );
     }
 

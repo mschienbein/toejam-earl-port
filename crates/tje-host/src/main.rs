@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+use tje_host::future_frame_watch::{ProvenanceStatus, ProvenanceSummary};
 use tje_host::{FrameSnapshot, Host, Mode, hooks::HookRegistry, input::InputScript};
 
 #[derive(Parser)]
@@ -98,6 +99,20 @@ fn save_snapshot(
     Ok(())
 }
 
+fn proof_status(run_failed: bool, mismatches: u64, provenance: ProvenanceSummary) -> &'static str {
+    if run_failed
+        || mismatches != 0
+        || provenance.invalidated != 0
+        || provenance.status == ProvenanceStatus::Invalidated
+    {
+        "failed"
+    } else if !provenance.is_proof_eligible() {
+        "pending"
+    } else {
+        "complete"
+    }
+}
+
 fn main() -> Result<()> {
     let arguments = Arguments::parse();
     ensure!(arguments.frames > 0, "--frames must be positive");
@@ -150,6 +165,7 @@ fn main() -> Result<()> {
             save_snapshot(directory, log, &snapshot)?;
         }
     }
+    let provenance = host.finish_future_frame_provenance();
     if let Some(log) = &mut snapshots {
         log.flush()?;
     }
@@ -172,6 +188,8 @@ fn main() -> Result<()> {
     let summary = serde_json::json!({
         "revision": revision.name(),
         "error": run_error.as_ref().map(ToString::to_string),
+        "proof_status": proof_status(run_error.is_some(), host.checks.mismatches, provenance),
+        "future_frame_provenance": provenance,
         "mode": format!("{:?}", arguments.mode), "frames": host.frame_count(),
         "elapsed_seconds": elapsed, "headless_fps": arguments.frames as f64 / elapsed,
         "final_frame_counter": final_counter,
@@ -210,6 +228,12 @@ fn main() -> Result<()> {
         return Err(error.into());
     }
     ensure!(
+        host.checks.mismatches == 0,
+        "check run completed with {} counted mismatches",
+        host.checks.mismatches,
+    );
+    provenance.ensure_proof_eligible()?;
+    ensure!(
         !arguments.require_title || host.measurements.title_frame.is_some(),
         "script did not reach TitleScreenVideo"
     );
@@ -218,4 +242,52 @@ fn main() -> Result<()> {
         "script did not reach InGameLoop"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unresolved_zero_mismatch_provenance_is_pending_not_a_clean_cli_success() {
+        let pending = ProvenanceSummary {
+            status: ProvenanceStatus::Provisional,
+            approvals: 1,
+            provisional: 1,
+            ..Default::default()
+        };
+        assert_eq!(proof_status(false, 0, pending), "pending");
+        assert!(
+            pending
+                .ensure_proof_eligible()
+                .unwrap_err()
+                .to_string()
+                .contains("pending")
+        );
+        assert_eq!(
+            proof_status(false, 0, ProvenanceSummary::default()),
+            "complete"
+        );
+        assert!(ProvenanceSummary::default().ensure_proof_eligible().is_ok());
+    }
+
+    #[test]
+    fn invalidated_provenance_or_a_counted_failure_cannot_be_complete() {
+        let invalidated = ProvenanceSummary {
+            status: ProvenanceStatus::Invalidated,
+            approvals: 1,
+            invalidated: 1,
+            ..Default::default()
+        };
+        assert_eq!(proof_status(false, 0, invalidated), "failed");
+        assert!(invalidated.ensure_proof_eligible().is_err());
+        assert_eq!(
+            proof_status(false, 1, ProvenanceSummary::default()),
+            "failed"
+        );
+        assert_eq!(
+            proof_status(true, 0, ProvenanceSummary::default()),
+            "failed"
+        );
+    }
 }

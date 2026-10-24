@@ -1,7 +1,7 @@
 //! Frame construction follows the reference CPU's bus order, including its
 //! approximate address-error frames and fixed 10 + 44 cycle interrupt entry.
 
-use crate::{Bus, CpuState, ReadKind, StepResult};
+use crate::{Bus, CpuState, ExceptionBoundary, ReadKind, StepResult};
 
 const SUPERVISOR: u32 = 0x2000;
 const TRACE: u32 = 0x8000;
@@ -108,7 +108,12 @@ fn trap_frame(
     push_long(cpu, bus, saved_pc)?;
     push_word(cpu, bus, sr as u16)?;
     let target = read_long(bus, vector * 4);
-    jump(cpu, bus, target)
+    jump(cpu, bus, target)?;
+    bus.observe_exception_boundary(ExceptionBoundary::Entered {
+        vector,
+        handler: cpu.pc,
+    });
+    Ok(())
 }
 
 fn secondary_address_error(cpu: &mut CpuState, bus: &mut dyn Bus, opcode: u16, fault: Fault) {
@@ -149,6 +154,11 @@ fn address_error(
         // A second address error freezes the CPU, rather than recursively
         // inventing another frame. Devices continue to run until external reset.
         cpu.frozen = 1;
+    } else {
+        bus.observe_exception_boundary(ExceptionBoundary::Entered {
+            vector: 3,
+            handler: cpu.pc,
+        });
     }
 }
 

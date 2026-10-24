@@ -150,6 +150,34 @@ pub enum HybridAccess {
         address: u32,
         value: u16,
     },
+    /// Actual banked Z80 work-RAM commit, never a 68000 stack save.
+    Z80Write {
+        address: u32,
+        word: bool,
+        value: u16,
+    },
+    /// Physical external input-recipe store, never a game CPU frame producer.
+    HostMutation {
+        address: u32,
+        word: bool,
+        value: u16,
+    },
+    /// Index into the opt-in boundary payload; common accesses stay compact.
+    ExceptionBoundary {
+        index: u32,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum WriteActor {
+    M68k,
+    Z80,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct HybridExceptionBoundary {
+    pub master_clock: u64,
+    pub boundary: m68000_emu::ExceptionBoundary,
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -184,6 +212,9 @@ pub struct GenesisBus {
     /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
     /// ROM fetches are omitted; normal emulation leaves this disabled.
     pub hybrid_cpu_accesses: Option<Vec<HybridAccess>>,
+    /// Installed only for frame provenance. Payloads are separate for size, not
+    /// chronology: the marker's position in hybrid_cpu_accesses is authoritative.
+    pub hybrid_exception_boundaries: Option<Vec<HybridExceptionBoundary>>,
     /// TJE hybrid: opt-in complete DMA source stream for reviewed zero-count
     /// proofs. Normal checks retain only RAM-source audit events.
     pub hybrid_dma_all_sources: bool,
@@ -231,6 +262,7 @@ impl GenesisBus {
             native_cpu_accesses: None,
             native_ram_writes: None,
             hybrid_cpu_accesses: None,
+            hybrid_exception_boundaries: None,
             hybrid_dma_all_sources: false,
             hybrid_functional: false,
             hybrid_functional_violation: None,
@@ -383,11 +415,11 @@ impl GenesisBus {
         let mut pending_writes = mem::take(&mut self.pending_writes);
 
         for &(address, value) in &pending_writes.byte {
-            self.apply_write::<false>(address, value.into());
+            self.apply_write::<false>(address, value.into(), WriteActor::M68k);
         }
 
         for &(address, value) in &pending_writes.word {
-            self.apply_write::<true>(address, value);
+            self.apply_write::<true>(address, value, WriteActor::M68k);
         }
 
         pending_writes.clear();
@@ -510,7 +542,7 @@ impl GenesisBus {
         if WORD { self.open_bus } else { self.open_bus.be_byte(address & 1).into() }
     }
 
-    fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16) {
+    fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16, actor: WriteActor) {
         let address = address & 0xFFFFFF;
         // Device dispatch precedes any DMA it triggers; RAM is observed below
         // only after its queued write has actually committed.
@@ -589,7 +621,10 @@ impl GenesisBus {
                     trace.push(crate::native::RamWrite::new(address, WORD, value));
                 }
                 if let Some(trace) = &mut self.hybrid_cpu_accesses {
-                    trace.push(HybridAccess::Write { address, word: WORD, value });
+                    trace.push(match actor {
+                        WriteActor::M68k => HybridAccess::Write { address, word: WORD, value },
+                        WriteActor::Z80 => HybridAccess::Z80Write { address, word: WORD, value },
+                    });
                 }
             }
             _ => {}
@@ -897,6 +932,20 @@ impl m68000_emu::BusInterface for GenesisBus {
     }
 
     #[inline]
+    fn observe_exception_boundary(&mut self, boundary: m68000_emu::ExceptionBoundary) {
+        if let (Some(accesses), Some(boundaries)) =
+            (&mut self.hybrid_cpu_accesses, &mut self.hybrid_exception_boundaries)
+        {
+            let index = u32::try_from(boundaries.len()).expect("exception observation index");
+            boundaries.push(HybridExceptionBoundary {
+                master_clock: self.cycles.m68k_mclk_cycles,
+                boundary,
+            });
+            accesses.push(HybridAccess::ExceptionBoundary { index });
+        }
+    }
+
+    #[inline]
     fn halt(&self) -> bool {
         self.vdp.should_halt_cpu() || self.timing_halt()
     }
@@ -1008,7 +1057,7 @@ impl z80_emu::BusInterface for GenesisBus {
 
                 let m68k_addr = self.z80_bank.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
-                    self.apply_write::<false>(m68k_addr, value.into());
+                    self.apply_write::<false>(m68k_addr, value.into(), WriteActor::Z80);
                 } else {
                     // TODO this should lock up the system
                     log::error!(

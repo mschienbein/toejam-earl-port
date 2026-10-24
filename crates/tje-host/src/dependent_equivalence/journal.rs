@@ -42,7 +42,10 @@ impl JournalRead {
             HybridAccess::DmaRead { address, value } => {
                 (address, true, ReadPurpose::Semantic, value, "vdp_dma")
             }
-            HybridAccess::Write { .. } => return None,
+            HybridAccess::Write { .. }
+            | HybridAccess::Z80Write { .. }
+            | HybridAccess::HostMutation { .. }
+            | HybridAccess::ExceptionBoundary { .. } => return None,
         };
         let raw_address = address & 0xffffff;
         if origin == "cpu" {

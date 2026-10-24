@@ -1,7 +1,7 @@
 pub(crate) mod instructions;
 
 use crate::core::instructions::Instruction;
-use crate::traits::{BusInterface, ReadPurpose};
+use crate::traits::{BusInterface, ExceptionBoundary, ReadPurpose};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
@@ -908,6 +908,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         {
             counts.other_exceptions += 1;
         }
+        self.bus.observe_exception_boundary(ExceptionBoundary::Entered {
+            vector: ADDRESS_ERROR_VECTOR,
+            handler: self.cpu.registers.pc,
+            depth: self.cpu.hybrid_exception_depth,
+        });
 
         Ok(())
     }
@@ -929,6 +934,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
             counts.other_exceptions += 1;
         }
         self.cpu.hybrid_last_exception_vector = Some(vector);
+        self.bus.observe_exception_boundary(ExceptionBoundary::Entered {
+            vector,
+            handler: self.cpu.registers.pc,
+            depth: self.cpu.hybrid_exception_depth,
+        });
 
         Ok(())
     }
@@ -952,6 +962,11 @@ impl<'cpu, 'bus, B: BusInterface> InstructionExecutor<'cpu, 'bus, B> {
         {
             counts.irq_entries[usize::from(interrupt_level)] += 1;
         }
+        self.bus.observe_exception_boundary(ExceptionBoundary::Entered {
+            vector: vector_addr / 4,
+            handler: self.cpu.registers.pc,
+            depth: self.cpu.hybrid_exception_depth,
+        });
 
         // Auto-vectored interrupt handling takes 49-59 cycles instead of 44:
         //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
@@ -1423,14 +1438,26 @@ impl M68000 {
     /// TJE hybrid timing-only region: publish the real pipeline after Rust performed
     /// every source effect. Unlike set_pc, this does not fetch from the bus and
     /// never writes game registers, flags, stacks or memory.
-    pub fn hybrid_finish_timing_instruction(&mut self, pc: u32, prefetch: u16, last_muldiv: bool) {
-        if self.registers.prefetch == 0x4e73 {
+    pub fn hybrid_finish_timing_instruction(
+        &mut self,
+        pc: u32,
+        prefetch: u16,
+        last_muldiv: bool,
+        bus: &mut impl BusInterface,
+    ) {
+        let returned = self.registers.prefetch == 0x4e73;
+        if returned {
             self.hybrid_exception_returned();
         }
         self.registers.pc = pc;
         self.registers.prefetch = prefetch;
         self.registers.last_instruction_was_muldiv = last_muldiv;
         self.registers.address_error = false;
+        if returned {
+            bus.observe_exception_boundary(ExceptionBoundary::Returned {
+                depth: self.hybrid_exception_depth,
+            });
+        }
     }
 
     // TJE hybrid access: a hook must not run ahead of a pending IRQ or bus stall.
