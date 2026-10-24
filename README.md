@@ -42,8 +42,9 @@ and options. The imported ROM and settings stay in the OS user-data directory
 printed at startup, not in the extracted package.
 Open **Settings (F1)** for live remapping and options; see the [native controls guide](crates/tje-native/README.md).
 
-For the browser build, open the GitHub Pages URL shown by a completed web release
-workflow, choose the ROM locally, and click **Play / enable audio**. Nothing is
+For the browser build, open the current preview at
+<https://mschienbein.github.io/toejam-earl-port/> (it tracks `main` and is a work in progress),
+choose the ROM locally, and click **Play / enable audio**. Nothing is
 uploaded. A downloaded web ZIP must be served on HTTPS or localhost; opening
 `index.html` directly will not work. Its on-page controls list the browser-specific
 bindings.
@@ -61,6 +62,15 @@ See [docs/RELEASING.md](docs/RELEASING.md) for runtime dependencies, checksum
 verification, unsigned-package warnings, local native/web builds and the
 maintainer release procedure. Release workflows run only for `v*` tags or an
 allowed manual dispatch; configuring them does not publish a release.
+
+## Crashes and bug reports
+
+If the game crashes, both frontends save a local report: build, platform, ROM revision and
+hash (never ROM contents), settings, the error, and the controller inputs since power-on, so
+the crash can be replayed exactly. A screenshot is added only with your consent. Use **Report a
+bug** to capture the same bundle on demand. On the next launch you're offered a prefilled
+GitHub issue; nothing is sent unless you submit it. See the
+[native controls guide](crates/tje-native/README.md) for details.
 
 ## Reproducible controller sessions
 
