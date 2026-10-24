@@ -20,6 +20,7 @@ pub(super) fn finish(
     frame: LocalFrame,
     value: Result<Option<u32>>,
 ) -> Result<Option<u32>> {
+    let value = value.map_err(|error| context.protect_timing_failure(error));
     if value
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

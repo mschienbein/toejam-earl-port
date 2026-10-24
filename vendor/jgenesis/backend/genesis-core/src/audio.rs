@@ -185,6 +185,21 @@ impl GenesisAudioResampler {
         }
     }
 
+    /// TJE native: size both unmatched-output queues for their combined filter
+    /// histories and the maximum chip synchronization interval, at actual rates.
+    /// No sample, counter, filter, arithmetic or serialization order changes.
+    pub fn native_reserve_output_buffers(&mut self, timing_mode: TimingMode, maximum_mclk: u64) {
+        let master_frequency = match timing_mode {
+            TimingMode::Ntsc => NTSC_GENESIS_MCLK_FREQUENCY,
+            TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
+        };
+        let interval = maximum_mclk as f64 / master_frequency;
+        let capacity = self.ym2612_resampler.native_output_capacity_bound(interval)
+            + self.psg_resampler.native_output_capacity_bound(interval);
+        self.ym2612_resampler.native_reserve_output_capacity(capacity);
+        self.psg_resampler.native_reserve_output_capacity(capacity);
+    }
+
     /// Push all samples that are ready to the given audio output.
     ///
     /// # Errors

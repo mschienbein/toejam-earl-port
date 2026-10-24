@@ -25,6 +25,7 @@ use tje_engine_runtime::{
     },
 };
 
+pub(crate) mod game_bridge;
 pub mod wait_vblank;
 
 fn timing_error(error: TimingError) -> HostError {
@@ -60,6 +61,24 @@ pub trait TimingLedger {
         state: &GenesisEmulator,
         clock: &mut WaitClock,
     ) -> Result<()>;
+    /// Optional actual-actor audit, distinct from the shared root budget.
+    fn prepare_actual_step(
+        &mut self,
+        _owner: ProgressOwner,
+        _state: &GenesisEmulator,
+        _frame: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+    /// Always called after an attempted real step, including Result errors.
+    fn capture_actual_step(
+        &mut self,
+        _owner: ProgressOwner,
+        _state: &mut GenesisEmulator,
+        _step: Option<DeviceStep>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +94,9 @@ pub struct TimingHost<'a, L> {
     ledger: &'a mut L,
     audio: HeadlessAudio,
     effects: Vec<EffectReceipt>,
+    collect_effects: bool,
+    counting_before: bool,
+    last_step: Option<DeviceStep>,
     #[cfg(test)]
     cycle_mutation: u32,
 }
@@ -84,17 +106,52 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         clock: &'a mut WaitClock,
         ledger: &'a mut L,
     ) -> Result<Self> {
+        Self::build(emulator, clock, ledger, HeadlessAudio::default(), true)
+    }
+    pub(crate) fn with_audio(
+        emulator: &'a mut GenesisEmulator,
+        clock: &'a mut WaitClock,
+        ledger: &'a mut L,
+        audio: Vec<[f64; 2]>,
+    ) -> Result<Self> {
+        Self::build(
+            emulator,
+            clock,
+            ledger,
+            HeadlessAudio { samples: audio },
+            false,
+        )
+    }
+    fn build(
+        emulator: &'a mut GenesisEmulator,
+        clock: &'a mut WaitClock,
+        ledger: &'a mut L,
+        audio: HeadlessAudio,
+        collect_effects: bool,
+    ) -> Result<Self> {
         if emulator.hybrid_bus().hybrid_functional_mode() {
             return Err(HostError::Metadata(
                 "a timing-only region cannot use a zero-clock Functional bus".into(),
             ));
         }
+        let cpu = emulator.hybrid_parts().0;
+        let previous = cpu
+            .hybrid_instruction_counts()
+            .map(|counts| counts.enabled());
+        if previous.is_none() {
+            cpu.hybrid_enable_instruction_counts();
+        } else {
+            cpu.hybrid_set_instruction_counting(true);
+        }
         Ok(Self {
             emulator,
             clock,
             ledger,
-            audio: HeadlessAudio::default(),
+            audio,
             effects: Vec::new(),
+            collect_effects,
+            counting_before: previous.unwrap_or(false),
+            last_step: None,
             #[cfg(test)]
             cycle_mutation: 0,
         })
@@ -113,6 +170,9 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
     }
     pub fn emulator(&self) -> &GenesisEmulator {
         self.emulator
+    }
+    pub(crate) fn into_audio(mut self) -> Vec<[f64; 2]> {
+        std::mem::take(&mut self.audio.samples)
     }
     #[cfg(test)]
     pub(crate) fn seed_wrong_cycle_mutant(&mut self, cycles: u32) {
@@ -188,16 +248,16 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         }
     }
     fn boundary(&self, cpu: &CpuState) -> BoundaryAction {
+        classify_boundary(cpu, self.signals())
+    }
+    pub(crate) fn signals(&self) -> BoundarySignals {
         let bus = self.emulator.hybrid_bus();
-        classify_boundary(
-            cpu,
-            BoundarySignals {
-                wait: bus.cycles.m68k_wait_cpu_cycles != 0,
-                reset: bus.m68k_reset,
-                halted: bus.vdp.should_halt_cpu(),
-                interrupt_level: bus.interrupt_level(),
-            },
-        )
+        BoundarySignals {
+            wait: bus.cycles.m68k_wait_cpu_cycles != 0,
+            reset: bus.m68k_reset,
+            halted: bus.vdp.should_halt_cpu(),
+            interrupt_level: bus.interrupt_level(),
+        }
     }
     fn original_noninstruction(
         &mut self,
@@ -214,16 +274,44 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         }
         self.ledger.before_step(owner, self.clock)?;
         let before = self.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
-        let effect = self
-            .emulator
-            .tick(
-                &mut HeadlessOutput,
-                &mut self.audio,
-                &mut Inputs(self.clock.inputs),
-                &mut NoCartridgeSaves,
-            )
-            .map_err(|e| HostError::Emulator(e.to_string()))?;
-        self.record(region, owner, before, effect)
+        let before_count = Self::instruction_total(self.emulator)?;
+        self.ledger
+            .prepare_actual_step(owner, self.emulator, self.clock.frame)?;
+        self.last_step = None;
+        let result = (|| {
+            let effect = self
+                .emulator
+                .tick(
+                    &mut HeadlessOutput,
+                    &mut self.audio,
+                    &mut Inputs(self.clock.inputs),
+                    &mut NoCartridgeSaves,
+                )
+                .map_err(|e| HostError::Emulator(e.to_string()))?;
+            let delta = Self::instruction_total(self.emulator)?
+                .checked_sub(before_count)
+                .ok_or_else(|| {
+                    HostError::Metadata("actual instruction counter decreased".into())
+                })?;
+            let owner = match owner {
+                ProgressOwner::OriginalInterrupt { .. } if delta <= 1 => {
+                    ProgressOwner::OriginalInterrupt {
+                        instruction: delta == 1,
+                    }
+                }
+                ProgressOwner::HardwareWait if delta == 0 => ProgressOwner::HardwareWait,
+                _ => {
+                    return Err(HostError::Metadata(
+                        "timing adapter executed an undeclared original instruction".into(),
+                    ));
+                }
+            };
+            self.record(region, owner, before, effect)
+        })();
+        let captured = self
+            .ledger
+            .capture_actual_step(owner, self.emulator, self.last_step);
+        result.and(captured)
     }
     fn record(
         &mut self,
@@ -245,6 +333,7 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
             master_clocks: clocks,
             frame_complete: effect == TickEffect::FrameRendered,
         };
+        self.last_step = Some(step);
         let progress = region.record_progress(step).map_err(timing_error);
         let retired = if matches!(
             owner,
@@ -278,6 +367,35 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         self.admit(region)?;
         self.ledger
             .before_step(ProgressOwner::RustInstruction, self.clock)?;
+        self.ledger.prepare_actual_step(
+            ProgressOwner::RustInstruction,
+            self.emulator,
+            self.clock.frame,
+        )?;
+        self.last_step = None;
+        let before_count = Self::instruction_total(self.emulator)?;
+        let result = self.step_source_inner(region, source);
+        let captured = self.ledger.capture_actual_step(
+            ProgressOwner::RustInstruction,
+            self.emulator,
+            self.last_step,
+        );
+        let actual = Self::instruction_total(self.emulator);
+        result?;
+        captured?;
+        let actual = actual?;
+        if actual != before_count {
+            return Err(HostError::Metadata(
+                "Rust source executed a forbidden original CPU opcode".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn step_source_inner(
+        &mut self,
+        region: &mut TimingRegion<'_>,
+        source: &mut impl RustInstruction,
+    ) -> Result<()> {
         let entry = self.state();
         if source.entry_state() != &entry {
             return Err(HostError::Metadata(
@@ -292,16 +410,20 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         let timing = loop {
             match cursor.next_event().map_err(timing_error)? {
                 TimingEvent::Bus { token, expected } => {
-                    let clock = self.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+                    let clock = self
+                        .collect_effects
+                        .then(|| self.emulator.hybrid_bus().cycles.m68k_mclk_cycles);
                     let observation = source.effect(self.emulator, expected)?;
                     cursor
                         .acknowledge_bus(token, observation)
                         .map_err(timing_error)?;
-                    self.effects.push(EffectReceipt {
-                        expected,
-                        observation,
-                        master_clock: clock,
-                    });
+                    if let Some(clock) = clock {
+                        self.effects.push(EffectReceipt {
+                            expected,
+                            observation,
+                            master_clock: clock,
+                        });
+                    }
                 }
                 TimingEvent::SetReadOffset {
                     token,
@@ -358,6 +480,27 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
             )
             .map_err(|e| HostError::Emulator(e.to_string()))?;
         self.record(region, ProgressOwner::RustInstruction, before, effect)
+    }
+    fn instruction_total(state: &GenesisEmulator) -> Result<u64> {
+        let counts = state
+            .hybrid_cpu()
+            .hybrid_instruction_counts()
+            .ok_or_else(|| {
+                HostError::Metadata("actual instruction observer is unavailable".into())
+            })?;
+        counts
+            .main_thread
+            .checked_add(counts.exception_handler)
+            .ok_or_else(|| HostError::Metadata("actual instruction counter overflow".into()))
+    }
+}
+
+impl<L> Drop for TimingHost<'_, L> {
+    fn drop(&mut self) {
+        self.emulator
+            .hybrid_parts()
+            .0
+            .hybrid_set_instruction_counting(self.counting_before);
     }
 }
 

@@ -148,6 +148,37 @@ Additional `TJE native` device-only interfaces:
 - `cpu/m68000-emu/src/core.rs`: a pipeline-only completion setter updates real
   PC/prefetch and instruction bookkeeping after acknowledged Rust effects,
   without fetching again or writing game registers, stacks, flags or memory.
+- `backend/genesis-components/src/{vdp,ym2612}.rs`,
+  `backend/genesis-core/src/audio.rs`, and `common/dsp/src/sinc.rs`: additive
+  startup/import capacity reservation only. Both sprite scratch lists reserve
+  the hardware's 80-entry SAT maximum, also covering disabled sprite limits.
+  The existing VDP `<1250`-master-clock tick bound is exposed unchanged.
+  `cpu/z80-emu/src/core/instructions.rs::parse_opcode` increments its 16-bit PC
+  for each DD/FD prefix. The native read map's unconditional `$6000 = $FF`
+  prevents a second bank traversal; at most 32768 prefix reads charge the 68k
+  bank bus. The separate 32-byte VDP streak stops at `$7F20 = $FF`. The largest
+  non-prefix body is six accesses: ED/subopcode, address word, data word
+  (`instructions/load.rs::{ld_direct_dd,ld_dd_direct}`). CALL, stack exchange
+  and indexed CB need at most five; IRQ/NMI entry writes two bytes in the pinned
+  core (including its explicit mode-1 fallback for IM2), and block-repeat
+  handlers perform one iteration. Three trace-mode reads in `execute` are
+  included even when logging is disabled. Each charged access adds `3*15`
+  clocks and the enclosing Z80 tick adds 15. Adding the 3420-clock YM lag,
+  strict VDP tick bound and 42-clock YM remainder gives 1479692 clocks, or at
+  most `ceil(ceil(1479692/42)/24) = 1468` newly buffered YM samples.
+  This is the pinned reference/native-map contract, not a new physical Z80
+  timing claim. Independent real-core opcode/branch/prefix/IRQ tests, and actual
+  native banked exchange/maximal-prefix bursts near the YM synchronization
+  threshold, exercise the sizing without changing CPU or clock algorithms.
+  The two sinc output queues reserve the sum of their actual filter-window,
+  source-phase and bounded synchronization-burst output maxima at current
+  rates. Existing queued samples are retained in addition to that free capacity.
+  Reservation changes no vector length, contents, ring index, filter history,
+  sample arithmetic, clock, FIFO/DMA state or serialized physical state, and
+  performs no bus read, tick, flush or drain. The native adapter invokes it after
+  both construction and imported state, and on a cold output-rate change, never
+  on source entry. All four paths already carry `modified: true` provenance in
+  `UPSTREAM.json`; their original upstream paths/blobs are unchanged.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

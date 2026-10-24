@@ -177,7 +177,7 @@ impl WaitPlan {
                 entry: start,
                 instruction_pcs: pcs.to_vec(),
                 edges,
-                return_pc,
+                return_pc: Some(return_pc),
                 maximum_steps: 1_000_000,
                 required_interrupts: &[4, 6],
             },

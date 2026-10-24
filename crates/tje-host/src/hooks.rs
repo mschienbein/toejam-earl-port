@@ -73,9 +73,11 @@ impl Hook {
             self.execution_class,
             self.clock_ceiling,
         )?;
-        let result = self.execute_body(context);
+        let result = self
+            .execute_body(context)
+            .map_err(|error| context.protect_host_timing_failure(error));
         let cleanup = context.leave_call_ceiling_contract(ceiling);
-        match result {
+        let result = match result {
             Ok(EntryOutcome::Transfer(transfer)) => match cleanup {
                 Err(HostError::Clock(error)) => {
                     Err(tje_game::Error::ClockAfterTransfer { transfer, error }.into())
@@ -85,7 +87,8 @@ impl Hook {
             },
             Err(error) => Err(error),
             Ok(outcome) => cleanup.map(|()| outcome),
-        }
+        };
+        result.map_err(|error| context.protect_host_timing_failure(error))
     }
 
     fn execute_body(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
@@ -112,6 +115,11 @@ impl Hook {
                 Ok(value) => Ok(value),
                 Err(HostError::Translation(error)) => Err(error),
                 Err(error) => {
+                    let error = context.protect_host_timing_failure(error);
+                    if matches!(&error, HostError::Translation(error) if error.is_failed_execution())
+                    {
+                        return Err(error);
+                    }
                     tje_game::Platform::check_mmio_contract(context)?;
                     return Err(error);
                 }
@@ -134,14 +142,20 @@ impl Hook {
             self.symbol.address(context.revision()),
             result,
             context.revision(),
-        );
-        let check = tje_game::Platform::check_mmio_contract(context);
+        )
+        .map_err(|error| tje_game::Context::protect_timing_failure(context, error));
         match result {
-            Ok(EntryOutcome::Transfer(transfer)) => match check {
-                Ok(()) => Ok(EntryOutcome::Transfer(transfer)),
-                Err(error) => Err(tje_game::Error::cleanup_after_transfer(transfer, error).into()),
-            },
-            result => Ok(tje_game::Error::after_contract_check(result, check)?),
+            Ok(EntryOutcome::Transfer(transfer)) => {
+                let check = tje_game::Platform::check_mmio_contract(context)
+                    .map_err(|error| tje_game::Context::protect_timing_failure(context, error));
+                match check {
+                    Ok(()) => Ok(EntryOutcome::Transfer(transfer)),
+                    Err(error) => {
+                        Err(tje_game::Error::cleanup_after_transfer(transfer, error).into())
+                    }
+                }
+            }
+            result => Ok(tje_game::Error::after_contract_check(context, result)?),
         }
     }
 
@@ -172,6 +186,7 @@ pub struct HookRegistry {
     hooks: BTreeMap<u32, Hook>,
     revision: Revision,
     dispatcher: Dispatcher,
+    timing_sources: &'static [&'static tje_game::timing::Program],
 }
 impl Default for HookRegistry {
     fn default() -> Self {
@@ -207,6 +222,7 @@ impl HookRegistry {
             hooks: BTreeMap::new(),
             revision,
             dispatcher: Dispatcher::hybrid(),
+            timing_sources: &[],
         }
     }
     pub fn translated(revision: Revision) -> Result<Self> {
@@ -597,6 +613,38 @@ impl HookRegistry {
     }
     pub(crate) fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
+    }
+    /// Prepare only explicitly selected framed bodies. Descriptors grant no
+    /// translation activation, execution-class change, IRQ or proof authority.
+    pub fn with_timing_sources(
+        mut self,
+        sources: &'static [&'static tje_game::timing::Program],
+    ) -> Result<Self> {
+        let mut ids = std::collections::BTreeSet::new();
+        for source in sources {
+            let entry = source.entry.function;
+            let hook = self
+                .hooks
+                .get(&entry.metadata().address(self.revision))
+                .ok_or_else(|| {
+                    HostError::Metadata("timing descriptor has no effective proof candidate".into())
+                })?;
+            if !ids.insert(entry)
+                || source.entry.role != 0
+                || !matches!(hook.body, Body::Framed(_))
+                || hook.symbol.id != entry
+                || hook.exit_contract != ExitContract::Rts
+            {
+                return Err(HostError::Metadata(
+                    "duplicate, conflicting or non-framed timing descriptor".into(),
+                ));
+            }
+        }
+        self.timing_sources = sources;
+        Ok(self)
+    }
+    pub(crate) fn timing_sources(&self) -> &'static [&'static tje_game::timing::Program] {
+        self.timing_sources
     }
     pub fn at(&self, address: u32) -> Option<&Hook> {
         self.hooks.get(&address)

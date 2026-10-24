@@ -70,6 +70,7 @@ pub fn inventory_initialize_display_entities(
         object.draw_flags().write(context, flags);
         Ok(None)
     })();
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -319,6 +320,7 @@ pub fn open_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Opti
     );
     context.set_address_register(2, ram::g_player_inventory(context.revision()).address());
     let result = open_present_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -457,6 +459,7 @@ pub fn inventory_buy_selected_mail_order_present(
 pub fn check_if_open_for_both(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x0c, 0))?;
     let result = check_if_open_for_both_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

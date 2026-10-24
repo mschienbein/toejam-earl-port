@@ -136,6 +136,7 @@ pub fn get_player_camera_velocity(context: &mut dyn Context, args: &[u32]) -> Re
 pub fn update_camera_following(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(8, 0x7c, 0x0c))?;
     let result = following_body(context, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

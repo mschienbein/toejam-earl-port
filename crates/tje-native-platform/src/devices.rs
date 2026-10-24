@@ -18,6 +18,9 @@ use ti_sn76489::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use tje_mem::{ADDRESS_MASK, AddressSpace, Bus, RAM_SIZE};
 use z80_emu::{BusInterface, Z80, debug::DummyZ80Debugger, traits::InterruptLine};
 
+#[cfg(test)]
+mod z80_capacity_tests;
+
 pub use genesis_core::native::RamWrite;
 pub use genesis_core::native::{DeviceWrite, Origin, TimedWrite};
 
@@ -512,7 +515,7 @@ impl DeviceRuntime {
             } else {
                 TimingMode::Ntsc
             });
-        Self {
+        let mut devices = Self {
             bus: DeviceBus {
                 memory,
                 audio_ram: Box::new([0; 0x2000]),
@@ -546,7 +549,9 @@ impl DeviceRuntime {
             audio: AudioBuffer(Vec::with_capacity(1024)),
             audio_sample_rate: 48_000,
             config: config.clone(),
-        }
+        };
+        devices.reserve_startup_buffers();
+        devices
     }
 
     pub fn from_state(mut memory: AddressSpace, state: PeripheralState) -> Result<Self, String> {
@@ -559,7 +564,7 @@ impl DeviceRuntime {
             .into_boxed_slice()
             .try_into()
             .map_err(|_| "invalid Z80 RAM length")?;
-        Ok(Self {
+        let mut devices = Self {
             bus: DeviceBus {
                 memory,
                 audio_ram,
@@ -593,7 +598,32 @@ impl DeviceRuntime {
             audio_sample_rate: 48_000,
             config: state.config,
             input_clock_remainder: state.native_input_remainder,
-        })
+        };
+        devices.reserve_startup_buffers();
+        Ok(devices)
+    }
+
+    fn reserve_startup_buffers(&mut self) {
+        // One Z80 tick executes a whole instruction. DD/FD prefix fetches can
+        // cross all 32 KiB of banked memory before wrapping, but cannot repeat:
+        // the unmapped $6000 read is always $FF (not a prefix). The VDP window
+        // has only 32 charged bytes before the $7F20 $FF guard. A non-prefix
+        // body uses at most six accesses (ED absolute word transfers), plus
+        // three trace-mode lookaheads. Real-core opcode/IRQ tests live in
+        // z80_capacity_tests; indexed CB/CALL/EX(SP) use at most five.
+        const MAXIMUM_Z80_BANK_ACCESSES: u64 = 0x8000 + 6 + 3;
+        const MAXIMUM_Z80_PHASE_MCLK: u64 =
+            (3 * MAXIMUM_Z80_BANK_ACCESSES + 1) * genesis_core::timing::Z80_DIVIDER;
+        const MAXIMUM_AUDIO_BATCH_MCLK: u64 = genesis_core::timing::MAX_YM2612_LAG_MCLK
+            + vdp::MCLK_CYCLES_PER_TICK_LIMIT
+            + MAXIMUM_Z80_PHASE_MCLK
+            + genesis_core::timing::YM2612_DIVIDER;
+        self.bus.ym2612.native_reserve_output_ticks(
+            MAXIMUM_AUDIO_BATCH_MCLK.div_ceil(genesis_core::timing::YM2612_DIVIDER) as usize,
+        );
+        self.audio_resampler
+            .native_reserve_output_buffers(self.bus.timing_mode, MAXIMUM_AUDIO_BATCH_MCLK);
+        self.bus.vdp.native_reserve_sprite_buffers();
     }
 
     pub fn memory(&self) -> &AddressSpace {
@@ -657,6 +687,7 @@ impl DeviceRuntime {
         self.audio.0.clear();
         let capacity = (f64::from(frequency) / self.target_fps()).ceil() as usize + 16;
         self.audio.0.reserve(capacity);
+        self.reserve_startup_buffers();
     }
     pub fn target_fps(&self) -> f64 {
         genesis_components::target_framerate(&self.bus.vdp, self.bus.timing_mode)
@@ -925,5 +956,60 @@ mod allocation_tests {
         let state = devices.capture_state(Registers::default());
         assert_full_movem_fits(devices);
         assert_full_movem_fits(DeviceRuntime::from_state(memory(), state).unwrap());
+    }
+
+    #[test]
+    fn imported_capacity_reservation_preserves_encoded_devices_and_filter_history() {
+        let encoded =
+            |vdp: &Vdp, ym: &Ym2612, audio: &GenesisAudioResampler, cycles: &CycleCounters| {
+                bincode::encode_to_vec((vdp, ym, audio, cycles), bincode::config::standard())
+                    .unwrap()
+            };
+        for mode in [TimingMode::Ntsc, TimingMode::Pal] {
+            for frequency in [8_000, 48_000, 192_000] {
+                let config = GenesisEmulatorConfig {
+                    forced_timing_mode: Some(mode),
+                    ..Default::default()
+                };
+                let memory = || AddressSpace::new(vec![0; 0x400], Revision::Rev02);
+                let mut devices = DeviceRuntime::new(memory(), &config);
+                devices.set_audio_sample_rate(frequency);
+                devices.bus.ym2612.tick(113);
+                for _ in 0..256 {
+                    devices.audio_resampler.collect_ym2612((0.25, -0.5));
+                    devices.audio_resampler.collect_psg(0.125);
+                }
+                let state = devices.capture_state(Registers::default());
+                let expected = encoded(
+                    &state.vdp,
+                    &state.ym2612,
+                    &state.audio_resampler,
+                    &state.cycles,
+                );
+                let expected_vdp = state.vdp.clone();
+                let mut restored = DeviceRuntime::from_state(memory(), state).unwrap();
+                assert_eq!(
+                    expected,
+                    encoded(
+                        &restored.bus.vdp,
+                        &restored.bus.ym2612,
+                        &restored.audio_resampler,
+                        &restored.bus.cycles,
+                    )
+                );
+                assert!(restored.bus.vdp.hybrid_state_eq(&expected_vdp));
+                restored.reserve_startup_buffers();
+                assert_eq!(
+                    expected,
+                    encoded(
+                        &restored.bus.vdp,
+                        &restored.bus.ym2612,
+                        &restored.audio_resampler,
+                        &restored.bus.cycles,
+                    )
+                );
+                assert!(restored.bus.vdp.hybrid_state_eq(&expected_vdp));
+            }
+        }
     }
 }

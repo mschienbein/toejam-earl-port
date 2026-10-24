@@ -181,8 +181,14 @@ fn run_case(
             & 0x40
             != 0;
     let plan = WaitPlan::compile(rom, revision, return_pc, divider)?;
-    let mut region =
-        TimingRegion::begin_oracle(plan.timing(), &state(&candidate)).map_err(timing_error)?;
+    let mut storage = tje_engine_runtime::timing_region::RegionStorage::new(plan.timing());
+    let mut region = TimingRegion::begin_oracle(
+        plan.timing(),
+        &state(&candidate),
+        plan.timing().fixed_target().unwrap(),
+        &mut storage,
+    )
+    .map_err(timing_error)?;
     let mut clock = clock.clone();
     let mut ledger = ProofLedger {
         original,

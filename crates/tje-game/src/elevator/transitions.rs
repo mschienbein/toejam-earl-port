@@ -164,6 +164,7 @@ pub fn process_elevator_step2(context: &mut dyn Context, _: &[u32]) -> Result<Op
 pub fn process_elevator_step1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x7c, 0x3c))?;
     let result = step1_body(context);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

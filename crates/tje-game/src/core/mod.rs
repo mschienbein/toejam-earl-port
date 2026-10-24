@@ -330,6 +330,21 @@ pub fn wait_for_next_vblank(context: &mut dyn Context, arguments: &[u32]) -> Res
     }
     Ok(None)
 }
+
+/// G/src/core/startup_and_main_loop.c:142 (`WaitForNextVBlank`).
+/// Canonical clocked, prepared-entry candidate for the same source function.
+/// It is deliberately not registered until value callers migrate atomically.
+pub fn wait_for_next_vblank_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let entry = crate::ids::WAIT_FOR_NEXT_V_BLANK;
+    let frame = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    if !frame.is_prepared_for(entry) || context.stack_pointer()? != frame.entry_sp {
+        return Err(crate::call_frame::FrameError::PreparedEntryRequired(entry).into());
+    }
+    let mut source = timed_wait::WaitSource::new(context.revision());
+    Ok(context.execute_timing_program(entry, &mut source)?.value)
+}
 /// G/src/core/startup_and_main_loop.c:33 (`ResetVDP`, REV 02 0x00035C).
 /// Twenty ordered register writes; there is no DMA start, status read, or wait.
 pub fn reset_vdp(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {

@@ -51,6 +51,8 @@ pub const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
 pub const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
 pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
 pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
+// TJE native: the existing strict per-tick limit, exposed for startup sizing.
+pub const MCLK_CYCLES_PER_TICK_LIMIT: u64 = 1250;
 
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
@@ -1565,7 +1567,7 @@ impl Vdp {
     ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS (xxx).l, Dn) takes 172 68k cycles / 1204 mclk cycles
         assert!(
-            master_clock_cycles < 1250,
+            master_clock_cycles < MCLK_CYCLES_PER_TICK_LIMIT,
             "VDP tick {master_clock_cycles} mclk cycles, expected <1250"
         );
 
@@ -2173,6 +2175,17 @@ impl Vdp {
         };
 
         CompositeParams { upscale_factor, samples_per_color_cycle: SamplesPerColorCycle::Fifteen }
+    }
+
+    /// TJE native: restore cold/imported scratch capacity without changing state.
+    /// Scanning visits at most the 80-entry SAT, including disabled sprite limits.
+    pub fn native_reserve_sprite_buffers(&mut self) {
+        for buffers in [&mut self.sprite_buffers, &mut self.interlaced_sprite_buffers] {
+            buffers
+                .scanned_ids
+                .reserve(MAX_SPRITES_PER_FRAME.saturating_sub(buffers.scanned_ids.len()));
+            buffers.sprites.reserve(MAX_SPRITES_PER_FRAME.saturating_sub(buffers.sprites.len()));
+        }
     }
 
     #[inline]

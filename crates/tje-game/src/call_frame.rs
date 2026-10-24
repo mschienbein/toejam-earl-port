@@ -23,10 +23,23 @@ pub enum FrameError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameState {
     pub entry_sp: u32,
+    prepared_for: Option<FunctionId>,
 }
 impl FrameState {
     pub const fn new(entry_sp: u32) -> Self {
-        Self { entry_sp }
+        Self {
+            entry_sp,
+            prepared_for: None,
+        }
+    }
+    pub fn is_prepared_for(self, entry: FunctionId) -> bool {
+        self.prepared_for == Some(entry)
+    }
+    pub(crate) fn for_prepared_entry(self, entry: FunctionId) -> Self {
+        Self {
+            prepared_for: Some(entry),
+            ..self
+        }
     }
     pub const fn argument_slot(self, index: i32) -> Address<u32> {
         Address::new(
@@ -296,7 +309,7 @@ impl OutgoingArguments {
             context.call_original_entry(id, class)
         };
         let result = crate::exits::validate_call(id, result.map(Some), context.revision());
-        let result = Error::after_contract_check(result, context.check_mmio_contract())
+        let result = Error::after_contract_check(context, result)
             .map(|value| value.expect("exact-stack RTS callee returns its D0"));
         if result
             .as_ref()
@@ -306,24 +319,38 @@ impl OutgoingArguments {
         }
         let result = match result {
             Ok(value) if translation.is_some() => {
-                let sp = context.stack_pointer()?;
-                if sp != entry.entry_sp {
-                    Err(FrameError::UnexpectedStack {
-                        expected: entry.entry_sp,
-                        actual: sp,
-                    }
-                    .into())
-                } else {
-                    let actual = context.read_u32(sp);
-                    context.set_stack_pointer(sp.wrapping_add(4))?;
-                    if actual != site.return_pc {
-                        Err(FrameError::UnexpectedReturn {
-                            expected: site.return_pc,
-                            actual,
+                let completed =
+                    context.consume_timing_completion(crate::timing::CompletionRequest {
+                        entry: id,
+                        entry_sp: entry.entry_sp,
+                        kind: crate::timing::CompletionKind::Rts,
+                        expected_pc: Some(site.return_pc),
+                        value: id.metadata().abi.returns_value.then_some(value),
+                    });
+                match completed {
+                    Err(error) => return Err(Error::timing_execution_failure(id, error)),
+                    Ok(crate::timing::Completion::Consumed) => Ok(value),
+                    Ok(crate::timing::Completion::Absent) => {
+                        let sp = context.stack_pointer()?;
+                        if sp != entry.entry_sp {
+                            Err(FrameError::UnexpectedStack {
+                                expected: entry.entry_sp,
+                                actual: sp,
+                            }
+                            .into())
+                        } else {
+                            let actual = context.read_u32(sp);
+                            context.set_stack_pointer(sp.wrapping_add(4))?;
+                            if actual != site.return_pc {
+                                Err(FrameError::UnexpectedReturn {
+                                    expected: site.return_pc,
+                                    actual,
+                                }
+                                .into())
+                            } else {
+                                Ok(value)
+                            }
                         }
-                        .into())
-                    } else {
-                        Ok(value)
                     }
                 }
             }
@@ -368,7 +395,7 @@ pub fn call_at(
     context.check_mmio_contract()?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let result = outgoing.call(context, dispatcher, id, site);
-    let result = Error::after_contract_check(result, context.check_mmio_contract());
+    let result = Error::after_contract_check(context, result);
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

@@ -748,6 +748,12 @@ impl Ym2612 {
         self.output_samples.drain(..)
     }
 
+    /// TJE native: at most one sample per 24 chip ticks, with any initial phase.
+    /// Reserve after import; do not tick, drain, clear or alter the phase.
+    pub fn native_reserve_output_ticks(&mut self, maximum_ticks: usize) {
+        self.output_samples.reserve(maximum_ticks.div_ceil(usize::from(FM_SAMPLE_DIVIDER)));
+    }
+
     fn apply_panning(&self, sample: i16, pan_enabled: bool) -> i16 {
         let pan_enabled: i16 = pan_enabled.into();
 

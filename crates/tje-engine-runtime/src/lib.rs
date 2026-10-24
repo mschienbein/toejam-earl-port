@@ -5,6 +5,7 @@
 //! writes and timing. IRQ admission and acknowledgement are separate steps.
 
 pub mod abi;
+pub mod portable_timing;
 pub mod timing_region;
 
 mod exception;

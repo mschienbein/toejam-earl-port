@@ -57,6 +57,14 @@ impl TranslatedEntry {
                     })
                     .into());
                 }
+                if sp != frame.entry_sp {
+                    return Err(FrameError::UnexpectedStack {
+                        expected: frame.entry_sp,
+                        actual: sp,
+                    }
+                    .into());
+                }
+                context.set_frame_state(frame.for_prepared_entry(translation.id))?;
                 (translation.function)(context)
             }
             Self::Values(translation) if translation.id.metadata().abi.argument_count == 0 => {

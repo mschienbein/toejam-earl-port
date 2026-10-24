@@ -12,6 +12,7 @@ pub(super) fn in_frame(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(c, layout)?;
     let result = body(c, &frame);
+    let result = result.map_err(|error| c.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -30,6 +31,7 @@ pub(super) fn release_arguments(
     outgoing: crate::call_frame::OutgoingArguments,
     result: Result<u32>,
 ) -> Result<u32> {
+    let result = result.map_err(|error| c.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

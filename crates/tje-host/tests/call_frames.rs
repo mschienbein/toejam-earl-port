@@ -540,6 +540,10 @@ fn explicit_framed_entry_never_preloads_slots_or_ignores_value_arguments() {
             ))
         );
         assert_eq!(context.data, [0; 8]);
+        assert_eq!(
+            context.frame, entry,
+            "value-only admission cannot mark a prepared frame"
+        );
         assert!(context.word_writes.is_empty());
         assert_eq!(
             tje_game::exits::enter(&mut context, ids::ABS, &[]).unwrap(),
@@ -547,7 +551,8 @@ fn explicit_framed_entry_never_preloads_slots_or_ignores_value_arguments() {
         );
         assert_eq!(context.data[0], 9);
         assert_eq!(context.data[7], 0x1234);
-        assert_eq!(context.frame, entry);
+        assert_eq!(context.frame.entry_sp, entry.entry_sp);
+        assert!(context.frame.is_prepared_for(ids::ABS));
         assert_eq!(context.sp, entry.entry_sp);
         assert!(context.word_writes.is_empty());
     }

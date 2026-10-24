@@ -908,6 +908,7 @@ impl Host {
             self.registry.dispatcher(),
         )
         .with_inspection_provenance(provenance)
+        .with_timing_services(self.timing_services.as_mut())
     }
 
     /// Existing diagnostic original execution, on the retained machine (or the

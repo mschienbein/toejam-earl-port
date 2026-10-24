@@ -166,6 +166,7 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
 pub fn process_input(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x0c))?;
     let result = process_input_inner(context);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

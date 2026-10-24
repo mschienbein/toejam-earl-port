@@ -48,6 +48,7 @@ pub fn update_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> Re
     // call returns at REV02 C04C / REV00 C02C, both offset 0x50.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x0c))?;
     let result = update_shadows_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

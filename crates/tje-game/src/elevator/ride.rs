@@ -128,6 +128,7 @@ pub fn elevator_prepare_ride_dialogue(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
     let result = prepare_dialogue_body(context, args[0]);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -352,6 +353,7 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
 pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x1c))?;
     let result = begin_ride_body(context, args[0]);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -530,6 +532,7 @@ pub fn elevator_advance_riders_to_next_level(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x0c))?;
     let result = advance_riders_body(context, args[0] as i8);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

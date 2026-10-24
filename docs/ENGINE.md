@@ -276,6 +276,109 @@ no original main-opcode execution, synthetic parking loop, eager pipeline read
 or aggregate block charge. Unsupported exception/nonlocal exits fail closed
 instead of pretending to return normally.
 
+### Portable source bridge and ordinary return ownership
+
+`tje-game::timing::TimingSource` is an object-safe capability used through `Context`.
+It depends on neither the host, the compiler nor jgenesis. Its default context
+implementation fails closed before consulting the source. A source declares
+reviewed function/role identities and permitted paths, receives the current
+register/stack state, requests each game read/write, acknowledges its actual
+result, and commits its own registers and next role. Instruction prefetch is an
+adapter-owned, separately ordered real effect. The engine independently checks
+the address, width, purpose, ordering and path against the ROM-bound dependency
+slice; source-supplied cycles, ROM opcodes, interrupt authority and new budgets
+are not part of this protocol.
+
+The portable entry must have been prepared for the exact function by the framed
+dispatcher. Its actual entry PC, stack pointer, physical frame, revision and
+prefetch must already agree. Neither the bridge nor the body repairs an entry
+snapshot, pushes a sentinel return, or patches arguments. Descriptors alone do
+not activate translations or change their execution class.
+The ordinary portable profile owns exactly one reviewed function scope. It
+rejects multi-function descriptors at startup rather than allowing source
+paths to bypass foreign callee classes or nested operational ceilings. Its
+class must match the literal execution contract, its actual root scope must
+be active, and its physical clock must run without Functional normalization.
+ClockedStrict proof admission does not escalate a source class.
+
+Startup validates immutable source descriptors against the verified revision,
+ROM, device divider and interrupt policy. It lowers each instruction once and
+pre-reserves reusable timing scratch and interrupt storage. A normal entry does
+not decode or allocate a plan, and warmed interrupt nesting reuses its storage.
+Deeper actual nesting may grow the reusable stack: priority levels are not an
+artificial depth limit because an ISR can lower IPL. Dynamic return permission
+checks only the aligned physical-ROM address, not an ahead-of-time caller
+opcode read. The actual RTS stack read and target prefetch still happen once
+on the real bus.
+Native device authentication additionally binds the previously checked ROM to
+an opaque process-local `AddressSpace::rom_identity()`: clones preserve that
+identity, new address spaces get a new one, and RAM mutation does not alter it.
+The identity contains no ROM-derived bytes and is not serialized into evidence.
+At native construction/import, capacity-only helpers restore hardware-bounded
+sprite, chip-output and sinc-output storage lost by cloning/decoding. The
+80-entry SAT, strict VDP tick limit, synchronization lag and the pinned native
+map's whole-Z80-instruction bank-access bound determine the capacities. That
+bound includes the entire 32 KiB DD/FD prefix bank, ED word transfers and optional
+trace lookaheads, not merely one Z80 T-cycle. Reservation clears no samples,
+alters no filter history and moves no clocks. `vendor/jgenesis/NOTICE.md` records
+the derivation and unchanged upstream provenance.
+
+Native entry borrows the caller's frame-qualified input latch. Only an actual
+renderer event polls the next sample and validates that the shared latch now
+contains it, then applies the recipe and emits output once. Repeated entries
+in one frame do not poll again, and a stale/wrong updated latch fails closed.
+
+The native portable adapter runs the source on the same `Machine` and devices
+as the compiled engine. Main-region game effects belong only to the Rust
+source. Actual admitted interrupts may use the already published, complete,
+ROM/IR-authenticated native continuation table; these are explicitly counted as
+**compiled-engine ISR instructions**, not as proved readable ISR roles or as an
+original interpreter. The independent scheduled-Rust-ISR capability above
+remains a distinct ownership profile. Unknown code fails closed without an
+interpreter fallback.
+
+After the source's real RTS, the adapter drains actual bus debt and eligible
+interrupts at that boundary without executing the caller opcode. Only a
+quiescent controller with the real return PC/prefetch, result, both stack banks,
+SR and completed region can certify a return. The certificate is private,
+move-only, and bound to its ledger, local call scope and unique region
+invocation. Both the host root finalizer and nested prepared-call finalizer
+consume it exactly once instead of issuing another RTS. Duplicate, foreign,
+stale, wrong-kind and altered-live-boundary attempts reject without restoring
+an old state. Absence preserves the ordinary untimed finalizer; a failed timing
+attempt cannot manufacture that absence as a successful return. The ordinary
+portable capability admits RTS exits only, not readable RTE wrappers.
+
+Live completion authority remains in the reusable source state/service lease
+across Context lifetimes. Each new HookContext opens one checked root scope at
+its first ceiling before any legacy or framed body; prepared/nested frame
+changes retain their own brands. Identity initializes once per live trajectory,
+and pending/failed authority cannot be erased by constructing another Context.
+Discarded check/probe/fixture trajectories instead get distinct speculative
+ledgers; the owner moves live authority aside and restores it on every Result
+path before propagating errors. Cache/scratch reuse is not authority cloning.
+Hosts with no source descriptors keep timing services absent: ordinary roots do
+not create completion identities or advance timing-ledger scopes.
+Actual hardware reset completes before live completion/clock authority is
+replaced; plans may remain cached. A failed speculative probe neither poisons
+live state nor reactivates a ContinueOriginal-disabled root.
+
+An admitted invocation's execution/callback failure, or any real receipt
+protocol failure, returns `TimingExecutionFailure { entry, cause }`. The
+owner's actual in-flight/pending/failed ledger phase also protects errors raised
+by a readable wrapper or MMIO/clock checks after the source completed but before
+consumption. Protection latches owned failure metadata with a relaxed atomic;
+it preserves Host's existing Send/Sync contract without sharing fork authority.
+Primary failures are classified before secondary checks and retained unchanged.
+Callback errors retain their owned game-error type, reason and standard error
+chain through the runtime adapter; transport does not replace them with a
+generic IR-validation diagnostic. Already-fatal callback/wrapper causes still
+poison outstanding authority before being propagated unchanged.
+The typed failure is never an approved transfer: callers return it before any
+SP/frame/register restoration or argument release, leaving actual CPU/device
+state exactly at failure. Clean consumption ends this protection for unrelated
+ordinary errors; a failed or pending invocation still cannot be rebound.
+
 The first reviewed source exemplar is `WaitForNextVBlank`: eleven source roles
 validated against the user's revision at runtime, including the original prefix,
 counter reads/poll branches, decrement/test and RTS. It preserves D0/D1 low-word

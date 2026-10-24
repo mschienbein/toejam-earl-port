@@ -23,14 +23,14 @@ pub trait ScheduledIsrClosure {
 /// not constructible by the provider, and never accepted as a replay token.
 #[derive(Debug)]
 pub struct RteReceipt {
-    owner: ScratchIdentity,
+    owner: CursorIdentity,
     serial: u64,
     steps: u64,
     master_clocks: u64,
     scheduled_instructions: u64,
 }
 impl RteReceipt {
-    pub fn identity(&self) -> (ScratchIdentity, u64) {
+    pub fn identity(&self) -> (CursorIdentity, u64) {
         (self.owner, self.serial)
     }
     pub fn steps(&self) -> u64 {
@@ -86,7 +86,7 @@ impl TimingRegion<'_> {
             return Err(TimingError::WrongToken);
         }
         self.check_step_budget()?;
-        let mut frames = std::mem::take(&mut self.native_frames);
+        let mut frames = std::mem::take(self.native_frames);
         frames.clear();
         self.native_controller = Some(ControllerState {
             token,
@@ -144,11 +144,6 @@ impl TimingRegion<'_> {
                 {
                     return Err(TimingError::WrongEntry);
                 }
-                // Fixed diagnostic capacity, not an ISA claim about nesting.
-                // No growth/allocation is permitted while servicing an ISR.
-                if controller.frames.len() == controller.frames.capacity() {
-                    return Err(TimingError::Exhausted);
-                }
                 let frame = Frame {
                     pc: cpu.pc,
                     prefetch: cpu.prefetch,
@@ -204,7 +199,7 @@ impl TimingRegion<'_> {
                         cpu,
                         devices,
                         program,
-                        &mut self.scratch,
+                        self.scratch,
                         &mut evidence,
                     ));
                     self.native_isr = Some(handler);
@@ -310,7 +305,7 @@ impl TimingRegion<'_> {
                 master_clocks: self.usage.master_clocks - controller.token.start_clocks,
                 scheduled_instructions: controller.instructions,
             };
-            self.native_frames = controller.frames;
+            *self.native_frames = controller.frames;
             self.resume_interrupt(controller.token, cpu, controller.instructions, true)?;
             Ok(NativeInterruptStep {
                 devices: step,

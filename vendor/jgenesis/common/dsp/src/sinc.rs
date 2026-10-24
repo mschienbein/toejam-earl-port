@@ -202,6 +202,21 @@ impl<const CHANNELS: usize, Kernel: SincKernel> SincResampler<CHANNELS, Kernel> 
         self.output.pop_front()
     }
 
+    /// TJE native: a complete filter window plus a bounded source-time burst.
+    /// Two source-sample phases cover input/output rounding at either boundary.
+    #[must_use]
+    pub fn native_output_capacity_bound(&self, maximum_interval_seconds: f64) -> usize {
+        (((self.required_samples + 2) as f64 * self.ratio)
+            + maximum_interval_seconds * self.target_rate)
+            .ceil() as usize
+            + 1
+    }
+
+    /// TJE native: startup-only capacity, preserving samples and filter history.
+    pub fn native_reserve_output_capacity(&mut self, maximum_samples: usize) {
+        self.output.reserve(maximum_samples);
+    }
+
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
         self.source_rate = source_frequency;
         self.handle_frequency_update();

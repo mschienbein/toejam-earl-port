@@ -268,6 +268,7 @@ pub fn process_inventory(context: &mut dyn Context, _: &[u32]) -> Result<Option<
         }
         Ok(None)
     })();
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -307,6 +308,7 @@ pub fn check_b_button(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32
         }
         Ok(None)
     })();
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if !result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -355,6 +357,7 @@ fn open_special_inventory(
         call(context, ids::CHECK_B_BUTTON, &[])?;
         Ok(None)
     })();
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if !result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

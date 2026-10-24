@@ -7,6 +7,9 @@
 use std::fmt;
 use tje_mem::{Revision, ram};
 
+mod source;
+pub use source::WaitSource;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum WaitRole {

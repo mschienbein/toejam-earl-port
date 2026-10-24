@@ -382,13 +382,16 @@ fn enter_body(
         return Err(error);
     }
     let result = body.invoke_entry(context, arguments);
-    let result = validate(entry, contract(entry), result, context.revision());
+    let result = validate(entry, contract(entry), result, context.revision())
+        .map_err(|error| context.protect_timing_failure(error));
     let restore = if class != parent {
         context.set_execution_class(parent)
     } else {
         Ok(())
     };
-    let mmio = context.check_mmio_contract();
+    let mmio = context
+        .check_mmio_contract()
+        .map_err(|error| context.protect_timing_failure(error));
     let ceiling = context.leave_call_ceiling(ceiling);
     let outcome = match result {
         Ok(EntryOutcome::Transfer(transfer)) => match mmio.and(restore).and(ceiling) {
@@ -398,7 +401,9 @@ fn enter_body(
         Err(error) if error.preserves_call_frame() => return Err(error),
         Err(error) => return mmio.and(Err(error)),
         Ok(outcome) => {
-            mmio.and(restore).and(ceiling)?;
+            mmio.and(restore)
+                .and(ceiling)
+                .map_err(|error| context.protect_timing_failure(error))?;
             outcome
         }
     };

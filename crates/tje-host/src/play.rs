@@ -111,6 +111,12 @@ impl Host {
     pub fn reset(&mut self) {
         let provenance = self.reset_future_frame_provenance();
         self.emulator.hard_reset(&mut self.saves);
+        // Completion authority belongs to the old physical trajectory, not the
+        // immutable plan/scratch cache. Invalidate only after the real reset.
+        if let Some(services) = self.timing_services.as_mut() {
+            services.completion = Default::default();
+        }
+        self.wait_clock.call_clock = Default::default();
         self.frame = 0;
         self.wait_clock.frame = 0;
         self.wait_clock.inputs = GenesisInputs::default();

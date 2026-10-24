@@ -12,6 +12,7 @@ pub fn player_check_level_item_hazards(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(20, 0x1c, 0x0c))?;
     let result = level_hazards_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -70,6 +71,7 @@ pub fn present_update_terrain_effects(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(20, 0x1c, 0x1c))?;
     let result = terrain_effects_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

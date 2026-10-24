@@ -10,6 +10,7 @@ pub(super) fn with_frame(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, layout)?;
     let result = body(context, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

@@ -134,6 +134,33 @@ pub(crate) fn finish(
     outcome: EntryOutcome,
 ) -> Result<()> {
     tje_game::Platform::check_mmio_contract(context)?;
+    let (entry, kind, value) = match outcome {
+        EntryOutcome::Returned(value) => {
+            (hook.symbol.id, tje_game::timing::CompletionKind::Rts, value)
+        }
+        EntryOutcome::Transfer(transfer) => (
+            transfer.entry,
+            if transfer.exit == Exit::ExceptionReturn {
+                tje_game::timing::CompletionKind::ExceptionReturn
+            } else {
+                tje_game::timing::CompletionKind::ControlTransfer
+            },
+            None,
+        ),
+    };
+    let frame = context.frame_state().ok_or(tje_game::Error::Frame(
+        tje_game::call_frame::FrameError::Unavailable,
+    ))?;
+    let completed = context.consume_timing_completion(tje_game::timing::CompletionRequest {
+        entry,
+        entry_sp: frame.entry_sp,
+        kind,
+        expected_pc: None,
+        value,
+    })?;
+    if completed == tje_game::timing::Completion::Consumed {
+        return Ok(());
+    }
     match outcome {
         EntryOutcome::Returned(value) => context.return_to_caller(value)?,
         EntryOutcome::Transfer(transfer) => match transfer.exit {

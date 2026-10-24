@@ -226,6 +226,7 @@ fn start_jam_out_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<O
 pub fn start_jam_out(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x1c))?;
     let result = start_jam_out_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

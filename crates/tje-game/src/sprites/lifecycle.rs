@@ -60,6 +60,7 @@ pub fn allocate_entity_viewport_sprites(
     // REV02 D7E6 / REV00 D7C6, both caller offset 0x70.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x04))?;
     let result = allocate_viewport_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

@@ -16,7 +16,7 @@ fn plan() -> TimingProgram {
             entry: 0,
             instruction_pcs: vec![0],
             edges: vec![RegionEdge { from: 0, to: 2 }],
-            return_pc: 2,
+            return_pc: Some(2),
             maximum_steps: 4,
             required_interrupts: &[6],
         },
@@ -36,10 +36,16 @@ fn cpu() -> CpuState {
 #[test]
 fn startup_missing_native_isr_closure_and_wrong_pipeline_fail_closed() {
     let p = plan();
-    assert!(TimingRegion::begin_native(&p, &cpu(), None).is_err());
+    let mut storage = RegionStorage::new(&p);
+    assert!(
+        TimingRegion::begin_native(&p, &cpu(), p.fixed_target().unwrap(), &mut storage, None)
+            .is_err()
+    );
     let mut changed = cpu();
     changed.prefetch ^= 1;
-    assert!(TimingRegion::begin_oracle(&p, &changed).is_err());
+    assert!(
+        TimingRegion::begin_oracle(&p, &changed, p.fixed_target().unwrap(), &mut storage).is_err()
+    );
 }
 
 #[test]
@@ -78,13 +84,19 @@ fn boundary_priority_matches_wait_reset_halt_pending_irq_mask_stop() {
 fn interrupt_resumption_cannot_cross_regions_or_repair_state() {
     let p = plan();
     let c = cpu();
-    let mut first = TimingRegion::begin_oracle(&p, &c).unwrap();
-    let mut second = TimingRegion::begin_oracle(&p, &c).unwrap();
+    let mut first_storage = RegionStorage::new(&p);
+    let mut second_storage = RegionStorage::new(&p);
+    let mut first =
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut first_storage).unwrap();
+    let mut second =
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut second_storage).unwrap();
     let action = BoundaryAction::InterruptAdmission { level: 6 };
     let token = first.suspend_interrupt(&c, action).unwrap();
     let _other = second.suspend_interrupt(&c, action).unwrap();
     assert!(second.resume_oracle_interrupt(token, &c, 1, true).is_err());
-    let mut region = TimingRegion::begin_oracle(&p, &c).unwrap();
+    let mut storage = RegionStorage::new(&p);
+    let mut region =
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut storage).unwrap();
     let token = region.suspend_interrupt(&c, action).unwrap();
     region
         .record_progress(DeviceStep {
@@ -101,7 +113,9 @@ fn interrupt_resumption_cannot_cross_regions_or_repair_state() {
             .resume_oracle_interrupt(token, &wrong, 1, true)
             .is_err()
     );
-    let mut region = TimingRegion::begin_oracle(&p, &c).unwrap();
+    let mut storage = RegionStorage::new(&p);
+    let mut region =
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut storage).unwrap();
     let token = region.suspend_interrupt(&c, action).unwrap();
     region
         .record_progress(DeviceStep {
@@ -124,7 +138,9 @@ fn interrupt_resumption_cannot_cross_regions_or_repair_state() {
 fn source_edge_completion_and_zero_frame_budget_are_finite() {
     let p = plan();
     let c = cpu();
-    let mut region = TimingRegion::begin_oracle(&p, &c).unwrap();
+    let mut storage = RegionStorage::new(&p);
+    let mut region =
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut storage).unwrap();
     let mut cursor = region.cursor(&c, BoundaryAction::Ready).unwrap();
     let timing = loop {
         match cursor.next_event().unwrap() {
@@ -169,10 +185,11 @@ fn source_edge_completion_and_zero_frame_budget_are_finite() {
 #[test]
 fn address_fault_and_odd_boundary_cannot_be_erased_by_region_admission() {
     let p = plan();
+    let mut storage = RegionStorage::new(&p);
     let mut c = cpu();
     c.address_error = 1;
     assert!(matches!(
-        TimingRegion::begin_oracle(&p, &c),
+        TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut storage),
         Err(TimingError::PendingFault)
     ));
     let signals = BoundarySignals {
@@ -184,5 +201,50 @@ fn address_fault_and_odd_boundary_cannot_be_erased_by_region_admission() {
     assert_eq!(classify_boundary(&c, signals), BoundaryAction::Faulted);
     c.address_error = 0;
     c.pc = 1;
-    assert!(TimingRegion::begin_oracle(&p, &c).is_err());
+    assert!(TimingRegion::begin_oracle(&p, &c, p.fixed_target().unwrap(), &mut storage).is_err());
+}
+
+#[test]
+fn reusable_storage_mints_a_new_region_brand_and_rejects_old_irq_authority() {
+    let program = plan();
+    let cpu = cpu();
+    let mut storage = RegionStorage::new(&program);
+    let target = program.fixed_target().unwrap();
+    let (old_identity, old_token) = {
+        let mut old = TimingRegion::begin_oracle(&program, &cpu, target, &mut storage).unwrap();
+        let identity = old.identity();
+        let token = old
+            .suspend_interrupt(&cpu, BoundaryAction::InterruptAdmission { level: 6 })
+            .unwrap();
+        (identity, token)
+    };
+    let mut current = TimingRegion::begin_oracle(&program, &cpu, target, &mut storage).unwrap();
+    assert_ne!(old_identity, current.identity());
+    let _current = current
+        .suspend_interrupt(&cpu, BoundaryAction::InterruptAdmission { level: 6 })
+        .unwrap();
+    current
+        .record_progress(DeviceStep {
+            cpu_cycles: 20,
+            master_clocks: 140,
+            frame_complete: false,
+        })
+        .unwrap();
+    current.record_original_instruction().unwrap();
+    assert!(
+        current
+            .resume_oracle_interrupt(old_token, &cpu, 1, true)
+            .is_err()
+    );
+}
+
+#[test]
+fn dynamic_rom_return_permission_has_no_ahead_opcode_and_rejects_other_profiles() {
+    let allowed = ReturnTarget::in_rom(0x100000, 0x43210).unwrap();
+    assert_eq!(allowed.pc, 0x43210);
+    assert_eq!(allowed.prefetch, None);
+    assert!(ReturnTarget::in_rom(0x100000, 0x43211).is_err());
+    assert!(ReturnTarget::in_rom(0x100000, 0xff4000).is_err());
+    assert!(ReturnTarget::in_rom(0x100000, 0x3ffffe).is_err());
+    assert!(ReturnTarget::in_rom(0x100000, 0x100000).is_err());
 }

@@ -12,6 +12,7 @@ pub fn map_find_item_placement_position(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(16, 0xfc, 0x3c))?;
     let result = placement_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -227,6 +228,7 @@ pub fn map_place_large_level_items(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(12, 0x7c, 0x0c))?;
     let result = large_items_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -381,6 +383,7 @@ fn large_items_body(
 pub fn load_level_item_bank(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x3c))?;
     let result = load_bank_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -557,6 +560,7 @@ pub fn telephone_place_outside_player_views(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x0c, 0x1c))?;
     let result = telephone_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

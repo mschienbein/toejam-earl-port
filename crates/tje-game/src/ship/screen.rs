@@ -7,6 +7,7 @@ pub(super) fn leave_frame(
     frame: LocalFrame,
     result: Result<Option<u32>>,
 ) -> Result<Option<u32>> {
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

@@ -75,6 +75,15 @@ impl Host {
         let capture_enabled = self.checks.actual_capture_enabled;
         let mut completed_capture = None;
         let mut receipt = None;
+        let mut timing_services = self.timing_services.take();
+        if !self.registry.timing_sources().is_empty() && timing_services.is_none() {
+            return Err(HostError::Metadata("reentrant timing service lease".into()));
+        }
+        // Each fork/probe is a separate discarded CPU/device trajectory.
+        // Reuse only plans/scratch; never clone, consume or poison live authority.
+        let live_completion = timing_services
+            .as_mut()
+            .map(|services| std::mem::take(&mut services.completion));
         let executed = self.execute_fork(fork, |emulator| {
             let entry_usage = clock.call_clock.usage();
             let ceiling = if route.progresses_time() {
@@ -217,6 +226,7 @@ impl Host {
                     }
                     CheckSide::Rust => {
                         let mut context = HookContext::new(emulator, revision, dispatcher)
+                            .with_timing_services(timing_services.as_mut())
                             .with_execution(hook.execution_class, std::mem::take(&mut clock))
                             .with_check_route(route);
                         context.enable_stack_audit(stack_slot.take().expect("root audit"), audit);
@@ -325,6 +335,15 @@ impl Host {
             }
             Ok((result, provenance))
         });
+        // Restore before any Result/provenance propagation. A failed/pending
+        // speculative receipt belongs only to the now-discarded fork.
+        if let Some(completion) = live_completion {
+            timing_services
+                .as_mut()
+                .expect("proof retains timing-service lease")
+                .completion = completion;
+        }
+        self.timing_services = timing_services;
         let result = match executed {
             Ok((result, provenance)) => {
                 // Merge before propagating an execution error.

@@ -28,6 +28,7 @@ pub mod runtime;
 pub mod ship;
 pub mod speech;
 pub mod sprites;
+pub mod timing;
 pub mod ui;
 pub use framed_entry::{FramedTranslation, FramedTranslationFn, TranslatedEntry};
 pub use metadata::ids;
@@ -124,6 +125,12 @@ pub enum Error {
         transfer: exits::ControlTransfer,
         error: Box<Error>,
     },
+    /// An admitted timed invocation failed with its actual CPU/device frame
+    /// still live. This is a failure, never authority for a nonlocal transfer.
+    TimingExecutionFailure {
+        entry: FunctionId,
+        cause: Box<Error>,
+    },
     /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
     ControlTransfer(exits::ControlTransfer),
     OpenBus(open_bus::OpenBusError),
@@ -158,6 +165,11 @@ impl fmt::Display for Error {
                 transfer.entry.metadata().name,
                 transfer.exit,
             ),
+            Self::TimingExecutionFailure { entry, cause } => write!(
+                formatter,
+                "timed execution of {} failed: {cause}",
+                entry.metadata().name,
+            ),
             Self::ControlTransfer(transfer) => write!(
                 formatter,
                 "control transfer from {}: {:?}",
@@ -174,6 +186,7 @@ impl std::error::Error for Error {
         match self {
             Self::Clock(error) | Self::ClockAfterTransfer { error, .. } => Some(error),
             Self::CleanupAfterTransfer { error, .. } => Some(error.as_ref()),
+            Self::TimingExecutionFailure { cause, .. } => Some(cause.as_ref()),
             _ => None,
         }
     }
@@ -199,20 +212,40 @@ impl From<execution::CallClockError> for Error {
     }
 }
 impl Error {
-    /// Ordinary errors unwind suspended call bookkeeping; the exit layer marks
-    /// non-returning control transfers so their live frame is not unwound.
-    pub fn preserves_call_frame(&self) -> bool {
+    /// Already-failed execution keeps its first cause and actual frame.
+    pub fn is_failed_execution(&self) -> bool {
         matches!(
             self,
-            Self::ControlTransfer(_)
-                | Self::ClockAfterTransfer { .. }
+            Self::ClockAfterTransfer { .. }
                 | Self::CleanupAfterTransfer { .. }
+                | Self::TimingExecutionFailure { .. }
         )
+    }
+
+    /// Ordinary errors may unwind diagnostic bookkeeping. Nonlocal transfers
+    /// and admitted timed failures must retain their actual live call frame.
+    pub fn preserves_call_frame(&self) -> bool {
+        matches!(self, Self::ControlTransfer(_)) || self.is_failed_execution()
+    }
+
+    /// Wrap once, only after timing admission/effects or a receipt protocol
+    /// failure. No PC, stack, SR, exit or transfer is invented here.
+    pub fn timing_execution_failure(entry: FunctionId, cause: Self) -> Self {
+        if cause.is_failed_execution() {
+            return cause;
+        }
+        Self::TimingExecutionFailure {
+            entry,
+            cause: Box::new(cause),
+        }
     }
 
     /// Reject cleanup after an already-validated transfer without unwinding its
     /// abandoned frame. This constructs a failure, never an approved exit.
     pub fn cleanup_after_transfer(transfer: exits::ControlTransfer, error: Error) -> Self {
+        if error.is_failed_execution() {
+            return error;
+        }
         match error {
             Self::Clock(error) => Self::ClockAfterTransfer { transfer, error },
             error => Self::CleanupAfterTransfer {
@@ -225,12 +258,15 @@ impl Error {
     /// Apply a post-call contract check after validating any fresh transfer.
     /// Already-failed transfers retain their first cause and frame ownership;
     /// a newly failing check converts a fresh transfer into a rejection.
-    pub fn after_contract_check<T>(result: Result<T>, check: Result<()>) -> Result<T> {
+    pub fn after_contract_check<T>(context: &dyn Context, result: Result<T>) -> Result<T> {
+        // Protect the primary cause before running a secondary contract check.
+        let result = result.map_err(|error| context.protect_timing_failure(error));
+        let check = context
+            .check_mmio_contract()
+            .map_err(|error| context.protect_timing_failure(error));
         match (result, check) {
-            (
-                Err(error @ (Self::ClockAfterTransfer { .. } | Self::CleanupAfterTransfer { .. })),
-                _,
-            ) => Err(error),
+            (Err(error), _) if error.is_failed_execution() => Err(error),
+            (_, Err(error)) if error.is_failed_execution() => Err(error),
             (Err(Self::ControlTransfer(transfer)), Err(error)) => {
                 Err(Self::cleanup_after_transfer(transfer, error))
             }
@@ -378,6 +414,31 @@ pub trait Context: Bus + Platform {
     }
     fn set_stack_banks(&mut self, _banks: exits::StackBanks) -> Result<()> {
         Err(Error::Platform("banked stack access is unavailable".into()))
+    }
+    /// Execute a reviewed source-role program from an actual prepared entry.
+    /// A missing clocked capability rejects before inspecting any source effect.
+    fn execute_timing_program(
+        &mut self,
+        _entry: FunctionId,
+        _source: &mut dyn timing::TimingSource,
+    ) -> Result<timing::TimedExit> {
+        Err(Error::Platform(
+            "clocked source timing is unavailable".into(),
+        ))
+    }
+    /// Only a platform-private completion receipt may suppress ordinary return
+    /// finalization. Expectations supplied by a body are never such authority.
+    fn consume_timing_completion(
+        &mut self,
+        _request: timing::CompletionRequest,
+    ) -> Result<timing::Completion> {
+        Ok(timing::Completion::Absent)
+    }
+    /// Classify an error using actual platform-owned timing admission only.
+    /// Default/frozen contexts preserve ordinary cleanup; no public source
+    /// expectation, Program or TimedExit may activate this protection.
+    fn protect_timing_failure(&self, error: Error) -> Error {
+        error
     }
     fn dispatcher(&self) -> Dispatcher;
     /// Default contexts support Atomic only. Clock-capable platforms override
@@ -648,17 +709,18 @@ impl Dispatcher {
             let ceiling = context.enter_call_ceiling(id)?;
             let result = context.call_original_with_execution(id, arguments, class);
             let result = exits::validate_call(id, result.map(Some), context.revision());
-            let result = Error::after_contract_check(result, context.check_mmio_contract())
+            let result = Error::after_contract_check(context, result)
                 .map(|value| value.expect("RTS-only original returned its D0"));
             let cleanup = context.leave_call_ceiling(ceiling);
-            match result {
+            let result = match result {
                 Err(Error::ControlTransfer(transfer)) => match cleanup {
                     Err(error) => Err(Error::cleanup_after_transfer(transfer, error)),
                     Ok(()) => Err(Error::ControlTransfer(transfer)),
                 },
                 Err(error) => Err(error),
                 Ok(value) => cleanup.map(|()| value),
-            }
+            };
+            result.map_err(|error| context.protect_timing_failure(error))
         } else {
             Err(Error::Untranslated(id))
         }
@@ -699,13 +761,12 @@ impl Dispatcher {
             None => entry.invoke_prepared(context),
         };
         let result = exits::validate_call(entry.id(), result, context.revision());
-        let result =
-            Error::after_contract_check(result, context.check_mmio_contract()).map(|value| {
-                if let Some(value) = value {
-                    context.set_data_register(0, value);
-                }
-                context.data_register(0)
-            });
+        let result = Error::after_contract_check(context, result).map(|value| {
+            if let Some(value) = value {
+                context.set_data_register(0, value);
+            }
+            context.data_register(0)
+        });
         let restore = if scoped {
             context.set_execution_class(parent)
         } else {
@@ -713,7 +774,7 @@ impl Dispatcher {
         };
         let mmio = context.check_mmio_contract();
         let ceiling = context.leave_call_ceiling(ceiling);
-        match result {
+        let result = match result {
             Err(Error::ControlTransfer(transfer)) => match mmio.and(restore).and(ceiling) {
                 Err(error) => Err(Error::cleanup_after_transfer(transfer, error)),
                 Ok(()) => Err(Error::ControlTransfer(transfer)),
@@ -721,7 +782,8 @@ impl Dispatcher {
             Err(error) if error.preserves_call_frame() => Err(error),
             Err(error) => mmio.and(Err(error)),
             Ok(value) => mmio.and(restore).and(ceiling).map(|()| value),
-        }
+        };
+        result.map_err(|error| context.protect_timing_failure(error))
     }
 
     pub(crate) fn allows_original_fallback(self) -> bool {

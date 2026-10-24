@@ -12,6 +12,9 @@ devices = ["dep:tje-native-platform", "dep:genesis-config", "dep:jgenesis-common
 
 [dependencies]
 tje-engine-core = { path = "../tje-engine-core" }
+tje-game = { path = "../tje-game" }
+tje-mem = { path = "../tje-mem" }
+tje-rom = { path = "../tje-rom" }
 tje-native-platform = { path = "../tje-native-platform", default-features = false, optional = true }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
 jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common", optional = true }
@@ -20,5 +23,3 @@ jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common", optio
 m68000-emu = { path = "../../vendor/jgenesis/cpu/m68000-emu" }
 bincode = "2"
 genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core" }
-tje-mem = { path = "../tje-mem" }
-tje-rom = { path = "../tje-rom" }

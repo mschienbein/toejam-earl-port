@@ -142,6 +142,7 @@ pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>
     context.set_address_register(3, ram::g_camera1_committed_x(revision).address());
     context.set_address_register(4, ram::g_camera1_committed_y(revision).address());
     let result = handle_vblank_inner(context, &[]);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

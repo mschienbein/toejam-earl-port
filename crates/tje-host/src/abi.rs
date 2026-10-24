@@ -446,6 +446,8 @@ pub struct HookContext<'a> {
     pub(crate) wait_clock: WaitClock,
     pub(crate) time_audio: Vec<[f64; 2]>,
     pub time_frames: u64,
+    timing_services: Option<&'a mut crate::timing_region::game_bridge::TimingServices>,
+    timing_root_started: bool,
 }
 
 impl<'a> HookContext<'a> {
@@ -473,7 +475,16 @@ impl<'a> HookContext<'a> {
             wait_clock: WaitClock::default(),
             time_audio: Vec::new(),
             time_frames: 0,
+            timing_services: None,
+            timing_root_started: false,
         }
+    }
+    pub(crate) fn with_timing_services(
+        mut self,
+        services: Option<&'a mut crate::timing_region::game_bridge::TimingServices>,
+    ) -> Self {
+        self.timing_services = services;
+        self
     }
 
     pub(crate) fn with_inspection_provenance(
@@ -519,7 +530,33 @@ impl<'a> HookContext<'a> {
     fn game_platform_error(error: HostError) -> tje_game::Error {
         match error {
             HostError::Translation(error) => error,
+            HostError::Clock(error) => tje_game::Error::Clock(error),
             other => tje_game::Error::Platform(other.to_string()),
+        }
+    }
+    pub(crate) fn protect_host_timing_failure(&self, cause: HostError) -> HostError {
+        if matches!(
+            &cause,
+            HostError::Translation(tje_game::Error::ControlTransfer(_))
+        ) {
+            return cause;
+        }
+        let Some(services) = self.timing_services.as_ref() else {
+            return cause;
+        };
+        match services.completion.protected_entry() {
+            Some(entry) => {
+                services.completion.fail();
+                #[cfg(test)]
+                crate::timing_region::game_bridge::proof::record_failure(
+                    self.emulator,
+                    self.frame_state,
+                    self.wait_clock.frame,
+                );
+                tje_game::Error::timing_execution_failure(entry, Self::game_platform_error(cause))
+                    .into()
+            }
+            None => cause,
         }
     }
 
@@ -533,6 +570,15 @@ impl<'a> HookContext<'a> {
             return Err(HostError::Clock(
                 tje_game::execution::CallClockError::Unavailable,
             ));
+        }
+        if !self.timing_root_started && self.timing_services.is_some() {
+            if let Some(services) = self.timing_services.as_deref_mut() {
+                let changed = services.completion.change_scope().map_err(|error| {
+                    HostError::Metadata(format!("timing root authority: {error}"))
+                });
+                changed.map_err(|error| self.protect_host_timing_failure(error))?;
+            }
+            self.timing_root_started = true;
         }
         if class == ExecutionClass::Atomic
             && !self.timed_execution
@@ -1350,6 +1396,12 @@ impl tje_game::Context for HookContext<'_> {
         Some(self.frame_state)
     }
     fn set_frame_state(&mut self, state: FrameState) -> tje_game::Result<()> {
+        if let Some(services) = self.timing_services.as_deref_mut() {
+            services
+                .completion
+                .change_scope()
+                .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
+        }
         self.frame_state = state;
         Ok(())
     }
@@ -1372,6 +1424,93 @@ impl tje_game::Context for HookContext<'_> {
         let cpu = self.emulator.hybrid_parts().0;
         cpu.set_address_registers(cpu.address_registers(), banks.user, banks.supervisor);
         Ok(())
+    }
+    fn execute_timing_program(
+        &mut self,
+        entry: tje_game::FunctionId,
+        source: &mut dyn tje_game::timing::TimingSource,
+    ) -> tje_game::Result<tje_game::timing::TimedExit> {
+        tje_game::Platform::check_mmio_contract(self)?;
+        let services = self.timing_services.as_deref_mut().ok_or_else(|| {
+            tje_game::Error::Platform(
+                "source timing descriptors were not prepared at startup".into(),
+            )
+        })?;
+        let scope = crate::timing_region::game_bridge::ExecutionScope {
+            emulator: self.emulator,
+            revision: self.revision,
+            frame: self.frame_state,
+            class: self.execution_class,
+            clocked: self.timed_execution,
+            clock: &mut self.wait_clock,
+            audio: std::mem::take(&mut self.time_audio),
+            audit: self.stack_audit.is_some(),
+            observers: self.stack_audit.as_ref().map_or_else(
+                crate::execution::PhysicalObservers::default,
+                StackAuditState::physical_observers,
+            ),
+        };
+        let result = crate::timing_region::game_bridge::execute(scope, services, entry, source);
+        let admitted = result.admitted;
+        self.merge_clock_run(result.clock_run);
+        let outcome = result.outcome.map_err(Self::game_platform_error);
+        if admitted {
+            outcome.map_err(|cause| tje_game::Error::timing_execution_failure(entry, cause))
+        } else {
+            outcome
+        }
+    }
+    fn consume_timing_completion(
+        &mut self,
+        request: tje_game::timing::CompletionRequest,
+    ) -> tje_game::Result<tje_game::timing::Completion> {
+        let Some(services) = self.timing_services.as_deref_mut() else {
+            return Ok(tje_game::timing::Completion::Absent);
+        };
+        let state = crate::timing_region::state(self.emulator);
+        #[cfg(test)]
+        let result = crate::timing_region::game_bridge::proof::consume_receipt(
+            &mut services.completion,
+            request,
+            &state,
+        );
+        #[cfg(not(test))]
+        let result = services.completion.consume(request, &state);
+        #[cfg(test)]
+        if result.is_err() {
+            crate::timing_region::game_bridge::proof::record_failure(
+                self.emulator,
+                self.frame_state,
+                self.wait_clock.frame,
+            );
+        }
+        result.map_err(|error| {
+            tje_game::Error::timing_execution_failure(
+                request.entry,
+                tje_game::Error::Platform(error.to_string()),
+            )
+        })
+    }
+    fn protect_timing_failure(&self, cause: tje_game::Error) -> tje_game::Error {
+        if matches!(cause, tje_game::Error::ControlTransfer(_)) {
+            return cause;
+        }
+        let Some(services) = self.timing_services.as_ref() else {
+            return cause;
+        };
+        match services.completion.protected_entry() {
+            Some(entry) => {
+                services.completion.fail();
+                #[cfg(test)]
+                crate::timing_region::game_bridge::proof::record_failure(
+                    self.emulator,
+                    self.frame_state,
+                    self.wait_clock.frame,
+                );
+                tje_game::Error::timing_execution_failure(entry, cause)
+            }
+            None => cause,
+        }
     }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher

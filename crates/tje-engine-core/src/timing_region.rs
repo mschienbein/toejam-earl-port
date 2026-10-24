@@ -480,6 +480,19 @@ impl TimingScratch {
             Ok(self.owner)
         }
     }
+    /// A monotonic brand for a region or cursor using this reusable storage.
+    /// It is scalar, never wraps, and performs no allocation or global locking.
+    pub fn claim_identity(&mut self) -> Result<CursorIdentity, TimingError> {
+        let scratch = self.identity()?;
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or(TimingError::Exhausted)?;
+        Ok(CursorIdentity {
+            scratch,
+            generation: self.generation,
+        })
+    }
     pub fn reserve_for<'a>(
         &mut self,
         instructions: impl IntoIterator<Item = &'a TimingInstruction>,
@@ -518,6 +531,7 @@ pub struct TimingCursor<'a> {
     phase_updates: u32,
     pending: Option<Pending>,
     finished: bool,
+    return_prefetch: Option<(u32, Option<u16>)>,
 }
 impl<'a> TimingCursor<'a> {
     pub fn begin(
@@ -531,15 +545,7 @@ impl<'a> TimingCursor<'a> {
         if entry.pc != instruction.pc || entry.prefetch != u32::from(instruction.opcode) {
             return Err(TimingError::WrongEntry);
         }
-        let scratch_id = scratch.identity()?;
-        scratch.generation = scratch
-            .generation
-            .checked_add(1)
-            .ok_or(TimingError::Exhausted)?;
-        let owner = CursorIdentity {
-            scratch: scratch_id,
-            generation: scratch.generation,
-        };
+        let owner = scratch.claim_identity()?;
         scratch.cache.resize(instruction.nodes.len(), None);
         scratch.cache.fill(None);
         scratch.reads.resize(instruction.reads, None);
@@ -555,7 +561,46 @@ impl<'a> TimingCursor<'a> {
             phase_updates: 0,
             pending: None,
             finished: false,
+            return_prefetch: None,
         })
+    }
+    /// Additional immutable ROM expectation for this invocation's dynamic RTS
+    /// destination. It never reads the bus or substitutes for a real prefetch.
+    pub fn bind_return_prefetch(
+        &mut self,
+        address: u32,
+        word: Option<u16>,
+    ) -> Result<(), TimingError> {
+        if self.effect != 0
+            || self.pending.is_some()
+            || self.finished
+            || self.return_prefetch.is_some()
+            || address & 1 != 0
+        {
+            return Err(TimingError::WrongEntry);
+        }
+        self.return_prefetch = Some((address & 0xffffff, word));
+        Ok(())
+    }
+    fn expected_prefetch(&self, address: u32) -> Option<u16> {
+        let address = address & 0xffffff;
+        self.instruction
+            .prefetch_words
+            .as_ref()
+            .and_then(|words| words.get(&address).copied())
+            .or_else(|| {
+                self.return_prefetch
+                    .filter(|&(pc, _)| pc == address)
+                    .and_then(|(_, word)| word)
+            })
+    }
+    fn permits_prefetch(&self, address: u32) -> bool {
+        let address = address & 0xffffff;
+        self.instruction
+            .prefetch_words
+            .as_ref()
+            .is_some_and(|words| words.contains_key(&address))
+            || self.return_prefetch.is_some_and(|(pc, _)| pc == address)
     }
     pub fn pending_access(&self, token: &EventToken) -> Result<ExpectedAccess, TimingError> {
         self.check_token(token)?;
@@ -673,13 +718,9 @@ impl<'a> TimingCursor<'a> {
                         phase: ReferenceBusPhase::Issue,
                     };
                     if kind == AccessKind::Read(ReadKind::Prefetch)
-                        && self
-                            .instruction
-                            .prefetch_words
-                            .as_ref()
-                            .is_some_and(|words| {
-                                !words.contains_key(&(expected.address & 0xFFFFFF))
-                            })
+                        && (self.instruction.prefetch_words.is_some()
+                            || self.return_prefetch.is_some())
+                        && !self.permits_prefetch(expected.address)
                     {
                         return Err(TimingError::InvalidIr(
                             "prefetch target escapes reviewed immutable code",
@@ -776,12 +817,10 @@ impl<'a> TimingCursor<'a> {
             return Err(TimingError::WrongObservation);
         }
         if expected.kind == AccessKind::Read(ReadKind::Prefetch)
-            && let Some(words) = &self.instruction.prefetch_words
-            && words
-                .get(&(expected.address & 0xFFFFFF))
-                .copied()
-                .map(u32::from)
-                != Some(observation.value)
+            && (self.instruction.prefetch_words.is_some() || self.return_prefetch.is_some())
+            && self
+                .expected_prefetch(expected.address)
+                .is_some_and(|word| u32::from(word) != observation.value)
         {
             return Err(TimingError::WrongObservation);
         }

@@ -30,6 +30,7 @@ pub fn update_and_queue_entity_sprites(
     // G c_entity_sprite_rendering.s:1149: save D2-D4/A2-A4 before any wait.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x1c))?;
     let result = update_queue_inner(context);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

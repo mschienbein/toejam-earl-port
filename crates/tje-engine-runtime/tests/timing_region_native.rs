@@ -22,8 +22,8 @@ use tje_engine_runtime::{
     BusAccess, PlatformDevices,
     timing_region::{
         BoundaryAction, InterruptEntry, IsrAction, IsrSourceContext, NativeIsrContract,
-        NativeIsrProgram, RegionEdge, ReviewedRegion, ScheduledIsrClosure, TimingProgram,
-        TimingRegion,
+        NativeIsrProgram, RegionEdge, RegionStorage, ReviewedRegion, ScheduledIsrClosure,
+        TimingProgram, TimingRegion,
     },
 };
 use tje_mem::AddressSpace;
@@ -147,7 +147,7 @@ fn main_program(rom: &[u8]) -> TimingProgram {
                     to: MAIN,
                 },
             ],
-            return_pc: MAIN + 4,
+            return_pc: Some(MAIN + 4),
             maximum_steps: 1000,
             required_interrupts: &[4, 6],
         },
@@ -504,7 +504,16 @@ fn assert_native_service(
         mutation: Mutation::None,
         calls: 0,
     };
-    let mut region = TimingRegion::begin_native(&main, &state, Some(&mut handler)).unwrap();
+    let mut storage = RegionStorage::new(&main);
+    storage.prepare_native(&handler.program);
+    let mut region = TimingRegion::begin_native(
+        &main,
+        &state,
+        main.fixed_target().unwrap(),
+        &mut storage,
+        Some(&mut handler),
+    )
+    .unwrap();
     let token = region
         .suspend_interrupt(&state, BoundaryAction::InterruptAdmission { level })
         .unwrap();
@@ -631,7 +640,16 @@ fn noop_false_rte_foreign_plan_zero_cycles_fake_bus_and_wrong_banks_never_mint_r
             mutation,
             calls: 0,
         };
-        let mut region = TimingRegion::begin_native(&main, &state, Some(&mut handler)).unwrap();
+        let mut storage = RegionStorage::new(&main);
+        storage.prepare_native(&handler.program);
+        let mut region = TimingRegion::begin_native(
+            &main,
+            &state,
+            main.fixed_target().unwrap(),
+            &mut storage,
+            Some(&mut handler),
+        )
+        .unwrap();
         let token = region
             .suspend_interrupt(&state, BoundaryAction::InterruptAdmission { level: 4 })
             .unwrap();
@@ -719,8 +737,16 @@ fn missing_native_body_and_callee_closure_fail_before_device_progress() {
         mutation: Mutation::MissingBody,
         calls: 0,
     };
+    let mut storage = RegionStorage::new(&main);
+    storage.prepare_native(&handler.program);
     assert!(matches!(
-        TimingRegion::begin_native(&main, &state, Some(&mut handler)),
+        TimingRegion::begin_native(
+            &main,
+            &state,
+            main.fixed_target().unwrap(),
+            &mut storage,
+            Some(&mut handler)
+        ),
         Err(TimingError::MissingIsrCapability)
     ));
     assert_eq!(handler.calls, 0);
@@ -749,7 +775,16 @@ fn actual_rte_marker_survives_proof_boundary_failure_but_not_an_architectural_fa
             mutation: Mutation::None,
             calls: 0,
         };
-        let mut region = TimingRegion::begin_native(&main, &state, Some(&mut handler)).unwrap();
+        let mut storage = RegionStorage::new(&main);
+        storage.prepare_native(&handler.program);
+        let mut region = TimingRegion::begin_native(
+            &main,
+            &state,
+            main.fixed_target().unwrap(),
+            &mut storage,
+            Some(&mut handler),
+        )
+        .unwrap();
         let token = region
             .suspend_interrupt(&state, BoundaryAction::InterruptAdmission { level: 4 })
             .unwrap();

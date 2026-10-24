@@ -127,6 +127,7 @@ pub fn create_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<O
         }
         Ok(None)
     })();
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

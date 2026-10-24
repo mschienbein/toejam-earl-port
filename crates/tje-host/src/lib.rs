@@ -301,6 +301,7 @@ pub struct Host {
     audio_sample_rate: u32,
     pub(crate) session_trace: Option<session_trace::SessionTrace>,
     wait_clock: WaitClock,
+    timing_services: Option<timing_region::game_bridge::TimingServices>,
     pub checks: CheckReport,
     pub measurements: Measurements,
 }
@@ -339,12 +340,21 @@ impl Host {
                 "reset SP {initial_sp:08X} does not meet RAM map's stack boundary"
             )));
         }
+        let config = GenesisEmulatorConfig::default();
+        let timing_services = if registry.timing_sources().is_empty() {
+            None
+        } else {
+            let divider = u32::try_from(config.clamped_m68k_divider().get()).map_err(|_| {
+                HostError::Metadata("configured clock divider exceeds the timing ABI".into())
+            })?;
+            Some(timing_region::game_bridge::TimingServices::prepare(
+                &rom,
+                registry.timing_sources(),
+                divider,
+            )?)
+        };
         let mut saves = NoCartridgeSaves;
-        let mut emulator = GenesisEmulator::create(
-            Some(rom.into_bytes()),
-            GenesisEmulatorConfig::default(),
-            &mut saves,
-        );
+        let mut emulator = GenesisEmulator::create(Some(rom.into_bytes()), config, &mut saves);
         emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
         let checks = CheckReport::registered(&registry);
         Ok(Self {
@@ -369,6 +379,7 @@ impl Host {
                 revision: Some(revision),
                 ..WaitClock::default()
             },
+            timing_services,
             checks,
             measurements: Measurements::default(),
         })
@@ -393,6 +404,16 @@ impl Host {
     }
     pub fn cpu(&self) -> &m68000_emu::M68000 {
         self.emulator.hybrid_cpu()
+    }
+    /// Last source-region attempt; actual original ISR execution is separate
+    /// from modeled Rust instruction grants.
+    pub fn last_timing_source_usage(
+        &self,
+        entry: tje_game::FunctionId,
+    ) -> Option<tje_engine_runtime::timing_region::RegionUsage> {
+        self.timing_services
+            .as_ref()
+            .and_then(|services| services.usage(entry))
     }
     pub fn context(&mut self) -> HookContext<'_> {
         self.inspection_context()
@@ -681,7 +702,8 @@ impl Host {
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
-        );
+        )
+        .with_timing_services(self.timing_services.as_mut());
         if progresses_time {
             context =
                 context.with_execution(hook.execution_class, std::mem::take(&mut self.wait_clock));

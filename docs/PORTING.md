@@ -610,6 +610,180 @@ route before normalization or source effects, and the actual fork must be frozen
 even if their declared class is still Functional. A clocked dependent extension
 requires separate review and proof; its mandatory zero-count case is not omitted.
 
+### Portable, instruction-phased source regions
+
+An exact timed body uses `tje_game::timing::TimingSource` through
+`Context::execute_timing_program(entry, &mut source)`. The game crate still has
+no host, engine or jgenesis dependency. The default capability rejects **before
+source effects**. There is no `charge_region`, aggregate-cycle operation,
+original-main directive or PC/prefetch alignment shortcut.
+
+The ordinary-return example is the public
+`core::wait_for_next_vblank_framed` candidate, backed by
+`core::timed_wait::WaitSource`. It is the canonical candidate used by the proof,
+not a private rewritten test body. It does not register itself, replace the
+existing value-only body or migrate its callers. Keep that cutover atomic and
+owner-reviewed; a second `PENDING_FRAMED_TRANSLATIONS` entry for an already
+declared legacy identity is not a migration.
+
+#### Declare source roles, not machine code
+
+1. Cite matching G source and compiler output. Declare a static `timing::Program`
+   with its root `Location`, complete `FunctionRegion` list and allowed `Edge`s.
+   A location is a catalogue FunctionId plus an **authored role ordinal**, not a
+   committed decoded opcode, ROM byte/target table or cycle table. The platform
+   binds ordinals to instructions in the user's matching ROM and committed
+   function metadata at startup. Missing roles, overlapping extents, undeclared
+   callees or edges fail closed.
+   The ordinary capability admits **exactly one reviewed function**. A
+   multi-function descriptor rejects at startup: a source path cannot bypass a
+   foreign callee's declared class or operational ceiling.
+2. Implement the object-safe protocol:
+   `begin_instruction(InstructionSite, Registers)`,
+   `next_effect()`, `acknowledge(Observation)`, and
+   `finish_instruction() -> Commit`. Store continuation/local state in the
+   source object; never retain a Context/platform borrow. Registers contain
+   actual D/A values, both stack banks and SR, but no opcode, prefetch or cycles.
+3. Yield each semantic or discarded read and every source-owned write payload
+   in original order and width. Actual read acknowledgements drive game logic.
+   The adapter independently checks address, width, purpose, payload bounds and
+   issue/acknowledgement order; it does not trust a source's claimed read count.
+   A byte payload above `0xFF` rejects before issue. Long transfers remain two
+   ordered words. In particular MOVEM restore's terminal **discarded word read**
+   is real and must occur, even when it creates no output dependency.
+4. Return source-owned register/flag/stack state and `Path::Next(location)` for
+   each control-flow edge inside that admitted function. Any JSR/RTS stack
+   effects and return-address reads remain real source operations;
+   `Path::Return` completes the **whole program only**. A declared D0 result
+   must agree with actual raw D0, not manufacture different residual bits.
+
+Pipeline prefetch is infrastructure: the adapter performs its actual bus read,
+with the original purpose, exactly once. It is not disclosed as an opcode
+interpreter API to game code. Semantic/discarded accesses are independently
+requested by the source. Raw timed accesses use the reference issue queues, not
+ordinary logical Context helpers that flush before a read. CPU writes issue at
+the reference's base phase; the complete instruction advance and original
+deferred-width commit/stall order follow. This is the pinned jgenesis model,
+**not invented physical per-word microcycles**. See [ENGINE.md](ENGINE.md).
+
+#### Enter through a real prepared frame
+
+Use a public `FramedTranslationFn`, with an explicit private proof static:
+
+```rust
+static TIMED_WAIT: &[tje_game::FramedTranslation] = &[
+    tje_game::FramedTranslation {
+        id: tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: tje_game::core::wait_for_next_vblank_framed,
+    },
+];
+static TIMING_SOURCES: &[&tje_game::timing::Program] = &[
+    tje_game::core::timed_wait::WaitSource::definition(),
+];
+
+let registry = HookRegistry::proof_clocked_strict(revision, &[], TIMED_WAIT, &[])?
+    .with_timing_sources(TIMING_SOURCES)?;
+let host = Host::new(user_rom, Mode::Check, registry)?;
+```
+
+This is a **proof-only** CHECK registry; it preserves the declared class and
+callee permissions while selecting full real-clock comparison on both forks.
+It cannot dispatch production replacement. Runtime/lifecycle tests use a
+separate ordinary registry, without a forced proof envelope.
+
+The borrowed descriptors prepare immutable ROM/revision/divider/program/policy
+bindings and reusable scratch at startup. They grant no class, IRQ, translation
+or equivalence approval. No missing-cache path lazily decodes or executes an
+original body. The Context validates the active actual-clock root, effective
+candidate, source identity, real PC/prefetch and exact SP before beginning.
+Only the framed invocation path marks a prepared entry; value-only calls do
+not inherit a different callee's parent frame or materialize omitted slots.
+
+Capture natural entries or explicitly source-backed real prepared entries.
+The timed ordinary-return profile requires an aligned return target in the
+actual immutable ROM range. The old untimed fixture sentinel `0x3FFFFE` is
+outside that range for these cartridges; do not silently rewrite its RA, run an
+original prefix or skip its cases. Timed fixtures preserve a reviewed actual
+caller return boundary, including count-zero/negative/display-off edge cases.
+Address-only return permission never pre-reads/substitutes the caller opcode:
+the actual RTS prefetch still occurs at its original bus phase.
+
+Completion is platform authority, not a source-provided boolean. A lazy unique
+ledger identity, checked scope serial and actual monotonic region brand bind
+the invocation **before effects**. Only an actual completed RTS followed by
+legal return-edge wait/IRQ draining, with no caller opcode executed, produces
+a live-validated single-use receipt. Both root exit finalization and prepared
+`OutgoingArguments::call` consume that receipt before deciding to skip their
+ordinary RTS. Stale/foreign/cross-region receipts, wrong exit kind and changed
+PC/prefetch/banked stacks/SR/D0 reject; no snapshot is repaired to fit a token.
+
+The reusable native source state / host timing-service lease owns **live**
+completion authority, not an ephemeral Context. A HookContext owns one root
+invocation: its first ceiling opens a checked new scope before any body,
+including ordinary legacy roots. Prepared/nested frame changes retain their
+separate brands. Identity is initialized once per live trajectory, not under a
+global lock on every live entry. Pending authority and failure poison survive
+Context destruction and reject rebinding.
+
+Every discarded check fork, dependency probe and isolated fixture instead owns
+fresh speculative completion authority for its entire CPU/device trajectory.
+Plans and scratch may be reused, but the live ledger is moved aside and restored
+on **every** Result path before error/provenance propagation. A failed probe
+cannot poison live replacement or the next proof; it cannot reactivate a root
+disabled by ContinueOriginal either. Only a successful actual hardware reset
+permits the owner to replace live completion/clock authority. Host reset retains
+immutable plans/reusable scratch; native owners explicitly recreate source
+state after the actual reset. Starting another ordinary root never unpoisons it.
+
+After actual timing admission, an execution, callback or pre-consumption
+wrapper/contract failure is `Error::TimingExecutionFailure { entry, cause }`.
+It preserves the actual failed PC/prefetch, both stacks, SR, frame and pending
+writes; it is **not** a ControlTransfer or permission to execute a caller.
+`Context::protect_timing_failure` consults only the owner's current admitted
+ledger phase and latches failure. The context-aware `Error::after_contract_check`
+protects the primary result **before** running a secondary MMIO check; already
+failed primary causes win, then already failed secondary causes, before ordinary
+fresh-transfer cleanup rules. Dispatcher/root/framed helpers propagate that
+failure before restoring registers, SP, frame bookkeeping or releasing arguments.
+Every receipt-consumption protocol error is fatal too, including stale/duplicate
+attempts. No ordinary diagnostic cleanup repairs a partially executed timed call.
+A successfully consumed invocation stops protecting unrelated legacy errors;
+rejected plans before admission retain ordinary cleanup.
+
+#### Clock, interrupts, outputs and evidence
+
+All real source-instruction/device/ISR steps charge the existing owner-bound
+root `CallClock` exactly once. A source has no budget or IRQ whitelist. Nested
+scope deadlines tighten the parent's absolute operational ceiling and never
+reset consumption. Completed progress and actual audit events survive input,
+budget and other Result errors. Native Context creation borrows the caller's
+already sampled, frame-qualified input latch; it never polls a live controller.
+Only an actual frame event samples the next input, validates that the same
+latch now reports that frame/value, applies a recipe and emits its frame/audio
+output. Outer compiled steps and source regions share this coordinator. Native
+consumers retain trailing partial audio: a function return is not a frame.
+
+The host profile explicitly reports original reference ISR execution.
+The separately labelled **CompiledEngineIsr** native composition profile uses
+the same machine/devices and authenticated generated IRQ/callee continuations;
+it is neither a 68000 interpreter nor proof of readable Rust ISR bodies.
+Startup checks the real compiled PC table and ROM/program/divider identity.
+An unknown continuation fails closed without original fallback.
+
+Use a strict real-clock proof on **both** forks, comparing actual accesses and
+phases, CPU/flags/banks, RAM commits, devices and sample bits. The Wait declaration
+is already TimeAware. Atomic/Functional leaf consumers need the independently
+reviewed proof-only ClockedStrict admission; do not change their original class
+or callee permissions, escalate the Context class, use Functional normalization,
+or claim an IRQ/stutter quotient as exact timing. A descriptor alone grants none
+of those routes, and the frozen zero-DMA source contract is not strict evidence.
+
+This ordinary bridge does not provide a readable RTE/Level6 source profile.
+RTE requires the real controller-owned accepted entry and successful architectural
+return, not `Path::Return` or a receipt reconstructed from a snapshot. The
+Level6/HandleVBlank 79-function readable closure is a separate owner campaign.
+Its dev-only structural callee oracle, when supplied, is proof instrumentation,
+not a production directive or a substitute for any foreign source role.
 
 ### Passive actual IRQ capture
 

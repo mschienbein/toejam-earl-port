@@ -306,6 +306,7 @@ pub fn vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     context.set_address_register(3, ram::g_jam_audio_route2_pending_input(revision).address());
     context.set_address_register(4, ram::g_player_processed_input(revision).address());
     let result = vblank_inner(context, &[]);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -328,6 +329,7 @@ pub fn random_sample_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Opti
     context.set_address_register(3, ram::g_jam_audio_route2_pending_input(revision).address());
     context.set_address_register(4, ram::g_player_processed_input(revision).address());
     let result = random_sample_vblank_inner(context, &[]);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

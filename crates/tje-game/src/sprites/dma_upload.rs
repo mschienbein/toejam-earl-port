@@ -24,6 +24,7 @@ pub fn upload_queued_sprite_graphics(
     // G c_load_sprites.s:4; the all-RAM zero-length transfer observes this save area.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x04))?;
     let result = upload_inner(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

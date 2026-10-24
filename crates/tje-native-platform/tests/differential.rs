@@ -20,7 +20,7 @@ use std::{convert::Infallible, io, path::PathBuf};
 use tje_game::{FunctionId, functions};
 use tje_host::input::InputScript;
 use tje_mem::{AddressSpace, Revision, ram, rom_symbol};
-use tje_native_platform::{ClockedDevices, DeviceRuntime, Origin};
+use tje_native_platform::{ClockedDevices, DeviceRuntime, Origin, Registers};
 #[cfg(feature = "game-adapter")]
 use tje_native_platform::{DeviceWrite, InterruptHandlers, NativePlatform};
 use z80_emu::Z80;
@@ -460,6 +460,117 @@ impl ReferenceDevices {
             .tick_components(cycles, clocks, wait, &mut self.resampler);
         self.resampler.output_samples(&mut self.output).unwrap();
         effect == VdpTickEffect::FrameComplete
+    }
+}
+
+#[test]
+fn authored_banked_z80_bursts_match_reference_devices_and_nonzero_audio() {
+    for prefixes in [false, true] {
+        let mut bytes = vec![0; 0x10000];
+        bytes[..4].copy_from_slice(&0xffff00_u32.to_be_bytes());
+        bytes[4..8].copy_from_slice(&0x200_u32.to_be_bytes());
+        bytes[0x200..0x202].copy_from_slice(&0x4e71_u16.to_be_bytes());
+        if prefixes {
+            bytes[0x8000..].fill(0xdd);
+        } else {
+            bytes[0x8000] = 0xe3;
+        }
+        let original = GenesisEmulator::create(
+            Some(bytes.clone()),
+            GenesisEmulatorConfig::default(),
+            &mut Saves,
+        );
+        let mut state = original.capture_native_state();
+        state.audio_ram.fill(0);
+        state.reset = false;
+        state.bus_request = false;
+        state.z80_bank = 1;
+        state.z80.set_pc(0x8000);
+        state.z80.set_sp(0x9000);
+        state.cycles.m68k_mclk_cycles = genesis_core::timing::MAX_YM2612_LAG_MCLK - 1;
+        state.cycles.z80_mclk_cycles =
+            state.cycles.m68k_mclk_cycles - genesis_core::timing::Z80_DIVIDER;
+        // Authored DAC tone makes sample equality non-vacuous.
+        state.ym2612.write_address_2(0xb6);
+        state.ym2612.write_data(0xc0);
+        state.ym2612.write_address_1(0x2a);
+        state.ym2612.write_data(0xe0);
+        state.ym2612.write_address_1(0x2b);
+        state.ym2612.write_data(0x80);
+        let mut reference = ReferenceDevices::new(&bytes, state.clone());
+        let mut native =
+            DeviceRuntime::from_state(AddressSpace::new(bytes, Revision::Rev02), state).unwrap();
+        native.enable_trace();
+        native.enable_ram_write_trace();
+        let mut rendered = false;
+        // Finish a real renderer interval, including sinc startup latency and
+        // the actual bank-generated waits, not an arbitrary short sample span.
+        for index in 0..20_000 {
+            let pc = 0x200;
+            native.set_instruction_pc(pc);
+            native.begin_instruction(0x4e71, 0);
+            reference.bus.m68k_opcode = 0x4e71;
+            let (expected, actual) = if reference.bus.cycles.m68k_wait_cpu_cycles != 0 {
+                let cycles = reference.bus.cycles.take_m68k_wait_cpu_cycles();
+                (
+                    reference.step(pc, cycles, true),
+                    native.take_wait_step(pc).unwrap().frame_complete,
+                )
+            } else {
+                let cycles = if index == 0 { 1 } else { 64 };
+                (
+                    reference.step(pc, cycles, false),
+                    native.finish_instruction(pc, cycles).frame_complete,
+                )
+            };
+            assert_eq!(expected, actual);
+            assert_eq!(encoded(&reference.bus.cycles), encoded(native.cycles()));
+            assert!(reference.bus.vdp.hybrid_state_eq(native.vdp()));
+            assert_eq!(encoded(&reference.bus.ym2612), encoded(native.ym2612()));
+            assert_eq!(encoded(&reference.bus.psg), encoded(native.psg()));
+            assert_eq!(encoded(&reference.z80), encoded(native.z80()));
+            assert_eq!(
+                reference.bus.native_writes.as_ref().unwrap(),
+                &native.trace().unwrap().writes
+            );
+            assert_eq!(
+                reference.bus.native_ram_writes.as_ref().unwrap().as_slice(),
+                native.ram_write_trace().unwrap()
+            );
+            assert!(
+                reference
+                    .output
+                    .samples
+                    .iter()
+                    .map(|sample| sample.map(f64::to_bits))
+                    .eq(native
+                        .audio_samples()
+                        .iter()
+                        .map(|sample| sample.map(f64::to_bits)))
+            );
+            if actual {
+                rendered = true;
+                break;
+            }
+        }
+        assert!(
+            rendered,
+            "authored device proof did not produce an actual frame"
+        );
+        let actual = native.capture_state(Registers::default());
+        assert_eq!(
+            encoded(&reference.resampler),
+            encoded(&actual.audio_resampler)
+        );
+        assert!(!reference.output.samples.is_empty());
+        assert!(
+            reference
+                .output
+                .samples
+                .iter()
+                .flatten()
+                .any(|&sample| sample != 0.0)
+        );
     }
 }
 

@@ -62,6 +62,7 @@ pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
         audio_sample_rate: 48_000,
         session_trace: None,
         wait_clock: WaitClock::default(),
+        timing_services: None,
         checks,
         measurements: Default::default(),
     }

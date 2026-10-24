@@ -13,6 +13,7 @@ pub fn entity_create_level_item(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x04))?;
     let result = create_body(context, arguments);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())
@@ -129,6 +130,7 @@ pub fn entity_update_level_item_visibility(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0xfc, 0x04))?;
     let result = visibility_body(context, arguments, &frame);
+    let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

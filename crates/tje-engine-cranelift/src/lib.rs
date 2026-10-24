@@ -101,6 +101,8 @@ pub struct NativeProgram {
     code: Mmap,
     offsets: Vec<u32>,
     stats: CompileStats,
+    rom_sha1: [u8; 20],
+    program_sha256: [u8; 32],
 }
 
 impl NativeProgram {
@@ -167,7 +169,8 @@ impl NativeProgram {
                 Ok(artifact) => {
                     stats.cache_status = CacheStatus::Hit;
                     stats.cache_bytes = std::fs::metadata(path)?.len();
-                    let program = Self::map(artifact, stats, start)?;
+                    let program =
+                        Self::map(artifact, stats, start, rom_sha1, identity.program_sha256)?;
                     progress(CompileProgress::Ready {
                         cache_status: CacheStatus::Hit,
                     });
@@ -198,14 +201,20 @@ impl NativeProgram {
             progress(CompileProgress::WritingCache);
             stats.cache_bytes = cache::store(path, &identity, &artifact)?;
         }
-        let program = Self::map(artifact, stats, start)?;
+        let program = Self::map(artifact, stats, start, rom_sha1, identity.program_sha256)?;
         progress(CompileProgress::Ready {
             cache_status: program.stats.cache_status,
         });
         Ok(program)
     }
 
-    fn map(artifact: Artifact, mut stats: CompileStats, start: Instant) -> Result<Self> {
+    fn map(
+        artifact: Artifact,
+        mut stats: CompileStats,
+        start: Instant,
+        rom_sha1: [u8; 20],
+        program_sha256: [u8; 32],
+    ) -> Result<Self> {
         stats.code_bytes = artifact.code.len();
         // Anonymous RW memory is populated only after cache verification, then
         // changed to RX. The cache file itself is never executable or mapped live.
@@ -238,6 +247,8 @@ impl NativeProgram {
             code,
             offsets,
             stats,
+            rom_sha1,
+            program_sha256,
         })
     }
 
@@ -294,6 +305,18 @@ impl tje_engine_runtime::Backend for NativeProgram {
     type Error = Error;
     fn execute(&mut self, cpu: &mut CpuState, bus: &mut dyn Bus) -> Result<StepResult> {
         NativeProgram::execute(self, cpu, bus)
+    }
+}
+
+impl tje_engine_runtime::portable_timing::TimingBackend for NativeProgram {
+    fn contains_compiled_instruction(&self, pc: u32) -> bool {
+        self.contains(pc)
+    }
+    fn compiled_identity(&self) -> ([u8; 20], [u8; 32]) {
+        (self.rom_sha1, self.program_sha256)
+    }
+    fn authenticates_compilation(&self, rom_sha1: [u8; 20], program: &Program) -> bool {
+        self.rom_sha1 == rom_sha1 && self.program_sha256 == program_hash(program)
     }
 }
 

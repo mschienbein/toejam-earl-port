@@ -3342,6 +3342,7 @@ name = "tje-engine-cranelift"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "clap",
  "cranelift-codegen",
  "cranelift-control",
@@ -3349,6 +3350,8 @@ dependencies = [
  "cranelift-native",
  "directories",
  "genesis-config",
+ "genesis-core",
+ "jgenesis-common",
  "memmap2",
  "serde_json",
  "sha1",
@@ -3357,9 +3360,11 @@ dependencies = [
  "thiserror 2.0.21",
  "tje-engine-core",
  "tje-engine-runtime",
+ "tje-game",
  "tje-mem",
  "tje-native-platform",
  "tje-rom",
+ "tje-session",
  "wasmtime-internal-jit-icache-coherence",
 ]
 
@@ -3373,6 +3378,7 @@ dependencies = [
  "jgenesis-common",
  "m68000-emu",
  "tje-engine-core",
+ "tje-game",
  "tje-mem",
  "tje-native-platform",
  "tje-rom",

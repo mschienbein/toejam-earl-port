@@ -64,6 +64,27 @@ pub trait Bus {
     }
 }
 
+/// Process-local immutable cartridge identity, not a ROM digest or serializable
+/// asset identifier. Clones preserve it; each newly constructed image is fresh.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RomIdentity(u64);
+impl std::fmt::Debug for RomIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RomIdentity(..)")
+    }
+}
+impl RomIdentity {
+    fn fresh() -> Self {
+        static NEXT: std::sync::Mutex<u64> = std::sync::Mutex::new(1);
+        let mut next = NEXT.lock().expect("cartridge identity allocator poisoned");
+        let identity = Self(*next);
+        *next = next
+            .checked_add(1)
+            .expect("cartridge identity allocator exhausted");
+        identity
+    }
+}
+
 /// ROM is immutable, RAM is exactly 64 KiB. The Genesis decodes RAM throughout
 /// E00000..FFFFFF, mirroring its low 16 address bits. The canonical names use FF0000.
 /// Storage operations deliberately allow unaligned accesses; instruction-level
@@ -73,6 +94,7 @@ pub struct AddressSpace {
     rom: Vec<u8>,
     ram: Box<[u8; RAM_SIZE]>,
     revision: Revision,
+    rom_identity: RomIdentity,
 }
 
 impl AddressSpace {
@@ -86,10 +108,14 @@ impl AddressSpace {
             rom,
             ram: vec![0; RAM_SIZE].into_boxed_slice().try_into().unwrap(),
             revision,
+            rom_identity: RomIdentity::fresh(),
         }
     }
     pub fn rom(&self) -> &[u8] {
         &self.rom
+    }
+    pub fn rom_identity(&self) -> RomIdentity {
+        self.rom_identity
     }
     pub fn ram(&self) -> &[u8; RAM_SIZE] {
         &self.ram
@@ -388,6 +414,27 @@ pub trait Platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn immutable_cartridge_identity_is_preserved_only_by_cloning() {
+        let original = memory();
+        let clone = original.clone();
+        let independent = memory();
+        assert_eq!(original.rom_identity(), clone.rom_identity());
+        assert_ne!(original.rom_identity(), independent.rom_identity());
+    }
+
+    #[test]
+    fn every_ram_mutation_path_preserves_cartridge_identity() {
+        let mut image = memory();
+        let identity = image.rom_identity();
+        image.write_u8(0xff0000, 7);
+        image.write_u16(0xe01234, 0xbeef);
+        image.write_u32(0xfffffc, 0x12345678);
+        image.ram_mut()[15] ^= 1;
+        assert_eq!(image.rom_identity(), identity);
+        assert_eq!(format!("{identity:?}"), "RomIdentity(..)");
+    }
 
     fn memory() -> AddressSpace {
         AddressSpace::new(vec![0x12, 0x34, 0x80, 0xff], Revision::Rev02)
