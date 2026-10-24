@@ -45,7 +45,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [earthlings](#earthlings) | 60 | 50 | 10 | 0 | 51 | 0 | 9 | 0 |
 | [elevator](#elevator) | 27 | 20 | 7 | 0 | 16 | 3 | 8 | 0 |
 | [jamout](#jamout) | 18 | 11 | 7 | 0 | 10 | 1 | 7 | 0 |
-| [map](#map) | 68 | 54 | 14 | 0 | 48 | 7 | 13 | 0 |
+| [map](#map) | 68 | 53 | 15 | 0 | 48 | 7 | 13 | 0 |
 | [platform](#platform) | 19 | 17 | 2 | 0 | 4 | 10 | 5 | 0 |
 | [player](#player) | 65 | 42 | 23 | 0 | 43 | 1 | 21 | 0 |
 | [presents](#presents) | 65 | 63 | 2 | 0 | 47 | 0 | 18 | 0 |
@@ -54,7 +54,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [speech](#speech) | 8 | 5 | 3 | 0 | 4 | 1 | 3 | 0 |
 | [sprites](#sprites) | 42 | 38 | 4 | 0 | 33 | 8 | 1 | 0 |
 | [ui](#ui) | 76 | 48 | 28 | 0 | 26 | 19 | 31 | 0 |
-| **Total** | **648** | **480** | **168** | **0** | **383** | **79** | **186** | **0** |
+| **Total** | **648** | **479** | **169** | **0** | **383** | **79** | **186** | **0** |
 
 Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; collision query: **5**.
 
@@ -430,7 +430,7 @@ Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; col
 | `LoadMapIntoVRAM` | compiled C | [`src/map/map_drawing_and_controller.c:214`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L214) | `0x007F52` | `0x007F52` | Functional | [`map::display::load_map_into_vram`](../crates/tje-game/src/map/display.rs#L108) | production |
 | `LoadLevel1Tiles` | compiled C | [`src/map/map_drawing_and_controller.c:263`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L263) | `0x0080D6` | `0x0080D6` | Atomic | [`map::screen::load_level1_tiles`](../crates/tje-game/src/map/screen.rs#L30) | production |
 | `MapAppendCoverBlockSprites` | compiled C | [`src/map/map_drawing_and_controller.c:276`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L276) | `0x00815C` | `0x00815C` | Atomic | [`map::screen::map_append_cover_block_sprites`](../crates/tje-game/src/map/screen.rs#L50) | production |
-| `MapInitializeScreenSprites` | compiled C | [`src/map/map_drawing_and_controller.c:297`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L297) | `0x008232` | `0x008232` | TimeAware | [`map::display::map_initialize_screen_sprites`](../crates/tje-game/src/map/display.rs#L249) | production |
+| `MapInitializeScreenSprites` | compiled C | [`src/map/map_drawing_and_controller.c:297`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L297) | `0x008232` | `0x008232` | TimeAware | [`map::display::map_initialize_screen_sprites`](../crates/tje-game/src/map/display.rs#L249) | pending — Corpus REV02 nerd-herd frame5415 trace324: HBlank vector28 versus Rust main-thread RAM write; shared interrupt-phase contract is still unproven. Opt-in proof hooks only; production never registers this table. Keeping body references here also exercises the ordinary library target. |
 | `PlayerHasOddElevatorState` | compiled C | [`src/map/map_drawing_and_controller.c:338`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L338) | `0x008356` | `0x008356` | Atomic | [`map::screen::player_has_odd_elevator_state`](../crates/tje-game/src/map/screen.rs#L93) | production |
 | `Map_DrawPlayer` | compiled C | [`src/map/map_drawing_and_controller.c:349`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L349) | `0x008390` | `0x008390` | Functional | [`map::drawing::map_draw_player`](../crates/tje-game/src/map/drawing.rs#L32) | production |
 | `Map_DrawShipPiece` | compiled C | [`src/map/map_drawing_and_controller.c:375`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/map/map_drawing_and_controller.c#L375) | `0x0084CC` | `0x0084CC` | Functional | [`map::drawing::map_draw_ship_piece`](../crates/tje-game/src/map/drawing.rs#L64) | production |

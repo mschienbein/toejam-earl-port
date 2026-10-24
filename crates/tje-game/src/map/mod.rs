@@ -322,10 +322,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: map_draw_background_and_terrain,
     },
     crate::Translation {
-        id: ids::MAP_INITIALIZE_SCREEN_SPRITES,
-        function: map_initialize_screen_sprites,
-    },
-    crate::Translation {
         id: ids::MAP_CONNECT_ANCHOR_POSITIONS,
         function: map_connect_anchor_positions,
     },
@@ -363,6 +359,9 @@ pub static PENDING: &[crate::FunctionId] = &[
     // Corpus REV00 later frame19472 trace29 vector30, REV02 effects frame22851
     // trace31 vector28: original interrupt entry versus Rust main-thread write.
     ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+    // Corpus REV02 nerd-herd frame5415 trace324: HBlank vector28 versus Rust
+    // main-thread RAM write; shared interrupt-phase contract is still unproven.
+    ids::MAP_INITIALIZE_SCREEN_SPRITES,
     // Corpus REV00 cooperation frame21442 trace887: Z80 A0004A original03/Rust04.
     ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
     // Corpus REV00 cooperation frame30142: logical VDP control_address
@@ -386,6 +385,10 @@ pub static PENDING: &[crate::FunctionId] = &[
 /// Opt-in proof hooks only; production never registers this table.
 /// Keeping body references here also exercises the ordinary library target.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::MAP_INITIALIZE_SCREEN_SPRITES,
+        function: map_initialize_screen_sprites,
+    },
     crate::Translation {
         id: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
         function: entity_reserve_land_path_animations,
