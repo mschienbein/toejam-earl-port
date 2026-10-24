@@ -76,26 +76,28 @@ closure and lists all missing translations. Even an out-of-closure call on that
 dispatcher returns `Error::Untranslated`, never a ROM fallback. Callback roots
 must be included in the closure through the inventory's indirect dependencies.
 
-Do not translate time-dependent waits using the atomic bridge: peripheral clocks
-are frozen inside check calls. Registration and nested original calls require an
-explicit reviewed execution contract. `ATOMIC_CAPABLE` declares bounded no-clock
-entries; `EXECUTION_CONTRACTS` declares Functional or TimeAware originals. Host
-registration, translated-callee dispatch and original fallback all resolve the
-same owner declaration. Generated metadata contains no execution policy. Missing
+Ordinary ClassDefined Atomic checks keep peripheral clocks frozen: do not implement
+time-dependent waits through that bridge. Registration and nested original calls
+require an explicit reviewed execution contract. `ATOMIC_CAPABLE` declares plain
+no-clock Atomic entries; typed `EXECUTION_CONTRACTS` declares other classes or
+additional check policy for Atomic entries. Host registration, translated-callee
+dispatch and original fallback all resolve the same owner declaration. Generated
+metadata contains no execution policy. Missing
 IDs fail closed, not optimistically inferred safe from W0 membership or missing
 hardware annotations. Read every relevant return/wait path before adding an ID;
 record its source and reasoning in the lane's evidence. `SetupYM2612`, VBlank waits and STOP/IRQ
-fixtures are rejected before atomic execution. A future wait/interrupt translation
-needs an explicit time-progressing platform contract, never a fabricated ready
-bit or a larger instruction bound. Even a nominally bounded VDP writer needs a
+fixtures are rejected before ordinary Atomic execution. A wait/interrupt translation
+requires an explicit time-progressing contract, never a fabricated ready bit or a
+larger operational ceiling. Even a nominally finite VDP writer needs a
 live entry state in which its frozen FIFO can accept the original access.
 
 ## 3. Register and test
 
 Put a body in production `TRANSLATIONS` only after both-revision zero-mismatch,
-exercised proof. Classify it in its owner's Atomic or non-Atomic list. The host's
-`HookRegistry::translated` / `filtered` registers the declared class for each
-translation; check mode uses that class's fork semantics. Callers may use their
+exercised proof. Classify it in its owner's literal class declaration. The host's
+`HookRegistry::translated` / `filtered` registers that same class for each
+translation; check mode also resolves its orthogonal proof envelope (section 5).
+Callers may use their
 own class or a weaker one: Atomic→Atomic, Functional→Atomic/Functional,
 TimeAware→all. A TimeAware caller's real-clock envelope is retained through
 Functional/Atomic callees; nested original calls do not silently freeze clocks.
@@ -476,10 +478,11 @@ The generic tick ceiling remains **1,000,000**; its equally finite frame and
 dispatch-step ceilings do not promise one million frames of capacity. Ordinary
 `WaitRequest::max_ticks`, readiness predicates and input/recipe policy are
 unchanged. A request cannot renew its enclosing whole-call deadline.
-This shared ledger installs **no per-function extension** and promotes no pending
-translation. Its one-million-tick limit is an **operational ceiling**, not a bound
-on source execution or a timing charge. Authored diagnostic fixtures may supply an
-explicit primitive ceiling, but production registrations retain the generic one.
+Unlisted functions retain that generic ceiling. Reviewed extensions live only in
+the owner's literal `EXECUTION_CONTRACTS` entry, with measurement evidence; there
+is no parallel ceiling registry. Limits are **operational ceilings**, never source
+bounds or timing charges. Authored diagnostic fixtures may supply explicit
+primitive ceilings, but that does not create production game policy or approval.
 Exhaustion reports **“ceiling exceeded”**, resource kind and FunctionId and fails
 closed. Being inside a ceiling never approves a call: real RTS/return PC/SP (or
 the existing typed exit), live RAM/ABI/SR, ordered effects and every existing
@@ -493,6 +496,32 @@ the root. An exhausted child remains a failure until root rejection, even if a
 caller attempts to hide its error. Original instructions inside an enclosing
 timed runner consume that same root ledger; nested original fallbacks and Rust
 dispatches cannot create fresh root capacity.
+An optional reference-opcode-attempt ceiling counts actual execution, including
+handler and faulting attempts. `None` adds no limit; it does not remove an enclosing
+finite one. Zero is invalid. A measured child policy applies to translated calls,
+original fallbacks/prepared calls and actual measured JSR/BSR entries in a timed
+reference runner. Its actual matching RTS latches the return, but does not yet
+close the scope: refresh/device debt, IRQ recognition/entry and any accepted
+handler through RTE still consume the child's ceiling. The scope closes only at
+the unchanged return PC/SP/depth and a genuinely quiescent instruction boundary,
+before any caller opcode executes. An escaped return is a failure, not permission
+to repair the CPU or refund consumed capacity.
+The exact-entry lookup is derived from the same cached literal policies, warmed
+and validated before a clocked registry creates its machine. Runtime lookup never
+scans the full catalogue. Root entries use their explicit resolved scope. A new
+unmetered entry reached inside a physical runner without a successful JSR/BSR
+fails closed, including branches, fallthrough and return-based entry; no return
+frame is invented. The boundary violation is sticky in the root ledger, so catching
+an original-call error cannot approve it. Reentry into an already protected
+ancestor/self scope, including
+an IRQ's actual RTE, retains its existing deadline without renewal.
+
+The clock retains empty callee-meter storage across physical runs. All recursive
+machine calls share that growable storage, with no artificial recursion limit;
+both success and error cleanup drain tokens and return capacity before propagating
+the outcome. Moving the clock preserves storage, while a speculative clone starts
+with fresh empty storage and never copies scope-token authority.
+
 Each required token is also bound to its provider's lazy, non-heap clock identity.
 Moving a provider preserves that identity; cloning a diagnostic fork never grants
 authority over the original's outstanding scopes. Foreign tokens fail before
@@ -518,6 +547,69 @@ pause loops still require a resumable, cycle-charged per-effect contract.
 `GeneralMenuHandler` remains its ordinary VBlank-paced loop, not a busy-loop
 exception. A larger ceiling cannot waive controller read counts, ISR/device
 interleaving or any other existing mismatch.
+
+### Literal execution contracts and stronger proof envelopes
+
+Each original id has exactly one reviewed source class. Plain Atomic ids remain
+in `ATOMIC_CAPABLE`; extended entries use literal `ExecutionContract { function,
+class, proof_envelope, operational_ceiling, evidence }` values in the same owner.
+Duplicate, missing, cross-owner or malformed declarations fail closed. A generated
+hook cannot override its reviewed class, and a stronger envelope never changes
+which callee classes that source class permits.
+
+`ClassDefined` retains the existing Atomic/Functional/TimeAware policies.
+`ClockedStrict` is explicit check/fixture admission only: **both** forks run real
+clocks, neither entry nor endpoint is functionally normalized, and no TimeAware
+poll stutter, IRQ commutation, undefined-bit or VDP-phase quotient applies.
+Comparison retains full CPU/register/banked-stack/prefetch/IRQ state, actual CPU
+issues, all-origin RAM commits, timed chip dispatches, complete actual DMA source
+words, emitted audio bits and the existing complete encoded CPU/Z80/device/RAM/
+clock/raster/resampler/timing state. An instantaneous legacy body cannot pass merely
+because final VRAM/RAM matches. Explicit proof-only registry overrides cannot drive
+live replacement/play. That admission provenance is separate from the owner's
+reviewed check policy: an owner envelope persists through promotion and does not
+change a proven body's source class or runtime eligibility.
+
+`ClockedCommutingInterrupts` is a reviewed check-policy declaration, not automatic
+permission to move or drop interrupts. This typed-contract cut admits only the
+fully exact **strict identity** case under that declaration: it does not inherit
+the old TimeAware projection or Functional endpoint normalization. Relocation is
+not admitted until actual paired frames, complete symmetric conflict checks and
+discharged provenance are implemented. Unmatched IRQs remain pending for
+source-owned real timing; metadata alone never promotes a translation.
+
+Future-frame watch bindings record the declared class, proof envelope, actual
+resolved check route and explicit proof-only admission separately. Arming requires
+those policies to match the active registry before any approval ID or campaign
+state is changed. A watch's differing-byte receipt is **not** a full raw-frame
+commutation certificate: such a certificate must independently retain both full
+actual frames, their actual commit witnesses and a stable certificate identity.
+Neither typed metadata nor a zero-mismatch provisional watch grants commutation
+approval. Campaign consumers must retain the pending/non-success eligibility
+guard described in section 6.
+
+The following three Atomic originals remain **pending**. Caps use the maximum
+observed actual call-to-RTS count across both revisions, doubled and rounded UP
+(instruction/tick ceilings to a million, frames to a hundred):
+
+| Function | Observed I/T/F maxima | Operational I/T/F ceilings |
+| --- | --- | --- |
+| MapAssignTransitionChain | 2,240,200 / 2,404,504 / 143 | 5,000,000 / 5,000,000 / 300 |
+| EarthlingRetainLevelBank | 6,361,567 / 6,923,746 / 513 | 13,000,000 / 14,000,000 / 1,100 |
+| FindSpawnLocationForEarthling | 1,702,908 / 1,848,851 / 136 | 4,000,000 / 4,000,000 / 300 |
+
+Their literal entries retain per-revision counts, independent per-resource case
+provenance, corpus origin, observer commit and measured binary hash from
+`scratch/W0Map/exact-corpus-final/receipt.json`. These are measurements and failure
+ceilings, **not** termination bounds or effect/IRQ waivers.
+
+The existing zero-encoded whole-work-RAM DMA dependent descriptor is
+**ClassDefined frozen Functional only**. Activation and every attempt recheck that
+route before normalization or source effects, and the actual fork must be frozen.
+`ClockedStrict`, TimeAware and commuting envelopes do not inherit its approval,
+even if their declared class is still Functional. A clocked dependent extension
+requires separate review and proof; its mandatory zero-count case is not omitted.
+
 
 ### Exactly what a time-aware check proves
 

@@ -38,7 +38,10 @@ impl ZeroDmaRoot {
             Self::Platform => ids::DMA_COPY_WORDS_TO_VRAM,
             Self::QueuedSpriteGraphics => ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
         };
-        if hook.symbol.id != expected_id || hook.execution_class != ExecutionClass::Functional {
+        if hook.symbol.id != expected_id
+            || hook.execution_class != ExecutionClass::Functional
+            || hook.check_route() != crate::CheckForkRoute::FrozenFunctional
+        {
             return Err(HostError::Metadata(
                 "zero-count DMA proof requires its reviewed root under frozen Functional execution"
                     .into(),

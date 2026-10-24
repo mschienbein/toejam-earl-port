@@ -970,6 +970,58 @@ fn finalized_zero_mismatch_campaign_is_pending_and_retains_full_private_evidence
         report["current"]["bindings"]["0"]["execution_class"],
         "atomic"
     );
+    let binding = &report["current"]["bindings"]["0"];
+    assert_eq!(binding["proof_envelope"], "ClassDefined");
+    assert_eq!(binding["actual_check_route"], "FrozenAtomic");
+    assert_eq!(binding["explicit_proof_only_admission"], false);
+}
+
+#[test]
+fn producer_binding_rejects_changed_policy_before_creating_watch_debt() {
+    let mut host = authored_host(
+        Revision::Rev02,
+        &[0x60fe],
+        &[0x4e73],
+        &[0x4e75],
+        noop,
+        ExecutionClass::Atomic,
+    );
+    let receipt = observed_receipt(&mut host);
+    let active = host.registry.at(PRODUCER).unwrap().clone();
+    let before = current_report(&host);
+    for (class, envelope) in [
+        (
+            ExecutionClass::Atomic,
+            tje_game::execution::ProofEnvelope::ClockedStrict,
+        ),
+        (
+            ExecutionClass::Atomic,
+            tje_game::execution::ProofEnvelope::ClockedCommutingInterrupts,
+        ),
+        (
+            ExecutionClass::Functional,
+            tje_game::execution::ProofEnvelope::ClassDefined,
+        ),
+    ] {
+        let mut altered = active.clone();
+        altered.execution_class = class;
+        altered.proof_envelope = envelope;
+        let error = host
+            .arm_future_frame_watch(&altered, "wrong policy", 1, vec![receipt.clone()])
+            .unwrap_err();
+        assert!(error.to_string().contains("active hook policy"), "{error}");
+        let report = current_report(&host);
+        assert!(
+            report["current"]["bindings"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(report["current"]["watches"].is_null());
+        assert_eq!(report, before);
+    }
+    let approval = arm_component_requirement(&mut host, receipt);
+    assert_eq!(approval.value(), 0);
 }
 
 #[test]

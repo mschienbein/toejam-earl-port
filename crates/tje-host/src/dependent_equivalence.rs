@@ -196,6 +196,21 @@ impl HookRegistry {
                     id.metadata().name
                 )));
             }
+            let reviewed = REVIEWED_CONTRACTS
+                .iter()
+                .find(|contract| contract.function == *id)
+                .expect("validated dependent contract");
+            if matches!(
+                reviewed.source,
+                DependentSource::ZeroEncodedWorkRamDma { .. }
+            ) && self
+                .at(id.metadata().address(self.revision()))
+                .is_none_or(|hook| hook.check_route() != crate::CheckForkRoute::FrozenFunctional)
+            {
+                return Err(HostError::Metadata(
+                    "zero-count DMA approval is ClassDefined frozen Functional only; stronger envelopes require separate review".into(),
+                ));
+            }
         }
         for id in roots {
             let contract = REVIEWED_CONTRACTS

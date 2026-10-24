@@ -76,7 +76,7 @@ fn every_original_is_classified_and_pending_bodies_are_not_dispatched() {
         let atomic = super::ATOMIC_CAPABLE.contains(&function.id);
         let other = super::EXECUTION_CONTRACTS
             .iter()
-            .filter(|(id, _)| *id == function.id)
+            .filter(|contract| contract.function == function.id)
             .count();
         assert_eq!(usize::from(atomic) + other, 1, "{}", function.name);
         let bodies = super::TRANSLATIONS

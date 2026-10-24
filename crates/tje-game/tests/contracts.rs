@@ -104,7 +104,12 @@ impl Context for Fixture {
     ) -> tje_game::Result<tje_game::execution::CallCeilingScope> {
         if let Some(clock) = &mut self.clock {
             clock
-                .enter(function, tje_game::execution::CallCeiling::DEFAULT)
+                .enter(
+                    function,
+                    tje_game::execution_contract(function)
+                        .and_then(|contract| contract.operational_ceiling)
+                        .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
+                )
                 .map_err(Error::Clock)
         } else if tje_game::execution_class(function) == Some(ExecutionClass::Atomic) {
             Ok(tje_game::execution::CallCeilingScope::not_required())

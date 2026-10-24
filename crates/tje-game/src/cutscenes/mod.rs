@@ -529,207 +529,339 @@ fn allocate_viewport_with_d4(context: &mut dyn Context, object: u32, low: u16) -
 
 /// Reviewed non-atomic original entries, whether or not translated yet.
 /// Classes describe required execution, not approval of an unexercised body.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // G/src/cutscenes/sega_logo.c:24: fixed stable-ROM VDP writes, no status,
     // raster, interrupt or concurrent-source observations. Requires completed
     // transactions because the 4,176-word stream exceeds the frozen FIFO.
-    (
-        ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::SEGA_LOGO_CLEAR_VIDEO_PLANES,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/large_player_parts.c:128: explicitly waits one VBlank
     // between queueing RAM sprite graphics and uploading them.
-    (
-        ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/intro.c:85: AnimateTitleTransitionBackground waits on IRQ.
-    (
-        ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/intro.c:524,628,711,819,866: every state-machine path
     // services real VBlank waits; controller and music state change over time.
-    (
-        ids::INTRO_PART5,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART6,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART7,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART8,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART9,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART5,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART6,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART7,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART8,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART9,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/sega_logo.c:36: busy loops observe the IRQ-owned frame
     // counter and SegaLogoVBlank consumes queued palette/sprite publications.
-    (ids::SEGA_VIDEO, crate::execution::ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::SEGA_VIDEO,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/intro.c:97,912,314,383,455 and intro_part11.c:16:
     // controller-release loops and timed states call shared VBlank service.
-    (
-        ids::INTRO_PART1,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART10,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART11,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART2,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART3,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_PART4,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART1,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART10,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART11,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART2,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART3,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_PART4,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/cutscenes/intro.c:26: explicit waits plus ordered timed scene calls.
-    (
-        ids::INTRO_VIDEO,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_VIDEO,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // CutscenesA entries (appended).
     // G/src/cutscenes/title_and_transition.c:87,99: explicit VBlank, then plane fill.
-    (
-        ids::CLEAR_LOWER_VRAM_TILEMAP,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::CLEAR_UPPER_VRAM_TILEMAP,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CLEAR_LOWER_VRAM_TILEMAP,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::CLEAR_UPPER_VRAM_TILEMAP,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :200: 128 ordered VDP words, stable ROM metatiles, no status/raster reads.
-    (
-        ids::CUTSCENE_DRAW_METATILE_BLOCK,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_DRAW_METATILE_BLOCK,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :24: every path waits VBlank; changed frames additionally upload graphics.
-    (
-        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :178,142: explicit VBlank before ordered border writes and RNG draws.
-    (
-        ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :212,226: fixed metatile writers, no status/raster or unstable DMA source.
-    (
-        ids::ENDING_DRAW_NINE_METATILE_BACKGROUND,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        ids::ENDING_FILL_REPEATED_METATILE_BACKGROUND,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_DRAW_NINE_METATILE_BACKGROUND,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_FILL_REPEATED_METATILE_BACKGROUND,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :111: calls the VBlank-waiting clear before loading the selected logo.
-    (
-        ids::TITLE_DRAW_SELECTED_LOGO,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::TITLE_DRAW_SELECTED_LOGO,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :245,69 and intro_frame_release.c:8: frame waits and interrupt-owned counters.
-    (
-        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ending.c:466,405: explicit frame waits; bouncing also has a residual local.
-    (
-        ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // title_and_transition.c:282: frame waits, controller timeline and music events.
-    (
-        ids::TITLE_SCREEN_VIDEO,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::TITLE_SCREEN_VIDEO,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ending.c:68,287,221: script loops progress through real VBlank services.
-    (
-        ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::ENDING_PLAY_SCROLLING_CREDITS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_PLAY_SCROLLING_CREDITS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // funkatron_scene.c:49: StartDialogue reaches GenerateSpeech's explicit
     // IRQ-cleared upload wait (speech_and_dialogue.c:135-136), as well as panel VDP.
-    (
-        ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // sega_logo_vblank.c:11: DMA completion and music's YM/Z80 transactions.
-    (
-        ids::SEGA_LOGO_V_BLANK,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::SEGA_LOGO_V_BLANK,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ending.c:28 and title_and_transition.c:337: call full time-aware scenes.
-    (
-        ids::PLAY_ENDING_SEQUENCE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAY_ENDING_SEQUENCE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::SEGA_AND_INTRO_VIDEO_ROUTINE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // cutscene_text.c:62,91: arbitrary embedded controls reach
     // inventory.c:666-682's VDP writes; repeated controls exceed a frozen FIFO.
-    (
-        ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_QUEUE_CENTERED_REMAPPED_TEXT_LINE,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // cutscene_text.c:164,194,133: inherit those ordered control-code VDP writes.
-    (
-        ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        ids::CUTSCENE_TEXT_LOAD,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_LOAD_SECOND_TEXT_LINE,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_LOAD_ORIGINAL_PALETTE_TEXT_LINE,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::CUTSCENE_TEXT_LOAD,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// Reviewed atomic original entries and translations. Constructors, positioners

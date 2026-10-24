@@ -4,7 +4,7 @@ use crate::{
     catalogue::{FunctionCatalogue, FunctionSymbol},
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
-use tje_game::execution::{CallCeiling, ExecutionClass};
+use tje_game::execution::{CallCeiling, ExecutionClass, ProofEnvelope};
 use tje_game::{
     Context, Dispatcher, FramedTranslation, FunctionId, TranslatedEntry, Translation,
     exits::{self, EntryOutcome, ExitContract},
@@ -38,14 +38,29 @@ impl Deref for HookSymbol {
 pub struct Hook {
     pub symbol: HookSymbol,
     pub execution_class: ExecutionClass,
+    pub proof_envelope: ProofEnvelope,
+    proof_only_override: bool,
     pub exit_contract: ExitContract,
     pub(crate) dependent_proof: Option<crate::dependent_equivalence::ProofSetting>,
     pub(crate) coverage_index: usize,
     body: Body,
     frame_state: Option<(tje_game::call_frame::FrameState, u32)>,
     pub(crate) clock_ceiling: CallCeiling,
+    pub(crate) clock_evidence: Option<&'static str>,
 }
 impl Hook {
+    pub fn check_route(&self) -> crate::check_envelope::CheckForkRoute {
+        crate::check_envelope::CheckForkRoute::for_contract(
+            self.execution_class,
+            self.proof_envelope,
+        )
+    }
+
+    /// Explicit diagnostic registry admission, independent of owner check policy.
+    pub fn proof_only_admission(&self) -> bool {
+        self.proof_only_override
+    }
+
     pub(crate) fn dependent_frame_sp(&self, current_sp: u32) -> u32 {
         self.frame_state
             .map_or(current_sp, |(frame, _)| frame.entry_sp)
@@ -321,6 +336,22 @@ impl HookRegistry {
         Ok(registry)
     }
 
+    /// Stronger check/fixture roots only. Source classes and callee permissions
+    /// are unchanged; replacement/play cannot dispatch these hook envelopes.
+    pub fn proof_clocked_strict(
+        revision: Revision,
+        pending: &'static [Translation],
+        framed: &'static [FramedTranslation],
+        functions: &[FunctionId],
+    ) -> Result<Self> {
+        let mut registry = Self::proof_filtered_with_frames(revision, pending, framed, functions)?;
+        for hook in registry.hooks.values_mut() {
+            hook.proof_envelope = ProofEnvelope::ClockedStrict;
+            hook.proof_only_override = true;
+        }
+        Ok(registry)
+    }
+
     fn register_translation(&mut self, translation: Translation) -> Result<()> {
         let symbol = translation.id.metadata();
         let class = tje_game::execution_class(translation.id).ok_or_else(|| {
@@ -379,6 +410,28 @@ impl HookRegistry {
         exit_contract: ExitContract,
         body: Body,
     ) -> Result<()> {
+        let (proof_envelope, clock_ceiling, clock_evidence) = match &symbol {
+            HookSymbol::Generated(_) => {
+                let reviewed = tje_game::execution_contract(symbol.id).ok_or_else(|| {
+                    HostError::Metadata(format!(
+                        "{} has no unique reviewed execution contract",
+                        symbol.name
+                    ))
+                })?;
+                if reviewed.class != execution_class {
+                    return Err(HostError::Metadata(format!(
+                        "generated hook {} cannot override its reviewed {:?} class with {:?}",
+                        symbol.name, reviewed.class, execution_class,
+                    )));
+                }
+                (
+                    reviewed.proof_envelope,
+                    reviewed.operational_ceiling.unwrap_or(CallCeiling::DEFAULT),
+                    reviewed.evidence,
+                )
+            }
+            HookSymbol::Authored(_) => (ProofEnvelope::ClassDefined, CallCeiling::DEFAULT, None),
+        };
         if symbol.kind != "function"
             && !(symbol.kind == "fragment" && exit_contract != ExitContract::Rts)
         {
@@ -405,12 +458,15 @@ impl HookRegistry {
             Hook {
                 symbol,
                 execution_class,
+                proof_envelope,
+                proof_only_override: false,
                 exit_contract,
                 coverage_index,
                 body,
                 frame_state: None,
                 dependent_proof: None,
-                clock_ceiling: CallCeiling::DEFAULT,
+                clock_ceiling,
+                clock_evidence,
             },
         );
         Ok(())
@@ -475,7 +531,7 @@ impl HookRegistry {
         ceiling: CallCeiling,
         function: HookFn,
     ) -> Result<()> {
-        CallCeiling::new(ceiling.ticks, ceiling.frames).map_err(HostError::Clock)?;
+        ceiling.validate().map_err(HostError::Clock)?;
         let address = symbol.address(self.revision);
         self.register_execution_contract(symbol, ExecutionClass::TimeAware, function)?;
         self.hooks
@@ -796,5 +852,133 @@ mod tests {
             );
             assert_eq!(context.stack_pointer().unwrap(), 0xff6000);
         }
+    }
+
+    #[test]
+    fn strict_proof_never_reclassifies_or_normalizes_an_instant_legacy_body() {
+        fn instantaneous(context: &mut HookContext<'_>) -> Result<Option<u32>> {
+            assert_eq!(context.execution_class(), ExecutionClass::Functional);
+            assert!(context.clocked_execution());
+            assert!(!context.functional_device_mode());
+            Ok(None)
+        }
+        for (envelope, label) in [
+            (ProofEnvelope::ClockedStrict, "ClockedStrict"),
+            (
+                ProofEnvelope::ClockedCommutingInterrupts,
+                "ClockedCommutingInterrupts",
+            ),
+        ] {
+            let mut host = crate::fixture::tests::synthetic_host(&[0x4e71, 0x4e75], &[0x4e73]);
+            let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
+            symbol.name = "AuthoredInstantStrict";
+            symbol.addresses = [0x100; 2];
+            symbol.abi.argument_count = 0;
+            symbol.abi.returns_value = false;
+            let mut registry = HookRegistry::empty(Revision::Rev02);
+            registry
+                .register_execution_contract(symbol, ExecutionClass::Functional, instantaneous)
+                .unwrap();
+            registry.hooks.get_mut(&0x100).unwrap().proof_envelope = envelope;
+            host.registry = registry;
+            host.checks = crate::CheckReport::registered(&host.registry);
+            let error = host.check_fixture(0x100, &[]).unwrap_err();
+            assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+            assert!(error.to_string().contains("ClockedStrict"), "{error}");
+            assert!(
+                host.checks
+                    .call_clocks
+                    .iter()
+                    .all(|record| record.proof_envelope == label)
+            );
+        }
+    }
+
+    #[test]
+    fn generated_class_overrides_and_live_strict_dispatch_fail_before_effects() {
+        let entry = *tje_game::translations()
+            .find(|entry| entry.id == ids::CLEAR_COLOUR_RAM)
+            .unwrap();
+        let mut registry = HookRegistry::empty(Revision::Rev02);
+        assert!(
+            registry
+                .register_translation_with_execution(entry, ExecutionClass::Atomic)
+                .is_err()
+        );
+        assert!(registry.is_empty());
+        let registry = HookRegistry::proof_clocked_strict(
+            Revision::Rev02,
+            std::slice::from_ref(
+                tje_game::translations()
+                    .find(|entry| entry.id == ids::CLEAR_COLOUR_RAM)
+                    .unwrap(),
+            ),
+            &[],
+            &[],
+        )
+        .unwrap();
+        let hook = registry
+            .at(ids::CLEAR_COLOUR_RAM.metadata().address(Revision::Rev02))
+            .unwrap()
+            .clone();
+        assert_eq!(hook.execution_class, ExecutionClass::Functional);
+        assert_eq!(hook.check_route(), crate::CheckForkRoute::ClockedStrict);
+        let mut host = crate::fixture::tests::synthetic_host(&[0x60fe], &[0x4e73]);
+        host.mode = crate::Mode::Replace;
+        let before = bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap();
+        assert!(host.replace_hook(&hook).is_err());
+        assert_eq!(
+            before,
+            bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap()
+        );
+    }
+
+    #[test]
+    fn owner_check_policy_survives_runtime_admission_without_game_promotion() {
+        // Local admission fixture only: this is NOT the pending game's body or
+        // evidence of its cartridge equivalence, and changes no production table.
+        fn admission_fixture(
+            context: &mut dyn Context,
+            _: &[u32],
+        ) -> tje_game::Result<Option<u32>> {
+            context.write_u8(0xff9000, context.read_u8(0xff9000).wrapping_add(1));
+            Ok(None)
+        }
+        static LOCAL: &[Translation] = &[Translation {
+            id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
+            function: admission_fixture,
+        }];
+        let revision = Revision::Rev02;
+        let registry = HookRegistry::proof(revision, LOCAL).unwrap();
+        let target = ids::MAP_ASSIGN_TRANSITION_CHAIN
+            .metadata()
+            .address(revision);
+        let hook = registry.at(target).unwrap();
+        assert_eq!(
+            hook.proof_envelope,
+            ProofEnvelope::ClockedCommutingInterrupts
+        );
+        assert!(!hook.proof_only_admission());
+        let mut host = crate::fixture::tests::synthetic_host(
+            &[0x4eb9, (target >> 16) as u16, target as u16, 0x60fe],
+            &[0x4e73],
+        );
+        host.mode = crate::Mode::Replace;
+        host.registry = registry;
+        host.checks = crate::CheckReport::registered(&host.registry);
+        host.play_frame(Default::default()).unwrap();
+        assert_eq!(host.context().read_u8(0xff9000), 1);
+        assert_eq!(
+            host.registry.at(target).unwrap().proof_envelope,
+            ProofEnvelope::ClockedCommutingInterrupts
+        );
+        let forced = HookRegistry::proof_clocked_strict(revision, LOCAL, &[], &[]).unwrap();
+        assert!(forced.at(target).unwrap().proof_only_admission());
+        assert!(host.replace_hook(forced.at(target).unwrap()).is_err());
+        assert!(
+            tje_game::Dispatcher::hybrid()
+                .translation(ids::MAP_ASSIGN_TRANSITION_CHAIN)
+                .is_none()
+        );
     }
 }

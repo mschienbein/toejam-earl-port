@@ -374,7 +374,7 @@ fn ui_leaf_native_closure_and_original_classification_are_complete() {
             .count();
         let non_atomic = EXECUTION_CONTRACTS
             .iter()
-            .filter(|&&(id, _)| id == function.id)
+            .filter(|contract| contract.function == function.id)
             .count();
         assert_eq!(atomic + non_atomic, 1, "{}", function.name);
     }

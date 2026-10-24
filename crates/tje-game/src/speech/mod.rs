@@ -75,23 +75,47 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 
 /// Reviewed original non-Atomic classes. Together with ATOMIC_CAPABLE these
 /// classify all eight speech originals in both relocated-address revisions.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // G/src/speech/speech_and_dialogue.c:19-45: stable ROM font/RAM text
     // copies and queue writes. TextMapCharacterToGlyph's embedded controls can
     // emit repeated VDP writes, so transaction completion is required; there
     // are no status/raster reads, readiness polls, or concurrent observations.
-    (ids::QUEUE_SPEECH_TEXT_TILES, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::QUEUE_SPEECH_TEXT_TILES,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :71-154, specifically :135-136: gSpriteGraphicsUploadPending is cleared
     // by UploadQueuedSpriteGraphics via VBlankHandler (startup_and_main_loop.c:
     // 219-220; sprites/load_sprites.c:30). Successful allocation can require
     // actual IRQ progress, even when a particular live entry sees zero.
-    (ids::GENERATE_SPEECH, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::GENERATE_SPEECH,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :200-247: the first-line path calls the time-aware GenerateSpeech.
-    (ids::START_DIALOGUE, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::START_DIALOGUE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :264-320: replies and random/reunion dialogues call GenerateSpeech and
     // StartDialogue; those paths can wait for the upload IRQ. The omitted
     // speaker is recovered from the original caller's saved entry-D2 slot.
-    (ids::UPDATE_SPEECH_AND_DIALOGUE, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::UPDATE_SPEECH_AND_DIALOGUE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 /// G/src/speech/speech_and_dialogue.c:63 (`SetNextSpeechLifetime`).
 pub fn set_next_speech_lifetime(

@@ -113,7 +113,12 @@ impl Context for Fixture {
         function: FunctionId,
     ) -> Result<crate::execution::CallCeilingScope> {
         self.clock
-            .enter(function, crate::execution::CallCeiling::DEFAULT)
+            .enter(
+                function,
+                crate::execution_contract(function)
+                    .and_then(|contract| contract.operational_ceiling)
+                    .unwrap_or(crate::execution::CallCeiling::DEFAULT),
+            )
             .map_err(crate::Error::Clock)
     }
     fn leave_call_ceiling(&mut self, scope: crate::execution::CallCeilingScope) -> Result<()> {

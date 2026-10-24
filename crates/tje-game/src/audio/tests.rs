@@ -352,7 +352,7 @@ fn delivered_audio_roots_have_native_closures_and_pending_bodies_fail_closed() {
             crate::is_atomic_capable(translation.id)
                 || EXECUTION_CONTRACTS
                     .iter()
-                    .any(|(id, _)| *id == translation.id)
+                    .any(|contract| contract.function == translation.id)
         );
     }
     for id in [

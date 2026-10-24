@@ -79,13 +79,17 @@ class TraceFunctionsTests(unittest.TestCase):
             }
         ''')
         self.put("crates/tje-game/src/core/mod.rs", self.module)
-        self.put("crates/tje-game/src/core/contracts.rs", '''
-            pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
-                (ids::CANDIDATE, ExecutionClass::Functional),
-                (ids::SOURCE_ONLY, ExecutionClass::TimeAware),
-                (ids::SHARED_GROUP, ExecutionClass::Functional),
+        self.contracts = textwrap.dedent('''
+            pub static EXECUTION_CONTRACTS: &[ExecutionContract] = &[
+                ExecutionContract { function: ids::CANDIDATE, class: ExecutionClass::Functional,
+                    proof_envelope: ProofEnvelope::ClassDefined, operational_ceiling: None, evidence: None },
+                ExecutionContract { function: ids::SOURCE_ONLY, class: ExecutionClass::TimeAware,
+                    proof_envelope: ProofEnvelope::ClassDefined, operational_ceiling: None, evidence: None },
+                ExecutionContract { function: ids::SHARED_GROUP, class: ExecutionClass::Functional,
+                    proof_envelope: ProofEnvelope::ClassDefined, operational_ceiling: None, evidence: None },
             ];
         ''')
+        self.put("crates/tje-game/src/core/contracts.rs", self.contracts)
         self.body = textwrap.dedent('''
             pub fn live_body(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> { Ok(None) }
             pub fn candidate(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> { Ok(None) }
@@ -129,6 +133,27 @@ class TraceFunctionsTests(unittest.TestCase):
         self.assertEqual(rows[5].rust.qualified, "core::body::group_body")
         self.assertIsNone(rows[3].rust)
         self.assertTrue(rows[5].entry.fragment)
+
+    def test_literal_contract_envelope_does_not_reclassify_the_source(self) -> None:
+        self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
+            "ProofEnvelope::ClassDefined", "ProofEnvelope::ClockedStrict"))
+        self.assertEqual(self.rows()[1].execution_class, "Functional")
+        self.assertEqual(self.rows()[2].execution_class, "TimeAware")
+
+    def test_legacy_tuple_missing_policy_and_unknown_envelope_fail_closed(self) -> None:
+        for source, message in [
+            ("pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[(ids::CANDIDATE, ExecutionClass::Functional)];",
+             "literal ExecutionContract"),
+            (self.contracts.replace(", evidence: None", ""), "all five policy fields"),
+            (self.contracts.replace("ProofEnvelope::ClassDefined", "ProofEnvelope::Unknown"),
+             "unknown proof envelope"),
+            (self.contracts.replace("ExecutionClass::Functional", "ExecutionClass::Atomic"),
+             "plain Atomic declarations"),
+        ]:
+            with self.subTest(message=message):
+                self.put("crates/tje-game/src/core/contracts.rs", source)
+                with self.assertRaisesRegex(trace.TraceError, message):
+                    self.rows()
 
     def test_pending_comments_groups_and_absent_comment_are_honest(self) -> None:
         rows = self.rows()
@@ -247,8 +272,9 @@ class TraceFunctionsTests(unittest.TestCase):
 
     def test_duplicate_execution_class_is_not_silently_atomic(self) -> None:
         self.put("crates/tje-game/src/core/contracts.rs", '''
-            pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
-                (ids::LIVE, ExecutionClass::TimeAware),
+            pub static EXECUTION_CONTRACTS: &[ExecutionContract] = &[
+                ExecutionContract { function: ids::LIVE, class: ExecutionClass::TimeAware,
+                    proof_envelope: ProofEnvelope::ClassDefined, operational_ceiling: None, evidence: None },
             ];
         ''')
         with self.assertRaisesRegex(trace.TraceError, "duplicate execution classification"):

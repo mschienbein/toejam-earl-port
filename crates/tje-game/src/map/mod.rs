@@ -41,7 +41,7 @@ pub use screen_controller::*;
 pub use terrain::*;
 pub use waits::*;
 
-use crate::{Context, FunctionId, Result, call, execution::ExecutionClass, ids};
+use crate::{Context, Result, call, execution::ExecutionClass, ids};
 use tje_mem::ram;
 
 #[inline]
@@ -346,8 +346,8 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// Bodies excluded from production until dual-revision check proof is complete.
 /// Their execution classes remain declared for faithful original fallback.
 pub static PENDING: &[crate::FunctionId] = &[
-    // Corpus REV00 frame9287: original exceeds Atomic call bound at PC006B66.
-    // RAM/ROM-only classification is retained; this is not a hardware-wait waiver.
+    // Finite CPU search with measured operational ceilings below. It remains
+    // pending until its actual clocked IRQ observations satisfy the proof envelope.
     ids::MAP_ASSIGN_TRANSITION_CHAIN,
     // Corpus REV00 frame19456: HBlank vector28 versus main-thread RAM write at trace467.
     ids::ENTITY_START_LAND_PATH_ANIMATION,
@@ -451,77 +451,193 @@ pub static FRAME_PENDING_TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Non-atomic original contracts. Atomic originals are listed in ATOMIC_CAPABLE.
+/// Extended original contracts; ordinary Atomic entries remain in ATOMIC_CAPABLE.
 /// Functional writers observe no raster/status/busy state and use stable ROM or
 /// caller/RAM sources; TimeAware entries include every clock-dependent return path.
-pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
+    // Operational ceiling, NOT a bound. Original-only 100-replay corpus:
+    // scratch/W0Map/exact-corpus-final/receipt.json, observer 3bcbd870,
+    // corpus origin e28a82e; 132 calls (REV00 64, REV02 68), no faults,
+    // non-IRQ exceptions or unfinished calls. Resource maxima are independent:
+    // REV02 telephone 2945..3088: I=2240200,T=2404504,F=143;
+    // REV00 later I=1310268,T=1396713 at 52632..52712, F=82 at 74408..74490.
+    // Twice the both-revision maxima, rounded UP: I/T to 1M, F to 100.
+    crate::execution::ExecutionContract {
+        function: ids::MAP_ASSIGN_TRANSITION_CHAIN,
+        class: ExecutionClass::Atomic,
+        proof_envelope: crate::execution::ProofEnvelope::ClockedCommutingInterrupts,
+        operational_ceiling: Some(crate::execution::CallCeiling {
+            ticks: 5_000_000,
+            frames: 300,
+            reference_instructions: Some(5_000_000),
+        }),
+        evidence: Some(concat!(
+            "Operational ceiling, not a bound; scratch/W0Map/exact-corpus-final/receipt.json; ",
+            "observer=3bcbd8705716edb7c8b2c8d4fcea111a8d1ac4e1; ",
+            "corpus=e28a82e62ae4defa64f43191f8dc6001e2675547; ",
+            "binary_sha256=9b2734c55c993e50f23cdf12301f1ae262c44a803e9a8a0c40958de68ff76665; ",
+            "REV00 64 calls I1310268/T1396713@later52632..52712,F82@later74408..74490; ",
+            "REV02 68 calls I2240200/T2404504/F143/M128427096@telephone2945..3088; ",
+            "fault/nonIRQ/unfinished=0; rule=2x both-revision maxima rounded up I/T1M,F100"
+        )),
+    },
     // G/src/map/map_drawing_and_controller.c:36: nine ordered VDP writes, FIFO stuttering only.
-    (
-        ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:59: bounded background/terrain writes and deterministic RNG; no time reads.
-    (
-        ids::MAP_DRAW_BACKGROUND_AND_TERRAIN,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_DRAW_BACKGROUND_AND_TERRAIN,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:158: cached RNG/reveal logic plus bounded VDP writes, no time reads.
-    (ids::DISPLAY_MAP, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::DISPLAY_MAP,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:214: ordered VDP writes followed by DisplayMap; no hardware observations.
-    (ids::LOAD_MAP_INTO_VRAM, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::LOAD_MAP_INTO_VRAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:349/375 and elevator_icon.c:12: stable ROM icon uploads, no time reads.
-    (ids::MAP_DRAW_PLAYER, ExecutionClass::Functional),
-    (ids::MAP_DRAW_SHIP_PIECE, ExecutionClass::Functional),
-    (ids::MAP_DRAW_ELEVATOR, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_DRAW_PLAYER,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MAP_DRAW_SHIP_PIECE,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MAP_DRAW_ELEVATOR,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:297: allocation failure calls EntityClearViewportSprites, which waits VBlank.
-    (
-        ids::MAP_INITIALIZE_SCREEN_SPRITES,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_INITIALIZE_SCREEN_SPRITES,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:410: WaitForNextVBlank then observes frame counter bits for marker blink.
-    (ids::DRAW_MAP_CHARACTERS, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::DRAW_MAP_CHARACTERS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:443: VBlank, DMA, queued sprite graphics upload waits.
-    (
-        ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:501: pending upload and controller press/release loops, VBlank and DMA callees.
-    (ids::DRAW_GAME_MAP, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::DRAW_GAME_MAP,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/map/level_generation_and_changes.c:536: waits gSpriteGraphicsUploadPending.
-    (ids::CHANGE_LEVEL, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::CHANGE_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:656: ChangeLevel retry path inherits the pending-upload wait.
-    (ids::MAP_LOAD_PLAYER_LEVEL, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_LOAD_PLAYER_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/map/land_processing.c:249/280: waits for IRQ-cleared camera transfer queue flags.
-    (
-        ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:310: UpdateAndQueueEntitySprites waits gSpriteGraphicsUploadPending (its :513).
-    (
-        ids::ENTITY_START_LAND_PATH_ANIMATION,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ENTITY_START_LAND_PATH_ANIMATION,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:340: animation and per-row/column camera transfer waits.
-    (
-        ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:405: waits for camera queues to become idle before entity reservation.
-    (
-        ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:445: camera transfers, frame-duration progression and upload pending waits.
-    (
-        ids::MAP_ANIMATE_MARKED_LAND_PATHS,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_ANIMATE_MARKED_LAND_PATHS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // Same file:527: marked-land branches inherit MapAnimateMarkedLandPaths waits.
-    (ids::PROCESS_LAND, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_LAND,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
@@ -571,7 +687,6 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     // G/src/map/transition_paths.c:26,128 and map_population.c:71:
     // recursive RAM/ROM connectivity and transition searches; no clock observer.
     ids::MAP_TRACE_TRANSITION_CHAIN,
-    ids::MAP_ASSIGN_TRANSITION_CHAIN,
     ids::MAP_IS_ANCHOR_CONNECTION_MISSING,
     // G/src/map/map_drawing_and_controller.c:21: RNG-only bucket selection.
     ids::MAP_CHOOSE_BACKGROUND_TILE_BUCKET,

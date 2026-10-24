@@ -29,6 +29,8 @@ fn allocate_clock_owner(counter: &AtomicUsize) -> Result<usize, CallClockError> 
 pub struct CallCeiling {
     pub ticks: u64,
     pub frames: u64,
+    /// None adds no instruction limit; an enclosing finite limit still applies.
+    pub reference_instructions: Option<u64>,
 }
 
 impl CallCeiling {
@@ -37,13 +39,32 @@ impl CallCeiling {
     pub const DEFAULT: Self = Self {
         ticks: 1_000_000,
         frames: 1_000_000,
+        reference_instructions: None,
     };
 
     pub const fn new(ticks: u64, frames: u64) -> Result<Self, CallClockError> {
-        if ticks == 0 || frames == 0 {
-            return Err(CallClockError::InvalidCeiling);
+        Self {
+            ticks,
+            frames,
+            reference_instructions: None,
         }
-        Ok(Self { ticks, frames })
+        .validate()
+    }
+
+    pub const fn validate(self) -> Result<Self, CallClockError> {
+        if self.ticks == 0 || self.frames == 0 || matches!(self.reference_instructions, Some(0)) {
+            Err(CallClockError::InvalidCeiling)
+        } else {
+            Ok(self)
+        }
+    }
+
+    pub const fn with_reference_instructions(
+        mut self,
+        maximum: u64,
+    ) -> Result<Self, CallClockError> {
+        self.reference_instructions = Some(maximum);
+        self.validate()
     }
 }
 
@@ -95,6 +116,7 @@ struct Deadline {
     frame_owner: FunctionId,
     dispatch_steps: u64,
     dispatch_owner: FunctionId,
+    instructions: Option<(u64, FunctionId)>,
 }
 
 /// Move-only LIFO token. It contains no SP or frame bookkeeping and cannot renew
@@ -147,6 +169,7 @@ pub struct CallClock {
     serial: u64,
     top_serial: u64,
     failure: Option<CallClockError>,
+    scope_functions: Vec<FunctionId>,
 }
 
 impl Clone for CallClock {
@@ -160,6 +183,7 @@ impl Clone for CallClock {
             serial: self.serial,
             top_serial: self.top_serial,
             failure: self.failure,
+            scope_functions: self.scope_functions.clone(),
         }
     }
 }
@@ -172,12 +196,24 @@ impl CallClock {
         self.deadline.is_some()
     }
 
+    /// An enclosing operational scope already protects this function. This does
+    /// not create a token, renew a deadline or transfer authority to a fork.
+    pub fn contains_scope(&self, function: FunctionId) -> bool {
+        self.scope_functions.contains(&function)
+    }
+
+    /// Latch an unsupported scope boundary without changing counters, deadlines
+    /// or token ownership. Cleanup cannot turn a caught contract error into success.
+    pub fn invalidate_scope(&mut self) {
+        self.failure.get_or_insert(CallClockError::InvalidScope);
+    }
+
     pub fn enter(
         &mut self,
         function: FunctionId,
         ceiling: CallCeiling,
     ) -> Result<CallCeilingScope, CallClockError> {
-        CallCeiling::new(ceiling.ticks, ceiling.frames)?;
+        ceiling.validate()?;
         self.check()?;
         if let Some(parent) = self.deadline
             && self.usage.dispatch_steps == parent.dispatch_steps
@@ -217,6 +253,21 @@ impl CallClock {
             .dispatch_steps
             .checked_add(1)
             .ok_or(CallClockError::Overflow)?;
+        let instructions = match ceiling.reference_instructions {
+            Some(maximum) => {
+                let absolute = self
+                    .usage
+                    .instructions
+                    .checked_add(maximum)
+                    .or_else(|| {
+                        self.deadline
+                            .and_then(|parent| parent.instructions.map(|limit| limit.0))
+                    })
+                    .ok_or(CallClockError::Overflow)?;
+                Some((absolute, function))
+            }
+            None => None,
+        };
         let mut deadline = Deadline {
             ticks,
             tick_owner: function,
@@ -224,6 +275,7 @@ impl CallClock {
             frame_owner: function,
             dispatch_steps,
             dispatch_owner: function,
+            instructions,
         };
         if let Some(parent) = self.deadline {
             if parent.ticks <= deadline.ticks {
@@ -237,6 +289,11 @@ impl CallClock {
             if parent.dispatch_steps <= deadline.dispatch_steps {
                 deadline.dispatch_steps = parent.dispatch_steps;
                 deadline.dispatch_owner = parent.dispatch_owner;
+            }
+            if let Some(limit) = parent.instructions
+                && deadline.instructions.is_none_or(|child| limit.0 <= child.0)
+            {
+                deadline.instructions = Some(limit);
             }
         }
         if self.owner == 0 {
@@ -254,6 +311,7 @@ impl CallClock {
         self.serial = serial;
         self.top_serial = serial;
         self.usage.dispatch_steps = next_dispatch_steps;
+        self.scope_functions.push(function);
         Ok(scope)
     }
 
@@ -295,6 +353,7 @@ impl CallClock {
             || scope.clock_owner != self.owner
             || self.top_serial != scope.serial
             || self.deadline.is_none()
+            || self.scope_functions.last().copied() != scope.function
         {
             self.failure.get_or_insert(CallClockError::InvalidScope);
             return Err(CallClockError::InvalidScope);
@@ -302,6 +361,7 @@ impl CallClock {
         let result = self
             .check()
             .and_then(|()| self.usage.since(scope.entry_usage));
+        self.scope_functions.pop();
         self.deadline = scope.previous;
         self.top_serial = scope.previous_serial;
         if self.deadline.is_none() {
@@ -394,6 +454,18 @@ impl CallClock {
                 self.failure.get_or_insert(error);
                 return Err(error);
             }
+            if let Some((maximum, owner)) = deadline.instructions
+                && self.usage.instructions > maximum
+            {
+                let error = CallClockError::CeilingExceeded {
+                    function: owner,
+                    resource: ClockResource::Instructions,
+                    ceiling: maximum,
+                    consumed: self.usage.instructions,
+                };
+                self.failure.get_or_insert(error);
+                return Err(error);
+            }
             if self.usage.dispatch_steps > deadline.dispatch_steps {
                 let error = CallClockError::CeilingExceeded {
                     function: deadline.dispatch_owner,
@@ -413,6 +485,7 @@ impl CallClock {
 pub enum ClockResource {
     Ticks,
     Frames,
+    Instructions,
     DispatchSteps,
 }
 
@@ -421,6 +494,7 @@ impl fmt::Display for ClockResource {
         formatter.write_str(match self {
             Self::Ticks => "ticks",
             Self::Frames => "frames",
+            Self::Instructions => "reference opcode attempts",
             Self::DispatchSteps => "dispatch_steps (scope/dispatch entries)",
         })
     }
@@ -479,6 +553,38 @@ impl std::error::Error for CallClockError {}
 mod tests {
     use super::*;
     use crate::ids;
+
+    #[test]
+    fn scope_membership_retains_ancestors_and_recursive_entries_without_renewal() {
+        let mut clock = CallClock::default();
+        let root = clock
+            .enter(ids::PLAY_ENDING_SEQUENCE, CallCeiling::DEFAULT)
+            .unwrap();
+        let child = clock
+            .enter(ids::WAIT_FOR_NEXT_V_BLANK, CallCeiling::DEFAULT)
+            .unwrap();
+        let recursive = clock
+            .enter(ids::PLAY_ENDING_SEQUENCE, CallCeiling::DEFAULT)
+            .unwrap();
+        let before = clock.usage();
+        assert!(clock.contains_scope(ids::PLAY_ENDING_SEQUENCE));
+        assert!(clock.contains_scope(ids::WAIT_FOR_NEXT_V_BLANK));
+        assert!(!clock.contains_scope(ids::GET_RANDOM_NUMBER));
+        let fork = clock.clone();
+        assert_eq!(fork.owner, 0);
+        assert!(fork.contains_scope(ids::PLAY_ENDING_SEQUENCE));
+        assert!(fork.contains_scope(ids::WAIT_FOR_NEXT_V_BLANK));
+        assert_eq!(clock.usage(), before);
+        clock.leave(recursive).unwrap();
+        assert!(clock.contains_scope(ids::PLAY_ENDING_SEQUENCE));
+        clock.leave(child).unwrap();
+        assert!(!clock.contains_scope(ids::WAIT_FOR_NEXT_V_BLANK));
+        assert!(clock.contains_scope(ids::PLAY_ENDING_SEQUENCE));
+        clock.leave(root).unwrap();
+        assert!(!clock.contains_scope(ids::PLAY_ENDING_SEQUENCE));
+        assert!(clock.scope_functions.is_empty());
+        assert!(clock.scope_functions.capacity() >= 3);
+    }
 
     fn ticks(ticks: u64) -> ClockUsage {
         ClockUsage {
@@ -727,5 +833,99 @@ mod tests {
             Err(CallClockError::IdentityExhausted)
         );
         assert_eq!(reserved.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn instruction_limits_inherit_without_counter_reset_and_fail_closed() {
+        let mut clock = CallClock::default();
+        let policy = CallCeiling::new(20, 20)
+            .unwrap()
+            .with_reference_instructions(3)
+            .unwrap();
+        let root = clock.enter(ids::PLAY_ENDING_SEQUENCE, policy).unwrap();
+        clock
+            .record(ClockUsage {
+                instructions: 2,
+                ..ClockUsage::default()
+            })
+            .unwrap();
+        let child = clock
+            .enter(ids::WAIT_FOR_NEXT_V_BLANK, CallCeiling::DEFAULT)
+            .unwrap();
+        clock
+            .record(ClockUsage {
+                instructions: 2,
+                ..ClockUsage::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            clock.check(),
+            Err(CallClockError::CeilingExceeded {
+                function: ids::PLAY_ENDING_SEQUENCE,
+                resource: ClockResource::Instructions,
+                ceiling: 3,
+                consumed: 4,
+            })
+        ));
+        assert!(clock.leave(child).is_err());
+        assert!(clock.leave(root).is_err());
+        assert_eq!(clock.usage().instructions, 4);
+    }
+
+    #[test]
+    fn narrower_instruction_child_restores_limits_not_consumption() {
+        let mut clock = CallClock::default();
+        let root = clock
+            .enter(ids::PLAY_ENDING_SEQUENCE, CallCeiling::new(20, 20).unwrap())
+            .unwrap();
+        let policy = CallCeiling::new(20, 20)
+            .unwrap()
+            .with_reference_instructions(2)
+            .unwrap();
+        let child = clock.enter(ids::WAIT_FOR_NEXT_V_BLANK, policy).unwrap();
+        clock
+            .record(ClockUsage {
+                instructions: 2,
+                ..ClockUsage::default()
+            })
+            .unwrap();
+        clock.leave(child).unwrap();
+        clock
+            .record(ClockUsage {
+                instructions: 3,
+                ..ClockUsage::default()
+            })
+            .unwrap();
+        assert_eq!(clock.leave(root).unwrap().instructions, 5);
+        assert!(CallCeiling::DEFAULT.with_reference_instructions(0).is_err());
+    }
+
+    #[test]
+    fn looser_instruction_child_cannot_overflow_or_replace_parent_deadline() {
+        let mut clock = CallClock::default();
+        let policy = CallCeiling::DEFAULT
+            .with_reference_instructions(10)
+            .unwrap();
+        let root = clock.enter(ids::PLAY_ENDING_SEQUENCE, policy).unwrap();
+        clock
+            .record(ClockUsage {
+                instructions: 5,
+                ..ClockUsage::default()
+            })
+            .unwrap();
+        let child = clock
+            .enter(
+                ids::WAIT_FOR_NEXT_V_BLANK,
+                CallCeiling::DEFAULT
+                    .with_reference_instructions(u64::MAX)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            clock.deadline.unwrap().instructions,
+            Some((10, ids::PLAY_ENDING_SEQUENCE))
+        );
+        clock.leave(child).unwrap();
+        assert_eq!(clock.leave(root).unwrap().instructions, 5);
     }
 }

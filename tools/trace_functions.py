@@ -371,10 +371,19 @@ class Sources:
                     function = None
                     execution_class = None
                     if name == "EXECUTION_CONTRACTS":
-                        parts = [child for child in value.named_children
-                                 if child.type not in {"line_comment", "block_comment"}]
-                        constant = identity(parts[0])
-                        execution_class = text(parts[1]).split("::")[-1]
+                        if value.type != "struct_expression":
+                            raise TraceError("EXECUTION_CONTRACTS requires literal ExecutionContract entries")
+                        values = fields(value)
+                        required = {"function", "class", "proof_envelope", "operational_ceiling", "evidence"}
+                        if set(values) != required:
+                            raise TraceError("ExecutionContract must declare all five policy fields")
+                        constant = identity(values["function"])
+                        execution_class = text(values["class"]).split("::")[-1]
+                        envelope = text(values["proof_envelope"]).split("::")[-1]
+                        if envelope not in {"ClassDefined", "ClockedStrict", "ClockedCommutingInterrupts"}:
+                            raise TraceError(f"unknown proof envelope: {envelope}")
+                        if execution_class == "Atomic" and envelope == "ClassDefined" and text(values["operational_ceiling"]) == "None":
+                            raise TraceError("plain Atomic declarations belong in ATOMIC_CAPABLE")
                         if execution_class not in {"Atomic", "Functional", "TimeAware"}:
                             raise TraceError(f"unknown execution class: {execution_class}")
                     elif value.type == "struct_expression":

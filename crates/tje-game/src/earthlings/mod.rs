@@ -292,14 +292,13 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::AI_MAILBOX_TOUCH,
         function: friendly::ai_mailbox_touch,
     },
-    // CorpusCheck REV 00 frame 17401 exhausts the fixed reference instruction
-    // cap inside TerrainValidation (G/src/map/terrain_placement.c:13), not a
-    // peripheral wait. Atomic stays correct; the reviewed ceiling is pending.
+    // Finite TerrainValidation CPU search. Measured operational ceilings are
+    // declared below; actual clocked IRQ comparison remains a proof obligation.
     crate::Translation {
         id: ids::EARTHLING_RETAIN_LEVEL_BANK,
         function: framed::earthling_retain_level_bank,
     },
-    // Same finite TerrainValidation search: reviewed reference ceiling pending.
+    // Same measured CPU-search contract; no production activation from a ceiling.
     crate::Translation {
         id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
         function: framed::find_spawn_location_for_earthling,
@@ -335,9 +334,7 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     // bookkeeping and animation pointers. Retry loops need no clock/IRQ progress.
     ids::CHECK_EARTHLING_OVERLAP,
     ids::EARTHLING_IS_SPECIAL_RECORD_NEARBY,
-    ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
     ids::MAP_GET_SHIP_PIECE_WORLD_POSITION,
-    ids::EARTHLING_RETAIN_LEVEL_BANK,
     ids::SETUP_INITIAL_EARTHLINGS,
     ids::SET_EARTHLING_STATE,
     ids::EARTHLING_RELOCATE_RECORD,
@@ -403,54 +400,128 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
     ids::DROP_PRESENTS_ABILITY,
 ];
 
-/// Original paths requiring real interrupt progress, never atomic exceptions.
+/// Extended original contracts, including explicitly clocked Atomic proof envelopes.
 /// No Earthlings entry has a Functional-only closed device-transaction stream.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
+    // Operational ceilings, NOT source bounds. Original-only 100-replay corpus,
+    // scratch/W0Map/exact-corpus-final/receipt.json; observer 3bcbd870; e28a82e
+    // corpus origin; no opcode faults, non-IRQ exceptions or unfinished calls.
+    // Retain: 532 calls (REV00 240, REV02 292). REV02 rank-three72938..73451
+    // maxima I6361567/T6923746/F513; REV00 cooperation75713..76156
+    // maxima I5524697/T6026971/F443. Double then round UP I/T1M,F100.
+    crate::execution::ExecutionContract {
+        function: ids::EARTHLING_RETAIN_LEVEL_BANK,
+        class: crate::execution::ExecutionClass::Atomic,
+        proof_envelope: crate::execution::ProofEnvelope::ClockedCommutingInterrupts,
+        operational_ceiling: Some(crate::execution::CallCeiling {
+            ticks: 14_000_000,
+            frames: 1_100,
+            reference_instructions: Some(13_000_000),
+        }),
+        evidence: Some(concat!(
+            "Operational ceiling, not a bound; scratch/W0Map/exact-corpus-final/receipt.json; ",
+            "observer=3bcbd8705716edb7c8b2c8d4fcea111a8d1ac4e1; ",
+            "corpus=e28a82e62ae4defa64f43191f8dc6001e2675547; ",
+            "binary_sha256=9b2734c55c993e50f23cdf12301f1ae262c44a803e9a8a0c40958de68ff76665; ",
+            "REV00 240 calls I5524697/T6026971/F443/M397412414@cooperation75713..76156; ",
+            "REV02 292 calls I6361567/T6923746/F513/M460137076@rank-three72938..73451; ",
+            "fault/nonIRQ/unfinished=0; rule=2x both-revision maxima rounded up I/T1M,F100"
+        )),
+    },
+    // Spawn: 2470 calls (REV00 1179, REV02 1291). I/T/F maxima occur at
+    // REV02 whirlwind55000..55136: 1702908/1848851/136. The master-clock
+    // maximum is separately REV00 whirlwind57722..57858: 122005457.
+    crate::execution::ExecutionContract {
+        function: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+        class: crate::execution::ExecutionClass::Atomic,
+        proof_envelope: crate::execution::ProofEnvelope::ClockedCommutingInterrupts,
+        operational_ceiling: Some(crate::execution::CallCeiling {
+            ticks: 4_000_000,
+            frames: 300,
+            reference_instructions: Some(4_000_000),
+        }),
+        evidence: Some(concat!(
+            "Operational ceiling, not a bound; scratch/W0Map/exact-corpus-final/receipt.json; ",
+            "observer=3bcbd8705716edb7c8b2c8d4fcea111a8d1ac4e1; ",
+            "corpus=e28a82e62ae4defa64f43191f8dc6001e2675547; ",
+            "binary_sha256=9b2734c55c993e50f23cdf12301f1ae262c44a803e9a8a0c40958de68ff76665; ",
+            "REV00 1179 calls I1701881/T1848523/F136/M122005457@whirlwind57722..57858; ",
+            "REV02 1291 calls I1702908/T1848851/F136@whirlwind55000..55136; ",
+            "fault/nonIRQ/unfinished=0; rule=2x both-revision maxima rounded up I/T1M,F100"
+        )),
+    },
     // G/src/earthlings/generic_enemy.c:115–116 -> GenerateSpeech; its
     // speech_and_dialogue.c:135–138 waits for the ISR-owned sprite upload byte.
-    (
-        ids::AI_GENERIC_ENEMY_THINK,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::AI_GENERIC_ENEMY_THINK,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/earthlings/spawning_and_banks.c:579–640 invokes ROM callbacks:
     // GenericEnemyThink can speak; touch includes ship screens and inventory waits.
-    (
-        ids::EARTHLING_DISPATCH_ABILITIES,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::EARTHLING_DISPATCH_ABILITIES,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/earthlings/spawning_and_banks.c:871–885 invokes both dispatchers.
-    (
-        ids::PROCESS_EARTHLINGS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_EARTHLINGS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/earthlings/nice_earthling_touch.c:108–371: GenerateSpeech on
     // approach, plus mail-order/identification DrawInventory -> VBlank waits.
-    (
-        ids::AI_MAILBOX_TOUCH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AI_WIZARD_TOUCH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AI_WISEMAN_TOUCH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AI_OPERA_SINGER_TOUCH,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::AI_MAILBOX_TOUCH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AI_WIZARD_TOUCH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AI_WISEMAN_TOUCH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AI_OPERA_SINGER_TOUCH,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/earthlings/nice_earthling_touch.c:425–486: explicit upload wait
     // at 461; speech and relocation also wait for real VBlank IRQ completion.
-    (
-        ids::PLAYER_PROCESS_LIFE_REQUEST,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_PROCESS_LIFE_REQUEST,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// G/src/earthlings/spawning_and_banks.c:178 (`MapGetShipPieceWorldPosition`).

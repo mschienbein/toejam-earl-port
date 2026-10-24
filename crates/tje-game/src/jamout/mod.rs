@@ -78,46 +78,76 @@ pub static ATOMIC_CAPABLE: &[FunctionId] = &[
 ];
 
 /// Reviewed original contracts, including untranslated entries.
-pub static EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // src/jamout/jamout.c:30: controller-release and 51-update exit loops,
     // explicit VBlank waits, per-frame music, and IRQ-updated animation inputs.
-    (ids::START_JAM_OUT, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::START_JAM_OUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:149: music sequencing can retry Z80 mailboxes / wait on YM BUSY;
     // controller reads coordinate with the continuously running Z80 driver.
-    (ids::JAM_OUT_V_BLANK, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_V_BLANK,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:223: same music/controller clocks, plus ordered PCM requests.
-    (
-        ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:352: selected layouts call the time-aware helpers below; the
     // no-transition path remains the same class, not a branch-dependent waiver.
-    (
-        ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:609: InitializeTitleTransitionTilemap -> animation VBlank wait and
     // ClearUpperVramTilemap -> WaitForNextVBlank before their uploads.
-    (
-        ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:635: 280 ordered ROM-to-VDP data writes; no status/HV reads, timing
     // observer, mutable DMA source, controller service, or interrupt wait.
-    (
-        ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:654: ClearUpperVramTilemap waits for VBlank before four uploads.
-    (
-        ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:677: both tilemap helpers explicitly wait for VBlank.
-    (
-        ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// Complete bodies not approved for production replacement.

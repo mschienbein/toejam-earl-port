@@ -61,6 +61,9 @@ struct ProducerBinding {
     entry_pc: u32,
     subsystem: &'static str,
     execution_class: &'static str,
+    proof_envelope: &'static str,
+    actual_check_route: &'static str,
+    explicit_proof_only_admission: bool,
     candidate_label: String,
     candidate_hash: u64,
     registry_epoch: u64,
@@ -281,6 +284,26 @@ impl Host {
                 "future-frame receipts require check mode".into(),
             ));
         }
+        let active = self
+            .registry
+            .at(hook.symbol.address(self.revision))
+            .filter(|active| {
+                active.symbol.id == hook.symbol.id
+                    && active.symbol.name == hook.symbol.name
+                    && active.coverage_index == hook.coverage_index
+                    && active.execution_class == hook.execution_class
+                    && active.proof_envelope == hook.proof_envelope
+                    && active.proof_only_admission() == hook.proof_only_admission()
+                    && active.clock_ceiling == hook.clock_ceiling
+                    && active.clock_evidence == hook.clock_evidence
+            })
+            .ok_or_else(|| {
+                HostError::Metadata(
+                    "future-frame producer must match the active hook policy and actual check route"
+                        .into(),
+                )
+            })?;
+        let hook = active;
         let natural =
             self.future_observer.natural_checks != 0 && self.future_observer.isolated_depth == 0;
         let report = &mut self.checks.future_frame_provenance;
@@ -321,6 +344,9 @@ impl Host {
                 entry_pc: hook.symbol.address(self.revision),
                 subsystem: hook.symbol.subsystem,
                 execution_class,
+                proof_envelope: hook.proof_envelope.as_str(),
+                actual_check_route: hook.check_route().as_str(),
+                explicit_proof_only_admission: hook.proof_only_admission(),
                 candidate_label: candidate_label.to_owned(),
                 candidate_hash,
                 registry_epoch: campaign.epoch,
@@ -886,13 +912,14 @@ impl Host {
     /// explicitly isolated fixture machine), never on a counterfeit live fork.
     pub(crate) fn execute_fixture_original(&mut self, hook: &Hook, cleanup_sp: u32) -> Result<()> {
         let Some(provenance) = self.actual_original_provenance() else {
-            return match hook.execution_class {
-                tje_game::execution::ExecutionClass::TimeAware => {
+            return match hook.check_route() {
+                crate::CheckForkRoute::TimeAwareLogic
+                | crate::CheckForkRoute::ClockedCommutingInterrupts
+                | crate::CheckForkRoute::ClockedStrict => {
                     self.execute_timed_fixture_original(hook, cleanup_sp, None)
                 }
-                tje_game::execution::ExecutionClass::Atomic
-                | tje_game::execution::ExecutionClass::Functional => {
-                    if hook.execution_class == tje_game::execution::ExecutionClass::Functional {
+                crate::CheckForkRoute::FrozenAtomic | crate::CheckForkRoute::FrozenFunctional => {
+                    if hook.check_route() == crate::CheckForkRoute::FrozenFunctional {
                         self.emulator
                             .hybrid_bus_mut()
                             .hybrid_set_functional_mode(true);
@@ -916,7 +943,7 @@ impl Host {
             );
         }
         let mut audit = stack.empty_run();
-        if hook.execution_class == tje_game::execution::ExecutionClass::Functional {
+        if hook.check_route() == crate::CheckForkRoute::FrozenFunctional {
             self.emulator
                 .hybrid_bus_mut()
                 .hybrid_set_functional_mode(true);
@@ -928,12 +955,13 @@ impl Host {
                 );
             }
         }
-        let result = match hook.execution_class {
-            tje_game::execution::ExecutionClass::TimeAware => {
+        let result = match hook.check_route() {
+            crate::CheckForkRoute::TimeAwareLogic
+            | crate::CheckForkRoute::ClockedCommutingInterrupts
+            | crate::CheckForkRoute::ClockedStrict => {
                 self.execute_timed_fixture_original(hook, cleanup_sp, stack.provenance.as_ref())
             }
-            tje_game::execution::ExecutionClass::Atomic
-            | tje_game::execution::ExecutionClass::Functional => {
+            crate::CheckForkRoute::FrozenAtomic | crate::CheckForkRoute::FrozenFunctional => {
                 if stack.provenance.is_some() {
                     crate::abi::run_original_atomic_scoped(
                         &mut self.emulator,
@@ -1026,10 +1054,9 @@ impl Host {
         self.checks
             .call_clocks
             .push(crate::call_clock::CallClockRecord::new(
-                hook.symbol.name,
+                hook,
                 "original",
                 crate::call_clock::ClockRunPurpose::FixtureReplay,
-                hook.clock_ceiling,
                 usage,
                 (
                     self.emulator.hybrid_cpu().pc(),

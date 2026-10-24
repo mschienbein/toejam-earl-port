@@ -73,6 +73,70 @@ fn platform_admits_only_ram_and_zero_encoded_word_counts_in_both_revisions() {
 }
 
 #[test]
+fn functional_metadata_never_inherits_zero_dma_approval_under_clocked_strict() {
+    static CANDIDATE: &[tje_game::Translation] = &[tje_game::Translation {
+        id: ids::DMA_COPY_WORDS_TO_VRAM,
+        function: |_, _| panic!("strict zero-DMA body must not execute"),
+    }];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut strict = HookRegistry::proof_clocked_strict(revision, CANDIDATE, &[], &[]).unwrap();
+        let root = strict
+            .at(ids::DMA_COPY_WORDS_TO_VRAM.metadata().address(revision))
+            .unwrap();
+        assert_eq!(root.execution_class, ExecutionClass::Functional);
+        assert_eq!(root.check_route(), crate::CheckForkRoute::ClockedStrict);
+        assert!(
+            strict
+                .enable_dependent_equivalence(
+                    &[ids::DMA_COPY_WORDS_TO_VRAM],
+                    DependentProofConfig::default(),
+                )
+                .is_err()
+        );
+        assert!(
+            strict
+                .at(ids::DMA_COPY_WORDS_TO_VRAM.metadata().address(revision))
+                .unwrap()
+                .dependent_proof
+                .is_none()
+        );
+
+        let (mut host, _) = fixture(revision, ids::DMA_COPY_WORDS_TO_VRAM);
+        arguments(&mut host, &[0xffb8da, 0xc002, 0]);
+        host.enable_dependent_equivalence(
+            &[ids::DMA_COPY_WORDS_TO_VRAM],
+            DependentProofConfig::default(),
+        )
+        .unwrap();
+        let mut changed = host
+            .registry
+            .at(ids::DMA_COPY_WORDS_TO_VRAM.metadata().address(revision))
+            .unwrap()
+            .clone();
+        assert!(ZeroDmaRoot::Platform.resolve(&mut host, &changed).is_ok());
+        changed.proof_envelope = tje_game::execution::ProofEnvelope::ClockedStrict;
+        let before = bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap();
+        assert!(ZeroDmaRoot::Platform.resolve(&mut host, &changed).is_err());
+        let mut fork = host.fork();
+        assert!(
+            host.run_check_side(
+                &mut fork,
+                &changed,
+                CheckSide::Rust,
+                crate::call_clock::ClockRunPurpose::Baseline,
+                crate::future_frame_watch::ObservationOrigin::CheckFork,
+            )
+            .is_err()
+        );
+        assert!(!fork.hybrid_bus().hybrid_functional_mode());
+        assert_eq!(
+            before,
+            bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap()
+        );
+    }
+}
+
+#[test]
 fn upload_replays_byte_bound_and_narrowed_run_encoding_without_a_table_prefix() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let (mut host, hook) = fixture(revision, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS);

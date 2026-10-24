@@ -298,7 +298,9 @@ fn native_leaves_are_closed_and_functional_writers_are_not_atomic() {
     ] {
         assert!(!crate::is_atomic_capable(id), "{}", id.metadata().name);
         assert!(Dispatcher::hybrid().translation(id).is_some());
-        assert!(EXECUTION_CONTRACTS.contains(&(id, ExecutionClass::Functional)));
+        assert!(EXECUTION_CONTRACTS.iter().any(|contract| {
+            contract.function == id && contract.class == ExecutionClass::Functional
+        }));
     }
 }
 

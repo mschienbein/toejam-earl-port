@@ -177,61 +177,133 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// Z80 retries. Their ROM/work-RAM source stream is stable while the 68000 is
 /// stalled; Functional completion preserves every ordered write and CPU result.
 /// This is logic equivalence only, never scanline/interrupt timing equivalence.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // dma.s:15-75: enables DMA and starts a stable-source memory transfer; the
     // implicit bus halt is transaction latency, not an observed busy operand.
-    (
-        crate::ids::DMA_COPY_WORDS_TO_VRAM,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::DMA_COPY_WORDS_TO_VRAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:20-26: 32,768 zero words; only FIFO-space stalls require time.
-    (crate::ids::CLEAR_VIDEO_RAM, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::CLEAR_VIDEO_RAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:32-38: 40 zero words to VSRAM, no raster/status observation.
-    (
-        crate::ids::CLEAR_VERTICAL_SCROLL_RAM,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::CLEAR_VERTICAL_SCROLL_RAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:44-50: 64 zero words to CRAM, no raster/status observation.
-    (crate::ids::CLEAR_COLOUR_RAM, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::CLEAR_COLOUR_RAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:58-71: ordered stable-source longwords; inclusive low-word DBRA.
-    (
-        crate::ids::COPY_LONGWORD_RUN_TO_VRAM_TILE,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::COPY_LONGWORD_RUN_TO_VRAM_TILE,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:77-84: repeated low-word value; FIFO draining has no readback.
-    (crate::ids::FILL_VDP_DATA_WORDS, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::FILL_VDP_DATA_WORDS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:90-97: byte-width data writes retain their order and FIFO semantics.
-    (crate::ids::FILL_VDP_DATA_BYTES, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::FILL_VDP_DATA_BYTES,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:103-110: forward stable ROM/RAM word stream, no busy/raster reads.
-    (crate::ids::MOVE_DATA_TO_VRAM, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::MOVE_DATA_TO_VRAM,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:117-147: row commands and stable-source words, no status observation.
-    (
-        crate::ids::UPLOAD_VRAM_WORD_RECTANGLE,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::UPLOAD_VRAM_WORD_RECTANGLE,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // vdp.s:153-165: fixed sixteen palette words, only FIFO latency is removed.
-    (
-        crate::ids::COPY_PALETTE_TO_CRAM_SLOT,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::COPY_PALETTE_TO_CRAM_SLOT,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // interrupts.s:49-53 + core/startup_and_main_loop.c:175-255: real VBlank
     // exception frame; dispatches graphics/audio/input callbacks and returns RTE.
-    (crate::ids::LEVEL6_ISR, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::LEVEL6_ISR,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // interrupts.s:59-64 + core/startup_and_main_loop.c:258-279: real HBlank
     // exception frame and raster-relative lower-viewport programming, then RTE.
-    (crate::ids::LEVEL4_ISR, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::LEVEL4_ISR,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // interrupts.s:69-73: non-returning reset transfer reloads SP and enters
     // startup.s's BUSACK/status/bootstrap path, then the interrupt-driven loop.
-    (
-        crate::ids::RESTART_FROM_RESET_ENTRY,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::RESTART_FROM_RESET_ENTRY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // interrupts.s:14-27: startup fragment clears RAM and enters non-returning
     // VDPInitialisation/FurtherInitialisation (core:58-62,607-706).
-    (crate::ids::GAME_PROGRAM, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::GAME_PROGRAM,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // startup.s:23-102: cold/warm reset, observed VDP status and Z80 bus polling,
     // peripheral bootstrap, then GameProgram; never an ordinary RTS call.
-    (crate::ids::START, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::START,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 #[cfg(test)]

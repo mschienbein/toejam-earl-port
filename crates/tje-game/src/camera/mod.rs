@@ -154,31 +154,112 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// Reviewed non-Atomic ORIGINAL contracts, translated or not.
 /// Sources are G/src/camera/; no raster/status observations occur in the
 /// Functional streams. TimeAware entries include every conditional wait path.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // camera_tiles_and_scroll.c:209,412 — stable RAM tile buffers to VDP.
-    (ids::UPDATE_CAMERA_Y, ExecutionClass::Functional),
-    (ids::UPDATE_CAMERA_X, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::UPDATE_CAMERA_Y,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::UPDATE_CAMERA_X,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // camera_tiles_and_scroll.c:448,477 — build/upload loops, no clock reads.
-    (ids::REDRAW_CAMERA_TILE_ROWS, ExecutionClass::Functional),
-    (ids::SET_CAMERA_VIEW_ORIGIN, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::REDRAW_CAMERA_TILE_ROWS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::SET_CAMERA_VIEW_ORIGIN,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // set_camera_position.c:8 — redraw, then copy fixed-point coordinates.
-    (ids::SET_CAMERA_POSITION, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::SET_CAMERA_POSITION,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // camera_tiles_and_scroll.c:551,570 — explicitly wait one VBlank.
-    (ids::TRY_UPDATE_CAMERA_Y, ExecutionClass::TimeAware),
-    (ids::TRY_UPDATE_CAMERA_X, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::TRY_UPDATE_CAMERA_Y,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::TRY_UPDATE_CAMERA_X,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // camera_tiles_and_scroll.c:589,627,665,703 — may flush via the waits above.
-    (ids::MOVE_CAMERA_UP, ExecutionClass::TimeAware),
-    (ids::MOVE_CAMERA_DOWN, ExecutionClass::TimeAware),
-    (ids::MOVE_CAMERA_LEFT, ExecutionClass::TimeAware),
-    (ids::MOVE_CAMERA_RIGHT, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::MOVE_CAMERA_UP,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MOVE_CAMERA_DOWN,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MOVE_CAMERA_LEFT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MOVE_CAMERA_RIGHT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // camera_follow.c:97 — may call any of the four time-aware pixel movers.
-    (ids::UPDATE_CAMERA_FOLLOWING, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::UPDATE_CAMERA_FOLLOWING,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // split_screen_wipe.c:12 and split_views.c:12 — VBlank-driven animations.
-    (ids::ANIMATE_SPLIT_SCREEN_WIPE, ExecutionClass::TimeAware),
-    (
-        ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_SPLIT_SCREEN_WIPE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 /// G/src/camera/toggle_camera_flag.c:6 (`SetCameraTilePriorityEnabled`).
 pub fn set_camera_tile_priority_enabled(

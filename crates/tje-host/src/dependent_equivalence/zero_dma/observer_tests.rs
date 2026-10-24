@@ -204,18 +204,27 @@ fn cr01_omitted_store_never_gains_admission_from_the_zero_only_descriptor() {
             );
             assert_eq!(strict.checks.calls, 2);
             assert_eq!(strict.checks.mismatches, 1);
+            if class == ExecutionClass::TimeAware {
+                let mut refused = cr01(revision, class, false);
+                let before =
+                    bincode::encode_to_vec(&refused.emulator, bincode::config::standard()).unwrap();
+                let error = refused
+                    .enable_dependent_equivalence(
+                        &[ids::DMA_COPY_WORDS_TO_VRAM],
+                        Default::default(),
+                    )
+                    .unwrap_err();
+                assert!(error.to_string().contains("frozen Functional"), "{error}");
+                assert_eq!(refused.checks.calls, 0);
+                assert_eq!(
+                    before,
+                    bincode::encode_to_vec(&refused.emulator, bincode::config::standard()).unwrap()
+                );
+                continue;
+            }
             let mut marked = cr01(revision, class, true);
             let error = marked.run_frame(Default::default()).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains(if class == ExecutionClass::Functional {
-                        "nonzero encoded"
-                    } else {
-                        "frozen Functional"
-                    }),
-                "{error}"
-            );
+            assert!(error.to_string().contains("nonzero encoded"), "{error}");
             assert_eq!(marked.checks.calls, 1); // only A checked, B explicitly refused
             assert!(marked.checks.dependent_equivalence.is_empty());
         }

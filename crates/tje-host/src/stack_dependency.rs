@@ -42,6 +42,7 @@ pub(super) struct CheckRun {
     pub wait_frames: u64,
     pub dependent_writes: Option<crate::dependent_equivalence::RamWriteFootprint>,
     pub exact_device_reads: Vec<usize>,
+    pub audio: Vec<[f64; 2]>,
 }
 
 impl Host {
@@ -66,17 +67,29 @@ impl Host {
         };
         // Even the reference fork is speculative; purpose is not authority.
         let provenance = self.future_frame_branch(provenance_side, origin);
+        let route = hook.check_route();
+        if hook
+            .dependent_proof
+            .is_some_and(|setting| setting.captures_all_dma())
+            && route != crate::CheckForkRoute::FrozenFunctional
+        {
+            return Err(HostError::Metadata(
+                "zero-count DMA proof requires its reviewed ClassDefined frozen Functional fork"
+                    .into(),
+            ));
+        }
         let mut receipt = None;
         let executed = self.execute_fork(fork, |emulator| {
             let entry_usage = clock.call_clock.usage();
-            let ceiling = if hook.execution_class == ExecutionClass::TimeAware {
+            let ceiling = if route.progresses_time() {
                 Some(clock.enter_call_ceiling(hook.symbol.id, hook.clock_ceiling)?)
             } else {
                 None
             };
             let entry_sp = emulator.hybrid_cpu().stack_pointer();
             let entry_pc = emulator.hybrid_cpu().pc();
-            let mut stack = crate::abi::StackAuditState::new(entry_sp, dependent);
+            let mut stack =
+                crate::abi::StackAuditState::new(entry_sp, dependent || route.is_strict());
             stack.provenance = provenance;
             if let Some(branch) = &stack.provenance {
                 branch.begin_native(entry_frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
@@ -91,15 +104,28 @@ impl Host {
                 stack.provenance.is_some().then(Vec::new),
             );
             let saved_all_dma = emulator.hybrid_bus().hybrid_dma_all_sources;
-            emulator.hybrid_bus_mut().hybrid_dma_all_sources = hook
-                .dependent_proof
-                .is_some_and(|setting| setting.captures_all_dma());
+            emulator.hybrid_bus_mut().hybrid_dma_all_sources = route.is_strict()
+                || hook
+                    .dependent_proof
+                    .is_some_and(|setting| setting.captures_all_dma());
             // Retain the branch on every execution error, including an error
             // after a watched read. No early `?` may discard its rejection.
             let mut stack_slot = Some(stack);
             let result: Result<CheckRun> = (|| {
-                if hook.execution_class == ExecutionClass::Functional {
+                if route == crate::CheckForkRoute::FrozenFunctional {
                     emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+                }
+                if hook
+                    .dependent_proof
+                    .is_some_and(|setting| setting.captures_all_dma())
+                    && !emulator.hybrid_bus().hybrid_functional_mode()
+                {
+                    return Err(HostError::Metadata(
+                        "zero-count DMA proof requires the actual frozen Functional fork".into(),
+                    ));
+                }
+                if route.is_strict() {
+                    crate::check_envelope::install_strict_observers(emulator)?;
                 }
                 stack_slot.as_mut().expect("root audit").drain(
                     emulator.hybrid_bus_mut(),
@@ -109,7 +135,7 @@ impl Host {
                 let mut run = match side {
                     CheckSide::Original { boundary, outcome } => {
                         let stack = stack_slot.as_mut().expect("root audit");
-                        let logic_trace = if hook.execution_class == ExecutionClass::TimeAware {
+                        let (logic_trace, audio) = if route.progresses_time() {
                             let clock_run = run_original_timed_until(
                                 emulator,
                                 &mut clock,
@@ -119,12 +145,12 @@ impl Host {
                             for (pc, access) in clock_run.accesses {
                                 stack.observe(pc, access, &mut audit);
                             }
-                            clock_run.logic_trace
+                            (clock_run.logic_trace, clock_run.audio)
                         } else {
                             audit.append(crate::abi::run_original_atomic_scoped(
                                 emulator, boundary, stack,
                             )?);
-                            LogicTrace::default()
+                            (LogicTrace::default(), Vec::new())
                         };
                         CheckRun {
                             audit,
@@ -134,11 +160,13 @@ impl Host {
                             wait_frames: clock.frame - entry_frame,
                             dependent_writes: None,
                             exact_device_reads: Vec::new(),
+                            audio,
                         }
                     }
                     CheckSide::Rust => {
                         let mut context = HookContext::new(emulator, revision, dispatcher)
-                            .with_execution(hook.execution_class, std::mem::take(&mut clock));
+                            .with_execution(hook.execution_class, std::mem::take(&mut clock))
+                            .with_check_route(route);
                         context.enable_stack_audit(stack_slot.take().expect("root audit"), audit);
                         let outcome: Result<EntryOutcome> =
                             hook.execute(&mut context).and_then(|outcome| {
@@ -156,10 +184,11 @@ impl Host {
                             wait_frames: context.time_frames,
                             dependent_writes: None,
                             exact_device_reads: context.exact_device_reads,
+                            audio: context.time_audio,
                         }
                     }
                 };
-                if hook.execution_class == ExecutionClass::TimeAware {
+                if route.uses_logic_projection() {
                     emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
                 }
                 let checkpoint = emulator.hybrid_cpu().pc();
@@ -187,14 +216,13 @@ impl Host {
                 Err(error) => Err(error),
                 Ok(run) => cleanup.map(|()| run),
             };
-            if hook.execution_class == ExecutionClass::TimeAware {
+            if route.progresses_time() {
                 match clock.call_clock.usage().since(entry_usage) {
                     Ok(usage) => {
                         receipt = Some(CallClockRecord::new(
-                            hook.symbol.name,
+                            hook,
                             side.name(),
                             purpose,
-                            hook.clock_ceiling,
                             usage,
                             (
                                 emulator.hybrid_cpu().pc(),
@@ -361,6 +389,15 @@ pub(super) fn compare_check_runs(
         (a, b) if a == b => {}
         _ => return Err("control-transfer outcome differs".into()),
     }
+    let route = hook.check_route();
+    if route.is_strict() {
+        return crate::check_envelope::compare_strict(
+            original,
+            translated,
+            original_run,
+            translated_run,
+        );
+    }
     let mut abi = hook.symbol.abi.clone();
     let mut live_start = entry_sp;
     if let EntryOutcome::Transfer(transfer) = original_run.outcome {
@@ -377,9 +414,14 @@ pub(super) fn compare_check_runs(
             }
         }
     }
+    let comparison_class = if route.uses_logic_projection() {
+        ExecutionClass::TimeAware
+    } else {
+        hook.execution_class
+    };
     let dead_bytes =
-        compare_calls_with_execution(original, translated, live_start, &abi, hook.execution_class)?;
-    if hook.execution_class == ExecutionClass::TimeAware {
+        compare_calls_with_execution(original, translated, live_start, &abi, comparison_class)?;
+    if route.uses_logic_projection() {
         check_projection::compare(
             &original_run.logic_trace,
             &translated_run.logic_trace,

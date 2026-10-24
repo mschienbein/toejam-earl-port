@@ -335,56 +335,83 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 ];
 
 /// Reviewed non-atomic original entries. Classification is not translation proof.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // G/src/sprites/select_first_link.c:6-18, sprite_links_vdp.c:6-35,
     // hide_player_sprites.c:7-29: bounded ordered command/data writes and RAM
     // reads/root-link stores, but a full FIFO needs peripheral progress.
     // No status/HV/FIFO/busy reads, DMA launches or cross-processor mailboxes.
     // Functional completion is required even without an explicit C poll loop.
-    (
-        crate::ids::SELECT_SPRITE_CHAIN_START,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
-        crate::execution::ExecutionClass::Functional,
-    ),
-    (
-        crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::SELECT_SPRITE_CHAIN_START,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::TERMINATE_SPRITE_CHAIN_AT_HEAD,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::TERMINATE_PRIMARY_SPRITE_CHAIN,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::SELECT_PRIMARY_VIEWPORT_SPRITES,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::SELECT_SECONDARY_VIEWPORT_SPRITES,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::HIDE_FLAGGED_PLAYER_SPRITES,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/sprites/load_sprites.c:8-31: closed stable-RAM DMA sources and
     // ordered register writes, with no status/raster read or concurrent observer.
     // DmaCopyWordsToVram (G/src/asm/dma.s:15-75) needs transaction completion.
-    (
-        crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/sprites/link_player_sprites.c:9-38: finish all table RAM mutations,
     // then one stable-source DMA through the same reviewed primitive.
-    (
-        crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
-        crate::execution::ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
+        class: crate::execution::ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/sprites/entity_sprite_rendering.c:503-584: the pending-upload byte
     // at lines 513-514 is cleared by interrupt-driven work, so real IRQ/clock
     // progress is required. The remaining original callees have no waits.
-    (
-        crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 #[cfg(test)]
 mod tests {

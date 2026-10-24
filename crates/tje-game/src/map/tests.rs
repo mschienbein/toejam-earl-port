@@ -465,7 +465,7 @@ fn original_classes_are_complete_and_pending_entries_never_register() {
         let atomic = ATOMIC_CAPABLE.iter().filter(|&&id| id == entry.id).count();
         let non_atomic = EXECUTION_CONTRACTS
             .iter()
-            .filter(|(id, _)| *id == entry.id)
+            .filter(|contract| contract.function == entry.id)
             .count();
         assert_eq!(atomic + non_atomic, 1, "{}", entry.name);
     }

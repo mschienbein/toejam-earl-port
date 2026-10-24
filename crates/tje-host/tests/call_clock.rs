@@ -256,7 +256,8 @@ fn malformed_authored_ceiling_fails_before_execution() {
                 symbol,
                 CallCeiling {
                     ticks: 0,
-                    frames: 10
+                    frames: 10,
+                    reference_instructions: None,
                 },
                 early,
             )

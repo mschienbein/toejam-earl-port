@@ -391,91 +391,145 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// Whole-original execution classes for paths requiring interrupt progress.
 /// No presents path is Functional: device latency alone cannot settle the
 /// IRQ-owned sprite-upload flags, input loops or VBlank synchronization below.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, crate::execution::ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // G/src/presents/item_updates.c:131-255: speech/dialogue (including Player_Youch)
     // can wait on gSpriteGraphicsUploadPending in speech_and_dialogue.c:135.
-    (
-        ids::EAT_YUMMY_FOOD,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::EAT_YUCKY_FOOD,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::EAT_FUDGE_SUNDAE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::PLAYER_COLLECT_NEARBY_ITEMS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::EAT_YUMMY_FOOD,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::EAT_YUCKY_FOOD,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::EAT_FUDGE_SUNDAE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_COLLECT_NEARBY_ITEMS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/item_updates.c:259-339: HudLoadActionIconSprite waits for
     // the IRQ-owned upload flag (src/ui/hud.c:122-125).
-    (
-        ids::PRESENT_TRY_END_ACTIVE_POWERUP,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::REDUCE_PRESENT_TIMER,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::REDUCE_PRESENT_TIMER,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/present_effects.c:230-257: explicit VBlank then screen redraw.
-    (
-        ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/present_effects.c:260-322: calls the teleport/redraw path.
-    (
-        ids::PRESENT_UPDATE_DOORWAY,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PRESENT_UPDATE_DOORWAY,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/present_effects.c:325-464: GenerateSpeech/StartDialogue.
-    (
-        ids::PERFORM_PROMOTION,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::BUMMER_LIFE_PROMO,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::PRESENT_UPDATE_BURPS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PERFORM_PROMOTION,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::BUMMER_LIFE_PROMO,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PRESENT_UPDATE_BURPS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/projectile_effects.c:568-612: Player_Youch can speak.
-    (
-        ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/present_dispatch.c:41-188: HUD IRQ waits and speech/dialogue.
-    (
-        ids::OPEN_SELECTED_PRESENT,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::SETUP_SELECTED_PRESENT,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::OPEN_SELECTED_PRESENT,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::SETUP_SELECTED_PRESENT,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/telephone.c:72-157: DrawGameMap blocks on VBlank and inputs.
-    (
-        ids::CHECK_FOR_TELEPHONE,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::CHECK_FOR_TELEPHONE,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // G/src/presents/present_dispatch.c:23-38 and item_updates.c:366-393:
     // transitive doorway, telephone, speech and action-icon waits.
-    (
-        ids::PROCESS_PRESENTS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
-    (
-        ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
-        crate::execution::ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_PRESENTS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
+        class: crate::execution::ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// G/src/presents/level_item_setup.c:139 (`MapIsLargePlacementTerrainExcluded`).

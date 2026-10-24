@@ -30,6 +30,55 @@ impl ExecutionClass {
     }
 }
 
+/// A check's observation envelope is independent of the source execution class.
+/// Stronger diagnostic envelopes never grant permission to call a stronger class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProofEnvelope {
+    #[default]
+    ClassDefined,
+    /// Both forks advance the actual clock and compare without a timing quotient.
+    ClockedStrict,
+    /// Actual IRQ transactions may move only with a trace-derived commutation proof.
+    ClockedCommutingInterrupts,
+}
+
+impl ProofEnvelope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClassDefined => "ClassDefined",
+            Self::ClockedStrict => "ClockedStrict",
+            Self::ClockedCommutingInterrupts => "ClockedCommutingInterrupts",
+        }
+    }
+
+    pub const fn progresses_time(self, class: ExecutionClass) -> bool {
+        !matches!(self, Self::ClassDefined) || matches!(class, ExecutionClass::TimeAware)
+    }
+}
+
+/// Literal owner metadata, not an activation or a source-termination bound.
+/// Ordinary Atomic declarations remain in the owner's ATOMIC_CAPABLE list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionContract {
+    pub function: crate::FunctionId,
+    pub class: ExecutionClass,
+    pub proof_envelope: ProofEnvelope,
+    /// An operational resource ceiling. Exhaustion is a check failure.
+    pub operational_ceiling: Option<CallCeiling>,
+    /// The reviewed measurement receipt and observed maxima, never a bound claim.
+    pub evidence: Option<&'static str>,
+}
+
+impl ExecutionContract {
+    pub fn is_valid(self) -> bool {
+        match (self.operational_ceiling, self.evidence) {
+            (None, None) => true,
+            (Some(ceiling), Some(evidence)) => ceiling.validate().is_ok() && !evidence.is_empty(),
+            _ => false,
+        }
+    }
+}
+
 /// Explicitly observable condition. Device reads retain their real side effects;
 /// this is not permission to invent ready bits or erase polling transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

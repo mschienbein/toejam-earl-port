@@ -8,11 +8,16 @@
 //! retain their device effects but are not software data dependencies.
 
 pub mod abi;
+#[cfg(test)]
+#[path = "../tests/support/allocation_counter.rs"]
+mod allocation_counter;
 mod call_clock;
 pub mod call_observation;
 pub use call_clock::CallClockRecord;
 pub mod catalogue;
+pub mod check_envelope;
 mod check_failure;
+pub use check_envelope::CheckForkRoute;
 pub use check_failure::{CheckFailure, CheckFailurePolicy};
 pub mod check_projection;
 mod coverage;
@@ -308,6 +313,17 @@ impl Host {
                 rom: revision,
             });
         }
+        if mode == Mode::Replace && registry.iter().any(|hook| hook.proof_only_admission()) {
+            return Err(HostError::Metadata(
+                "check-only proof-envelope registries cannot be used for replacement/play".into(),
+            ));
+        }
+        if registry
+            .iter()
+            .any(|hook| hook.check_route().progresses_time())
+        {
+            execution::prepare_operational_callee_indexes()?;
+        }
         let initial_sp = u32::from_be_bytes(
             rom.bytes()[..4]
                 .try_into()
@@ -344,7 +360,10 @@ impl Host {
             saves,
             audio_sample_rate: 48_000,
             session_trace: None,
-            wait_clock: WaitClock::default(),
+            wait_clock: WaitClock {
+                revision: Some(revision),
+                ..WaitClock::default()
+            },
             checks,
             measurements: Measurements::default(),
         })
@@ -544,7 +563,7 @@ impl Host {
         self.checks.calls += 1;
         self.checks.record_function(hook, true);
         self.checks.nested_original_calls += translated_run.nested_calls;
-        if hook.execution_class == ExecutionClass::TimeAware {
+        if hook.check_route().uses_logic_projection() {
             let raw_writes_differ =
                 original.hybrid_bus().hybrid_writes != translated.hybrid_bus().hybrid_writes;
             self.checks
@@ -589,7 +608,7 @@ impl Host {
                 )
             })
         };
-        if hook.execution_class == ExecutionClass::TimeAware {
+        if hook.check_route().uses_logic_projection() {
             self.checks.last_time_aware = Some(check_projection::TimeAwareObservation {
                 function: hook.symbol.name.to_owned(),
                 original: original_run.logic_trace.events,
@@ -627,6 +646,11 @@ impl Host {
     }
 
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
+        if hook.proof_only_admission() {
+            return Err(HostError::Metadata(
+                "a check-only proof envelope cannot dispatch replacement/play".into(),
+            ));
+        }
         let progresses_time = hook.execution_class != ExecutionClass::Atomic;
         let entry_usage = self.wait_clock.call_clock.usage();
         let mut context = HookContext::new(
@@ -655,10 +679,9 @@ impl Host {
             // failure allocates a diagnostic receipt; ledger enforcement stays.
             if let (Err(error), Ok(usage)) = (&result, usage) {
                 self.checks.call_clocks.push(CallClockRecord::new(
-                    hook.symbol.name,
+                    hook,
                     "Rust",
                     call_clock::ClockRunPurpose::Replacement,
-                    hook.clock_ceiling,
                     usage,
                     (context.cpu().pc(), context.cpu().stack_pointer()),
                     Some(error.to_string()),
@@ -702,7 +725,9 @@ impl Host {
                     .into(),
             ));
         }
-        if hook.execution_class != ExecutionClass::Atomic && !isolated_fixture {
+        if (hook.check_route().progresses_time() || hook.execution_class != ExecutionClass::Atomic)
+            && !isolated_fixture
+        {
             return Err(HostError::Metadata(
                 "non-atomic diagnostics require check_fixture isolation".into(),
             ));

@@ -447,7 +447,17 @@ impl<'a> HookContext<'a> {
             || (class == ExecutionClass::Functional
                 && !self.emulator.hybrid_bus().hybrid_functional_mode());
         self.wait_clock = clock;
+        self.wait_clock.revision = Some(self.revision);
         self
+    }
+
+    pub(crate) fn with_check_route(mut self, route: crate::CheckForkRoute) -> Self {
+        self.timed_execution = route.progresses_time();
+        self
+    }
+
+    pub fn functional_device_mode(&self) -> bool {
+        self.emulator.hybrid_bus().hybrid_functional_mode()
     }
 
     fn latch_mmio_error(&mut self, error: tje_game::Error) -> tje_game::Error {
@@ -811,7 +821,9 @@ impl<'a> HookContext<'a> {
         let ceiling = self.enter_call_ceiling_contract(
             contract.id,
             execution_class,
-            tje_game::execution::CallCeiling::DEFAULT,
+            tje_game::execution_contract(contract.id)
+                .and_then(|reviewed| reviewed.operational_ceiling)
+                .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
         )?;
         let result = self.call_original_with_execution_contract_inner(contract, arguments);
         let cleanup = self.leave_call_ceiling_contract(ceiling);
@@ -902,8 +914,13 @@ impl<'a> HookContext<'a> {
                 self.execution_class
             )));
         }
-        let ceiling =
-            self.enter_call_ceiling_contract(id, class, tje_game::execution::CallCeiling::DEFAULT)?;
+        let ceiling = self.enter_call_ceiling_contract(
+            id,
+            class,
+            tje_game::execution_contract(id)
+                .and_then(|reviewed| reviewed.operational_ceiling)
+                .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
+        )?;
         let result = self.call_original_prepared_inner(id);
         let cleanup = self.leave_call_ceiling_contract(ceiling);
         match result {
@@ -1265,13 +1282,19 @@ impl tje_game::Context for HookContext<'_> {
         &mut self,
         function: FunctionId,
     ) -> tje_game::Result<tje_game::execution::CallCeilingScope> {
-        let class =
-            tje_game::execution_class(function).ok_or(tje_game::Error::Unclassified(function))?;
-        self.enter_call_ceiling_contract(function, class, tje_game::execution::CallCeiling::DEFAULT)
-            .map_err(|error| match error {
-                HostError::Clock(error) => tje_game::Error::Clock(error),
-                other => tje_game::Error::Platform(other.to_string()),
-            })
+        let reviewed = tje_game::execution_contract(function)
+            .ok_or(tje_game::Error::Unclassified(function))?;
+        self.enter_call_ceiling_contract(
+            function,
+            reviewed.class,
+            reviewed
+                .operational_ceiling
+                .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
+        )
+        .map_err(|error| match error {
+            HostError::Clock(error) => tje_game::Error::Clock(error),
+            other => tje_game::Error::Platform(other.to_string()),
+        })
     }
     fn leave_call_ceiling(
         &mut self,

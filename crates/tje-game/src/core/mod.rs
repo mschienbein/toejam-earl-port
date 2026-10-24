@@ -101,61 +101,136 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 
 /// Reviewed original non-atomic execution contracts, including untranslated
 /// entries. These are logic classifications, not raster/cycle equivalence claims.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // src/core/error_trap.c:5: a declared terminal, never an RTS. The scheduler
     // must retain real device clocks and IRQ service after the terminal branch.
-    (crate::ids::ERROR_TRAP, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::ERROR_TRAP,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // src/core/startup_and_main_loop.c:58,607: initialization transfers into the
     // clocked persistent main loop; these declarations require typed exits.
-    (crate::ids::VDP_INITIALISATION, ExecutionClass::TimeAware),
-    (
-        crate::ids::FURTHER_INITIALISATION,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::VDP_INITIALISATION,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: crate::ids::FURTHER_INITIALISATION,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // src/core/startup_and_main_loop.c:88: 2048 ordered VDP data writes, no
     // status/HV reads, unstable source, interrupt wait, or concurrent observation.
-    (crate::ids::DRAW_STARFIELD_PLANE, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::DRAW_STARFIELD_PLANE,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:157 and src/sprites/sprite_links_vdp.c:13-35: bounded RAM
     // selection plus ordered VDP writes, no status/HV read or polling loop.
     // Genuine entries with three occupied FIFO slots require transaction
     // progress for the selected two-word writer; frozen atomic is insufficient.
-    (
-        crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:142: waits for an IRQ-driven RAM frame-counter change.
-    (crate::ids::WAIT_FOR_NEXT_V_BLANK, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::WAIT_FOR_NEXT_V_BLANK,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:175: installed callbacks and music/controller service include Z80
     // mailbox/BUSY waits; IRQ execution must retain real device progress.
-    (crate::ids::HANDLE_V_BLANK, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::HANDLE_V_BLANK,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:258: at most six data writes including the selected sprite-chain
     // callee. No raster/status read; precise IRQ4 publication remains a separate
     // scheduler obligation documented in docs/TIMING.md.
-    (crate::ids::HANDLE_H_BLANK, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: crate::ids::HANDLE_H_BLANK,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:307: GamePaused can wait for controller/frame changes.
-    (crate::ids::CHECK_START_BUTTON, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::CHECK_START_BUTTON,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:321: pause, inventory, and map callees have interactive frame waits.
-    (crate::ids::PROCESS_INPUT, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::PROCESS_INPUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:368: SetCameraPosition -> SetCameraViewOrigin -> bounded RAM row
     // building and VDP uploads; stable per-row source and no hardware reads/waits.
-    (
-        crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::RELOAD_ACTIVE_CAMERA_VIEWS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:376: waits on the IRQ-cleared sprite-upload byte and optional wipes.
-    (crate::ids::ENTER_SPLIT_SCREEN, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::ENTER_SPLIT_SCREEN,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:415: WaitForVBlankWithGraphicsPaused plus ordered camera/HUD uploads.
-    (crate::ids::ENTER_SHARED_SCREEN, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: crate::ids::ENTER_SHARED_SCREEN,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:460: WaitForVBlankWithGraphicsPaused when display is enabled.
-    (
-        crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ibid.:514: invokes the split/shared/centering waits above.
-    (
-        crate::ids::UPDATE_SCREEN_SPLIT_MODE,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: crate::ids::UPDATE_SCREEN_SPLIT_MODE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 // FurtherInitialisation retains its original twenty-byte frame across modal

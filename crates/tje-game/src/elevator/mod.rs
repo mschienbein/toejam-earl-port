@@ -186,43 +186,97 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 ];
 
 /// Reviewed non-Atomic ORIGINAL contracts; sources are G/src/elevator/.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // elevator_scene.c:327 — stable ROM tile/palette stream and RAM HUD state.
-    (ids::LOAD_FINAL_LEVEL_MAP, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::LOAD_FINAL_LEVEL_MAP,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:437 — ROM decode into RAM, then stable sprite-tile DMA.
-    (
-        ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:463 — RAM link rebuild followed by sprite-table DMA;
     // asm/dma.s:15-75 contains writes only, no DMA-status read or polling.
-    (
-        ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:396 — UpdateScreenSplitMode can run VBlank animations.
-    (ids::MAP_ENTER_FINAL_LEVEL, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_ENTER_FINAL_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:484 — GenerateSpeech waits for the IRQ-cleared upload
     // pending byte (speech/speech_and_dialogue.c:135-136).
-    (
-        ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:562 — MusicUpdateSequencer can execute real Z80 mailbox
     // lock retries, DBRA delays and BUSACK polls; original fallback needs clocks.
-    (ids::ELEVATOR_RIDE_V_BLANK, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_RIDE_V_BLANK,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:579 — waits for IRQ sprite upload/frame readiness.
-    (ids::ELEVATOR_BEGIN_RIDE_SCENE, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_BEGIN_RIDE_SCENE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:633 — waits on VBlank-integrated scroll velocity twice.
-    (ids::ELEVATOR_END_RIDE_SCENE, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_END_RIDE_SCENE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_scene.c:652 — music-selection, ride, and split-screen waits.
-    (
-        ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // elevator_transitions.c:73,270 — departure completion invokes the ride.
-    (ids::PROCESS_ELEVATOR_STEP1, ExecutionClass::TimeAware),
-    (ids::PROCESS_ELEVATORS, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_ELEVATOR_STEP1,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_ELEVATORS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// G/src/elevator/elevator_scene.c:37 (`ElevatorSetState`).

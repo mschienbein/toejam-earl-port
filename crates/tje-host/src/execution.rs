@@ -16,7 +16,7 @@ use genesis_core::{GenesisEmulator, HybridAccess};
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use m68000_emu::BusInterface;
 use std::sync::Arc;
-use tje_game::execution::{CallClock, ClockUsage, WaitCondition, WaitRequest};
+use tje_game::execution::{CallCeilingScope, CallClock, ClockUsage, WaitCondition, WaitRequest};
 
 /// Random-access input timeline: identical forks request the same video-frame
 /// sample. A live frontend can implement this with its frame-sampled controller
@@ -42,6 +42,8 @@ pub struct WaitClock {
     pub inputs: GenesisInputs,
     pub poller: Option<Arc<dyn WaitInputPoller>>,
     pub(crate) call_clock: CallClock,
+    pub(crate) revision: Option<tje_rom::Revision>,
+    pub(crate) callee_scratch: CalleeScratch,
 }
 impl WaitClock {
     pub(crate) fn advance_frame(&mut self, emulator: &mut GenesisEmulator) -> Result<()> {
@@ -103,9 +105,72 @@ pub(crate) struct ClockRun {
     pub audio: Vec<[f64; 2]>,
     reference_counting_before: Option<bool>,
     reference_counter_total: u64,
+    nested_ceilings: Vec<OriginalCallCeiling>,
+}
+
+#[derive(Debug)]
+struct OriginalCallCeiling {
+    scope: CallCeilingScope,
+    return_pc: u32,
+    return_sp: u32,
+    exception_depth: u32,
+    returned: bool,
+}
+
+/// Only empty reusable capacity lives in the clock between physical runners.
+/// A physical runner executes the CPU without Rust dispatch/reentry; all of its
+/// emulated recursive calls share one unbounded vector.
+#[derive(Default)]
+pub(crate) struct CalleeScratch(Vec<OriginalCallCeiling>);
+
+impl Clone for CalleeScratch {
+    fn clone(&self) -> Self {
+        // A speculative clock is cold storage, never a clone of scope authority.
+        Self::default()
+    }
 }
 
 impl ClockRun {
+    fn close_quiescent_callees(
+        &mut self,
+        emulator: &GenesisEmulator,
+        clock: &mut WaitClock,
+    ) -> Result<()> {
+        loop {
+            let Some(nested) = self.nested_ceilings.last().filter(|nested| nested.returned) else {
+                return Ok(());
+            };
+            let cpu = emulator.hybrid_cpu();
+            let depth = cpu.hybrid_exception_depth();
+            let at_return = cpu.pc() == nested.return_pc && cpu.stack_pointer() == nested.return_sp;
+            if depth < nested.exception_depth || (depth == nested.exception_depth && !at_return) {
+                return Err(HostError::Metadata(
+                    "an ISR escaped an operational callee's actual return boundary".into(),
+                ));
+            }
+            if depth != nested.exception_depth || !native_resume_ready(emulator) {
+                return Ok(());
+            }
+            let nested = self
+                .nested_ceilings
+                .pop()
+                .expect("quiescent actual callee return");
+            clock.leave_call_ceiling(nested.scope)?;
+        }
+    }
+
+    fn finish_nested_ceilings(&mut self, clock: &mut WaitClock, completed: bool) -> Result<()> {
+        let mut failure = (completed && !self.nested_ceilings.is_empty()).then(|| {
+            HostError::Metadata("timed return left an operational callee scope open".into())
+        });
+        while let Some(nested) = self.nested_ceilings.pop() {
+            if let Err(error) = clock.leave_call_ceiling(nested.scope) {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
     fn begin_reference_counting(
         &mut self,
         emulator: &mut GenesisEmulator,
@@ -328,6 +393,126 @@ pub(crate) fn drain_accesses(
     }
 }
 
+#[derive(Debug)]
+struct OperationalCallee {
+    address: u32,
+    function: tje_game::FunctionId,
+    ceiling: tje_game::execution::CallCeiling,
+    unique_address: bool,
+}
+
+#[derive(Debug)]
+struct OperationalCalleeIndex {
+    entries: Vec<OperationalCallee>,
+}
+
+impl OperationalCalleeIndex {
+    /// Build once from the same cached owner declarations used by registration.
+    /// Uncapped aliases still participate in the exact-entry uniqueness check.
+    fn from_entries<'a>(
+        entries: impl Iterator<
+            Item = (
+                u32,
+                tje_game::FunctionId,
+                Option<&'a tje_game::execution::ExecutionContract>,
+            ),
+        > + Clone,
+    ) -> std::result::Result<Self, tje_game::FunctionId> {
+        let mut measured = Vec::new();
+        for (address, function, declaration) in entries.clone() {
+            let declaration = declaration.ok_or(function)?;
+            if let Some(ceiling) = declaration.operational_ceiling {
+                let unique_address = entries
+                    .clone()
+                    .filter(|(other, _, _)| *other == address)
+                    .take(2)
+                    .count()
+                    == 1;
+                measured.push(OperationalCallee {
+                    address,
+                    function,
+                    ceiling,
+                    unique_address,
+                });
+            }
+        }
+        measured.sort_unstable_by_key(|entry| entry.address);
+        Ok(Self { entries: measured })
+    }
+
+    fn for_revision(
+        revision: tje_rom::Revision,
+    ) -> std::result::Result<Self, tje_game::FunctionId> {
+        Self::from_entries(tje_game::functions().map(|function| {
+            (
+                function.address(revision),
+                function.id,
+                tje_game::execution_contract(function.id),
+            )
+        }))
+    }
+
+    fn at(
+        &self,
+        address: u32,
+    ) -> Result<Option<(tje_game::FunctionId, tje_game::execution::CallCeiling)>> {
+        let Ok(index) = self
+            .entries
+            .binary_search_by_key(&address, |entry| entry.address)
+        else {
+            return Ok(None);
+        };
+        let entry = &self.entries[index];
+        if !entry.unique_address {
+            return Err(HostError::Metadata(format!(
+                "operational callee entry {address:06X} has duplicate metadata addresses"
+            )));
+        }
+        Ok(Some((entry.function, entry.ceiling)))
+    }
+}
+
+static OPERATIONAL_CALLEES: std::sync::LazyLock<
+    [std::result::Result<OperationalCalleeIndex, tje_game::FunctionId>; 2],
+> = std::sync::LazyLock::new(|| {
+    [
+        OperationalCalleeIndex::for_revision(tje_rom::Revision::Rev02),
+        OperationalCalleeIndex::for_revision(tje_rom::Revision::Rev00),
+    ]
+});
+
+fn operational_callee_index(
+    revision: tje_rom::Revision,
+) -> Result<&'static OperationalCalleeIndex> {
+    let index = match revision {
+        tje_rom::Revision::Rev02 => 0,
+        tje_rom::Revision::Rev00 => 1,
+    };
+    match &OPERATIONAL_CALLEES[index] {
+        Ok(entries) => Ok(entries),
+        Err(function) => Err(HostError::Metadata(format!(
+            "operational callee index has a missing or conflicting owner declaration for {function:?}"
+        ))),
+    }
+}
+
+pub(crate) fn prepare_operational_callee_indexes() -> Result<()> {
+    for revision in [tje_rom::Revision::Rev02, tje_rom::Revision::Rev00] {
+        let entries = operational_callee_index(revision)?;
+        for entry in &entries.entries {
+            entries.at(entry.address)?;
+        }
+    }
+    Ok(())
+}
+
+fn operational_callee_at(
+    revision: tje_rom::Revision,
+    address: u32,
+) -> Result<Option<(tje_game::FunctionId, tje_game::execution::CallCeiling)>> {
+    operational_callee_index(revision)?.at(address)
+}
+
 fn timed_tick(
     emulator: &mut GenesisEmulator,
     clock: &mut WaitClock,
@@ -335,10 +520,15 @@ fn timed_tick(
     audio: &mut HeadlessAudio,
     provenance: Option<&crate::future_frame_watch::BranchProvenance>,
 ) -> Result<()> {
+    // Close only an already-observed RTS at a real quiescent boundary, before
+    // charging or executing the first caller opcode. IRQ/bus debt remains child work.
+    run.close_quiescent_callees(emulator, clock)?;
     clock.call_clock.before_tick().map_err(HostError::Clock)?;
     let pc = emulator.hybrid_cpu().pc();
     let master_clock = emulator.hybrid_bus().cycles.m68k_mclk_cycles;
     let depth_before = emulator.hybrid_cpu().hybrid_exception_depth();
+    let sp_before = emulator.hybrid_cpu().stack_pointer();
+    let opcode = emulator.hybrid_cpu().next_opcode();
     let auditing = emulator.hybrid_bus().hybrid_cpu_accesses.is_some();
     let bus = emulator.hybrid_bus();
     let ready =
@@ -403,10 +593,11 @@ fn timed_tick(
                 master_clocks,
                 frames: u64::from(effect == TickEffect::FrameRendered),
             })
+            .map(|()| instructions)
             .map_err(HostError::Clock)
     });
     entered?;
-    progress?;
+    let instructions = progress?;
     if auditing && depth_after < depth_before {
         let root_return = run.entry_boundary.is_some_and(|boundary| {
             boundary.entry_exception_return
@@ -443,6 +634,52 @@ fn timed_tick(
         timeline?;
     }
     clock.call_clock.check().map_err(HostError::Clock)?;
+    if ready && opcode == 0x4e75 {
+        for nested in run.nested_ceilings.iter_mut().rev() {
+            if emulator.hybrid_cpu().pc() != nested.return_pc
+                || emulator.hybrid_cpu().stack_pointer() != nested.return_sp
+                || depth_after != nested.exception_depth
+            {
+                break;
+            }
+            nested.returned = true;
+        }
+    }
+    if instructions != 0
+        && clock.call_clock.active()
+        && let Some(revision) = clock.revision
+        && let Some((id, ceiling)) = operational_callee_at(revision, emulator.hybrid_cpu().pc())?
+    {
+        if depth_before == depth_after && (opcode & 0xffc0 == 0x4e80 || opcode & 0xff00 == 0x6100) {
+            let sp = emulator.hybrid_cpu().stack_pointer();
+            if sp & 1 != 0
+                || sp.wrapping_add(4) != sp_before
+                || !(crate::catalogue::STACK_BOTTOM..=crate::catalogue::STACK_TOP - 4)
+                    .contains(&canonical_ram_address(sp))
+            {
+                return Err(HostError::Metadata(
+                    "operational callee did not create its actual work-RAM return frame".into(),
+                ));
+            }
+            let memory = &emulator.hybrid_bus().memory;
+            let return_pc = (u32::from(memory.read_main_ram_word(sp)) << 16)
+                | u32::from(memory.read_main_ram_word(sp.wrapping_add(2)));
+            let scope = clock.enter_call_ceiling(id, ceiling)?;
+            run.nested_ceilings.push(OriginalCallCeiling {
+                scope,
+                return_pc,
+                return_sp: sp_before,
+                exception_depth: depth_after,
+                returned: false,
+            });
+        } else if !clock.call_clock.contains_scope(id) {
+            clock.call_clock.invalidate_scope();
+            return Err(HostError::Metadata(format!(
+                "operational callee {id:?} reached by unsupported unmetered entry after opcode {opcode:04X}; no actual JSR/BSR return frame"
+            )));
+        }
+    }
+    run.close_quiescent_callees(emulator, clock)?;
     Ok(())
 }
 
@@ -515,6 +752,7 @@ pub(crate) fn run_wait_with_audio(
     }
     let mut run = ClockRun {
         exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
+        nested_ceilings: std::mem::take(&mut clock.callee_scratch.0),
         ..ClockRun::default()
     };
     let mut audio = HeadlessAudio { samples };
@@ -589,7 +827,10 @@ pub(crate) fn run_wait_with_audio(
     emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
     run.audio = audio.samples;
     run.finish_reference_counting(emulator);
+    let nested_cleanup = run.finish_nested_ceilings(clock, result.is_ok());
+    clock.callee_scratch.0 = std::mem::take(&mut run.nested_ceilings);
     result?;
+    nested_cleanup?;
     Ok(run)
 }
 
@@ -663,6 +904,7 @@ pub(crate) fn run_original_timed_until_with_audio(
     let mut run = ClockRun {
         exception_base: emulator.hybrid_cpu().hybrid_exception_depth(),
         entry_boundary: Some(boundary),
+        nested_ceilings: std::mem::take(&mut clock.callee_scratch.0),
         ..ClockRun::default()
     };
     let mut audio = HeadlessAudio { samples };
@@ -716,9 +958,15 @@ pub(crate) fn run_original_timed_until_with_audio(
     emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
     run.audio = audio.samples;
     run.finish_reference_counting(emulator);
+    let nested_cleanup = run.finish_nested_ceilings(clock, result.is_ok());
+    clock.callee_scratch.0 = std::mem::take(&mut run.nested_ceilings);
     result?;
+    nested_cleanup?;
     Ok(run)
 }
+
+#[cfg(test)]
+mod callee_tests;
 
 #[cfg(test)]
 mod tests {
@@ -727,6 +975,87 @@ mod tests {
     use genesis_config::GenesisEmulatorConfig;
     use genesis_core::GenesisBus;
     use jgenesis_common::frontend::{PartialClone, TimingMode};
+
+    #[test]
+    fn operational_callee_index_keeps_only_capped_exact_entries_and_rejects_missing_policy() {
+        use tje_game::execution::{CallCeiling, ExecutionClass, ExecutionContract, ProofEnvelope};
+        let plain = ExecutionContract {
+            function: tje_game::ids::GET_RANDOM_NUMBER,
+            class: ExecutionClass::Atomic,
+            proof_envelope: ProofEnvelope::ClassDefined,
+            operational_ceiling: None,
+            evidence: None,
+        };
+        let measured = ExecutionContract {
+            function: tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+            operational_ceiling: Some(CallCeiling::DEFAULT),
+            evidence: Some("authored synthetic operational ceiling"),
+            ..plain
+        };
+        let entries = [
+            (0x300, measured.function, Some(&measured)),
+            (0x100, plain.function, Some(&plain)),
+        ];
+        let index = OperationalCalleeIndex::from_entries(entries.into_iter()).unwrap();
+        assert_eq!(index.entries.len(), 1);
+        assert_eq!(index.at(0x100).unwrap(), None);
+        assert_eq!(index.at(0x302).unwrap(), None);
+        assert_eq!(
+            index.at(0x300).unwrap(),
+            Some((measured.function, CallCeiling::DEFAULT))
+        );
+        let missing = [(0x100, plain.function, None)];
+        assert_eq!(
+            OperationalCalleeIndex::from_entries(missing.into_iter()).unwrap_err(),
+            plain.function
+        );
+    }
+
+    #[test]
+    fn uncapped_alias_cannot_hide_an_ambiguous_operational_entry() {
+        use tje_game::execution::{CallCeiling, ExecutionClass, ExecutionContract, ProofEnvelope};
+        let measured = ExecutionContract {
+            function: tje_game::ids::GET_RANDOM_NUMBER,
+            class: ExecutionClass::Atomic,
+            proof_envelope: ProofEnvelope::ClassDefined,
+            operational_ceiling: Some(CallCeiling::DEFAULT),
+            evidence: Some("authored synthetic operational ceiling"),
+        };
+        let plain = ExecutionContract {
+            function: tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+            operational_ceiling: None,
+            evidence: None,
+            ..measured
+        };
+        let entries = [
+            (0x100, measured.function, Some(&measured)),
+            (0x100, plain.function, Some(&plain)),
+        ];
+        let index = OperationalCalleeIndex::from_entries(entries.into_iter()).unwrap();
+        assert!(
+            index
+                .at(0x100)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate")
+        );
+    }
+
+    #[test]
+    fn both_revision_callee_indexes_resolve_the_literal_cached_owner_ceilings() {
+        for revision in [tje_rom::Revision::Rev02, tje_rom::Revision::Rev00] {
+            for function in tje_game::functions() {
+                if let Some(ceiling) = tje_game::execution_contract(function.id)
+                    .and_then(|contract| contract.operational_ceiling)
+                {
+                    assert_eq!(
+                        operational_callee_at(revision, function.address(revision)).unwrap(),
+                        Some((function.id, ceiling))
+                    );
+                }
+            }
+        }
+    }
 
     fn write(bus: &mut GenesisBus, address: u32, value: u16) {
         bus.write_word(address, value);
@@ -1271,6 +1600,13 @@ mod tests {
     fn pending_vblank_and_hblank_with_handler(
         vblank_handler: &[u16],
     ) -> (GenesisEmulator, WaitClock) {
+        pending_vblank_and_hblank_checkpoint(vblank_handler, false)
+    }
+
+    fn pending_vblank_and_hblank_checkpoint(
+        vblank_handler: &[u16],
+        before_vblank: bool,
+    ) -> (GenesisEmulator, WaitClock) {
         // Authored vectors/handlers: VBlank increments FF8000, HBlank FF8002.
         // Main's ADDQ D7 must never execute while native continuation is parked.
         let mut rom = vec![0; 2048];
@@ -1284,6 +1620,7 @@ mod tests {
             (0x400, vblank_handler),
             (0x500, &[0x5279, 0x00ff, 0x8002, 0x4e73]),
             (0x380, &[0x60fe, 0x4e71]),
+            (0x340, &[0x4e75, 0x4e71]),
             (0x3c0, &[0x5287, 0x60fc]),
         ] {
             for (index, word) in words.iter().enumerate() {
@@ -1299,7 +1636,7 @@ mod tests {
         emulator.hybrid_parts().0.set_status_register(0x2700);
         let (cpu, bus) = emulator.hybrid_parts();
         cpu.set_pc(0x380, bus);
-        write(bus, 0xc00004, 0x8010);
+        write(bus, 0xc00004, if before_vblank { 0x8000 } else { 0x8010 });
         write(bus, 0xc00004, 0x8120);
         write(bus, 0xc00004, 0x8a00);
         let mut clock = WaitClock {
@@ -1308,15 +1645,41 @@ mod tests {
         };
         let mut run = ClockRun::default();
         let mut audio = HeadlessAudio::default();
+        let mut previous = None;
         for _ in 0..100_000 {
+            // Select an actually observed pre-IRQ checkpoint; no IRQ, readiness
+            // value or measured-call state is manufactured or repaired.
+            if before_vblank
+                && emulator.hybrid_bus().vdp.scanline() == 223
+                && emulator.hybrid_bus().cycles.m68k_wait_cpu_cycles == 0
+            {
+                previous = Some((emulator.partial_clone(), clock.clone()));
+            }
             if emulator.hybrid_bus().interrupt_level() == 6
                 && emulator.hybrid_bus().cycles.m68k_wait_cpu_cycles == 0
             {
                 break;
             }
             timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+            if before_vblank
+                && emulator.hybrid_bus().interrupt_level() == 6
+                && let Some((mut checkpoint, previous_clock)) = previous.take()
+            {
+                checkpoint
+                    .hybrid_bus_mut()
+                    .cartridge
+                    .as_mut()
+                    .unwrap()
+                    .take_rom_from(emulator.hybrid_bus_mut().cartridge.as_mut().unwrap());
+                emulator = checkpoint;
+                clock = previous_clock;
+                break;
+            }
         }
-        assert_eq!(emulator.hybrid_bus().interrupt_level(), 6);
+        assert_eq!(
+            emulator.hybrid_bus().interrupt_level(),
+            if before_vblank { 0 } else { 6 }
+        );
         let (cpu, bus) = emulator.hybrid_parts();
         cpu.set_pc(0x100, bus);
         (emulator, clock)
@@ -1438,6 +1801,118 @@ mod tests {
             (pc, sp)
         );
         assert_eq!(emulator.hybrid_cpu().status_register() & 0xff00, 0x2000);
+    }
+
+    fn actual_rts_scope_fixture(
+        handler: &[u16],
+        child_ticks: u64,
+        unmask: bool,
+    ) -> (GenesisEmulator, WaitClock, ClockRun, CallCeilingScope) {
+        let (mut emulator, mut clock) = pending_vblank_and_hblank_checkpoint(handler, true);
+        let sp = emulator.hybrid_cpu().stack_pointer();
+        {
+            let (cpu, bus) = emulator.hybrid_parts();
+            bus.memory.write_main_ram::<true>(sp - 4, 0);
+            bus.memory.write_main_ram::<true>(sp - 2, 0x100);
+            set_sp(cpu, sp - 4);
+            cpu.set_status_register(if unmask { 0x2000 } else { 0x2700 });
+            cpu.set_pc(0x340, bus);
+        }
+        let parent = clock
+            .enter_call_ceiling(
+                tje_game::ids::PLAY_ENDING_SEQUENCE,
+                tje_game::execution::CallCeiling::new(10_000, 100).unwrap(),
+            )
+            .unwrap();
+        let child = clock
+            .enter_call_ceiling(
+                tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+                tje_game::execution::CallCeiling::new(child_ticks, 100).unwrap(),
+            )
+            .unwrap();
+        let mut run = ClockRun::default();
+        run.nested_ceilings.push(OriginalCallCeiling {
+            scope: child,
+            return_pc: 0x100,
+            return_sp: sp,
+            exception_depth: 0,
+            returned: false,
+        });
+        run.begin_reference_counting(&mut emulator, true).unwrap();
+        (emulator, clock, run, parent)
+    }
+
+    #[test]
+    fn original_child_rts_keeps_pending_irq_tail_inside_its_smaller_limit() {
+        let mut handler = vec![0x4e71; 256];
+        handler.push(0x4e73);
+        let (mut emulator, mut clock, mut run, parent) =
+            actual_rts_scope_fixture(&handler, 100, true);
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let mut audio = HeadlessAudio::default();
+        timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+        assert!(run.nested_ceilings.last().unwrap().returned);
+        assert_eq!(emulator.hybrid_bus().interrupt_level(), 6);
+        let error = loop {
+            match timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None) {
+                Ok(()) => assert!(!run.nested_ceilings.is_empty()),
+                Err(error) => break error,
+            }
+        };
+        assert!(
+            matches!(
+                error,
+                HostError::Clock(tje_game::execution::CallClockError::CeilingExceeded {
+                    function: tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+                    resource: tje_game::execution::ClockResource::Ticks,
+                    ..
+                })
+            ),
+            "{error}"
+        );
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        assert!(emulator.hybrid_cpu().hybrid_exception_depth() > 0);
+        run.finish_reference_counting(&mut emulator);
+        assert!(run.finish_nested_ceilings(&mut clock, false).is_err());
+        assert!(clock.leave_call_ceiling(parent).is_err());
+    }
+
+    #[test]
+    fn original_child_return_rejects_escaped_isr_without_caller_step() {
+        let (mut emulator, mut clock, mut run, parent) =
+            actual_rts_scope_fixture(&[0x2f7c, 0x0000, 0x03c0, 0x0002, 0x4e73], 1_000, true);
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let mut audio = HeadlessAudio::default();
+        let error = loop {
+            if let Err(error) = timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None) {
+                break error;
+            }
+            assert!(!run.nested_ceilings.is_empty());
+        };
+        assert!(
+            error.to_string().contains("escaped an operational callee"),
+            "{error}"
+        );
+        assert_eq!(emulator.hybrid_cpu().pc(), 0x3c0);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        run.finish_reference_counting(&mut emulator);
+        run.finish_nested_ceilings(&mut clock, false).unwrap();
+        clock.leave_call_ceiling(parent).unwrap();
+    }
+
+    #[test]
+    fn masked_normal_rts_closes_child_before_first_caller_opcode() {
+        let (mut emulator, mut clock, mut run, parent) =
+            actual_rts_scope_fixture(&[0x4e73], 100, false);
+        let before_d7 = emulator.hybrid_cpu().data_registers()[7];
+        let mut audio = HeadlessAudio::default();
+        while !run.nested_ceilings.is_empty() {
+            timed_tick(&mut emulator, &mut clock, &mut run, &mut audio, None).unwrap();
+        }
+        assert_eq!(emulator.hybrid_cpu().pc(), 0x100);
+        assert_eq!(emulator.hybrid_cpu().data_registers()[7], before_d7);
+        run.finish_reference_counting(&mut emulator);
+        clock.leave_call_ceiling(parent).unwrap();
     }
 
     #[test]

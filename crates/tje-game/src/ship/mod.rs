@@ -128,63 +128,114 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// Reviewed original non-Atomic classes, independent of translation readiness.
 /// Together with ATOMIC_CAPABLE these classify all fifteen ship originals in
 /// both revisions; the matching sources have only relocated-address changes.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // G/src/ship/ship_screen_and_collection.c:61-105: both branches call
     // WaitForNextVBlank; the upload branch also performs stable-buffer DMA.
-    (
-        ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :108-128: stable ROM tiles/palettes and completed sprite-shadow DMA;
     // DrawHUD is Functional. No status/raster read or IRQ-dependent observer.
-    (ids::RESTORE_GAMEPLAY_GRAPHICS, ExecutionClass::Functional),
+    crate::execution::ExecutionContract {
+        function: ids::RESTORE_GAMEPLAY_GRAPHICS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :131-170: every branch explicitly waits for VBlank before font/upload.
-    (
-        ids::ANIMATE_TRANSITION_BACKGROUND,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_TRANSITION_BACKGROUND,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :173-256: VBlank waits, IRQ-updated frame/cooldown observations, and
     // PlayEndingSequence/MapEnterFinalLevel's time-progressing scene work.
-    (
-        ids::PLAY_SHIP_COMPLETION_SEQUENCE,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAY_SHIP_COMPLETION_SEQUENCE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :259-305: finite stable tile/palette writes, then the time-aware
     // AnimateShipScreenBackground(1). The page==4 bug is unreachable as written.
-    (
-        ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :308-333: ninety calls of the VBlank-waiting background animator.
     // The out-of-range uninitialized piece_name is a separate frame obligation.
-    (ids::SHOW_SHIP_PIECE_NAME, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::SHOW_SHIP_PIECE_NAME,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :336-376: bounded RAM scan and stable ROM strings/decimal output through
     // Functional text writers; no status/raster read, wait, or unstable source.
-    (
-        ids::SHOW_MISSING_SHIP_PIECE_SUMMARY,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::SHOW_MISSING_SHIP_PIECE_SUMMARY,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :380-416: background animation and explicit VBlank waits between fades.
     // Passing palette[16] requires an emulated call frame, not a narrower class.
-    (ids::ANIMATE_SHIP_SCREEN_PALETTE, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::ANIMATE_SHIP_SCREEN_PALETTE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :424-451: IRQ-updated frame timeout plus action press/release polling;
     // both the main loop and release loops call the VBlank-waiting animator.
-    (
-        ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :468-560: background/name/palette/acknowledgement waits and optional
     // completion sequence. Its stack-local DMA sprite array needs a call frame.
-    (ids::SHOW_SHIP_PIECES, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::SHOW_SHIP_PIECES,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :584-610: ShowShipPieces and speech/dialogue can wait for original IRQs.
     // Its omitted StartDialogue speaker remains a residual call-frame bug.
-    (ids::SHIP_PIECE_ABILITY, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::SHIP_PIECE_ABILITY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // :652-661: calls time-aware ShowShipPieces. Preserve the original endless
     // search when all ten assignments are zero; no synthetic completion exit.
-    (
-        ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::SHOW_RANDOM_UNCOLLECTED_SHIP_PIECE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// G/src/ship/ship_screen_and_collection.c:41 (`FillSpriteOpaquePixels`).

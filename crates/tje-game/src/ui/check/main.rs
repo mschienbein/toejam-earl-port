@@ -42,8 +42,8 @@ fn run_session(
         } else {
             ui::EXECUTION_CONTRACTS
                 .iter()
-                .find(|(id, _)| *id == translation.id)
-                .map(|(_, class)| *class)
+                .find(|contract| contract.function == translation.id)
+                .map(|contract| contract.class)
                 .ok_or("pending UI entry has no reviewed class")?
         };
         registry.register_translation_with_execution(translation, class)?;

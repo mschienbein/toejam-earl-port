@@ -450,7 +450,7 @@ pub struct Subsystem {
     pub translations: &'static [Translation],
     pub framed_translations: &'static [FramedTranslation],
     pub atomic_capable: &'static [FunctionId],
-    pub execution_contracts: &'static [(FunctionId, execution::ExecutionClass)],
+    pub execution_contracts: &'static [execution::ExecutionContract],
 }
 
 pub fn subsystem(name: &str) -> Option<&'static Subsystem> {
@@ -462,46 +462,64 @@ pub fn is_atomic_capable(id: FunctionId) -> bool {
 }
 
 #[derive(Clone, Copy)]
-enum ClassDeclaration {
+enum ContractDeclaration {
     Missing,
-    Declared(execution::ExecutionClass),
+    Declared(execution::ExecutionContract),
     Conflict,
 }
 
-static EXECUTION_CLASSES: std::sync::LazyLock<[ClassDeclaration; 648]> =
-    std::sync::LazyLock::new(|| {
-        let mut classes = [ClassDeclaration::Missing; 648];
-        for owner in SUBSYSTEMS {
-            for (id, class, valid) in
-                owner
-                    .atomic_capable
-                    .iter()
-                    .map(|id| (*id, execution::ExecutionClass::Atomic, true))
-                    .chain(owner.execution_contracts.iter().map(|(id, class)| {
-                        (*id, *class, *class != execution::ExecutionClass::Atomic)
-                    }))
+fn index_execution_contracts(owners: &[Subsystem]) -> [ContractDeclaration; 648] {
+    use execution::{ExecutionClass, ExecutionContract, ProofEnvelope};
+    let mut contracts = [ContractDeclaration::Missing; 648];
+    for owner in owners {
+        let atomic = owner.atomic_capable.iter().map(|&function| {
+            (
+                ExecutionContract {
+                    function,
+                    class: ExecutionClass::Atomic,
+                    proof_envelope: ProofEnvelope::ClassDefined,
+                    operational_ceiling: None,
+                    evidence: None,
+                },
+                true,
+            )
+        });
+        let extended = owner.execution_contracts.iter().copied().map(|contract| {
+            let placement = contract.class != ExecutionClass::Atomic
+                || contract.operational_ceiling.is_some()
+                || contract.proof_envelope != ProofEnvelope::ClassDefined;
+            (contract, placement)
+        });
+        for (contract, placement) in atomic.chain(extended) {
+            let slot = &mut contracts[usize::from(contract.function.0)];
+            *slot = if placement
+                && contract.is_valid()
+                && contract.function.metadata().subsystem == owner.name
+                && matches!(*slot, ContractDeclaration::Missing)
             {
-                let slot = &mut classes[usize::from(id.0)];
-                *slot = if valid
-                    && id.metadata().subsystem == owner.name
-                    && matches!(*slot, ClassDeclaration::Missing)
-                {
-                    ClassDeclaration::Declared(class)
-                } else {
-                    ClassDeclaration::Conflict
-                };
-            }
+                ContractDeclaration::Declared(contract)
+            } else {
+                ContractDeclaration::Conflict
+            };
         }
-        classes
-    });
+    }
+    contracts
+}
 
-/// Owner declarations are indexed once without allocation. Conflicting,
-/// duplicate, cross-owner and misfiled Atomic declarations fail closed.
-pub fn execution_class(id: FunctionId) -> Option<execution::ExecutionClass> {
-    match EXECUTION_CLASSES[usize::from(id.0)] {
-        ClassDeclaration::Declared(class) => Some(class),
+static EXECUTION_CONTRACT_INDEX: std::sync::LazyLock<[ContractDeclaration; 648]> =
+    std::sync::LazyLock::new(|| index_execution_contracts(SUBSYSTEMS));
+
+/// One owner declaration per original id. Missing, duplicate, cross-owner,
+/// malformed and misplaced Atomic declarations fail closed.
+pub fn execution_contract(id: FunctionId) -> Option<&'static execution::ExecutionContract> {
+    match EXECUTION_CONTRACT_INDEX.get(usize::from(id.0))? {
+        ContractDeclaration::Declared(contract) => Some(contract),
         _ => None,
     }
+}
+
+pub fn execution_class(id: FunctionId) -> Option<execution::ExecutionClass> {
+    execution_contract(id).map(|contract| contract.class)
 }
 
 pub fn translations() -> impl Iterator<Item = &'static Translation> + Clone {
@@ -910,11 +928,17 @@ mod tests {
                     Some(execution::ExecutionClass::Atomic)
                 );
             }
-            for (id, class) in owner.execution_contracts {
+            for contract in owner.execution_contracts {
+                let id = contract.function;
                 assert_eq!(id.metadata().subsystem, owner.name);
-                assert_ne!(*class, execution::ExecutionClass::Atomic);
-                assert!(classified.insert(*id));
-                assert_eq!(execution_class(*id), Some(*class));
+                assert!(contract.is_valid());
+                assert!(
+                    contract.class != execution::ExecutionClass::Atomic
+                        || contract.operational_ceiling.is_some()
+                        || contract.proof_envelope != execution::ProofEnvelope::ClassDefined
+                );
+                assert!(classified.insert(id));
+                assert_eq!(execution_contract(id), Some(contract));
             }
             for id in owner
                 .translations
@@ -933,9 +957,85 @@ mod tests {
         }
         for function in functions() {
             assert!(subsystem(function.subsystem).is_some());
+            assert!(
+                classified.contains(&function.id),
+                "missing class: {}",
+                function.name
+            );
+            assert!(
+                execution_contract(function.id).is_some(),
+                "invalid class: {}",
+                function.name
+            );
         }
         assert!(!is_atomic_capable(ids::SETUP_YM2612));
         let waiting = ids::WAIT_FOR_NEXT_V_BLANK;
         assert!(!is_atomic_capable(waiting));
+    }
+
+    #[test]
+    fn contract_index_rejects_duplicate_and_missing_declarations() {
+        static ONE: &[FunctionId] = &[ids::ABS];
+        static DUPLICATE: &[FunctionId] = &[ids::ABS, ids::ABS];
+        let owner = |atomic_capable| Subsystem {
+            name: "runtime",
+            translations: &[],
+            framed_translations: &[],
+            atomic_capable,
+            execution_contracts: &[],
+        };
+        let single = index_execution_contracts(&[owner(ONE)]);
+        assert!(matches!(
+            single[usize::from(ids::ABS.0)],
+            ContractDeclaration::Declared(_)
+        ));
+        assert!(matches!(
+            single[usize::from(ids::GET_RANDOM_NUMBER.0)],
+            ContractDeclaration::Missing
+        ));
+        let duplicate = index_execution_contracts(&[owner(DUPLICATE)]);
+        assert!(matches!(
+            duplicate[usize::from(ids::ABS.0)],
+            ContractDeclaration::Conflict
+        ));
+    }
+
+    #[test]
+    fn measured_compute_contracts_remain_atomic_and_pending_without_implicit_bounds() {
+        for (id, instructions, ticks, frames) in [
+            (ids::MAP_ASSIGN_TRANSITION_CHAIN, 5_000_000, 5_000_000, 300),
+            (
+                ids::EARTHLING_RETAIN_LEVEL_BANK,
+                13_000_000,
+                14_000_000,
+                1_100,
+            ),
+            (
+                ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
+                4_000_000,
+                4_000_000,
+                300,
+            ),
+        ] {
+            let contract = execution_contract(id).unwrap();
+            assert_eq!(contract.class, execution::ExecutionClass::Atomic);
+            assert_eq!(
+                contract.proof_envelope,
+                execution::ProofEnvelope::ClockedCommutingInterrupts
+            );
+            let ceiling = contract.operational_ceiling.unwrap();
+            assert_eq!(ceiling.reference_instructions, Some(instructions));
+            assert_eq!(ceiling.ticks, ticks);
+            assert_eq!(ceiling.frames, frames);
+            assert!(
+                contract
+                    .evidence
+                    .unwrap()
+                    .contains("Operational ceiling, not a bound")
+            );
+            assert!(Dispatcher::hybrid().translation(id).is_none());
+            assert!(Dispatcher::hybrid().framed_translation(id).is_none());
+        }
+        assert!(!execution::ExecutionClass::Atomic.permits(execution::ExecutionClass::Functional));
     }
 }

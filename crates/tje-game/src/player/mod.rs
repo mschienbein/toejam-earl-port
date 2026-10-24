@@ -409,80 +409,182 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// `GenerateSpeech` can wait for an IRQ-cleared graphics upload
 /// (G/src/speech/speech_and_dialogue.c:135); those callers are TimeAware even
 /// when their ordinary entry state happens to bypass speech.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     // active_present_falling_and_respawn.c:71: bounded VRAM read/write stream,
     // stable sources, no raster/status reads; FIFO transaction completion needed.
-    (
-        ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER,
-        ExecutionClass::Functional,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:134: IRQ-cleared terrain flag and speech.
-    (ids::PLAYER_START_FALLING, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_START_FALLING,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:250,407: MakePlayerFall redraws through
     // UpdateScreenSplitMode, whose shared/split transitions can wait for VBlank.
-    (ids::CHECK_PLAYER_FALLING, ExecutionClass::TimeAware),
-    (ids::MAKE_PLAYER_FALL, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::CHECK_PLAYER_FALLING,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MAKE_PLAYER_FALL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:580: GenerateSpeech.
-    (
-        ids::PLAYER_UPDATE_TERRAIN_SINKING,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_UPDATE_TERRAIN_SINKING,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:636,750: PlayerStartFalling.
-    (
-        ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:811: explicit WaitForNextVBlank loop.
-    (ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:844: explicit paused VBlank wait,
     // plus PlayerAdvanceToNextLevel and screen transitions.
-    (
-        ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:923: HudLoadActionIconSprite waits for
     // the IRQ-cleared graphics upload (G/src/ui/hud.c:122-124).
-    (ids::KILL_THE_PLAYER, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::KILL_THE_PLAYER,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:956: screen redraw and game-over
     // input/VBlank loop; the reset branch does not normally return.
-    (
-        ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // active_present_falling_and_respawn.c:990,1052: falling/death/speech callees.
-    (
-        ids::PLAYER_UPDATE_DEATH_ANIMATION,
-        ExecutionClass::TimeAware,
-    ),
-    (ids::PROCESS_PLAYERS, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_UPDATE_DEATH_ANIMATION,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PROCESS_PLAYERS,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // jump_motion.c:21,117: PlayerStartFalling and GenerateSpeech.
-    (
-        ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // earthling_damage_reactions.c:40,177: GenerateSpeech.
-    (ids::PLAYER_YOUCH, ExecutionClass::TimeAware),
-    (ids::HULA_ABILITY, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_YOUCH,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::HULA_ABILITY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // earthling_damage_reactions.c:347: PlayerStartFalling and GenerateSpeech.
-    (
-        ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
-        ExecutionClass::TimeAware,
-    ),
+    crate::execution::ExecutionContract {
+        function: ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // earthling_damage_reactions.c:435,467: Player_Youch's speech path.
-    (ids::CHICKEN_ABILITY, ExecutionClass::TimeAware),
-    (ids::AI_BOOGIE_TOUCH, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::CHICKEN_ABILITY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AI_BOOGIE_TOUCH,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // ability_helpers.c:61: GenerateSpeech and general OpenSelectedPresent.
-    (ids::LEMONADE_ABILITY, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::LEMONADE_ABILITY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
     // hottub_ability.c:19: GenerateSpeech.
-    (ids::HOTTUB_ABILITY, ExecutionClass::TimeAware),
+    crate::execution::ExecutionContract {
+        function: ids::HOTTUB_ABILITY,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 /// G/src/player/entity_motion_terrain.c:303 (`StopPlayer`). Preserve the original
 /// interleaved velocity/acceleration store order, even on aliased addresses.

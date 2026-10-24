@@ -177,55 +177,112 @@ pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[
 /// - The six TimeAware entries documented above require the actual timed
 ///   mailbox protocol and original IRQ execution; the class permits original
 ///   fallback, not replacing their loops with a generic condition wait.
-pub static EXECUTION_CONTRACTS: &[(crate::FunctionId, ExecutionClass)] = &[
-    (ids::SETUP_YM2612, ExecutionClass::Functional),
-    (
-        ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
-        ExecutionClass::Functional,
-    ),
-    (ids::YM2612_UPDATE_FREQUENCY, ExecutionClass::Functional),
-    (ids::LOAD_SOUND_DRIVER_TO_Z80, ExecutionClass::Functional),
-    (
-        ids::AUDIO_RELEASE_ALL_FM_CHANNELS,
-        ExecutionClass::Functional,
-    ),
-    (
-        ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
-        ExecutionClass::Functional,
-    ),
-    (
-        ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
-        ExecutionClass::Functional,
-    ),
-    (
-        ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
-        ExecutionClass::Functional,
-    ),
-    (
-        ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
-        ExecutionClass::Functional,
-    ),
-    (
-        ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
-        ExecutionClass::TimeAware,
-    ),
-    (
-        ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
-        ExecutionClass::TimeAware,
-    ),
-    (ids::MUSIC_UPDATE_SEQUENCER, ExecutionClass::TimeAware),
+pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
+    crate::execution::ExecutionContract {
+        function: ids::SETUP_YM2612,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::YM2612_UPDATE_FREQUENCY,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::LOAD_SOUND_DRIVER_TO_Z80,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_RELEASE_ALL_FM_CHANNELS,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_LOAD_PENDING_CHANNEL_TEMPLATE_EFFECT,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
+        class: ExecutionClass::Functional,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
+    crate::execution::ExecutionContract {
+        function: ids::MUSIC_UPDATE_SEQUENCER,
+        class: ExecutionClass::TimeAware,
+        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        operational_ceiling: None,
+        evidence: None,
+    },
 ];
 
 /// G/src/asm/sound_init.s:12 (`MusicRestoreInitialState`, REV 02 0x03e3f4).
