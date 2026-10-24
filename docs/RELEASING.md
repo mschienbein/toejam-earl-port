@@ -61,6 +61,10 @@ Each native artifact filename begins `toejam-earl-<version>-`. Each Actions down
 also contains `SHA256SUMS.txt` covering its final archive(s) and, for Linux, the
 AppImage. Checksums detect corruption; they are not a developer signature.
 
+All packages also include [REVISIONS.md](REVISIONS.md), documenting the eight
+retail behavior differences retained when the user supplies REV 00 rather than
+REV 02, and the [native controls guide](../crates/tje-native/README.md).
+
 Linux needs `libasound.so.2`, `libudev.so.1`, an X11 or Wayland desktop with
 xkbcommon and a working Vulkan or OpenGL driver. AppImage does not make an old
 system's libc compatible with a newer build. Use the tarball if FUSE is absent,
@@ -215,7 +219,7 @@ python3 -m unittest discover -s tools -p 'test_release.py' -v
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native
+cargo build --locked --workspace --target wasm32-unknown-unknown --exclude tje-native --exclude tje-engine-cranelift --exclude tje-native-proof
 python3 tools/audit_public.py
 ```
 

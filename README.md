@@ -5,9 +5,10 @@ Windows, macOS, Linux and the browser (WebAssembly). It is built from the
 [ToeJam & Earl matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), which
 rebuilds both retail ROMs byte for byte from readable C and assembly.
 
-**Status: work in progress, not a finished 68000-free release.** The native and web
-frontends currently run the hybrid host. The plan is in [docs/PLAN.md](docs/PLAN.md)
-and progress in [docs/STATUS.md](docs/STATUS.md).
+**Status: work in progress, not a finished release.** Both shipped frontends run the
+cycle-exact engine compiled at first launch from your own cartridge: native code on
+desktop and generated WebAssembly in the browser. No 68000 interpreter ships.
+The plan is in [docs/PLAN.md](docs/PLAN.md) and progress in [docs/STATUS.md](docs/STATUS.md).
 See also the [function catalogue](docs/FUNCTIONS.md) and [revision differences](docs/REVISIONS.md).
 
 You need your own copy of the game (REV 02 "Rev A" or REV 00). Nothing from the game is in this

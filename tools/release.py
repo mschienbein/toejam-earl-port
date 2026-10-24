@@ -295,7 +295,7 @@ def make_icons(destination: Path) -> None:
 def copy_public_notes(destination: Path, rom_hashes: set[str]) -> None:
     for source in ("README.md", "LICENSE", "docs/RELEASING.md", "docs/PLAN.md",
                    "docs/STATUS.md", "docs/SESSIONS.md", "docs/TOOLCHAIN.md",
-                   "crates/tje-native/README.md", "vendor/jgenesis/NOTICE.md"):
+                   "docs/REVISIONS.md", "crates/tje-native/README.md", "vendor/jgenesis/NOTICE.md"):
         target = destination / source
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(read_input(ROOT / source, rom_hashes, ROOT))
