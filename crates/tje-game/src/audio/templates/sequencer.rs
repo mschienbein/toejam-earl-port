@@ -416,14 +416,18 @@ pub fn music_update_sequencer(context: &mut dyn Context, _: &[u32]) -> Result<Op
     let old_status = status.read(context);
     nz(context, old_status as u16 as u32, 16);
     if old_status != 0 {
-        let value = subtract_word(context, old_status as u16, 1);
+        // TST.W and the memory SUBQ.W are separate reads (sound.s:789-791).
+        let operand = status.read(context) as u16;
+        let value = subtract_word(context, operand, 1);
         status.write(context, value as i16);
     }
     let cooldown = ram::g_pcm_effect_cooldown_ticks(revision);
     let old_cooldown = cooldown.read(context);
     nz(context, old_cooldown as u16 as u32, 16);
     if old_cooldown != 0 {
-        let value = subtract_word(context, old_cooldown as u16, 1);
+        // The speech timer has the same distinct test/read-modify-write pair.
+        let operand = cooldown.read(context) as u16;
+        let value = subtract_word(context, operand, 1);
         cooldown.write(context, value as i16);
         let blocks = ram::g_pcm_blocks_sequencer(revision);
         let blocking = blocks.read(context);
@@ -482,3 +486,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sequencer/access_tests.rs"]
+mod access_tests;
