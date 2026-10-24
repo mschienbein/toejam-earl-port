@@ -9,13 +9,13 @@
     "runs"
   ],
   "renaming_policy": "The actual receipt session path is preserved. Matching canonical controller digests prove that renamed public recordings contain exactly the compared revision, power-on start and controller history; descriptions/tool metadata are not controller inputs.",
-  "new_session_count": 28,
-  "new_frames": 1531542,
+  "new_session_count": 29,
+  "new_frames": 1616616,
   "inherited_session_count": 50,
   "inherited_frames": 1493422,
   "corpus_entries_hit": {
     "rev00": 638,
-    "rev02": 636
+    "rev02": 638
   },
   "corpus_union_entries_hit": 638,
   "inventory_entries": 648,
@@ -464,6 +464,22 @@
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 64158,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev02-content-allocation-pressure.tje.json",
+      "revision": "rev02",
+      "frames": 85074,
+      "file_sha256": "66b4c01576387d91855d9794e5fc4327ee032121923447583d3a65df6dc37d5f",
+      "canonical_controller_sha256": "bad63b3fdf597eed7a3a89a8787ba079a57904953049483c0f0919ac33e389d6",
+      "compared_input_canonical_controller_sha256": "bad63b3fdf597eed7a3a89a8787ba079a57904953049483c0f0919ac33e389d6",
+      "reference_reference": {
+        "session": "../pressure02-endgame-herd.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 85074,
         "skipped_lag_ticks": [],
         "divergence": null
       }

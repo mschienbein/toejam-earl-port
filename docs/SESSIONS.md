@@ -544,13 +544,13 @@ inventing a downward elevator mode absent from the original.
 
 ## Latest content and rank checkpoint
 
-This measured **78-recording / 3,024,964-video-frame** content checkpoint
+This measured **79-recording / 3,110,038-video-frame** content checkpoint
 supersedes the historical 29-session coverage summary above. It combines
-50 inherited recordings (1,493,422 frames) with 28 new input-only recordings
-(1,531,542 frames); private bot experiments are not included.
+50 inherited recordings (1,493,422 frames) with 29 new input-only recordings
+(1,616,616 frames); private bot experiments are not included.
 
-The 28 new recordings have independent power-on **reference/reference** comparisons
-at every video frame: **1,531,542 compared frames**, no skipped lag ticks, and
+The 29 new recordings have independent power-on **reference/reference** comparisons
+at every video frame: **1,616,616 compared frames**, no skipped lag ticks, and
 `divergence: null` in every receipt. The
 [public proof index](../sessions/content-reference-proofs.json) preserves each
 actual compared session path and its receipt. Matching canonical controller
@@ -561,7 +561,7 @@ controller inputs.
 | Reference entry coverage | Observed | Still zero |
 | --- | ---: | ---: |
 | REV 00 | 638 / 648 | 10 |
-| REV 02 | 636 / 648 | 12 |
+| REV 02 | 638 / 648 | 10 |
 | Both revisions combined | 638 / 648 | 10 |
 
 In each revision the aggregate replay checklist now observes all **28 present
@@ -573,7 +573,7 @@ witnesses are not a single-game natural campaign.
 The four `rev00-content-final-display`, `rev02-content-final-display`,
 `rev00-content-final-two` and `rev02-content-final-two` continuations retain their
 explicitly disclosed original pause-secret ending prefixes. They are input-only,
-but are **not natural ten-piece evidence**. The other twenty-four new content/rank
+but are **not natural ten-piece evidence**. The other twenty-five new content/rank
 recordings use normal play.
 
 `rev00-content-full-inventory.tje.json` adds a real full-inventory ground-pickup
@@ -597,6 +597,22 @@ the priority-release helper and its shared-tomato check. These are actual
 executable entries, not injected allocation fixtures; the check's entry does
 not claim that a shared tomato was successfully released. Both complete
 frame comparisons have `divergence: null`.
+
+The REV 02 counterpart `rev02-content-allocation-pressure.tje.json` (85,074
+frames) now closes the remaining revision-specific graphics entries: two
+original priority-release calls and one shared-tomato check. A separate
+live-original call observer confirms that all three calls fully returned,
+with no faulted entry opcodes or unfinished calls. Its complete independent
+frame comparison also has `divergence: null`. The matched per-revision
+decomp listings are identical except for the verified `FreeEntity` absolute
+relocation; code identity is not substituted for either recording's execution.
+
+Both revisions now witness every ordinary gameplay/graphics catalogue entry.
+The ten global zeroes remain eight source-backed static/exceptional entries
+and two explicitly unresolved audio retry fragments, not a reduced denominator.
+This complete public-input union is the immutable measured 74-recording baseline
+plus the five data-only follow-ons; retained baseline coverage is not described
+as a new 79-recording replay.
 
 These are observed reference executable-entry/content counts, not a claim that
 the remaining entries are unreachable. Reference/reference determinism is a
