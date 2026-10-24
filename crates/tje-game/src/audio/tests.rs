@@ -241,6 +241,14 @@ fn play_sound_preserves_signed_priority_short_circuits_and_store_order() {
                         context.memory.write_i16(status, psg);
                         context.memory.write_i16(active, old);
                         context.accesses.borrow_mut().clear();
+                        let data_before = context.data;
+                        let addresses_before = context.addresses;
+                        context.status = 0xa700
+                            | ((ticks as u16)
+                                .wrapping_add(psg as u16)
+                                .wrapping_add(priority as u16)
+                                & 0x1f);
+                        let status_before = context.status;
                         let mut expected_ram = context.memory.clone();
                         let mut expected = vec![Access::Read(cooldown), Access::Read(cooldown + 1)];
                         if ticks == 0 {
@@ -263,6 +271,24 @@ fn play_sound_preserves_signed_priority_short_circuits_and_store_order() {
                         assert_eq!(play_sound(&mut context, &arguments).unwrap(), None);
                         assert_eq!(*context.accesses.borrow(), expected);
                         assert_eq!(context.memory.ram(), expected_ram.ram());
+                        assert_eq!(
+                            context.data[0],
+                            (data_before[0] & 0xffff_0000) | u32::from(priority as u16)
+                        );
+                        assert_eq!(context.data[1..], data_before[1..]);
+                        assert_eq!(context.addresses, addresses_before);
+                        let admitted = (ticks == 0 && psg == 0) || priority >= old;
+                        let result = priority.wrapping_sub(old);
+                        let flags = if admitted {
+                            (u16::from(priority < 0) << 3) | (u16::from(priority == 0) << 2)
+                        } else {
+                            let widened = i32::from(priority) - i32::from(old);
+                            (u16::from(result < 0) << 3)
+                                | (u16::from(result == 0) << 2)
+                                | (u16::from(i16::try_from(widened).is_err()) << 1)
+                                | u16::from((priority as u16) < old as u16)
+                        };
+                        assert_eq!(context.status, (status_before & !0x0f) | flags);
                     }
                 }
             }

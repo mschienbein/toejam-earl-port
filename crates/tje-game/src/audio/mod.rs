@@ -370,18 +370,31 @@ pub fn audio_request_channel_template_effect(
 
 /// G/src/audio/play_sound.c:13 (`PlaySound`, REV 02 0x03f770).
 /// Retain signed-short priority admission, short-circuit reads, and the pending
-/// request store before the priority store. The discarded sizeof has no effect.
+/// request store before the priority store. The emitted MOVE.W leaves priority
+/// in D0.low without changing its upper word; callers can observe the final
+/// MOVE.W or rejected CMP.W condition codes (G/build/rev02/asm/c_play_sound.s:4-16,
+/// identical in REV 00). Every other register and the entry X flag are preserved.
 pub fn play_sound(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let sound_number = arguments[0] as i16;
     let priority = arguments[1] as i16;
-    if (ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
-        && ram::g_psg_effect_status(revision).read(context) == 0)
-        || priority >= ram::g_sound_effect_priority(revision).read(context)
+    context.set_data_register(
+        0,
+        (context.data_register(0) & 0xffff_0000) | u32::from(priority as u16),
+    );
+    if ram::g_pcm_effect_cooldown_ticks(revision).read(context) != 0
+        || ram::g_psg_effect_status(revision).read(context) != 0
     {
-        ram::g_pending_psg_effect(revision).write(context, sound_number);
-        ram::g_sound_effect_priority(revision).write(context, priority);
+        let old_priority = ram::g_sound_effect_priority(revision).read(context);
+        hardware::compare_word(context, priority as u16, old_priority as u16);
+        if priority < old_priority {
+            return Ok(None);
+        }
     }
+    ram::g_pending_psg_effect(revision).write(context, sound_number);
+    ram::g_sound_effect_priority(revision).write(context, priority);
+    let flags = (u16::from(priority < 0) << 3) | (u16::from(priority == 0) << 2);
+    context.set_status_register((context.status_register() & !0x0f) | flags);
     Ok(None)
 }
 

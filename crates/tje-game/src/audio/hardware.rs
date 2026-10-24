@@ -14,7 +14,7 @@ fn symbol(context: &dyn Context, name: &str) -> u32 {
         .address
 }
 
-fn compare_word(context: &mut dyn Context, left: u16, right: u16) {
+pub(super) fn compare_word(context: &mut dyn Context, left: u16, right: u16) {
     let difference = left.wrapping_sub(right);
     let flags = (u16::from(difference & 0x8000 != 0) << 3)
         | (u16::from(difference == 0) << 2)
