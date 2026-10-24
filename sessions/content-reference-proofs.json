@@ -9,12 +9,12 @@
     "runs"
   ],
   "renaming_policy": "The actual receipt session path is preserved. Matching canonical controller digests prove that renamed public recordings contain exactly the compared revision, power-on start and controller history; descriptions/tool metadata are not controller inputs.",
-  "new_session_count": 23,
-  "new_frames": 1283040,
+  "new_session_count": 24,
+  "new_frames": 1329575,
   "inherited_session_count": 50,
   "inherited_frames": 1493422,
   "corpus_entries_hit": {
-    "rev00": 634,
+    "rev00": 635,
     "rev02": 634
   },
   "corpus_union_entries_hit": 636,
@@ -28,7 +28,7 @@
       "canonical_controller_sha256": "2753d1cad4ed15b51a2cffa129e4ea242036b0d0d39a564eb3496f1b14641c64",
       "compared_input_canonical_controller_sha256": "2753d1cad4ed15b51a2cffa129e4ea242036b0d0d39a564eb3496f1b14641c64",
       "reference_reference": {
-        "session": "../land00-96.tje.json",
+        "session": "sessions/rev00-content-nerd-herd.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -44,7 +44,7 @@
       "canonical_controller_sha256": "7f0d52fd3ff446369af442d5b1033a2f0a9355b3c22fc060a67eff59551ee5b9",
       "compared_input_canonical_controller_sha256": "7f0d52fd3ff446369af442d5b1033a2f0a9355b3c22fc060a67eff59551ee5b9",
       "reference_reference": {
-        "session": "../land00-32.tje.json",
+        "session": "sessions/rev00-content-lawnmower.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -60,7 +60,7 @@
       "canonical_controller_sha256": "b6f57f389fde9feba08073bd2bd6bbcc292b1a84d69b214afe601304eb3feedf",
       "compared_input_canonical_controller_sha256": "b6f57f389fde9feba08073bd2bd6bbcc292b1a84d69b214afe601304eb3feedf",
       "reference_reference": {
-        "session": "../land00-384.tje.json",
+        "session": "sessions/rev00-content-bees-variant.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -76,7 +76,7 @@
       "canonical_controller_sha256": "4a29f3489bdf871a53327b813a05188cb7b1a822b62da8745f448b847ef202dd",
       "compared_input_canonical_controller_sha256": "4a29f3489bdf871a53327b813a05188cb7b1a822b62da8745f448b847ef202dd",
       "reference_reference": {
-        "session": "../land00-416.tje.json",
+        "session": "sessions/rev00-content-dentist-variant.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -92,7 +92,7 @@
       "canonical_controller_sha256": "49b6a41502222aac6ded177329bf35ee4490921f80e9d2572187c7dacf63bad4",
       "compared_input_canonical_controller_sha256": "49b6a41502222aac6ded177329bf35ee4490921f80e9d2572187c7dacf63bad4",
       "reference_reference": {
-        "session": "../land00-448.tje.json",
+        "session": "sessions/rev00-content-ice-cream.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -108,7 +108,7 @@
       "canonical_controller_sha256": "3f399550c980c8a2af49013e3309cef5a45d680e4cada1b4b0a4e77b9e4b866c",
       "compared_input_canonical_controller_sha256": "3f399550c980c8a2af49013e3309cef5a45d680e4cada1b4b0a4e77b9e4b866c",
       "reference_reference": {
-        "session": "../rev00-paid-singer.tje.json",
+        "session": "sessions/rev00-content-singer.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 29000,
@@ -140,7 +140,7 @@
       "canonical_controller_sha256": "7ed232271decbfe65963acb7c311bdd485a7ecd9d323451331dcbc62d315a554",
       "compared_input_canonical_controller_sha256": "7ed232271decbfe65963acb7c311bdd485a7ecd9d323451331dcbc62d315a554",
       "reference_reference": {
-        "session": "../rev02-rose-actions.tje.json",
+        "session": "sessions/rev02-content-rose-actions.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 10106,
@@ -236,7 +236,7 @@
       "canonical_controller_sha256": "13d8bfd0cdfd9d746279f7a0ff72db48184969333e8e9bbc49151129abd229f4",
       "compared_input_canonical_controller_sha256": "13d8bfd0cdfd9d746279f7a0ff72db48184969333e8e9bbc49151129abd229f4",
       "reference_reference": {
-        "session": "../rev02-split-menus.tje.json",
+        "session": "sessions/rev02-content-map-restoration.tje.json",
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 75304,
@@ -387,6 +387,24 @@
         "skipped_lag_ticks": [],
         "divergence": null
       }
+    },
+    {
+      "session": "sessions/rev00-content-full-inventory.tje.json",
+      "revision": "rev00",
+      "frames": 46535,
+      "file_sha256": "21d849f11412259fe99abb8a4cc934c530103bb1d5a5a804d8902e0fee05d1b8",
+      "canonical_controller_sha256": "14fea263cb5a8b90241e4e50be48fa935f01ff2fc8343d8399bd605820a031cd",
+      "compared_input_canonical_controller_sha256": "14fea263cb5a8b90241e4e50be48fa935f01ff2fc8343d8399bd605820a031cd",
+      "reference_reference": {
+        "session": "../rev00-stockpile-fixed-door.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 46535,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
     }
-  ]
+  ],
+  "comparison_source_base": "0311a1f",
+  "comparison_source_commit": "9f7a20f"
 }
