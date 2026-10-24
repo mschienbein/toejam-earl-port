@@ -230,3 +230,105 @@ and platform run checks before calling a build a finished native release. Do not
 commit generated icons: `tools/release.py` draws the original navy/teal **TJE**
 text mark procedurally, with no fonts, game art, extracted bytes or placeholder
 artwork. PNG, ICO and ICNS files exist only in scratch and built artifacts.
+
+## Third-party licences and notices
+
+Every package and the deployed static site include `THIRD_PARTY_NOTICES.txt`,
+`THIRD_PARTY_DEPENDENCIES.json`, and `THIRD_PARTY_LICENSES/*.txt`. These contain
+the full selected licence texts, actual upstream copyright/licence/NOTICE files,
+and the pinned Rust standard library's complete copyright report and reference
+licences. The large standard-library report is split at text boundaries to keep
+each public source file below the publication audit's blob limit; nothing is
+truncated. Source repositories and precise package versions are listed alongside
+the obligations. Upstream alternative licence texts are retained as notices,
+not a claim that every alternative is selected.
+Full legal texts are presented as quotations with whitespace reflowed for
+readability. An equality check ensures every upstream word and punctuation
+token remains in order. The quotation layout also prevents decorative rules
+or disclaimer lines being mistaken for nested encodings by the public audit;
+no content exemption or licence clause is added.
+The macOS `.app` retains its legal payload under `Contents/Resources`, not just
+beside the bundle. The generated web page links to its published notices.
+
+`tools/notices.py` uses **cargo-about 0.9.2**, not an unpinned global installation.
+On Linux x86_64 it bootstraps the published musl executable into ignored
+`scratch/notice-tools/`, verifies its archive SHA-256 and checks its version.
+`CARGO_ABOUT` may instead name a user-local installation of that exact version.
+It performs no native builds and needs no private ROM, compiler probes or
+extracted game data:
+
+```sh
+python3 tools/notices.py          # regenerate committed third-party/ outputs
+python3 tools/notices.py --check  # fail on stale notices or unaccepted licences
+```
+
+The accepted selections are explicit in `tools/notices.toml`. Generation uses
+the actual default-feature release roots, not the whole development workspace:
+`tje-native` for Linux x86_64, Windows GNU x86_64, macOS x86_64 and arm64, and
+`tje-web` for wasm32. Dev-only dependencies are excluded; normal and build
+dependencies are retained. Every harvested graph is independently compared
+with `cargo tree --locked --edges normal,build --target ...`; any coverage
+difference fails. The universal macOS notice is the union of its two graphs.
+Crates with missing vendored metadata use checksum-verified upstream GPL
+clarifications, not inferred permissions.
+
+CI and both release workflows regenerate all four graph receipts and compare
+every byte. A lockfile, manifest, production JS/CSS, toolchain or policy change
+requires regeneration. Public-input fingerprints normalize Git CRLF checkout
+translation, so native Windows packaging accepts the same reviewed graph.
+Packaging also fails on stale inputs, unaccepted selections, absent/corrupt
+licence texts and notice hash mismatches; the existing symlink and ROM-input
+guards apply to the notice payload too.
+
+### Compatibility assessment and explicit font flags
+
+This is an engineering assessment of the pinned upstream terms, not a substitute
+for legal advice. The selected **software** licences permit this GPL-3.0-only
+combination:
+
+- **MIT, BSD-2-Clause, BSD-3-Clause, ISC and Zlib** are permissive/GPL-compatible.
+  Preserve their notices. Less-common terms are scoped to the exact reviewed
+  packages, rather than accepting arbitrary new dependencies automatically.
+- **Apache-2.0** is compatible with **GPLv3**, not GPLv2-only. Its full terms and
+  every packaged upstream NOTICE are retained, including the Apache-only
+  `cpal` dependency. LLVM exceptions are additional permissions and their actual
+  upstream texts are retained where supplied.
+- **Unicode-3.0** permits redistribution/modification with its notice. Both its
+  terms and the associated Unicode data notices are retained.
+- **MPL-2.0** (`option-ext`) is combined under the secondary-licence mechanism
+  of section 3.3. Its source repository/version and full MPL terms are provided.
+  Generation rejects an attached “Incompatible With Secondary Licenses” notice
+  in its code rather than silently accepting that materially different case.
+- **GPL-3.0-only** applies to the project and retained jgenesis components.
+  Rust's full library report also retains its platform/source exceptions and
+  upstream LGPL-2.1-or-later notices; the latter is compatible with GPLv3.
+
+References: [FSF licence compatibility list](https://www.gnu.org/licenses/license-list.html),
+[GPLv3 compatibility explanation](https://www.gnu.org/licenses/quick-guide-gplv3),
+and [Mozilla MPL FAQ, questions 14 and 25](https://www.mozilla.org/en-US/MPL/2.0/FAQ/).
+No GPL-2.0-only software selection or unknown licence is accepted. Merely
+including an upstream alternative or compiler reference licence text does not
+select that licence for the combined program.
+
+**Font flag — these are separately licensed assets, not GPL-relicensed code.**
+Native egui embeds Hack, Ubuntu Light and the egui icon subset. Hack carries
+Source Foundry's MIT terms, DejaVu public-domain attribution and **Bitstream Vera**
+terms. Ubuntu Light remains under **Ubuntu-font-1.0**; **OFL-1.1** also appears in
+the font package's aggregate declaration. The Bitstream, OFL and Ubuntu terms
+are accepted only for `epaint_default_fonts`, not as general GPL-compatible
+software licences. In particular, Ubuntu's licence prohibits relicensing the
+font under GPL; the font is redistributed unchanged as a separately licensed
+embedded asset. Its embedding/distribution permission does not erase its own
+notice, naming and trademark conditions. These distinct terms are flagged in
+every native notice, with their complete text. Maintainers must preserve that
+asset/code distinction and must not describe every bundled byte as GPL-only.
+See [Canonical's font licence/embedding FAQ](https://canonical.com/legal/font-licence/faq).
+The precise font notice files and version are hash-pinned in
+`tools/font-notices.json`; a changed font/licence requires explicit review.
+
+The browser ships repository-owned GPL JS plus generated wasm-bindgen glue and
+the repository's engine snippet; no npm package is a runtime asset. Its CSS uses
+system fonts, so no native font file is included in the web site. Release logos
+are procedural and contain no external font. This inventory/fingerprint must be
+updated before adding a new JS library, font, or other licensed runtime asset.
+

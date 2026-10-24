@@ -41,6 +41,8 @@ jobs:
         run: |
           python tools/audit_public.py --no-rom
           python tools/audit_public.py --history --refs HEAD --no-rom
+      - name: Check accepted licences and full target-specific notices
+        run: rustup show && python3 tools/notices.py --check
       - name: Test packaging allowlists, metadata, icons and checksums
         run: python3 -m unittest discover -s tools -p 'test_release.py' -v
 

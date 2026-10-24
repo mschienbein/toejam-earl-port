@@ -125,6 +125,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(f"{stem}/docs/REVISIONS.md", members)
             self.assertIn(f"{stem}/crates/tje-native/README.md", members)
             self.assertIn(f"{stem}/SOURCE.txt", members)
+            self.assertIn(f"{stem}/THIRD_PARTY_NOTICES.txt", members)
+            self.assertIn(f"{stem}/THIRD_PARTY_DEPENDENCIES.json", members)
+            self.assertTrue(any(name.startswith(f"{stem}/THIRD_PARTY_LICENSES/") for name in members))
             self.assertFalse(any("cartridge.bin" in name or "/roms/" in name for name in members))
             self.assertEqual(archive.getmember(f"{stem}/toejam-earl").mode, 0o755)
         appdir = self.output / f"{stem}.AppDir"
@@ -141,6 +144,8 @@ class ReleaseTests(unittest.TestCase):
             self.assertNotIn(b"\r", appdir.joinpath(name).read_bytes())
         self.assertTrue(appdir.joinpath("crates/tje-native/README.md").is_file())
         self.assertTrue(appdir.joinpath("docs/REVISIONS.md").is_file())
+        self.assertTrue(appdir.joinpath("THIRD_PARTY_NOTICES.txt").is_file())
+        self.assertTrue(appdir.joinpath("THIRD_PARTY_LICENSES").is_dir())
         # Reusing a dirty staging tree must never pull a ROM into the AppImage.
         appdir.joinpath("cartridge.bin").write_text("must not survive a new staging operation")
         with self.assertRaisesRegex(ValueError, "AppDir must not already exist"):
@@ -156,6 +161,9 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(f"{stem}/icons/toejam-earl.ico", names)
             self.assertIn(f"{stem}/crates/tje-native/README.md", names)
             self.assertIn(f"{stem}/docs/REVISIONS.md", names)
+            self.assertIn(f"{stem}/THIRD_PARTY_NOTICES.txt", names)
+            self.assertIn(f"{stem}/THIRD_PARTY_DEPENDENCIES.json", names)
+            self.assertTrue(any(name.startswith(f"{stem}/THIRD_PARTY_LICENSES/") for name in names))
             self.assertFalse(any(name.endswith((".rc", ".icns", ".o")) for name in names))
             self.assertEqual(archive.read(f"{stem}/toejam-earl.exe"), self.binary.read_bytes())
             self.assertIn(b"Commit: ", archive.read(f"{stem}/SOURCE.txt"))
@@ -186,12 +194,27 @@ class ReleaseTests(unittest.TestCase):
             mock.call(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True),
         ])
 
+    def test_macos_package_includes_universal_target_legal_payload(self) -> None:
+        self.binary.write_bytes(executable_image("macos"))
+        with mock.patch.object(release.subprocess, "run"):
+            artifact = release.package_native("macos", self.binary, "v1.2.3", self.output)
+        stem = "toejam-earl-v1.2.3-macos-universal"
+        with zipfile.ZipFile(artifact) as archive:
+            self.assertIn(f"{stem}/THIRD_PARTY_NOTICES.txt", archive.namelist())
+            resources = f"{stem}/ToeJam & Earl.app/Contents/Resources"
+            self.assertIn(f"{resources}/THIRD_PARTY_NOTICES.txt", archive.namelist())
+            self.assertIn(f"{resources}/THIRD_PARTY_DEPENDENCIES.json", archive.namelist())
+            self.assertIn(f"{resources}/LICENSE", archive.namelist())
+            receipt = archive.read(f"{stem}/THIRD_PARTY_DEPENDENCIES.json")
+            self.assertIn(b"x86_64-apple-darwin", receipt)
+            self.assertIn(b"aarch64-apple-darwin", receipt)
+
     def test_web_allowlist_excludes_tests_caches_and_roms(self) -> None:
         source = self.root / "source"
         web = source / "web"
         web.joinpath("pkg").mkdir(parents=True)
         for name in release.WEB_FILES:
-            web.joinpath(name).write_text("</head>" if name == "index.html" else "public runtime")
+            web.joinpath(name).write_text("</head><footer>Source</footer>" if name == "index.html" else "public runtime")
         web.joinpath("pkg", "tje_web.js").write_text(
             "import { load } from './snippets/engine/src/browser.js';\n")
         snippets = web / "pkg/snippets/engine/src"
@@ -204,17 +227,25 @@ class ReleaseTests(unittest.TestCase):
             web.joinpath(name).write_text("must never be copied")
         web.joinpath("pkg", "unexpected.bin").write_text("must never be copied")
         site = self.root / "site"
+        legal = {"THIRD_PARTY_NOTICES.txt": b"unit-test notice\n",
+                 "THIRD_PARTY_LICENSES/example.txt": b"unit-test full legal text\n",
+                 "THIRD_PARTY_DEPENDENCIES.json": b'{"graph":"web"}\n'}
         with (mock.patch.object(release, "ROOT", source),
-              mock.patch.object(release, "copy_public_notes")):
+              mock.patch.object(release, "copy_public_notes"),
+              mock.patch.object(release.notices, "package_files", return_value=legal)):
             artifact = release.package_web("v1.2.3", self.output, site)
         expected = set(release.WEB_FILES) | {
             "pkg/tje_web.js", "pkg/tje_web_bg.wasm", ".nojekyll", "icon.png",
             "pkg/snippets/engine/src/browser.js", "pkg/snippets/engine/src/cache.js",
+            *legal.keys(),
         }
         self.assertEqual({path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()},
                          expected)
         self.assertIn('href="./icon.png"', site.joinpath("index.html").read_text())
+        self.assertIn('href="./THIRD_PARTY_NOTICES.txt"', site.joinpath("index.html").read_text())
         self.assertNotIn(b"\r", site.joinpath("index.html").read_bytes())
+        for name, content in legal.items():
+            self.assertEqual(site.joinpath(name).read_bytes(), content)
         with zipfile.ZipFile(artifact) as archive:
             self.assertEqual(set(archive.namelist()), {f"site/{name}" for name in expected})
         with self.assertRaisesRegex(ValueError, "web output must be empty"):

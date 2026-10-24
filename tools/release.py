@@ -23,6 +23,8 @@ import zipfile
 import zlib
 from pathlib import Path, PurePosixPath
 
+import notices
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = "ToeJam & Earl"
 APP_ID = "org.toejam-earl-port.native"
@@ -308,6 +310,15 @@ def copy_public_notes(destination: Path, rom_hashes: set[str]) -> None:
         encoding="utf-8", newline="\n")
 
 
+def copy_third_party_notes(destination: Path, graph: str, rom_hashes: set[str]) -> None:
+    files = notices.package_files(
+        graph, ROOT, reader=lambda path: read_input(path, rom_hashes, ROOT))
+    for name, content in files.items():
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+
 def archive_zip(directory: Path, output: Path, rom_hashes: set[str]) -> None:
     scan_directory(directory, rom_hashes)
     timestamp = time.gmtime(max(archive_epoch(), 315532800))[:6]
@@ -368,6 +379,9 @@ def stage_macos(binary: Path, destination: Path, version: str) -> None:
     executable.chmod(0o755)
     resources = contents / "Resources"
     resources.mkdir()
+    rom_hashes = known_rom_hashes()
+    copy_third_party_notes(resources, "macos", rom_hashes)
+    resources.joinpath("LICENSE").write_bytes(read_input(ROOT / "LICENSE", rom_hashes, ROOT))
     with tempfile.TemporaryDirectory() as temporary:
         icons = Path(temporary)
         make_icons(icons)
@@ -408,6 +422,7 @@ def package_native(platform: str, binary: Path, version: str, output: Path) -> P
         directory = Path(temporary) / stem
         directory.mkdir()
         copy_public_notes(directory, rom_hashes)
+        copy_third_party_notes(directory, platform, rom_hashes)
         if platform == "linux":
             stage_linux(binary, directory)
             artifact = output / f"{stem}.tar.gz"
@@ -416,6 +431,7 @@ def package_native(platform: str, binary: Path, version: str, output: Path) -> P
             appdir.mkdir()
             stage_linux(binary, appdir)
             copy_public_notes(appdir, rom_hashes)
+            copy_third_party_notes(appdir, platform, rom_hashes)
             appdir.joinpath("AppRun").write_text(
                 '#!/bin/sh\nHERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\n'
                 'exec "$HERE/toejam-earl" "$@"\n', encoding="utf-8", newline="\n")
@@ -482,11 +498,13 @@ def package_web(version: str, output: Path, site: Path) -> Path:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(content)
     copy_public_notes(site, rom_hashes)
+    copy_third_party_notes(site, "web", rom_hashes)
     site.joinpath(".nojekyll").touch()
     site.joinpath("icon.png").write_bytes(logo_png(256))
     index = site / "index.html"
     index.write_text(index.read_text(encoding="utf-8").replace(
-        "</head>", '  <link rel="icon" href="./icon.png" type="image/png">\n</head>'),
+        "</head>", '  <link rel="icon" href="./icon.png" type="image/png">\n</head>').replace(
+        "</footer>", ' · <a href="./THIRD_PARTY_NOTICES.txt">Third-party licences</a></footer>'),
         encoding="utf-8", newline="\n")
     output.mkdir(parents=True, exist_ok=True)
     artifact = output / f"toejam-earl-{version}-web.zip"

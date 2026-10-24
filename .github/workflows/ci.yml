@@ -58,6 +58,9 @@ jobs:
           PY
       - name: Confirm required runner architecture
         run: test "${{ runner.arch }}" = "${{ matrix.arch }}"
+      - name: Check complete target-specific third-party licences and notices
+        if: runner.os == 'Linux'
+        run: python tools/notices.py --check
       - name: Check Rust formatting
         # Formatting is platform-independent; rustfmt's main thread overflows the
         # 1 MiB default Windows stack on the largest generated-looking sources.

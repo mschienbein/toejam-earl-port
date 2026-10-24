@@ -1,0 +1,2761 @@
+THIRD-PARTY NOTICES
+
+Release graph: linux
+Targets: x86_64-unknown-linux-gnu
+Generated with cargo-about 0.9.2.
+Full licence texts, copyright and upstream notices are in THIRD_PARTY_LICENSES/.
+Upstream alternative licence files are retained, but the selected licences below govern our use.
+Software is combined under GPL-3.0-only; unchanged fonts retain their own licences.
+
+FONT LICENCE FLAG: Bitstream-Vera, OFL-1.1 and Ubuntu-font-1.0 are font-only aggregation terms,
+not permission to relicense the font software under GPL. See docs/RELEASING.md.
+
+RUST STANDARD LIBRARY 1.99.1: complete upstream copyright and licence report follows.
+This report/reference licence set covers all upstream library targets, not a claim
+that compiler/documentation or every optional component was linked into this artifact.
+Source: https://github.com/rust-lang/rust (version pinned in rust-toolchain.toml)
+  rust/COPYRIGHT-library-part-1.txt: THIRD_PARTY_LICENSES/866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a.txt
+  rust/COPYRIGHT-library-part-2.txt: THIRD_PARTY_LICENSES/83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576.txt
+  rust/licenses/Apache-2.0.txt: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+  rust/licenses/BSD-2-Clause.txt: THIRD_PARTY_LICENSES/7e1455b977e2ec0a018aea88e81907ceaa33dbc9c1e8c6a7f13171c7eeae7386.txt
+  rust/licenses/CC-BY-SA-4.0.txt: THIRD_PARTY_LICENSES/96ba51e318d556be112ccb779d2c7b52d9d7f94087eccd61c97dbe1641587de4.txt
+  rust/licenses/GCC-exception-3.1.txt: THIRD_PARTY_LICENSES/1f014719a37cfb66593631786d0f1253b4e47491870b119b8647a48de91ecdae.txt
+  rust/licenses/GPL-2.0-only.txt: THIRD_PARTY_LICENSES/216923bd42dc46cf5a22ea3af391fb199e75e39cce138d94250a55471d255137.txt
+  rust/licenses/GPL-3.0-or-later.txt: THIRD_PARTY_LICENSES/620c05b2c30aa4c2eb3160dab4762ef35d7803db942043be9382ac1859b8a51c.txt
+  rust/licenses/ISC.txt: THIRD_PARTY_LICENSES/89aa4eaf007c2a01ea6977e6f418c3f15e73ab6f369b32b0e0513594f0163ebf.txt
+  rust/licenses/LLVM-exception.txt: THIRD_PARTY_LICENSES/1f8e154b05d95dc6f5a8791c567ac4c8a894ddcb2b1368243dd4c2561e64cbc8.txt
+  rust/licenses/MIT.txt: THIRD_PARTY_LICENSES/9b8619775922781c5202f04aa30bdde2b73b3d512957dbd6702e5841b5675d9c.txt
+  rust/licenses/NCSA.txt: THIRD_PARTY_LICENSES/98fbcab906bb3785d9faa482b796073b3bb8114180c8b58cd616c1e8baa10605.txt
+  rust/licenses/OFL-1.1.txt: THIRD_PARTY_LICENSES/66aae4b57e386a5e5327ad902fb84c3525ee7c39165eb99d4d93bc34785eaa92.txt
+  rust/licenses/Unicode-3.0.txt: THIRD_PARTY_LICENSES/5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df.txt
+
+ab_glyph 0.2.32
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Alex Butler <alexheretic@gmail.com>
+Source: https://github.com/alexheretic/ab-glyph
+Exact upstream source archive: https://crates.io/api/v1/crates/ab_glyph/0.2.32/download
+  LICENSE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+ab_glyph_rasterizer 0.1.10
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Alex Butler <alexheretic@gmail.com>
+Source: https://github.com/alexheretic/ab-glyph
+Exact upstream source archive: https://crates.io/api/v1/crates/ab_glyph_rasterizer/0.1.10/download
+  LICENSE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+accesskit 0.25.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The AccessKit contributors
+Source: https://github.com/AccessKit/accesskit
+Exact upstream source archive: https://crates.io/api/v1/crates/accesskit/0.25.1/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+adler2 2.0.1
+Declared: 0BSD OR MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jonas Schievink <jonasschievink@gmail.com>; oyvindln <oyvindln@users.noreply.github.com>
+Source: https://github.com/oyvindln/adler2
+Exact upstream source archive: https://crates.io/api/v1/crates/adler2/2.0.1/download
+  LICENSE-0BSD: THIRD_PARTY_LICENSES/2ad6a2ab92cdadf3b6517f361f708f22de137a036312f2127ff7f7260301f3e7.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/b16c4fd1ecf6a67b4458e4406a3ed55c90fdd3e1010f2912f25eb2863767157e.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+ahash 0.8.12
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Tom Kaitchuck <Tom.Kaitchuck@gmail.com>
+Source: https://github.com/tkaitchuck/ahash
+Exact upstream source archive: https://crates.io/api/v1/crates/ahash/0.8.12/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/87785759060875ff16ff11abc6f1977c54cd3af151bb900436d261a6b05adfde.txt
+  selected:MIT:87785759060875ff16ff11abc6f1977c54cd3af151bb900436d261a6b05adfde: THIRD_PARTY_LICENSES/87785759060875ff16ff11abc6f1977c54cd3af151bb900436d261a6b05adfde.txt
+
+aho-corasick 1.1.5
+Declared: Unlicense OR MIT
+Selected: MIT
+Authors (upstream metadata): Andrew Gallant <jamslam@gmail.com>
+Source: https://github.com/BurntSushi/aho-corasick
+Exact upstream source archive: https://crates.io/api/v1/crates/aho-corasick/1.1.5/download
+  COPYING: THIRD_PARTY_LICENSES/03c7a18c5260f8532192f32180c7d289631a0dadb6dde8a49c40443143e73348.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
+  selected:MIT:cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
+
+allocator-api2 0.2.21
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Zakarum <zaq.dev@icloud.com>
+Source: https://github.com/zakarumych/allocator-api2
+Exact upstream source archive: https://crates.io/api/v1/crates/allocator-api2/0.2.21/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+alsa 0.9.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): David Henningsson <coding@diwic.se>
+Source: https://github.com/diwic/alsa-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/alsa/0.9.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/27e2ad1198fa793c98645e70dbcc56137e5cae09aaa610d4afaf1f88d21f565f.txt
+  selected:MIT:27e2ad1198fa793c98645e70dbcc56137e5cae09aaa610d4afaf1f88d21f565f: THIRD_PARTY_LICENSES/27e2ad1198fa793c98645e70dbcc56137e5cae09aaa610d4afaf1f88d21f565f.txt
+
+alsa-sys 0.3.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): David Henningsson <coding@diwic.se>; Pierre Krieger <pierre.krieger1708@gmail.com>
+Source: https://github.com/diwic/alsa-sys
+Exact upstream source archive: https://crates.io/api/v1/crates/alsa-sys/0.3.1/download
+  LICENSE: THIRD_PARTY_LICENSES/9931f9c96b025ee278fc6465384dd2ac3cc67d1a307aa4f9fa14f289db22a1f5.txt
+  selected:MIT:9931f9c96b025ee278fc6465384dd2ac3cc67d1a307aa4f9fa14f289db22a1f5: THIRD_PARTY_LICENSES/9931f9c96b025ee278fc6465384dd2ac3cc67d1a307aa4f9fa14f289db22a1f5.txt
+
+anstream 1.0.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-cli/anstyle.git
+Exact upstream source archive: https://crates.io/api/v1/crates/anstream/1.0.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+anstyle 1.0.14
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-cli/anstyle.git
+Exact upstream source archive: https://crates.io/api/v1/crates/anstyle/1.0.14/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+anstyle-parse 1.0.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-cli/anstyle.git
+Exact upstream source archive: https://crates.io/api/v1/crates/anstyle-parse/1.0.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+anstyle-query 1.1.5
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-cli/anstyle.git
+Exact upstream source archive: https://crates.io/api/v1/crates/anstyle-query/1.1.5/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+anyhow 1.0.104
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/anyhow
+Exact upstream source archive: https://crates.io/api/v1/crates/anyhow/1.0.104/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+arbitrary 1.5.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Brian L. Troutwine <brian@troutwine.us>; Corey Farwell <coreyf@rwell.org>; Manish Goregaokar <manishsmail@gmail.com>; Nick Fitzgerald <fitzgen@gmail.com>; Simonas Kazlauskas <arbitrary@kazlauskas.me>; The Rust-Fuzz Project Developers
+Source: https://github.com/rust-fuzz/arbitrary/
+Exact upstream source archive: https://crates.io/api/v1/crates/arbitrary/1.5.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c24b0ebddb0af16fbf8a0084cdd6000510a4c55feb82e1f95f555bab13b8df15.txt
+  selected:MIT:c24b0ebddb0af16fbf8a0084cdd6000510a4c55feb82e1f95f555bab13b8df15: THIRD_PARTY_LICENSES/c24b0ebddb0af16fbf8a0084cdd6000510a4c55feb82e1f95f555bab13b8df15.txt
+
+arrayref 0.3.9
+Declared: BSD-2-Clause
+Selected: BSD-2-Clause
+Authors (upstream metadata): David Roundy <roundyd@physics.oregonstate.edu>
+Source: https://github.com/droundy/arrayref
+Exact upstream source archive: https://crates.io/api/v1/crates/arrayref/0.3.9/download
+  LICENSE: THIRD_PARTY_LICENSES/edc586988c54bac372453c8fc25d6b4ebd96b21606c56900fec1520919a334b7.txt
+  selected:BSD-2-Clause:edc586988c54bac372453c8fc25d6b4ebd96b21606c56900fec1520919a334b7: THIRD_PARTY_LICENSES/edc586988c54bac372453c8fc25d6b4ebd96b21606c56900fec1520919a334b7.txt
+
+arrayvec 0.7.8
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): bluss
+Source: https://github.com/bluss/arrayvec
+Exact upstream source archive: https://crates.io/api/v1/crates/arrayvec/0.7.8/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/6ebe62a744c4d02c36576e97def3e03932a26665a3b07149c23b2305bef9f4c9.txt
+  selected:MIT:6ebe62a744c4d02c36576e97def3e03932a26665a3b07149c23b2305bef9f4c9: THIRD_PARTY_LICENSES/6ebe62a744c4d02c36576e97def3e03932a26665a3b07149c23b2305bef9f4c9.txt
+
+as-raw-xcb-connection 1.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/psychon/as-raw-xcb-connection
+Exact upstream source archive: https://crates.io/api/v1/crates/as-raw-xcb-connection/1.0.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f0fd8cf640b5a82040f32647855cf70db28e372dac26b88d17a6063f74383b31.txt
+  selected:MIT:f0fd8cf640b5a82040f32647855cf70db28e372dac26b88d17a6063f74383b31: THIRD_PARTY_LICENSES/f0fd8cf640b5a82040f32647855cf70db28e372dac26b88d17a6063f74383b31.txt
+
+ash 0.38.0+1.3.281
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Benjamin Saunders <ben.e.saunders@gmail.com>; Maik Klein <maikklein@googlemail.com>; Marijn Suijten <marijn@traverseresearch.nl>
+Source: https://github.com/ash-rs/ash
+Exact upstream source archive: https://crates.io/api/v1/crates/ash/0.38.0+1.3.281/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/415922d83f912ce2a5193e841e8a21c57b47109f4549b3430b41d0526635bcf2.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/427572b0bfb70f0b36de4c385ce536c0b8cda1cd4b47ca8a05c9eca17859eaa6.txt
+  selected:MIT:427572b0bfb70f0b36de4c385ce536c0b8cda1cd4b47ca8a05c9eca17859eaa6: THIRD_PARTY_LICENSES/427572b0bfb70f0b36de4c385ce536c0b8cda1cd4b47ca8a05c9eca17859eaa6.txt
+
+autocfg 1.5.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Josh Stone <cuviper@gmail.com>
+Source: https://github.com/cuviper/autocfg
+Exact upstream source archive: https://crates.io/api/v1/crates/autocfg/1.5.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2ec831bd2be64de7ef861ba954f32e97bb756e60ab21fa8734ba535021146ff9.txt
+  selected:MIT:2ec831bd2be64de7ef861ba954f32e97bb756e60ab21fa8734ba535021146ff9: THIRD_PARTY_LICENSES/2ec831bd2be64de7ef861ba954f32e97bb756e60ab21fa8734ba535021146ff9.txt
+
+bincode 2.0.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Ty Overby <ty@pre-alpha.com>; Victor Koenders <bincode@trangar.com>; Zoey Riordan <zoey@dos.cafe>
+Source: https://github.com/bincode-org/bincode
+Exact upstream source archive: https://crates.io/api/v1/crates/bincode/2.0.1/download
+  LICENSE.md: THIRD_PARTY_LICENSES/fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed.txt
+  selected:MIT:fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed: THIRD_PARTY_LICENSES/fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed.txt
+
+bincode_derive 2.0.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Victor Koenders <bincode@trangar.com>; Zoey Riordan <zoey@dos.cafe>
+Source: https://github.com/bincode-org/bincode
+Exact upstream source archive: https://crates.io/api/v1/crates/bincode_derive/2.0.1/download
+  LICENSE.md: THIRD_PARTY_LICENSES/fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed.txt
+  selected:MIT:fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed: THIRD_PARTY_LICENSES/fe993bdfa7a5a7e6b5a2f1af942ed41fc69eb46b2b276f8fd75d4e48277a11ed.txt
+
+bit-set 0.10.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Alexis Beingessner <a.beingessner@gmail.com>
+Source: https://github.com/contain-rs/bit-set
+Exact upstream source archive: https://crates.io/api/v1/crates/bit-set/0.10.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/ea7a6deaced960ccae69e8ded73ae0aa5f098e1adcdbcfe748b4bfac3b66741b.txt
+  selected:MIT:ea7a6deaced960ccae69e8ded73ae0aa5f098e1adcdbcfe748b4bfac3b66741b: THIRD_PARTY_LICENSES/ea7a6deaced960ccae69e8ded73ae0aa5f098e1adcdbcfe748b4bfac3b66741b.txt
+
+bit-vec 0.9.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Alexis Beingessner <a.beingessner@gmail.com>
+Source: https://github.com/contain-rs/bit-vec
+Exact upstream source archive: https://crates.io/api/v1/crates/bit-vec/0.9.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/d456d97e7f397ce72a7c9e93af9b6f1d727298f932ca61364816d1781bfc207b.txt
+  selected:MIT:d456d97e7f397ce72a7c9e93af9b6f1d727298f932ca61364816d1781bfc207b: THIRD_PARTY_LICENSES/d456d97e7f397ce72a7c9e93af9b6f1d727298f932ca61364816d1781bfc207b.txt
+
+bitflags 2.13.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/bitflags/bitflags
+Exact upstream source archive: https://crates.io/api/v1/crates/bitflags/2.13.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+block-buffer 0.10.4
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/utils
+Exact upstream source archive: https://crates.io/api/v1/crates/block-buffer/0.10.4/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f1838d3b6ccaea72223c86c9056b989c9d7b212340bd86de413d7fd3fb557443.txt
+  selected:MIT:f1838d3b6ccaea72223c86c9056b989c9d7b212340bd86de413d7fd3fb557443: THIRD_PARTY_LICENSES/f1838d3b6ccaea72223c86c9056b989c9d7b212340bd86de413d7fd3fb557443.txt
+
+bumpalo 3.20.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Nick Fitzgerald <fitzgen@gmail.com>
+Source: https://github.com/fitzgen/bumpalo
+Exact upstream source archive: https://crates.io/api/v1/crates/bumpalo/3.20.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/3cc211afea8c5173bfbbd499c87a3f9a13e7b7bd5727f47895b755a3645755d8.txt
+  selected:MIT:3cc211afea8c5173bfbbd499c87a3f9a13e7b7bd5727f47895b755a3645755d8: THIRD_PARTY_LICENSES/3cc211afea8c5173bfbbd499c87a3f9a13e7b7bd5727f47895b755a3645755d8.txt
+
+bytemuck 1.25.2
+Declared: Zlib OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Lokathor <zefria@gmail.com>
+Source: https://github.com/Lokathor/bytemuck
+Exact upstream source archive: https://crates.io/api/v1/crates/bytemuck/1.25.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/fa1b928e6db278e395402e8d5bf4c402296f14ae012c56468c517d05703c5731.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97.txt
+  LICENSE-ZLIB: THIRD_PARTY_LICENSES/4548a4875bb3af8de154171aaa7a6af7dc07138f4f684eecec2d371187a4652a.txt
+  selected:MIT:1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97: THIRD_PARTY_LICENSES/1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97.txt
+
+bytemuck_derive 1.12.1
+Declared: Zlib OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Lokathor <zefria@gmail.com>
+Source: https://github.com/Lokathor/bytemuck
+Exact upstream source archive: https://crates.io/api/v1/crates/bytemuck_derive/1.12.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/fa1b928e6db278e395402e8d5bf4c402296f14ae012c56468c517d05703c5731.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97.txt
+  LICENSE-ZLIB: THIRD_PARTY_LICENSES/4548a4875bb3af8de154171aaa7a6af7dc07138f4f684eecec2d371187a4652a.txt
+  selected:MIT:1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97: THIRD_PARTY_LICENSES/1f705b6a2a98a02bfb5d4225b507c10a8b891332e2d2096f1f1e9b4516eace97.txt
+
+calloop 0.13.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/Smithay/calloop
+Exact upstream source archive: https://crates.io/api/v1/crates/calloop/0.13.0/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060.txt
+  selected:MIT:cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060: THIRD_PARTY_LICENSES/cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060.txt
+
+calloop-wayland-source 0.3.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Kirill Chibisov <contact@kchibisov.com>
+Source: https://github.com/smithay/calloop-wayland-source
+Exact upstream source archive: https://crates.io/api/v1/crates/calloop-wayland-source/0.3.0/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/74cae2ea9db0688e94a688beb3038d96028104f3c4d63ffdcfed61a6729908f5.txt
+  selected:MIT:74cae2ea9db0688e94a688beb3038d96028104f3c4d63ffdcfed61a6729908f5: THIRD_PARTY_LICENSES/74cae2ea9db0688e94a688beb3038d96028104f3c4d63ffdcfed61a6729908f5.txt
+
+cc 1.10.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-lang/cc-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/cc/1.10.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+  selected:MIT:a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+
+cfg-if 1.0.5
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>
+Source: https://github.com/rust-lang/cfg-if
+Exact upstream source archive: https://crates.io/api/v1/crates/cfg-if/1.0.5/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+  selected:MIT:a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+
+cfg_aliases 0.2.2
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Zicklag <zicklag@katharostech.com>
+Source: https://github.com/katharostech/cfg_aliases
+Exact upstream source archive: https://crates.io/api/v1/crates/cfg_aliases/0.2.2/download
+  LICENSE: THIRD_PARTY_LICENSES/cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0.txt
+  selected:MIT:0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c: THIRD_PARTY_LICENSES/0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c.txt
+  selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0: THIRD_PARTY_LICENSES/cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0.txt
+
+chacha20 0.10.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/stream-ciphers
+Exact upstream source archive: https://crates.io/api/v1/crates/chacha20/0.10.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1f42ce97fe4f2c6027920ebded9564a944ab4410996ca55650615190f72c09cf.txt
+  selected:MIT:1f42ce97fe4f2c6027920ebded9564a944ab4410996ca55650615190f72c09cf: THIRD_PARTY_LICENSES/1f42ce97fe4f2c6027920ebded9564a944ab4410996ca55650615190f72c09cf.txt
+
+clap 4.6.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/clap-rs/clap
+Exact upstream source archive: https://crates.io/api/v1/crates/clap/4.6.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+clap_builder 4.6.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/clap-rs/clap
+Exact upstream source archive: https://crates.io/api/v1/crates/clap_builder/4.6.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+clap_derive 4.6.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/clap-rs/clap
+Exact upstream source archive: https://crates.io/api/v1/crates/clap_derive/4.6.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+clap_lex 1.1.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/clap-rs/clap
+Exact upstream source archive: https://crates.io/api/v1/crates/clap_lex/1.1.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+codespan-reporting 0.13.1
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Brendan Zabarauskas <bjzaba@yahoo.com.au>
+Source: https://github.com/brendanzab/codespan
+Exact upstream source archive: https://crates.io/api/v1/crates/codespan-reporting/0.13.1/download
+  LICENSE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  selected:Apache-2.0:df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+
+color 0.3.3
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/color
+Exact upstream source archive: https://crates.io/api/v1/crates/color/0.3.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+  selected:MIT:0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+
+colorchoice 1.0.5
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-cli/anstyle.git
+Exact upstream source archive: https://crates.io/api/v1/crates/colorchoice/1.0.5/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+cpal 0.16.0
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): 
+Source: https://github.com/rustaudio/cpal
+Exact upstream source archive: https://crates.io/api/v1/crates/cpal/0.16.0/download
+  LICENSE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  selected:Apache-2.0:df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+
+cpufeatures 0.2.17
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/utils
+Exact upstream source archive: https://crates.io/api/v1/crates/cpufeatures/0.2.17/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8521b693d4f3ecee1ce7fe6b064f44a15bea9cecac1dadf1561480ede0c8b72e.txt
+  selected:MIT:8521b693d4f3ecee1ce7fe6b064f44a15bea9cecac1dadf1561480ede0c8b72e: THIRD_PARTY_LICENSES/8521b693d4f3ecee1ce7fe6b064f44a15bea9cecac1dadf1561480ede0c8b72e.txt
+
+cpufeatures 0.3.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/utils
+Exact upstream source archive: https://crates.io/api/v1/crates/cpufeatures/0.3.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/7ee7eca6d669d3b3cee99729e1b719d8d4e495725df87c0339f44e778ae8943b.txt
+  selected:MIT:7ee7eca6d669d3b3cee99729e1b719d8d4e495725df87c0339f44e778ae8943b: THIRD_PARTY_LICENSES/7ee7eca6d669d3b3cee99729e1b719d8d4e495725df87c0339f44e778ae8943b.txt
+
+cranelift-assembler-x64 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): 
+Source: see project source receipt
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-assembler-x64/0.137.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+cranelift-assembler-x64-meta 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): 
+Source: see project source receipt
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-assembler-x64-meta/0.137.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+cranelift-bforest 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-bforest/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-bitset 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-bitset/0.137.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+cranelift-codegen 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-codegen/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-codegen-meta 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-codegen-meta/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-codegen-shared 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-codegen-shared/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-control 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-control/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-entity 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-entity/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-frontend 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-frontend/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-isle 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime/tree/main/cranelift/isle
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-isle/0.137.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+cranelift-native 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Cranelift Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-native/0.137.0/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+cranelift-srcgen 0.137.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Wasmtime Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/cranelift-srcgen/0.137.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+crc 3.4.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Akhil Velagapudi <4@4khil.com>; Rui Hu <code@mrhooray.com>
+Source: https://github.com/mrhooray/crc-rs.git
+Exact upstream source archive: https://crates.io/api/v1/crates/crc/3.4.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/4928a7158cc1477d4335ca7332480f2a5cce7d3d579d36f5adfca8d4eaf547fb.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f56170f2e117cdf453f391ad94f5c7e440e45512475b07de8458b40c049d1404.txt
+  selected:MIT:f56170f2e117cdf453f391ad94f5c7e440e45512475b07de8458b40c049d1404: THIRD_PARTY_LICENSES/f56170f2e117cdf453f391ad94f5c7e440e45512475b07de8458b40c049d1404.txt
+
+crc-catalog 2.5.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Akhil Velagapudi <akhilvelagapudi@gmail.com>
+Source: https://github.com/akhilles/crc-catalog.git
+Exact upstream source archive: https://crates.io/api/v1/crates/crc-catalog/2.5.0/download
+  selected:MIT:4664e9170479160978d1b22f339b09c25c7e5d3e787c638b84014a025687d9a9: THIRD_PARTY_LICENSES/4664e9170479160978d1b22f339b09c25c7e5d3e787c638b84014a025687d9a9.txt
+
+crc32fast 1.5.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>; Sam Rijs <srijs@airpost.net>
+Source: https://github.com/srijs/rust-crc32fast
+Exact upstream source archive: https://crates.io/api/v1/crates/crc32fast/1.5.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/913a80ff9cabf960259adf34a20f586c2b2542e3eebd16878aa5660c4dd2f088.txt
+  selected:MIT:913a80ff9cabf960259adf34a20f586c2b2542e3eebd16878aa5660c4dd2f088: THIRD_PARTY_LICENSES/913a80ff9cabf960259adf34a20f586c2b2542e3eebd16878aa5660c4dd2f088.txt
+
+crossbeam-queue 0.3.14
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/crossbeam-rs/crossbeam
+Exact upstream source archive: https://crates.io/api/v1/crates/crossbeam-queue/0.3.14/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154.txt
+  selected:MIT:782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154: THIRD_PARTY_LICENSES/782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154.txt
+
+crossbeam-utils 0.8.23
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/crossbeam-rs/crossbeam
+Exact upstream source archive: https://crates.io/api/v1/crates/crossbeam-utils/0.8.23/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154.txt
+  selected:MIT:782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154: THIRD_PARTY_LICENSES/782dd64f667f8096f0e82b6c63dd6c2418d79e43fc73d6bd2808945520385154.txt
+
+crypto-common 0.1.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/traits
+Exact upstream source archive: https://crates.io/api/v1/crates/crypto-common/0.1.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/b3131f3ce1974f7c60848b6c941fe7787db217ce1d991e53c9409b583eae8000.txt
+  selected:MIT:b3131f3ce1974f7c60848b6c941fe7787db217ce1d991e53c9409b583eae8000: THIRD_PARTY_LICENSES/b3131f3ce1974f7c60848b6c941fe7787db217ce1d991e53c9409b583eae8000.txt
+
+cursor-icon 1.2.0
+Declared: MIT OR Apache-2.0 OR Zlib
+Selected: MIT
+Authors (upstream metadata): Kirill Chibisov <contact@kchibisov.com>
+Source: https://github.com/rust-windowing/cursor-icon
+Exact upstream source archive: https://crates.io/api/v1/crates/cursor-icon/1.2.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/db8c3a8d3ab7fd2a09f4a5341d5d4e4d1d15afd44db8a7aad8d8cd3a5513b963.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667.txt
+  LICENSE-ZLIB: THIRD_PARTY_LICENSES/77875653071526db0d0bb4f81d19e762e8c53a08681497aec7147ba8967b2ce5.txt
+  selected:MIT:afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667: THIRD_PARTY_LICENSES/afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667.txt
+
+dasp_sample 0.11.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): mitchmindtree <mitchell.nordine@gmail.com>
+Source: https://github.com/rustaudio/sample.git
+Exact upstream source archive: https://crates.io/api/v1/crates/dasp_sample/0.11.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+deranged 0.5.9
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Pratt <jacob@jhpratt.dev>
+Source: https://github.com/jhpratt/deranged
+Exact upstream source archive: https://crates.io/api/v1/crates/deranged/0.5.9/download
+  LICENSE-Apache: THIRD_PARTY_LICENSES/b72dca496e374b910c0486ada3794f73eccf4efade0205a84395aedbe9ead69d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/4a38a76af714ecf0a4039e1dc0d76d16b75002768b934fe199f365afc442b0cd.txt
+  selected:MIT:4a38a76af714ecf0a4039e1dc0d76d16b75002768b934fe199f365afc442b0cd: THIRD_PARTY_LICENSES/4a38a76af714ecf0a4039e1dc0d76d16b75002768b934fe199f365afc442b0cd.txt
+
+digest 0.10.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/traits
+Exact upstream source archive: https://crates.io/api/v1/crates/digest/0.10.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/38b6bdff79628612fc3752716d447f2df02fc26caeb73a0aef3d2e1d25cdd1b0.txt
+  selected:MIT:38b6bdff79628612fc3752716d447f2df02fc26caeb73a0aef3d2e1d25cdd1b0: THIRD_PARTY_LICENSES/38b6bdff79628612fc3752716d447f2df02fc26caeb73a0aef3d2e1d25cdd1b0.txt
+
+directories 6.0.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Simon Ochsenreither <simon@ochsenreither.de>
+Source: https://github.com/soc/directories-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/directories/6.0.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/ee574144f3fd00ae22e51ddacf6d9418225867fc98e35d057aeb7b9b8010f3b0.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/4f3ce43e889589ce453eb3adf0c0d76f6274eb2af85f15582740596724e73424.txt
+  selected:MIT:4f3ce43e889589ce453eb3adf0c0d76f6274eb2af85f15582740596724e73424: THIRD_PARTY_LICENSES/4f3ce43e889589ce453eb3adf0c0d76f6274eb2af85f15582740596724e73424.txt
+
+dirs-sys 0.5.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Simon Ochsenreither <simon@ochsenreither.de>
+Source: https://github.com/dirs-dev/dirs-sys-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/dirs-sys/0.5.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/ee574144f3fd00ae22e51ddacf6d9418225867fc98e35d057aeb7b9b8010f3b0.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/fbb21061401d8d932980375fd2d50196c71848babafd5d0e37ff71e5dd098c18.txt
+  selected:MIT:fbb21061401d8d932980375fd2d50196c71848babafd5d0e37ff71e5dd098c18: THIRD_PARTY_LICENSES/fbb21061401d8d932980375fd2d50196c71848babafd5d0e37ff71e5dd098c18.txt
+
+dlib 0.5.3
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/elinorbgr/dlib
+Exact upstream source archive: https://crates.io/api/v1/crates/dlib/0.5.3/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/a89bae21c941500f370e7c4c9df84c72cef8cfdc501c31fe844fdef23ab72c54.txt
+  selected:MIT:a89bae21c941500f370e7c4c9df84c72cef8cfdc501c31fe844fdef23ab72c54: THIRD_PARTY_LICENSES/a89bae21c941500f370e7c4c9df84c72cef8cfdc501c31fe844fdef23ab72c54.txt
+
+document-features 0.2.12
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Slint Developers <info@slint.dev>
+Source: https://github.com/slint-ui/document-features
+Exact upstream source archive: https://crates.io/api/v1/crates/document-features/0.2.12/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f8ad259bf84ce36182be9fe811453dbd50667812a947f9f6fbe297959c937d20.txt
+  selected:MIT:f8ad259bf84ce36182be9fe811453dbd50667812a947f9f6fbe297959c937d20: THIRD_PARTY_LICENSES/f8ad259bf84ce36182be9fe811453dbd50667812a947f9f6fbe297959c937d20.txt
+
+downcast-rs 1.2.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Ashish Myles <marcianx@gmail.com>; Runji Wang <wangrunji0408@163.com>
+Source: https://github.com/marcianx/downcast-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/downcast-rs/1.2.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/bcb050424d6b3993789bfc4de1df3601051b70a6735a87c592db8a6da226ebce.txt
+  selected:MIT:bcb050424d6b3993789bfc4de1df3601051b70a6735a87c592db8a6da226ebce: THIRD_PARTY_LICENSES/bcb050424d6b3993789bfc4de1df3601051b70a6735a87c592db8a6da226ebce.txt
+
+dpi 0.1.2
+Declared: Apache-2.0 AND MIT
+Selected: Apache-2.0, MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-windowing/winit
+Exact upstream source archive: https://crates.io/api/v1/crates/dpi/0.1.2/download
+  LICENSE: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+  LICENSE-LIBM-MIT: THIRD_PARTY_LICENSES/1eae7f1e54d3828d4c995a7a121dfe37260a3223ffe92181b7dee39e79ce474f.txt
+  selected:Apache-2.0:8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+dsp 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+ecolor 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Andreas Reich <reichandreas@gmx.de>; Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui
+Exact upstream source archive: https://crates.io/api/v1/crates/ecolor/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+egui 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui
+Exact upstream source archive: https://crates.io/api/v1/crates/egui/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+egui-wgpu 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>; Nils Hasenbanck <nils@hasenbanck.de>; embotech <opensource@embotech.com>
+Source: https://github.com/emilk/egui/tree/main/crates/egui-wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/egui-wgpu/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+egui-winit 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui/tree/main/crates/egui-winit
+Exact upstream source archive: https://crates.io/api/v1/crates/egui-winit/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+either 1.19.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rayon-rs/either
+Exact upstream source archive: https://crates.io/api/v1/crates/either/1.19.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f.txt
+  selected:MIT:702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f: THIRD_PARTY_LICENSES/702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f.txt
+
+emath 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui/tree/main/crates/emath
+Exact upstream source archive: https://crates.io/api/v1/crates/emath/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+epaint 0.37.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui/tree/main/crates/epaint
+Exact upstream source archive: https://crates.io/api/v1/crates/epaint/0.37.0/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+epaint_default_fonts 0.37.0
+Declared: (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0
+Selected: Bitstream-Vera, MIT, OFL-1.1, Ubuntu-font-1.0
+Authors (upstream metadata): Emil Ernerfeldt <emil.ernerfeldt@gmail.com>
+Source: https://github.com/emilk/egui/tree/main/crates/epaint_default_fonts
+Exact upstream source archive: https://crates.io/api/v1/crates/epaint_default_fonts/0.37.0/download
+  fonts/Hack-Regular.txt: THIRD_PARTY_LICENSES/0368fda2b7f96b5d670c654b580333c4dae0dea37c460984d5eebf4a590ba153.txt
+  fonts/OFL.txt: THIRD_PARTY_LICENSES/6e30e32d5f30c981d0c2e1f1c626bd3a7e3015b70b73d5b6f09b31303a41a3fa.txt
+  fonts/UFL.txt: THIRD_PARTY_LICENSES/78048b94bf2b43ed190ca58e89442dab600f552204e67814eabd8bf64b7aaaf5.txt
+  fonts/egui-icons.txt: THIRD_PARTY_LICENSES/f55b30e0a5eb7ab7d1cdf02d2d7bc9089dd2838b5f6c0fef61f10197a1692469.txt
+  fonts/emoji-icon-font-mit-license.txt: THIRD_PARTY_LICENSES/a2c60932745492f51c90ab34291ec0b4aa0bed4b8a5a113a6c3eda762969e585.txt
+  selected:MIT:a2c60932745492f51c90ab34291ec0b4aa0bed4b8a5a113a6c3eda762969e585: THIRD_PARTY_LICENSES/a2c60932745492f51c90ab34291ec0b4aa0bed4b8a5a113a6c3eda762969e585.txt
+  selected:OFL-1.1:6e30e32d5f30c981d0c2e1f1c626bd3a7e3015b70b73d5b6f09b31303a41a3fa: THIRD_PARTY_LICENSES/6e30e32d5f30c981d0c2e1f1c626bd3a7e3015b70b73d5b6f09b31303a41a3fa.txt
+  selected:Ubuntu-font-1.0:78048b94bf2b43ed190ca58e89442dab600f552204e67814eabd8bf64b7aaaf5: THIRD_PARTY_LICENSES/78048b94bf2b43ed190ca58e89442dab600f552204e67814eabd8bf64b7aaaf5.txt
+
+equivalent 1.0.3
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/indexmap-rs/equivalent
+Exact upstream source archive: https://crates.io/api/v1/crates/equivalent/1.0.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f357b123c78ce8c6841603a33b43487a58c3c0cdc34432ea6bede30574809e9b.txt
+  selected:MIT:f357b123c78ce8c6841603a33b43487a58c3c0cdc34432ea6bede30574809e9b: THIRD_PARTY_LICENSES/f357b123c78ce8c6841603a33b43487a58c3c0cdc34432ea6bede30574809e9b.txt
+
+euclid 0.22.14
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Servo Project Developers
+Source: https://github.com/servo/euclid
+Exact upstream source archive: https://crates.io/api/v1/crates/euclid/0.22.14/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/6c43f7a1b539beabee91d647ecd892ae3d89727fbe6e530eb5c2593aee735d88.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/ac376212c2473fbdae78f116e3b0c7df5da093fc1d403a8249d640ce8bbd6037.txt
+  selected:MIT:ac376212c2473fbdae78f116e3b0c7df5da093fc1d403a8249d640ce8bbd6037: THIRD_PARTY_LICENSES/ac376212c2473fbdae78f116e3b0c7df5da093fc1d403a8249d640ce8bbd6037.txt
+
+fastrand 2.5.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Stjepan Glavina <stjepang@gmail.com>
+Source: https://github.com/smol-rs/fastrand
+Exact upstream source archive: https://crates.io/api/v1/crates/fastrand/2.5.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+fdeflate 0.3.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The image-rs Developers
+Source: https://github.com/image-rs/fdeflate
+Exact upstream source archive: https://crates.io/api/v1/crates/fdeflate/0.3.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa.txt
+  selected:MIT:2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa: THIRD_PARTY_LICENSES/2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa.txt
+
+fearless_simd 0.4.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Raph Levien <raph.levien@gmail.com>
+Source: https://github.com/linebender/fearless_simd
+Exact upstream source archive: https://crates.io/api/v1/crates/fearless_simd/0.4.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+  selected:MIT:833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+
+find-msvc-tools 0.1.15
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-lang/cc-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/find-msvc-tools/0.1.15/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+  selected:MIT:a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+
+flate2 1.1.10
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>; Josh Triplett <josh@joshtriplett.org>
+Source: https://github.com/rust-lang/flate2-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/flate2/1.1.10/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/50a020e1f6211c8562400414cd3690dc20b7c6faa3e21f89b285a972c5b02c15.txt
+  selected:MIT:50a020e1f6211c8562400414cd3690dc20b7c6faa3e21f89b285a972c5b02c15: THIRD_PARTY_LICENSES/50a020e1f6211c8562400414cd3690dc20b7c6faa3e21f89b285a972c5b02c15.txt
+
+fnv 1.0.7
+Declared: Apache-2.0  OR  MIT
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>
+Source: https://github.com/servo/rust-fnv
+Exact upstream source archive: https://crates.io/api/v1/crates/fnv/1.0.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/6b3677440c3951ef7c04b1fcabe65ef30a902da40cdbc05d01da98978c630651.txt
+  selected:MIT:6b3677440c3951ef7c04b1fcabe65ef30a902da40cdbc05d01da98978c630651: THIRD_PARTY_LICENSES/6b3677440c3951ef7c04b1fcabe65ef30a902da40cdbc05d01da98978c630651.txt
+
+foldhash 0.2.0
+Declared: Zlib
+Selected: Zlib
+Authors (upstream metadata): Orson Peters <orsonpeters@gmail.com>
+Source: https://github.com/orlp/foldhash
+Exact upstream source archive: https://crates.io/api/v1/crates/foldhash/0.2.0/download
+  LICENSE: THIRD_PARTY_LICENSES/ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac.txt
+  selected:Zlib:ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac: THIRD_PARTY_LICENSES/ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac.txt
+
+font-types 0.12.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/googlefonts/fontations
+Exact upstream source archive: https://crates.io/api/v1/crates/font-types/0.12.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/13597a1c9e8451bc8504990146e282dd768dfe324aae7289c237bf5537404c00.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+  selected:MIT:8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+
+generic-array 0.14.7
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Aaron Trent <novacrazy@gmail.com>; Bartłomiej Kamiński <fizyk20@gmail.com>
+Source: https://github.com/fizyk20/generic-array.git
+Exact upstream source archive: https://crates.io/api/v1/crates/generic-array/0.14.7/download
+  LICENSE: THIRD_PARTY_LICENSES/01d0f7de7fcfc4a6df01c315913198df4778481a21ee22ff2090bc4be294a51c.txt
+  selected:MIT:01d0f7de7fcfc4a6df01c315913198df4778481a21ee22ff2090bc4be294a51c: THIRD_PARTY_LICENSES/01d0f7de7fcfc4a6df01c315913198df4778481a21ee22ff2090bc4be294a51c.txt
+
+genesis-components 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+genesis-config 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+genesis-core 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+gethostname 1.1.0
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Sebastian Wiesner <sebastian@swsnr.de>
+Source: https://codeberg.org/swsnr/gethostname.rs.git
+Exact upstream source archive: https://crates.io/api/v1/crates/gethostname/1.1.0/download
+  LICENSE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  selected:Apache-2.0:df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+
+getrandom 0.3.4
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rand Project Developers
+Source: https://github.com/rust-random/getrandom
+Exact upstream source archive: https://crates.io/api/v1/crates/getrandom/0.3.4/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/0f4d6e87052e57f9780de39e641ba9049fa888009ee8ff1bb8cc355f67a32922.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27.txt
+  selected:MIT:95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27: THIRD_PARTY_LICENSES/95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27.txt
+
+getrandom 0.4.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rand Project Developers
+Source: https://github.com/rust-random/getrandom
+Exact upstream source archive: https://crates.io/api/v1/crates/getrandom/0.4.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/0f4d6e87052e57f9780de39e641ba9049fa888009ee8ff1bb8cc355f67a32922.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a155071f8b03845d9637dead4f8e95ca5be3f78948e068c1c2a8b811fa24ab4d.txt
+  selected:MIT:a155071f8b03845d9637dead4f8e95ca5be3f78948e068c1c2a8b811fa24ab4d: THIRD_PARTY_LICENSES/a155071f8b03845d9637dead4f8e95ca5be3f78948e068c1c2a8b811fa24ab4d.txt
+
+gilrs 0.11.2
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Arvamer <arvamer@gmail.com>
+Source: https://gitlab.com/gilrs-project/gilrs
+Exact upstream source archive: https://crates.io/api/v1/crates/gilrs/0.11.2/download
+  SDL_GameControllerDB/LICENSE: THIRD_PARTY_LICENSES/dcb8d655f452eb0227327022352bd2ddd99132d533d633d08d604111377b27d7.txt
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+gilrs-core 0.6.8
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Mateusz Sieczko <arvamer@gmail.com>
+Source: https://gitlab.com/gilrs-project/gilrs
+Exact upstream source archive: https://crates.io/api/v1/crates/gilrs-core/0.6.8/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+gimli 0.33.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/gimli-rs/gimli
+Exact upstream source archive: https://crates.io/api/v1/crates/gimli/0.33.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+glow 0.17.0
+Declared: MIT OR Apache-2.0 OR Zlib
+Selected: MIT
+Authors (upstream metadata): Dzmitry Malyshau <kvarkus@gmail.com>; Joshua Groves <josh@joshgroves.com>
+Source: https://github.com/grovesNL/glow
+Exact upstream source archive: https://crates.io/api/v1/crates/glow/0.17.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  LICENSE-ZLIB: THIRD_PARTY_LICENSES/74204128fbe838836d7d5c914a3b9204ac55dfa569737a7d587129eb97d6f73f.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+gpu-allocator 0.28.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Traverse Research <opensource@traverseresearch.nl>
+Source: https://github.com/Traverse-Research/gpu-allocator
+Exact upstream source archive: https://crates.io/api/v1/crates/gpu-allocator/0.28.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/fab99fbf46bdb7934e97a3db1df5bfe9ae130a4981c64d336dda8f6126c3e02d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/d8a8701bcf1314049b4c2037300d3e67723ffacf6678923b6a6ff56ff922f483.txt
+  selected:MIT:d8a8701bcf1314049b4c2037300d3e67723ffacf6678923b6a6ff56ff922f483: THIRD_PARTY_LICENSES/d8a8701bcf1314049b4c2037300d3e67723ffacf6678923b6a6ff56ff922f483.txt
+
+guillotiere 0.7.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Nicolas Silva <nical@fastmail.com>
+Source: https://github.com/nical/guillotiere
+Exact upstream source archive: https://crates.io/api/v1/crates/guillotiere/0.7.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/eb40467c5494e237c64552cc1008e57f42376d17e2060f282d752746af4610be.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/5ce05e8239e8a4ca75aca7c5048d31bd1fba2f2178d30609a230208f5b4296e1.txt
+  selected:MIT:5ce05e8239e8a4ca75aca7c5048d31bd1fba2f2178d30609a230208f5b4296e1: THIRD_PARTY_LICENSES/5ce05e8239e8a4ca75aca7c5048d31bd1fba2f2178d30609a230208f5b4296e1.txt
+
+half 2.7.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Kathryn Long <squeeself@gmail.com>
+Source: https://github.com/VoidStarKat/half-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/half/2.7.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+  selected:MIT:0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+
+harfrust 0.12.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/harfbuzz/harfrust
+Exact upstream source archive: https://crates.io/api/v1/crates/harfrust/0.12.0/download
+  LICENSE: THIRD_PARTY_LICENSES/ca42cbbfd9646a5f06227f92f3c51eba6fe092ce3e950669c5437b0e4d1e3ac0.txt
+  selected:MIT:ca42cbbfd9646a5f06227f92f3c51eba6fe092ce3e950669c5437b0e4d1e3ac0: THIRD_PARTY_LICENSES/ca42cbbfd9646a5f06227f92f3c51eba6fe092ce3e950669c5437b0e4d1e3ac0.txt
+
+hashbrown 0.16.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Amanieu d'Antras <amanieu@gmail.com>
+Source: https://github.com/rust-lang/hashbrown
+Exact upstream source archive: https://crates.io/api/v1/crates/hashbrown/0.16.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031.txt
+  selected:MIT:3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031: THIRD_PARTY_LICENSES/3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031.txt
+
+hashbrown 0.17.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-lang/hashbrown
+Exact upstream source archive: https://crates.io/api/v1/crates/hashbrown/0.17.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031.txt
+  selected:MIT:3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031: THIRD_PARTY_LICENSES/3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031.txt
+
+heck 0.5.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/withoutboats/heck
+Exact upstream source archive: https://crates.io/api/v1/crates/heck/0.5.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+indexmap 2.14.2
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/indexmap-rs/indexmap
+Exact upstream source archive: https://crates.io/api/v1/crates/indexmap/2.14.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e.txt
+  selected:MIT:db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e: THIRD_PARTY_LICENSES/db10758c4faa56a8223d541b86389dcc10fb0a1fead78e82468f85c74e940b1e.txt
+
+inotify 0.11.5
+Declared: ISC
+Selected: ISC
+Authors (upstream metadata): 
+Source: https://github.com/hannobraun/inotify-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/inotify/0.11.5/download
+  LICENSE: THIRD_PARTY_LICENSES/3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d.txt
+  selected:ISC:3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d: THIRD_PARTY_LICENSES/3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d.txt
+
+inotify-sys 0.1.8
+Declared: ISC
+Selected: ISC
+Authors (upstream metadata): Hanno Braun <hb@hannobraun.de>
+Source: https://github.com/hannobraun/inotify-sys
+Exact upstream source archive: https://crates.io/api/v1/crates/inotify-sys/0.1.8/download
+  LICENSE: THIRD_PARTY_LICENSES/3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d.txt
+  selected:ISC:3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d: THIRD_PARTY_LICENSES/3d8a55b1e6b7ca0a2cd0f8b0d058b87532994eb6c2a2f6617847e775c5bb815d.txt
+
+is_terminal_polyfill 1.70.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/polyfill-rs/is_terminal_polyfill
+Exact upstream source archive: https://crates.io/api/v1/crates/is_terminal_polyfill/1.70.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+itertools 0.15.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): bluss
+Source: https://github.com/rust-itertools/itertools
+Exact upstream source archive: https://crates.io/api/v1/crates/itertools/0.15.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f.txt
+  selected:MIT:702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f: THIRD_PARTY_LICENSES/702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f.txt
+
+itoa 1.0.18
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/itoa
+Exact upstream source archive: https://crates.io/api/v1/crates/itoa/1.0.18/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+jgenesis-common 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+jgenesis-proc-macros 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+khronos-egl 6.0.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Sean Kerr <sean@metatomic.io>; Timothée Haudebourg <author@haudebourg.net>
+Source: https://github.com/timothee-haudebourg/khronos-egl
+Exact upstream source archive: https://crates.io/api/v1/crates/khronos-egl/6.0.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+kurbo 0.13.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/kurbo
+Exact upstream source archive: https://crates.io/api/v1/crates/kurbo/0.13.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+  selected:MIT:833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+
+libc 0.2.191
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/rust-lang/libc
+Exact upstream source archive: https://crates.io/api/v1/crates/libc/0.2.191/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/513e8a66d627738f3e98ac04648bd6332b6826178bcbe1d64e4799f168b21220.txt
+  selected:MIT:513e8a66d627738f3e98ac04648bd6332b6826178bcbe1d64e4799f168b21220: THIRD_PARTY_LICENSES/513e8a66d627738f3e98ac04648bd6332b6826178bcbe1d64e4799f168b21220.txt
+
+libloading 0.8.9
+Declared: ISC
+Selected: ISC
+Authors (upstream metadata): Simonas Kazlauskas <libloading@kazlauskas.me>
+Source: https://github.com/nagisa/rust_libloading/
+Exact upstream source archive: https://crates.io/api/v1/crates/libloading/0.8.9/download
+  LICENSE: THIRD_PARTY_LICENSES/7ac78a44734b49aed895ef7a9704a20d3dfa7d1e13fb312668b4684cc1745100.txt
+  selected:ISC:7ac78a44734b49aed895ef7a9704a20d3dfa7d1e13fb312668b4684cc1745100: THIRD_PARTY_LICENSES/7ac78a44734b49aed895ef7a9704a20d3dfa7d1e13fb312668b4684cc1745100.txt
+
+libm 0.2.16
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>; Amanieu d'Antras <amanieu@gmail.com>; Jorge Aparicio <japaricious@gmail.com>; Trevor Gross <tg@trevorgross.com>
+Source: https://github.com/rust-lang/compiler-builtins
+Exact upstream source archive: https://crates.io/api/v1/crates/libm/0.2.16/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/784cb42e3a8cab0c54945392875f122d96aa74300be708da552b1b546b0a194d.txt
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+libudev-sys 0.1.4
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): David Cuddeback <david.cuddeback@gmail.com>
+Source: https://github.com/dcuddeback/libudev-sys
+Exact upstream source archive: https://crates.io/api/v1/crates/libudev-sys/0.1.4/download
+  LICENSE: THIRD_PARTY_LICENSES/dc1e6f2d5c8c7d116d83dec241e04b9d9a16ef5860d5e825347166fded431cfc.txt
+  selected:MIT:dc1e6f2d5c8c7d116d83dec241e04b9d9a16ef5860d5e825347166fded431cfc: THIRD_PARTY_LICENSES/dc1e6f2d5c8c7d116d83dec241e04b9d9a16ef5860d5e825347166fded431cfc.txt
+
+linebender_resource_handle 0.1.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/raw_resource_handle
+Exact upstream source archive: https://crates.io/api/v1/crates/linebender_resource_handle/0.1.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+  selected:MIT:0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1: THIRD_PARTY_LICENSES/0f91f74d4a5da97ef26ed988affccdf30757cc0fec5483d10f1da34afdd9dda1.txt
+
+linux-raw-sys 0.12.1
+Declared: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Dan Gohman <dev@sunfishcode.online>
+Source: https://github.com/sunfishcode/linux-raw-sys
+Exact upstream source archive: https://crates.io/api/v1/crates/linux-raw-sys/0.12.1/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/a189452bdfdbbbd8a961dd09e7c0de0ca51e9e4bb8d83ae1be6bcf5959256b65.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-Apache-2.0_WITH_LLVM-exception: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+linux-raw-sys 0.4.15
+Declared: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Dan Gohman <dev@sunfishcode.online>
+Source: https://github.com/sunfishcode/linux-raw-sys
+Exact upstream source archive: https://crates.io/api/v1/crates/linux-raw-sys/0.4.15/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/a189452bdfdbbbd8a961dd09e7c0de0ca51e9e4bb8d83ae1be6bcf5959256b65.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-Apache-2.0_WITH_LLVM-exception: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+litrs 1.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Lukas Kalbertodt <lukas.kalbertodt@gmail.com>
+Source: https://github.com/LukasKalbertodt/litrs
+Exact upstream source archive: https://crates.io/api/v1/crates/litrs/1.0.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/92864253f42e7946b7a096b4258b2209d2bab53cd814aba8058b69d51cd337d6.txt
+  selected:MIT:92864253f42e7946b7a096b4258b2209d2bab53cd814aba8058b69d51cd337d6: THIRD_PARTY_LICENSES/92864253f42e7946b7a096b4258b2209d2bab53cd814aba8058b69d51cd337d6.txt
+
+lock_api 0.4.14
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Amanieu d'Antras <amanieu@gmail.com>
+Source: https://github.com/Amanieu/parking_lot
+Exact upstream source archive: https://crates.io/api/v1/crates/lock_api/0.4.14/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+  selected:MIT:088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+
+log 0.4.34
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-lang/log
+Exact upstream source archive: https://crates.io/api/v1/crates/log/0.4.34/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+memchr 2.8.3
+Declared: Unlicense OR MIT
+Selected: MIT
+Authors (upstream metadata): Andrew Gallant <jamslam@gmail.com>; bluss
+Source: https://github.com/BurntSushi/memchr
+Exact upstream source archive: https://crates.io/api/v1/crates/memchr/2.8.3/download
+  COPYING: THIRD_PARTY_LICENSES/03c7a18c5260f8532192f32180c7d289631a0dadb6dde8a49c40443143e73348.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
+  selected:MIT:cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
+
+memmap2 0.9.12
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Dan Burkert <dan@danburkert.com>; The Contributors; Yevhenii Reizner <razrfalcon@gmail.com>
+Source: https://github.com/RazrFalcon/memmap2-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/memmap2/0.9.12/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/49fc8e6c162328c085b10a68d851d198db9881ae9b2adb587e5c0a95057f079d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/10db25e3d2cee58c530fa037b3b2c5c721b881b34f897fb19a966d565ec621b9.txt
+  selected:MIT:10db25e3d2cee58c530fa037b3b2c5c721b881b34f897fb19a966d565ec621b9: THIRD_PARTY_LICENSES/10db25e3d2cee58c530fa037b3b2c5c721b881b34f897fb19a966d565ec621b9.txt
+
+miniz_oxide 0.8.9
+Declared: MIT OR Zlib OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Frommi <daniil.liferenko@gmail.com>; Rich Geldreich richgel99@gmail.com; oyvindln <oyvindln@users.noreply.github.com>
+Source: https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+Exact upstream source archive: https://crates.io/api/v1/crates/miniz_oxide/0.8.9/download
+  LICENSE: THIRD_PARTY_LICENSES/b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47.txt
+  LICENSE-APACHE.md: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT.md: THIRD_PARTY_LICENSES/1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8.txt
+  LICENSE-ZLIB.md: THIRD_PARTY_LICENSES/65c129048a095ce56c861c81c51fda826009d596f2a6def149804aa84c5ee78a.txt
+  selected:MIT:1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8: THIRD_PARTY_LICENSES/1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8.txt
+  selected:MIT:b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47: THIRD_PARTY_LICENSES/b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47.txt
+
+miniz_oxide 0.9.1
+Declared: MIT OR Zlib OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Frommi <daniil.liferenko@gmail.com>; Rich Geldreich richgel99@gmail.com; oyvindln <oyvindln@users.noreply.github.com>
+Source: https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
+Exact upstream source archive: https://crates.io/api/v1/crates/miniz_oxide/0.9.1/download
+  LICENSE: THIRD_PARTY_LICENSES/b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47.txt
+  LICENSE-APACHE.md: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT.md: THIRD_PARTY_LICENSES/1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8.txt
+  LICENSE-ZLIB.md: THIRD_PARTY_LICENSES/65c129048a095ce56c861c81c51fda826009d596f2a6def149804aa84c5ee78a.txt
+  selected:MIT:1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8: THIRD_PARTY_LICENSES/1cf2772bfe69e08c94176c2995e900db93cd49aeda06c6c5a7b813d7ccfb1de8.txt
+  selected:MIT:b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47: THIRD_PARTY_LICENSES/b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47.txt
+
+multiversion 0.9.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Caleb Zulawski <caleb.zulawski@gmail.com>
+Source: https://github.com/calebzulawski/multiversion
+Exact upstream source archive: https://crates.io/api/v1/crates/multiversion/0.9.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da.txt
+  selected:MIT:7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da: THIRD_PARTY_LICENSES/7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da.txt
+
+multiversion-macros 0.9.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Caleb Zulawski <caleb.zulawski@gmail.com>
+Source: https://github.com/calebzulawski/multiversion
+Exact upstream source archive: https://crates.io/api/v1/crates/multiversion-macros/0.9.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da.txt
+  selected:MIT:7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da: THIRD_PARTY_LICENSES/7cb127e08ca2659f6aa8ed58196b392fc52559e9f39f7bda9acbe780d8a322da.txt
+
+naga 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/naga/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+naga-types 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/naga-types/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+nix 0.31.3
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/nix-rust/nix
+Exact upstream source archive: https://crates.io/api/v1/crates/nix/0.31.3/download
+  LICENSE: THIRD_PARTY_LICENSES/891a6cc7cb4e7b453d93208233da2acbe4d32753112297937ef1191e5641d1b2.txt
+  selected:MIT:891a6cc7cb4e7b453d93208233da2acbe4d32753112297937ef1191e5641d1b2: THIRD_PARTY_LICENSES/891a6cc7cb4e7b453d93208233da2acbe4d32753112297937ef1191e5641d1b2.txt
+
+nohash-hasher 0.2.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Parity Technologies <admin@parity.io>
+Source: https://github.com/paritytech/nohash-hasher
+Exact upstream source archive: https://crates.io/api/v1/crates/nohash-hasher/0.2.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/3c4e976443f4668282a89550b334d5ccc6e8c575036dbbf9a17396d5d91e362b.txt
+  selected:MIT:3c4e976443f4668282a89550b334d5ccc6e8c575036dbbf9a17396d5d91e362b: THIRD_PARTY_LICENSES/3c4e976443f4668282a89550b334d5ccc6e8c575036dbbf9a17396d5d91e362b.txt
+
+num 0.4.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num
+Exact upstream source archive: https://crates.io/api/v1/crates/num/0.4.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-bigint 0.4.8
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-bigint
+Exact upstream source archive: https://crates.io/api/v1/crates/num-bigint/0.4.8/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-complex 0.4.6
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-complex
+Exact upstream source archive: https://crates.io/api/v1/crates/num-complex/0.4.6/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-conv 0.2.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Pratt <jacob@jhpratt.dev>
+Source: https://github.com/jhpratt/num-conv
+Exact upstream source archive: https://crates.io/api/v1/crates/num-conv/0.2.2/download
+  LICENSE-Apache: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/89de92eea89956485e1478647d4938ab2462caa87fecb0a3f6462e6a1eca76f3.txt
+  selected:MIT:89de92eea89956485e1478647d4938ab2462caa87fecb0a3f6462e6a1eca76f3: THIRD_PARTY_LICENSES/89de92eea89956485e1478647d4938ab2462caa87fecb0a3f6462e6a1eca76f3.txt
+
+num-integer 0.1.47
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-integer
+Exact upstream source archive: https://crates.io/api/v1/crates/num-integer/0.1.47/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-iter 0.1.46
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-iter
+Exact upstream source archive: https://crates.io/api/v1/crates/num-iter/0.1.46/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-rational 0.4.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-rational
+Exact upstream source archive: https://crates.io/api/v1/crates/num-rational/0.4.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+num-traits 0.2.19
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-num/num-traits
+Exact upstream source archive: https://crates.io/api/v1/crates/num-traits/0.2.19/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+once_cell 1.21.4
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Aleksey Kladov <aleksey.kladov@gmail.com>
+Source: https://github.com/matklad/once_cell
+Exact upstream source archive: https://crates.io/api/v1/crates/once_cell/1.21.4/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+option-ext 0.2.0
+Declared: MPL-2.0
+Selected: MPL-2.0
+Authors (upstream metadata): Simon Ochsenreither <simon@ochsenreither.de>
+Source: https://github.com/soc/option-ext.git
+Exact upstream source archive: https://crates.io/api/v1/crates/option-ext/0.2.0/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663.txt
+  selected:MPL-2.0:9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663: THIRD_PARTY_LICENSES/9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663.txt
+
+ordered-float 5.5.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Jonathan Reem <jonathan.reem@gmail.com>; Matt Brubeck <mbrubeck@limpet.net>
+Source: https://github.com/reem/rust-ordered-float
+Exact upstream source archive: https://crates.io/api/v1/crates/ordered-float/5.5.0/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/58bc3b00f8e1db7666f41707ea18db02026801150f5e39518cd3261d039fb4ed.txt
+  selected:MIT:58bc3b00f8e1db7666f41707ea18db02026801150f5e39518cd3261d039fb4ed: THIRD_PARTY_LICENSES/58bc3b00f8e1db7666f41707ea18db02026801150f5e39518cd3261d039fb4ed.txt
+
+owned_ttf_parser 0.25.1
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Alex Butler <alexheretic@gmail.com>
+Source: https://github.com/alexheretic/owned-ttf-parser
+Exact upstream source archive: https://crates.io/api/v1/crates/owned_ttf_parser/0.25.1/download
+  LICENSE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+parking_lot 0.12.5
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Amanieu d'Antras <amanieu@gmail.com>
+Source: https://github.com/Amanieu/parking_lot
+Exact upstream source archive: https://crates.io/api/v1/crates/parking_lot/0.12.5/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+  selected:MIT:088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+
+parking_lot_core 0.9.12
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Amanieu d'Antras <amanieu@gmail.com>
+Source: https://github.com/Amanieu/parking_lot
+Exact upstream source archive: https://crates.io/api/v1/crates/parking_lot_core/0.9.12/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+  selected:MIT:088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51: THIRD_PARTY_LICENSES/088c7473519a16b20dea9f1f5f31c8d7a41cea0cb22f304f89b1ad47a9173d51.txt
+
+peniko 0.6.1
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/peniko
+Exact upstream source archive: https://crates.io/api/v1/crates/peniko/0.6.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/52c476f7d4c69be8199710b1e5d88df266a98fb0d7899764dbe98f197ef025d1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+  selected:MIT:833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+
+percent-encoding 2.3.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The rust-url developers
+Source: https://github.com/servo/rust-url/
+Exact upstream source archive: https://crates.io/api/v1/crates/percent-encoding/2.3.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2912fb7ceba860d657ab6546c66659f62a4e1e25f69331e57dc58f3bf89bebc2.txt
+  selected:MIT:2912fb7ceba860d657ab6546c66659f62a4e1e25f69331e57dc58f3bf89bebc2: THIRD_PARTY_LICENSES/2912fb7ceba860d657ab6546c66659f62a4e1e25f69331e57dc58f3bf89bebc2.txt
+
+pin-project-lite 0.2.17
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/taiki-e/pin-project-lite
+Exact upstream source archive: https://crates.io/api/v1/crates/pin-project-lite/0.2.17/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+pkg-config 0.3.34
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>
+Source: https://github.com/rust-lang/pkg-config-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/pkg-config/0.3.34/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+  selected:MIT:a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+
+png 0.18.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The image-rs Developers
+Source: https://github.com/image-rs/image-png
+Exact upstream source archive: https://crates.io/api/v1/crates/png/0.18.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/d78c668415c510e75141bd8d27e68ccbe005adbdcbaa8fd813146a0f7ce6d6ea.txt
+  selected:MIT:d78c668415c510e75141bd8d27e68ccbe005adbdcbaa8fd813146a0f7ce6d6ea: THIRD_PARTY_LICENSES/d78c668415c510e75141bd8d27e68ccbe005adbdcbaa8fd813146a0f7ce6d6ea.txt
+
+polling 3.11.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): John Nunley <dev@notgull.net>; Stjepan Glavina <stjepang@gmail.com>
+Source: https://github.com/smol-rs/polling
+Exact upstream source archive: https://crates.io/api/v1/crates/polling/3.11.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+pollster 0.4.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Joshua Barretto <joshua.s.barretto@gmail.com>
+Source: https://github.com/zesterer/pollster
+Exact upstream source archive: https://crates.io/api/v1/crates/pollster/0.4.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f8578fd312903a9c037f83811297ed9da2775df6d3adf3fa0ddf56e9e79f8c8b.txt
+  selected:MIT:f8578fd312903a9c037f83811297ed9da2775df6d3adf3fa0ddf56e9e79f8c8b: THIRD_PARTY_LICENSES/f8578fd312903a9c037f83811297ed9da2775df6d3adf3fa0ddf56e9e79f8c8b.txt
+
+polycool 0.4.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/kurbo
+Exact upstream source archive: https://crates.io/api/v1/crates/polycool/0.4.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+  selected:MIT:833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c: THIRD_PARTY_LICENSES/833e6e8f07f4f73708e59c75437651a41622918967f2bb212639a23f8539949c.txt
+
+powerfmt 0.2.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Pratt <jacob@jhpratt.dev>
+Source: https://github.com/jhpratt/powerfmt
+Exact upstream source archive: https://crates.io/api/v1/crates/powerfmt/0.2.1/download
+  LICENSE-Apache: THIRD_PARTY_LICENSES/e61a2fa75b92de3cf2db120387c012623cf0a2e0e8c884421fcf09d18da9d108.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1dcf22916871b1332a1e2106b32b0230b7328b0bb073dc5528c0e256c5ace446.txt
+  selected:MIT:1dcf22916871b1332a1e2106b32b0230b7328b0bb073dc5528c0e256c5ace446: THIRD_PARTY_LICENSES/1dcf22916871b1332a1e2106b32b0230b7328b0bb073dc5528c0e256c5ace446.txt
+
+presser 0.3.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Embark <opensource@embark-studios.com>; Gray Olson <gray@grayolson.com
+Source: https://github.com/EmbarkStudios/presser
+Exact upstream source archive: https://crates.io/api/v1/crates/presser/0.3.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2748f4814aaadca27eebeba7db6375f96bd8d717643af3ab00f055dc8feab4df.txt
+  selected:MIT:2748f4814aaadca27eebeba7db6375f96bd8d717643af3ab00f055dc8feab4df: THIRD_PARTY_LICENSES/2748f4814aaadca27eebeba7db6375f96bd8d717643af3ab00f055dc8feab4df.txt
+
+proc-macro2 1.0.107
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>; David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/proc-macro2
+Exact upstream source archive: https://crates.io/api/v1/crates/proc-macro2/1.0.107/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+profiling 1.0.18
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Philip Degarmo <aclysma@gmail.com>
+Source: https://github.com/aclysma/profiling
+Exact upstream source archive: https://crates.io/api/v1/crates/profiling/1.0.18/download
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+quick-xml 0.41.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/tafia/quick-xml
+Exact upstream source archive: https://crates.io/api/v1/crates/quick-xml/0.41.0/download
+  LICENSE-MIT.md: THIRD_PARTY_LICENSES/c814bc16a3e15a218fb149692a4db79b25b8c20692c928f20c47779e945bb2bf.txt
+  selected:MIT:c814bc16a3e15a218fb149692a4db79b25b8c20692c928f20c47779e945bb2bf: THIRD_PARTY_LICENSES/c814bc16a3e15a218fb149692a4db79b25b8c20692c928f20c47779e945bb2bf.txt
+
+quote 1.0.47
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/quote
+Exact upstream source archive: https://crates.io/api/v1/crates/quote/1.0.47/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+rand 0.10.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rand Project Developers; The Rust Project Developers
+Source: https://github.com/rust-random/rand
+Exact upstream source archive: https://crates.io/api/v1/crates/rand/0.10.3/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/a1dd2f64261073f6a0d2228a4bdb8ede46b0c3849768ccc8288cc216a2afaf67.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/c4a839896bd2f5d3fad1eeccbce24e69bfe664159ca041dee4ab6d623b396845.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1b406d5e06c8a71ab34d2f03ce22d8d46dedd0274cd787c0108c88c663885dd7.txt
+  selected:MIT:1b406d5e06c8a71ab34d2f03ce22d8d46dedd0274cd787c0108c88c663885dd7: THIRD_PARTY_LICENSES/1b406d5e06c8a71ab34d2f03ce22d8d46dedd0274cd787c0108c88c663885dd7.txt
+
+rand_core 0.10.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Rand Project Developers
+Source: https://github.com/rust-random/rand_core
+Exact upstream source archive: https://crates.io/api/v1/crates/rand_core/0.10.1/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/8c0df1468cc3d3a47cfb85c5f9d817617a62923dfc5f8ca0f0f18a5ce48f3bc9.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/8c44c736f1639b9092a0389f8dc334fb81354aa96ff8cdce870f102ce24180c6.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/568b99faec524b206ddd895f3c2ed02ba0df3cf00a8d3b880daa20544bcaf952.txt
+  selected:MIT:568b99faec524b206ddd895f3c2ed02ba0df3cf00a8d3b880daa20544bcaf952: THIRD_PARTY_LICENSES/568b99faec524b206ddd895f3c2ed02ba0df3cf00a8d3b880daa20544bcaf952.txt
+
+raw-window-handle 0.6.2
+Declared: MIT OR Apache-2.0 OR Zlib
+Selected: MIT
+Authors (upstream metadata): Osspial <osspial@gmail.com>
+Source: https://github.com/rust-windowing/raw-window-handle
+Exact upstream source archive: https://crates.io/api/v1/crates/raw-window-handle/0.6.2/download
+  LICENSE-APACHE.md: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT.md: THIRD_PARTY_LICENSES/8cf5c5600be6ad3a43c5b0475da5fa9fa16c0ca5cfa4271d9c05541cf63e804d.txt
+  LICENSE-ZLIB.md: THIRD_PARTY_LICENSES/c0706f693e1a82b4e0c98f5f0890569e2b4ddd66836278d811300b8b6d7a7e0f.txt
+  selected:MIT:8cf5c5600be6ad3a43c5b0475da5fa9fa16c0ca5cfa4271d9c05541cf63e804d: THIRD_PARTY_LICENSES/8cf5c5600be6ad3a43c5b0475da5fa9fa16c0ca5cfa4271d9c05541cf63e804d.txt
+
+read-fonts 0.41.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/googlefonts/fontations
+Exact upstream source archive: https://crates.io/api/v1/crates/read-fonts/0.41.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/13597a1c9e8451bc8504990146e282dd768dfe324aae7289c237bf5537404c00.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+  selected:MIT:8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+
+regalloc2 0.15.2
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): Chris Fallin <chris@cfallin.org>; Mozilla SpiderMonkey Developers
+Source: https://github.com/bytecodealliance/regalloc2
+Exact upstream source archive: https://crates.io/api/v1/crates/regalloc2/0.15.2/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+regex 1.13.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Andrew Gallant <jamslam@gmail.com>; The Rust Project Developers
+Source: https://github.com/rust-lang/regex
+Exact upstream source archive: https://crates.io/api/v1/crates/regex/1.13.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+regex-automata 0.4.18
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Andrew Gallant <jamslam@gmail.com>; The Rust Project Developers
+Source: https://github.com/rust-lang/regex
+Exact upstream source archive: https://crates.io/api/v1/crates/regex-automata/0.4.18/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+
+regex-syntax 0.8.11
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Andrew Gallant <jamslam@gmail.com>; The Rust Project Developers
+Source: https://github.com/rust-lang/regex
+Exact upstream source archive: https://crates.io/api/v1/crates/regex-syntax/0.8.11/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  selected:MIT:cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2: THIRD_PARTY_LICENSES/cad33df8f65bc780e2b389552a890756246758b5f0b57c76e6736eee38290de2.txt
+  src/unicode_tables/LICENSE-UNICODE: THIRD_PARTY_LICENSES/f70f00423b8f1e6726ab991d12347e6262653115a41e36f81b9fd22a17aecc6f.txt
+
+renderdoc-sys 1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Eyal Kalderon <ebkalderon@gmail.com>
+Source: https://github.com/ebkalderon/renderdoc-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/renderdoc-sys/1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/259413e75d338ea04f16e9e9a329db262ba4777229b543886dd9e07297237c72.txt
+  selected:MIT:259413e75d338ea04f16e9e9a329db262ba4777229b543886dd9e07297237c72: THIRD_PARTY_LICENSES/259413e75d338ea04f16e9e9a329db262ba4777229b543886dd9e07297237c72.txt
+
+rustc-hash 1.1.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-lang-nursery/rustc-hash
+Exact upstream source archive: https://crates.io/api/v1/crates/rustc-hash/1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+rustc-hash 2.1.3
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): The Rust Project Developers
+Source: https://github.com/rust-lang/rustc-hash
+Exact upstream source archive: https://crates.io/api/v1/crates/rustc-hash/2.1.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+rustix 0.38.44
+Declared: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+Source: https://github.com/bytecodealliance/rustix
+Exact upstream source archive: https://crates.io/api/v1/crates/rustix/0.38.44/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/32b27ed7447104c771cb448ab83fc01a93549cba1ddbb034338070316cdb8a76.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-Apache-2.0_WITH_LLVM-exception: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+rustix 1.1.5
+Declared: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+Source: https://github.com/bytecodealliance/rustix
+Exact upstream source archive: https://crates.io/api/v1/crates/rustix/1.1.5/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/32b27ed7447104c771cb448ab83fc01a93549cba1ddbb034338070316cdb8a76.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-Apache-2.0_WITH_LLVM-exception: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+rustversion 1.0.23
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/rustversion
+Exact upstream source archive: https://crates.io/api/v1/crates/rustversion/1.0.23/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+scoped-tls 1.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>
+Source: https://github.com/alexcrichton/scoped-tls
+Exact upstream source archive: https://crates.io/api/v1/crates/scoped-tls/1.0.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+  selected:MIT:a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c: THIRD_PARTY_LICENSES/a10cac40ec8970cbd3e5e968fd614766e0badc640c1d287270c85eca2610253c.txt
+
+scopeguard 1.2.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): bluss
+Source: https://github.com/bluss/scopeguard
+Exact upstream source archive: https://crates.io/api/v1/crates/scopeguard/1.2.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/61ddf0f020a7116c4a20d7e934fd3be00878a03f9bd5fd44c8ebb4e6148c5e5c.txt
+  selected:MIT:61ddf0f020a7116c4a20d7e934fd3be00878a03f9bd5fd44c8ebb4e6148c5e5c: THIRD_PARTY_LICENSES/61ddf0f020a7116c4a20d7e934fd3be00878a03f9bd5fd44c8ebb4e6148c5e5c.txt
+
+sctk-adwaita 0.10.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Poly <marynczak.bartlomiej@gmail.com>
+Source: https://github.com/PolyMeilex/sctk-adwaita
+Exact upstream source archive: https://crates.io/api/v1/crates/sctk-adwaita/0.10.1/download
+  LICENSE: THIRD_PARTY_LICENSES/771b0eef62366f1e11be556c93cee18c13fd8a3c86cf809e7a65493f2f9b5052.txt
+  selected:MIT:771b0eef62366f1e11be556c93cee18c13fd8a3c86cf809e7a65493f2f9b5052: THIRD_PARTY_LICENSES/771b0eef62366f1e11be556c93cee18c13fd8a3c86cf809e7a65493f2f9b5052.txt
+
+self_cell 1.3.0
+Declared: Apache-2.0 OR GPL-2.0-only
+Selected: Apache-2.0
+Authors (upstream metadata): Lukas Bergdoll <lukas.bergdoll@gmail.com>
+Source: https://github.com/Voultapher/self_cell
+Exact upstream source archive: https://crates.io/api/v1/crates/self_cell/1.3.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-GPLv2: THIRD_PARTY_LICENSES/e3ce6676b7a8ecfd551f6ef90c4163f4eb05b9a4efd7fce250f9bc42e0400362.txt
+  selected:Apache-2.0:df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+
+serde 1.0.229
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>; Erick Tryzelaar <erick.tryzelaar@gmail.com>
+Source: https://github.com/serde-rs/serde
+Exact upstream source archive: https://crates.io/api/v1/crates/serde/1.0.229/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+serde_core 1.0.229
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>; Erick Tryzelaar <erick.tryzelaar@gmail.com>
+Source: https://github.com/serde-rs/serde
+Exact upstream source archive: https://crates.io/api/v1/crates/serde_core/1.0.229/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+serde_derive 1.0.229
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>; Erick Tryzelaar <erick.tryzelaar@gmail.com>
+Source: https://github.com/serde-rs/serde
+Exact upstream source archive: https://crates.io/api/v1/crates/serde_derive/1.0.229/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+serde_json 1.0.154
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/serde-rs/json
+Exact upstream source archive: https://crates.io/api/v1/crates/serde_json/1.0.154/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+serde_spanned 1.1.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/serde_spanned/1.1.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+sha1 0.10.7
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/hashes
+Exact upstream source archive: https://crates.io/api/v1/crates/sha1/0.10.7/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28.txt
+  selected:MIT:137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28: THIRD_PARTY_LICENSES/137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28.txt
+
+sha2 0.10.9
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): RustCrypto Developers
+Source: https://github.com/RustCrypto/hashes
+Exact upstream source archive: https://crates.io/api/v1/crates/sha2/0.10.9/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28.txt
+  selected:MIT:137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28: THIRD_PARTY_LICENSES/137a3b52c771c802877af8e8be5fdf982a1fe2d5591f3b652d58e0cf181b4f28.txt
+
+shlex 2.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Adrian Taylor <adetaylor@chromium.org>; Alex Touchet <alextouchet@outlook.com>; Daniel Parks <dp+git@oxidized.org>; Fenhl <fenhl@fenhl.net>; Garrett Berg <googberg@gmail.com>; comex <comexk@gmail.com>
+Source: https://github.com/comex/rust-shlex
+Exact upstream source archive: https://crates.io/api/v1/crates/shlex/2.0.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/e584db15ea32351167d8d82100d5ddff07a3ee0cdfed6c4f7a9b5751f945b6c6.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/7e3ffd099afbdfe15724e6bfa997a92494b9fb3de8526de371fbaa70d0fce679.txt
+  selected:MIT:7e3ffd099afbdfe15724e6bfa997a92494b9fb3de8526de371fbaa70d0fce679: THIRD_PARTY_LICENSES/7e3ffd099afbdfe15724e6bfa997a92494b9fb3de8526de371fbaa70d0fce679.txt
+
+simd-adler32 0.3.10
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Marvin Countryman <me@maar.vin>
+Source: https://github.com/mcountryman/simd-adler32
+Exact upstream source archive: https://crates.io/api/v1/crates/simd-adler32/0.3.10/download
+  LICENSE.md: THIRD_PARTY_LICENSES/b6ec5f94d7eb6a1a2b1a267ad1769beca6d9f1d6776de2236dbf5f41f1a674d9.txt
+  selected:MIT:b6ec5f94d7eb6a1a2b1a267ad1769beca6d9f1d6776de2236dbf5f41f1a674d9: THIRD_PARTY_LICENSES/b6ec5f94d7eb6a1a2b1a267ad1769beca6d9f1d6776de2236dbf5f41f1a674d9.txt
+
+skrifa 0.44.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/googlefonts/fontations
+Exact upstream source archive: https://crates.io/api/v1/crates/skrifa/0.44.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/13597a1c9e8451bc8504990146e282dd768dfe324aae7289c237bf5537404c00.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+  selected:MIT:8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff: THIRD_PARTY_LICENSES/8d047f8ae49750a1b7d3122b589323309a25237cce891b9d67d1db0faaa0d7ff.txt
+
+slab 0.4.12
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Carl Lerche <me@carllerche.com>
+Source: https://github.com/tokio-rs/slab
+Exact upstream source archive: https://crates.io/api/v1/crates/slab/0.4.12/download
+  LICENSE: THIRD_PARTY_LICENSES/860a9422050b5395790896f597dfda13042baf3f1e13a8e99ae71ddc6c23d413.txt
+  selected:MIT:860a9422050b5395790896f597dfda13042baf3f1e13a8e99ae71ddc6c23d413: THIRD_PARTY_LICENSES/860a9422050b5395790896f597dfda13042baf3f1e13a8e99ae71ddc6c23d413.txt
+
+smallvec 1.16.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): The Servo Project Developers
+Source: https://github.com/servo/rust-smallvec
+Exact upstream source archive: https://crates.io/api/v1/crates/smallvec/1.16.3/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/af8fde930377cb0303b89273a05ec2ba349edca479bc672d09344f8613773ba8.txt
+  selected:MIT:af8fde930377cb0303b89273a05ec2ba349edca479bc672d09344f8613773ba8: THIRD_PARTY_LICENSES/af8fde930377cb0303b89273a05ec2ba349edca479bc672d09344f8613773ba8.txt
+
+smithay-client-toolkit 0.19.2
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Ashley Wulber <ashley@system76.com>; Elinor Berger <elinor@safaradeg.net>; i509VCB <mail@i509.me>
+Source: https://github.com/smithay/client-toolkit
+Exact upstream source archive: https://crates.io/api/v1/crates/smithay-client-toolkit/0.19.2/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060.txt
+  selected:MIT:cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060: THIRD_PARTY_LICENSES/cdde29b05f7e18bb42254559db16e3e6215295572558e2bcb14c9a51fea04060.txt
+
+smol_str 0.2.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Aleksey Kladov <aleksey.kladov@gmail.com>
+Source: https://github.com/rust-analyzer/smol_str
+Exact upstream source archive: https://crates.io/api/v1/crates/smol_str/0.2.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+spirv 0.4.0+sdk-1.4.341.0
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Lei Zhang <antiagainst@gmail.com>
+Source: https://github.com/gfx-rs/rspirv
+Exact upstream source archive: https://crates.io/api/v1/crates/spirv/0.4.0+sdk-1.4.341.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+static_assertions 1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Nikolai Vazquez
+Source: https://github.com/nvzqz/static-assertions-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/static_assertions/1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/b2b19ef480a5281834655162c4e9e6a3e8ee10651e6d156317e2995e4ee5af3f.txt
+  selected:MIT:b2b19ef480a5281834655162c4e9e6a3e8ee10651e6d156317e2995e4ee5af3f: THIRD_PARTY_LICENSES/b2b19ef480a5281834655162c4e9e6a3e8ee10651e6d156317e2995e4ee5af3f.txt
+
+strict-num 0.1.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Yevhenii Reizner <razrfalcon@gmail.com>
+Source: https://github.com/RazrFalcon/strict-num
+Exact upstream source archive: https://crates.io/api/v1/crates/strict-num/0.1.1/download
+  LICENSE: THIRD_PARTY_LICENSES/47c03ae3e23512a5753b86ec17ee7105a62fd0f9b0bc9283cb2e7495678d955d.txt
+  selected:MIT:47c03ae3e23512a5753b86ec17ee7105a62fd0f9b0bc9283cb2e7495678d955d: THIRD_PARTY_LICENSES/47c03ae3e23512a5753b86ec17ee7105a62fd0f9b0bc9283cb2e7495678d955d.txt
+
+strsim 0.11.1
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Danny Guo <danny@dannyguo.com>; maxbachmann <oss@maxbachmann.de>
+Source: https://github.com/rapidfuzz/strsim-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/strsim/0.11.1/download
+  LICENSE: THIRD_PARTY_LICENSES/e9bb0944fe365b35f8154f23f6d18b96334b331a991fb4d6aaf84b40d651daa6.txt
+  selected:MIT:e9bb0944fe365b35f8154f23f6d18b96334b331a991fb4d6aaf84b40d651daa6: THIRD_PARTY_LICENSES/e9bb0944fe365b35f8154f23f6d18b96334b331a991fb4d6aaf84b40d651daa6.txt
+
+syn 2.0.119
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/syn
+Exact upstream source archive: https://crates.io/api/v1/crates/syn/2.0.119/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+syn 3.0.9
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/syn
+Exact upstream source archive: https://crates.io/api/v1/crates/syn/3.0.9/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+target-lexicon 0.13.5
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): Dan Gohman <sunfish@mozilla.com>
+Source: https://github.com/bytecodealliance/target-lexicon
+Exact upstream source archive: https://crates.io/api/v1/crates/target-lexicon/0.13.5/download
+  LICENSE: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+  selected:Apache-2.0:5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d: THIRD_PARTY_LICENSES/5f5a3abaadbbcd9663d18c48d918a824266efc39fa98d9fcd10a59899636af9d.txt
+
+tempfile 3.27.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Ashley Mannix <ashleymannix@live.com.au>; Jason White <me@jasonwhite.io>; Steven Allen <steven@stebalien.com>; The Rust Project Developers
+Source: https://github.com/Stebalien/tempfile
+Exact upstream source archive: https://crates.io/api/v1/crates/tempfile/3.27.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/1f3035b0f379d004b20e6bbf50a6bf8aad6f608c8675d1f64ad242b65ea6cad6.txt
+  selected:MIT:1f3035b0f379d004b20e6bbf50a6bf8aad6f608c8675d1f64ad242b65ea6cad6: THIRD_PARTY_LICENSES/1f3035b0f379d004b20e6bbf50a6bf8aad6f608c8675d1f64ad242b65ea6cad6.txt
+
+thiserror 1.0.69
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/thiserror
+Exact upstream source archive: https://crates.io/api/v1/crates/thiserror/1.0.69/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+thiserror 2.0.21
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/thiserror
+Exact upstream source archive: https://crates.io/api/v1/crates/thiserror/2.0.21/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+thiserror-impl 1.0.69
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/thiserror
+Exact upstream source archive: https://crates.io/api/v1/crates/thiserror-impl/1.0.69/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+thiserror-impl 2.0.21
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/thiserror
+Exact upstream source archive: https://crates.io/api/v1/crates/thiserror-impl/2.0.21/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+ti-sn76489 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+time 0.3.55
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Pratt <open-source@jhpratt.dev>; Time contributors
+Source: https://github.com/time-rs/time
+Exact upstream source archive: https://crates.io/api/v1/crates/time/0.3.55/download
+  LICENSE-Apache: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
+  selected:MIT:5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
+
+time-core 0.1.9
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Pratt <open-source@jhpratt.dev>; Time contributors
+Source: https://github.com/time-rs/time
+Exact upstream source archive: https://crates.io/api/v1/crates/time-core/0.1.9/download
+  LICENSE-Apache: THIRD_PARTY_LICENSES/35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
+  selected:MIT:5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
+
+tiny-skia 0.11.4
+Declared: BSD-3-Clause
+Selected: BSD-3-Clause
+Authors (upstream metadata): Yevhenii Reizner <razrfalcon@gmail.com>
+Source: https://github.com/RazrFalcon/tiny-skia
+Exact upstream source archive: https://crates.io/api/v1/crates/tiny-skia/0.11.4/download
+  LICENSE: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
+  selected:BSD-3-Clause:36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
+
+tiny-skia-path 0.11.4
+Declared: BSD-3-Clause
+Selected: BSD-3-Clause
+Authors (upstream metadata): Yevhenii Reizner <razrfalcon@gmail.com>
+Source: https://github.com/RazrFalcon/tiny-skia/tree/master/path
+Exact upstream source archive: https://crates.io/api/v1/crates/tiny-skia-path/0.11.4/download
+  LICENSE: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
+  selected:BSD-3-Clause:36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
+
+tje-engine-core 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-engine-cranelift 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-engine-runtime 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-game 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-mem 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-native 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-native-platform 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-rom 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-session 0.2.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+toml 0.9.12+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml/0.9.12+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+toml 1.1.8+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml/1.1.8+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+toml_datetime 0.7.5+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml_datetime/0.7.5+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+toml_datetime 1.1.2+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml_datetime/1.1.2+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+toml_parser 1.1.5+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml_parser/1.1.5+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+toml_writer 1.1.3+spec-1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/toml-rs/toml
+Exact upstream source archive: https://crates.io/api/v1/crates/toml_writer/1.1.3+spec-1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/163ecece5738b027a4a02171ab49502b19b13d2d7438ba8834857b4dbdc98b97.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+  selected:MIT:98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2: THIRD_PARTY_LICENSES/98da7310f419f8c27905618cb43606cec5b7957e5f858da9a0aabbf5f28e89a2.txt
+
+tracing 0.1.44
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Eliza Weisman <eliza@buoyant.io>; Tokio Contributors <team@tokio.rs>
+Source: https://github.com/tokio-rs/tracing
+Exact upstream source archive: https://crates.io/api/v1/crates/tracing/0.1.44/download
+  LICENSE: THIRD_PARTY_LICENSES/300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102.txt
+  selected:MIT:300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102: THIRD_PARTY_LICENSES/300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102.txt
+
+tracing-core 0.1.36
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Tokio Contributors <team@tokio.rs>
+Source: https://github.com/tokio-rs/tracing
+Exact upstream source archive: https://crates.io/api/v1/crates/tracing-core/0.1.36/download
+  LICENSE: THIRD_PARTY_LICENSES/300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102.txt
+  selected:MIT:300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102: THIRD_PARTY_LICENSES/300e68b009616a9709dfd90b9b44f11a3dcd65626e93bd70032524a393fb1102.txt
+  selected:MIT:6032ed3eb5f508470b067833248cad8c9b3e6b876b8fd861b01539b39c086441: THIRD_PARTY_LICENSES/6032ed3eb5f508470b067833248cad8c9b3e6b876b8fd861b01539b39c086441.txt
+  src/spin/LICENSE: THIRD_PARTY_LICENSES/6032ed3eb5f508470b067833248cad8c9b3e6b876b8fd861b01539b39c086441.txt
+
+ttf-parser 0.25.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Caleb Maclennan <caleb@alerque.com>; Laurenz Stampfl <laurenz.stampfl@gmail.com>; Yevhenii Reizner <razrfalcon@gmail.com>; خالد حسني (Khaled Hosny) <khaled@aliftype.com>
+Source: https://github.com/harfbuzz/ttf-parser
+Exact upstream source archive: https://crates.io/api/v1/crates/ttf-parser/0.25.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2b672927679b471188c8112454678bc770ab73841f155961767e3cdd409b73b7.txt
+  selected:MIT:2b672927679b471188c8112454678bc770ab73841f155961767e3cdd409b73b7: THIRD_PARTY_LICENSES/2b672927679b471188c8112454678bc770ab73841f155961767e3cdd409b73b7.txt
+
+type-map 0.5.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Jacob Brown <kardeiz@gmail.com>
+Source: https://github.com/kardeiz/type-map
+Exact upstream source archive: https://crates.io/api/v1/crates/type-map/0.5.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/3ba6a48d11663fa00b6341c0efd881aff954796db57b8c3f9bf414ea627bf8aa.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/0436a1d47a032e944c2982d86451d0485e85278e078ed45204a288a8c76cca68.txt
+  selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
+
+typenum 1.20.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/paholg/typenum
+Exact upstream source archive: https://crates.io/api/v1/crates/typenum/1.20.1/download
+  LICENSE: THIRD_PARTY_LICENSES/2e7dabae3b72bca9521836c72972101f5847baf64f820ae1e583458170376b84.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/c1a4dfd10eca7a019eee557beef586676fd18a951edf7708157b8eb0239cb532.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/ba5f71d50d7f1095e306e417293a68f0541caf7ee27c775026bf1d1fa468868a.txt
+  selected:MIT:ba5f71d50d7f1095e306e417293a68f0541caf7ee27c775026bf1d1fa468868a: THIRD_PARTY_LICENSES/ba5f71d50d7f1095e306e417293a68f0541caf7ee27c775026bf1d1fa468868a.txt
+
+unicode-general-category 1.1.0
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): YesLogic Pty. Ltd. <info@yeslogic.com>
+Source: https://github.com/yeslogic/unicode-general-category
+Exact upstream source archive: https://crates.io/api/v1/crates/unicode-general-category/1.1.0/download
+  LICENSE: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+  selected:Apache-2.0:8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+
+unicode-ident 1.0.27
+Declared: (MIT OR Apache-2.0) AND Unicode-3.0
+Selected: MIT, Unicode-3.0
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/unicode-ident
+Exact upstream source archive: https://crates.io/api/v1/crates/unicode-ident/1.0.27/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  LICENSE-UNICODE: THIRD_PARTY_LICENSES/f0d4e1f11e19b88d277609cfafd6e03164bc2418acbd4c7fb4b2df80d58b17bf.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:Unicode-3.0:f0d4e1f11e19b88d277609cfafd6e03164bc2418acbd4c7fb4b2df80d58b17bf: THIRD_PARTY_LICENSES/f0d4e1f11e19b88d277609cfafd6e03164bc2418acbd4c7fb4b2df80d58b17bf.txt
+
+unicode-properties 0.1.4
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Charles Lew <crlf0710@gmail.com>; Manish Goregaokar <manishsmail@gmail.com>
+Source: https://github.com/unicode-rs/unicode-properties
+Exact upstream source archive: https://crates.io/api/v1/crates/unicode-properties/0.1.4/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/e01dcac31f25e7ea1b4199b0a8e0653253b6befad9c20655791972375dc1ab19.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+unicode-segmentation 1.13.3
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Manish Goregaokar <manishsmail@gmail.com>; kwantam <kwantam@gmail.com>
+Source: https://github.com/unicode-rs/unicode-segmentation
+Exact upstream source archive: https://crates.io/api/v1/crates/unicode-segmentation/1.13.3/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/e01dcac31f25e7ea1b4199b0a8e0653253b6befad9c20655791972375dc1ab19.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+unicode-width 0.2.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Manish Goregaokar <manishsmail@gmail.com>; kwantam <kwantam@gmail.com>
+Source: https://github.com/unicode-rs/unicode-width
+Exact upstream source archive: https://crates.io/api/v1/crates/unicode-width/0.2.2/download
+  COPYRIGHT: THIRD_PARTY_LICENSES/e01dcac31f25e7ea1b4199b0a8e0653253b6befad9c20655791972375dc1ab19.txt
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+unty 0.0.4
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Victor Koenders <bincode@trang.ar>
+Source: https://github.com/bincode-org/unty
+Exact upstream source archive: https://crates.io/api/v1/crates/unty/0.0.4/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/27b28e7140658f4f85175aa0773bbdb910a848d19ea572466105d88bd34ed7d0.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/72792b65c39eadf7aa8a1db3997e745c72b9031d01083a9e074a6c0fcbdabc18.txt
+  selected:MIT:72792b65c39eadf7aa8a1db3997e745c72b9031d01083a9e074a6c0fcbdabc18: THIRD_PARTY_LICENSES/72792b65c39eadf7aa8a1db3997e745c72b9031d01083a9e074a6c0fcbdabc18.txt
+
+utf8parse 0.2.2
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Christian Duerr <contact@christianduerr.com>; Joe Wilm <joe@jwilm.com>
+Source: https://github.com/alacritty/vte
+Exact upstream source archive: https://crates.io/api/v1/crates/utf8parse/0.2.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/f02afe576324f54586a7e50b294e6688ed1ac9e22388fc884d6662cc42fb780a.txt
+  selected:MIT:f02afe576324f54586a7e50b294e6688ed1ac9e22388fc884d6662cc42fb780a: THIRD_PARTY_LICENSES/f02afe576324f54586a7e50b294e6688ed1ac9e22388fc884d6662cc42fb780a.txt
+
+uuid 1.29.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+Source: https://github.com/uuid-rs/uuid
+Exact upstream source archive: https://crates.io/api/v1/crates/uuid/1.29.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c94e9f5147bd4d5aaa6933e67c2782c015eb7fab492709c20287be3279555709.txt
+  selected:MIT:c94e9f5147bd4d5aaa6933e67c2782c015eb7fab492709c20287be3279555709: THIRD_PARTY_LICENSES/c94e9f5147bd4d5aaa6933e67c2782c015eb7fab492709c20287be3279555709.txt
+
+vec_map 0.8.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Aaron Liblong <>; Aaron Turon <aturon@mozilla.com>; Adolfo Ochagavía <>; Alex Crichton <alex@alexcrichton.com>; Alexis Beingessner <a.beingessner@gmail.com>; Andrew Paseltiner <apaseltiner@gmail.com>; Brian Anderson <>; Chase Southwood <csouth3@illinois.edu>; Corey Farwell <coref@rwell.org>; Eduard Burtescu <>; Felix S Klock II <>; Florian Wilkens <>; Félix Raimundo <>; Huon Wilson <dbau.pp@gmail.com>; Jorge Aparicio <japaricious@gmail.com>; Josh Branchaud <jbranchaud@gmail.com>; Manish Goregaokar <>; Markus Siemens <markus@m-siemens.de>; Nick Cameron <nrc@ncameron.org>; Niko Matsakis <>; Patrick Walton <pcwalton@mimiga.net>; Sean McArthur <sean.monstar@gmail.com>; Steven Fackler <>; Tibor Benke <>; Vadim Petrochenkov <>; tbu- <>
+Source: https://github.com/contain-rs/vec-map
+Exact upstream source archive: https://crates.io/api/v1/crates/vec_map/0.8.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+  selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e: THIRD_PARTY_LICENSES/8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e.txt
+
+vello_common 0.2.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/vello
+Exact upstream source archive: https://crates.io/api/v1/crates/vello_common/0.2.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8.txt
+  selected:MIT:e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8: THIRD_PARTY_LICENSES/e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8.txt
+
+vello_cpu 0.2.0
+Declared: Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/linebender/vello
+Exact upstream source archive: https://crates.io/api/v1/crates/vello_cpu/0.2.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8.txt
+  selected:MIT:e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8: THIRD_PARTY_LICENSES/e19fc889b3c4cd36467bf42affd5e9dc3dc2200459967b517a8179e54172d8b8.txt
+
+version_check 0.9.5
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Sergio Benitez <sb@sergio.bz>
+Source: https://github.com/SergioBenitez/version_check
+Exact upstream source archive: https://crates.io/api/v1/crates/version_check/0.9.5/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/2cf505d9b93c5a14ee3b24f0249fe7c10e2aef65900994a03bdf0e0ab755e6a2.txt
+  selected:MIT:2cf505d9b93c5a14ee3b24f0249fe7c10e2aef65900994a03bdf0e0ab755e6a2: THIRD_PARTY_LICENSES/2cf505d9b93c5a14ee3b24f0249fe7c10e2aef65900994a03bdf0e0ab755e6a2.txt
+
+virtue 0.0.18
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/bincode-org/virtue
+Exact upstream source archive: https://crates.io/api/v1/crates/virtue/0.0.18/download
+  LICENSE.md: THIRD_PARTY_LICENSES/004a9b59bc7f8a7e68430479db8478c1726399ffdc1d80e0f3f76b472bc03a51.txt
+  selected:MIT:004a9b59bc7f8a7e68430479db8478c1726399ffdc1d80e0f3f76b472bc03a51: THIRD_PARTY_LICENSES/004a9b59bc7f8a7e68430479db8478c1726399ffdc1d80e0f3f76b472bc03a51.txt
+
+wasmtime-internal-core 50.0.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Wasmtime Project Developers
+Source: see project source receipt
+Exact upstream source archive: https://crates.io/api/v1/crates/wasmtime-internal-core/50.0.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+wasmtime-internal-jit-icache-coherence 50.0.0
+Declared: Apache-2.0 WITH LLVM-exception
+Selected: Apache-2.0
+Authors (upstream metadata): The Wasmtime Project Developers
+Source: https://github.com/bytecodealliance/wasmtime
+Exact upstream source archive: https://crates.io/api/v1/crates/wasmtime-internal-jit-icache-coherence/50.0.0/download
+  selected:Apache-2.0:67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
+
+wayland-backend 0.3.17
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-backend/0.3.17/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-client 0.31.15
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-client/0.31.15/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-csd-frame 0.3.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Kirill Chibisov <contact@kchibisov.com>
+Source: https://github.com/rust-windowing/wayland-csd-frame
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-csd-frame/0.3.0/download
+  LICENSE: THIRD_PARTY_LICENSES/afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667.txt
+  selected:MIT:afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667: THIRD_PARTY_LICENSES/afd4a4c46a14f00cac13828968ac4f8379087361ff8f76bf67185497fe676667.txt
+
+wayland-cursor 0.31.14
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-cursor/0.31.14/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-protocols 0.32.13
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-protocols/0.32.13/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  protocols/COPYING: THIRD_PARTY_LICENSES/5040ad8d8c9060e7c6deaf71eba56e4ab31b918a5aca1be93655ef3c7259e0a6.txt
+  selected:MIT:5040ad8d8c9060e7c6deaf71eba56e4ab31b918a5aca1be93655ef3c7259e0a6: THIRD_PARTY_LICENSES/5040ad8d8c9060e7c6deaf71eba56e4ab31b918a5aca1be93655ef3c7259e0a6.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-protocols-plasma 0.3.12
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-protocols-plasma/0.3.12/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  plasma-wayland-protocols/COPYING.LIB: THIRD_PARTY_LICENSES/9ddb4ad191800c7097353dddf785d346efcdf96ca411a82692b5b6e5db8c2f5e.txt
+  selected:MIT:4969ffd158841a31763d8fa8d445af202f4cb780b10ddc3c0177725fa803153b: THIRD_PARTY_LICENSES/4969ffd158841a31763d8fa8d445af202f4cb780b10ddc3c0177725fa803153b.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-protocols-wlr 0.3.12
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-protocols-wlr/0.3.12/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-scanner 0.31.11
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-scanner/0.31.11/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+wayland-sys 0.31.11
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Elinor Berger <elinor@safaradeg.net>
+Source: https://github.com/smithay/wayland-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/wayland-sys/0.31.11/download
+  LICENSE.txt: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+  selected:MIT:e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa: THIRD_PARTY_LICENSES/e7c26e6bfeb84f1b8d16afe5d4859ca382393e8e252567cca6eef2cba2cc6efa.txt
+
+web-time 1.1.0
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/daxpedda/web-time
+Exact upstream source archive: https://crates.io/api/v1/crates/web-time/1.1.0/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/1373d44d5b6d5e50454cbdf364828ad3dba03b3677fa49d365fec3ff9f8360bc.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/e16e3f5ba01cd82641613b1f3ac52c5fc05cf0afc50d559ae9b0314c44ae630e.txt
+  selected:MIT:e16e3f5ba01cd82641613b1f3ac52c5fc05cf0afc50d559ae9b0314c44ae630e: THIRD_PARTY_LICENSES/e16e3f5ba01cd82641613b1f3ac52c5fc05cf0afc50d559ae9b0314c44ae630e.txt
+
+wgpu 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+wgpu-core 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu-core/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+wgpu-core-deps-windows-linux-android 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu-core-deps-windows-linux-android/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+wgpu-hal 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu-hal/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+wgpu-naga-bridge 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu-naga-bridge/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+wgpu-types 30.0.1
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): gfx-rs developers
+Source: https://github.com/gfx-rs/wgpu
+Exact upstream source archive: https://crates.io/api/v1/crates/wgpu-types/30.0.1/download
+  LICENSE.APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE.MIT: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+  selected:MIT:a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f: THIRD_PARTY_LICENSES/a792a92ada8d866f7dcd8de169dfa4984a5bfa14507ec27041091fc035cc086f.txt
+
+winit 0.30.13
+Declared: Apache-2.0
+Selected: Apache-2.0
+Authors (upstream metadata): Pierre Krieger <pierre.krieger1708@gmail.com>; The winit contributors
+Source: https://github.com/rust-windowing/winit
+Exact upstream source archive: https://crates.io/api/v1/crates/winit/0.30.13/download
+  LICENSE: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+  selected:Apache-2.0:8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2: THIRD_PARTY_LICENSES/8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2.txt
+
+winnow 0.7.15
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/winnow-rs/winnow
+Exact upstream source archive: https://crates.io/api/v1/crates/winnow/0.7.15/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346.txt
+  selected:MIT:eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346: THIRD_PARTY_LICENSES/eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346.txt
+
+winnow 1.0.4
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/winnow-rs/winnow
+Exact upstream source archive: https://crates.io/api/v1/crates/winnow/1.0.4/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346.txt
+  selected:MIT:eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346: THIRD_PARTY_LICENSES/eac59ff2854bfad020844e16b3603012b20c3294cebc18b1d16c50075beb9346.txt
+
+x11-dl 2.21.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): AltF02 <contact@altf2.dev>; Erle Pereira <erle@erlepereira.com>; daggerbot <daggerbot@gmail.com>
+Source: https://github.com/AltF02/x11-rs.git
+Exact upstream source archive: https://crates.io/api/v1/crates/x11-dl/2.21.0/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+
+x11rb 0.13.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Eduardo Sánchez Muñoz <eduardosm-dev@e64.io>; Uli Schlachter <psychon@znc.in>; notgull <jtnunley01@gmail.com>
+Source: https://github.com/psychon/x11rb
+Exact upstream source archive: https://crates.io/api/v1/crates/x11rb/0.13.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7.txt
+  selected:MIT:97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7: THIRD_PARTY_LICENSES/97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7.txt
+
+x11rb-protocol 0.13.2
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): Eduardo Sánchez Muñoz <eduardosm-dev@e64.io>; Uli Schlachter <psychon@znc.in>; notgull <jtnunley01@gmail.com>
+Source: https://github.com/psychon/x11rb
+Exact upstream source archive: https://crates.io/api/v1/crates/x11rb-protocol/0.13.2/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5403361c7ada5bf31da3924d6e9cc65b1188d65955a142b165ae65a53709cfb1.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7.txt
+  selected:MIT:97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7: THIRD_PARTY_LICENSES/97864395474daa20e4ee7946787cce91eeab115d1fbec9d86e2ee0ea551448d7.txt
+
+xcursor 0.3.11
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Samuele Esposito
+Source: https://github.com/esposm03/xcursor-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/xcursor/0.3.11/download
+  LICENSE: THIRD_PARTY_LICENSES/65e560dbddbbc71daee11de6dbbf97a6484ed6148b01d4ee2612943529140b2e.txt
+  selected:MIT:65e560dbddbbc71daee11de6dbbf97a6484ed6148b01d4ee2612943529140b2e: THIRD_PARTY_LICENSES/65e560dbddbbc71daee11de6dbbf97a6484ed6148b01d4ee2612943529140b2e.txt
+
+xkbcommon-dl 0.4.2
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Francesca Frangipane <francesca@comfysoft.net>
+Source: https://github.com/rust-windowing/xkbcommon-dl
+Exact upstream source archive: https://crates.io/api/v1/crates/xkbcommon-dl/0.4.2/download
+  LICENSE: THIRD_PARTY_LICENSES/c31a4d689480325294e5fc8420b2a3de87f9c5cd6519282cac19dcf85d81e315.txt
+  selected:MIT:c31a4d689480325294e5fc8420b2a3de87f9c5cd6519282cac19dcf85d81e315: THIRD_PARTY_LICENSES/c31a4d689480325294e5fc8420b2a3de87f9c5cd6519282cac19dcf85d81e315.txt
+
+xkeysym 0.2.1
+Declared: MIT OR Apache-2.0 OR Zlib
+Selected: MIT
+Authors (upstream metadata): John Nunley <jtnunley01@gmail.com>
+Source: https://github.com/notgull/xkeysym
+Exact upstream source archive: https://crates.io/api/v1/crates/xkeysym/0.2.1/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/74596ee046ca7eb0774e9d5579c2f21c318afbe50d6bc04e237c5f2595af8a8e.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/663ed725d3a16c2a08f7f4895426f0fe2de71e23f0f116ffc18ff38266214c42.txt
+  LICENSE-ZLIB: THIRD_PARTY_LICENSES/1c4bd63a1cf6193c294e947f1e54b04f750f16b133137ed7d873af243be08f11.txt
+  selected:MIT:663ed725d3a16c2a08f7f4895426f0fe2de71e23f0f116ffc18ff38266214c42: THIRD_PARTY_LICENSES/663ed725d3a16c2a08f7f4895426f0fe2de71e23f0f116ffc18ff38266214c42.txt
+
+z80-emu 0.14.1
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: see project source receipt
+  selected:GPL-3.0-only:d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700: THIRD_PARTY_LICENSES/d5ca7ba2ca515ce7450b4b3891b850afa02006fb72eea22f237ec230e1800700.txt
+
+zerocopy 0.8.63
+Declared: BSD-2-Clause OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/google/zerocopy
+Exact upstream source archive: https://crates.io/api/v1/crates/zerocopy/0.8.63/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5b102e2f0d99408adfd2a9f073a9a2017c8a263f20b064b9ad2714d81396d793.txt
+  LICENSE-BSD: THIRD_PARTY_LICENSES/bf6c063a30083023baebd2761ce20768e7a204a15f56928840768f63f8e6e81c.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d.txt
+  selected:MIT:ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d: THIRD_PARTY_LICENSES/ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d.txt
+
+zerocopy-derive 0.8.63
+Declared: BSD-2-Clause OR Apache-2.0 OR MIT
+Selected: MIT
+Authors (upstream metadata): 
+Source: https://github.com/google/zerocopy
+Exact upstream source archive: https://crates.io/api/v1/crates/zerocopy-derive/0.8.63/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/5b102e2f0d99408adfd2a9f073a9a2017c8a263f20b064b9ad2714d81396d793.txt
+  LICENSE-BSD: THIRD_PARTY_LICENSES/bf6c063a30083023baebd2761ce20768e7a204a15f56928840768f63f8e6e81c.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d.txt
+  selected:MIT:ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d: THIRD_PARTY_LICENSES/ea2bff3fbcc9de31c09df1713e628e6ba47f6fac35512b9e9eaeaf7558bf483d.txt
+
+zip 6.0.0
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): Chris Hennick <hennickc@amazon.com>; Marli Frost <marli@frost.red>; Mathijs van de Nes <git@mathijs.vd-nes.nl>; Ryan Levick <ryan.levick@gmail.com>
+Source: https://github.com/zip-rs/zip2.git
+Exact upstream source archive: https://crates.io/api/v1/crates/zip/6.0.0/download
+  LICENSE: THIRD_PARTY_LICENSES/2ef8d82b10f28d9c2deb267b93dbdb4e4344960647a0b0584abb4ede86ba9cc4.txt
+  selected:MIT:2ef8d82b10f28d9c2deb267b93dbdb4e4344960647a0b0584abb4ede86ba9cc4: THIRD_PARTY_LICENSES/2ef8d82b10f28d9c2deb267b93dbdb4e4344960647a0b0584abb4ede86ba9cc4.txt
+
+zlib-rs 0.6.8
+Declared: Zlib
+Selected: Zlib
+Authors (upstream metadata): 
+Source: https://github.com/trifectatechfoundation/zlib-rs
+Exact upstream source archive: https://crates.io/api/v1/crates/zlib-rs/0.6.8/download
+  LICENSE: THIRD_PARTY_LICENSES/7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc.txt
+  selected:Zlib:7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc: THIRD_PARTY_LICENSES/7af23e143c8bcc8f6e1243c679ac5faf73bc2b8a3217ec18501e46a94861e6bc.txt
+
+zmij 1.0.23
+Declared: MIT
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/zmij
+Exact upstream source archive: https://crates.io/api/v1/crates/zmij/1.0.23/download
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+

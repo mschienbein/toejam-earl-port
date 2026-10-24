@@ -1,0 +1,79 @@
+# Software selections are GPL-3.0-compatible; see docs/RELEASING.md.
+# Prefer MIT when upstream offers an OR choice; AND obligations remain mandatory.
+accepted = [
+  "MIT", "Apache-2.0 WITH LLVM-exception", "Apache-2.0", "GPL-3.0-only",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+
+# These apply to unchanged font assets, not software relicensing under GPL.
+[epaint_default_fonts]
+accepted = ["Bitstream-Vera", "OFL-1.1", "Ubuntu-font-1.0"]
+
+# Less-common terms are accepted only for the reviewed packages that need them.
+[arrayref]
+accepted = ["BSD-2-Clause"]
+[foldhash]
+accepted = ["Zlib"]
+[inotify]
+accepted = ["ISC"]
+[inotify-sys]
+accepted = ["ISC"]
+[libloading]
+accepted = ["ISC"]
+[option-ext]
+accepted = ["MPL-2.0"]
+[tiny-skia]
+accepted = ["BSD-3-Clause"]
+[tiny-skia-path]
+accepted = ["BSD-3-Clause"]
+[unicode-ident]
+accepted = ["Unicode-3.0"]
+[zlib-rs]
+accepted = ["Zlib"]
+
+# The standalone upstream packages omit manifest licences. Their unchanged
+# upstream GPL text is verified by checksum, never inferred from a crate name.
+[dsp.clarify]
+license = "GPL-3.0-only"
+[[dsp.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[genesis-components.clarify]
+license = "GPL-3.0-only"
+[[genesis-components.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[genesis-config.clarify]
+license = "GPL-3.0-only"
+[[genesis-config.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[genesis-core.clarify]
+license = "GPL-3.0-only"
+[[genesis-core.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[jgenesis-common.clarify]
+license = "GPL-3.0-only"
+[[jgenesis-common.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[jgenesis-proc-macros.clarify]
+license = "GPL-3.0-only"
+[[jgenesis-proc-macros.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[ti-sn76489.clarify]
+license = "GPL-3.0-only"
+[[ti-sn76489.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+[z80-emu.clarify]
+license = "GPL-3.0-only"
+[[z80-emu.clarify.files]]
+path = "../../LICENSE"
+checksum = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+
+[slotmap]
+accepted = ["Zlib"]
