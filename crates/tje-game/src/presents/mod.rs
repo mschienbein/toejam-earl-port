@@ -233,6 +233,22 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
         function: item_frames::entity_update_level_item_visibility,
     },
+];
+
+/// Framed candidates still awaiting proof. The first six passed both revisions
+/// with the nested-original audit enabled and are now in TRANSLATIONS.
+pub static PENDING_FRAMES: &[crate::Translation] = &[];
+
+/// Complete candidate bodies held outside production dispatch until their
+/// dual-revision differential proofs pass. The opt-in lane harness may register
+/// these explicitly; frontends and Dispatcher::hybrid never consult this list.
+pub static PENDING: &[crate::Translation] = &[
+    // Review C RC-01: these sixteen TimeAware entries entered production after
+    // the e28a82e whole-corpus baseline without a corpus pass; the combined
+    // candidate corpus (base 3fe6d27) records failures for ten of them at REV 00
+    // replaying content-santa (VDP control mode, FF800F, from frame 1184). Held
+    // until the integrated bodies pass the whole committed corpus in both
+    // revisions; bodies and classes are unchanged.
     crate::Translation {
         id: ids::EAT_YUMMY_FOOD,
         function: items::eat_yummy_food,
@@ -297,16 +313,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
         function: hazard_frames::present_update_terrain_effects,
     },
-];
-
-/// Framed candidates still awaiting proof. The first six passed both revisions
-/// with the nested-original audit enabled and are now in TRANSLATIONS.
-pub static PENDING_FRAMES: &[crate::Translation] = &[];
-
-/// Complete candidate bodies held outside production dispatch until their
-/// dual-revision differential proofs pass. The opt-in lane harness may register
-/// these explicitly; frontends and Dispatcher::hybrid never consult this list.
-pub static PENDING: &[crate::Translation] = &[
     // Corpus REV00 cooperation frame12219: an extra original HBlank inside
     // expiry leaves VDP control_port.mode Read vs Rust Write (13 differences).
     // Await the timing schedule or a reviewed commutation projection; the
