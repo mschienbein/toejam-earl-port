@@ -730,6 +730,33 @@ caller return boundary, including count-zero/negative/display-off edge cases.
 Address-only return permission never pre-reads/substitutes the caller opcode:
 the actual RTS prefetch still occurs at its original bus phase.
 
+`Host::measure_original_clocked_fixture` is a separate, opt-in **measurement**,
+currently restricted to reference-only MoveDataToVRAM prepared entries. Supply
+an explicit finite `CallCeiling` per invocation, for example 16,000,000 ticks,
+512 frames and 32,000,000 reference opcode attempts. These are diagnostic
+failure ceilings, not game policy, a timing charge, or a termination promise.
+The caller must already be genuinely settled; the method shares the validated
+real-return frame/slot construction above and preserves actual devices, SR and
+input progression. It never runs a Rust candidate or changes an execution class.
+
+The record is explicitly `PreparedEntry`: no natural JSR/BSR is invented or
+counted. Actual CPU observer counters start before the first callee opcode and
+finish only after a newly executed, successful RTS with matching return PC, SP
+and exception depth. It retains main/handler attempts, IRQ entries, successful
+RTEs, ticks, master clocks and completed video frames. Zero fault attempts qualify
+those instruction attempts as retired instructions. `usage_to_rts` ends at RTS,
+before later IRQ recognition or quiescent return-edge drain; do not conflate it
+with a complete timed-runner scope. Faults, unfinished calls and exhausted
+ceilings produce no completed measurement. Existing counter history/pause state
+and all live trajectory/completion/watch state are restored on every Result path.
+
+A measurement grants no equivalence, receipt, translation promotion or larger
+production ceiling. Only after completed measurements in both revisions should
+the owner declare a reviewed literal operational ceiling with its receipt
+provenance and margin (for this campaign, twice the observed maximum, rounded UP
+to a million instructions/ticks and a hundred frames), then re-prove every
+ordinary and mandatory case under that policy. Generic defaults stay unchanged.
+
 Completion is platform authority, not a source-provided boolean. A lazy unique
 ledger identity, checked scope serial and actual monotonic region brand bind
 the invocation **before effects**. Only an actual completed RTS followed by

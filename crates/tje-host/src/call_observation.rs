@@ -19,7 +19,12 @@ pub struct CallCounters {
     pub completed_video_frames: u64,
 }
 impl CallCounters {
-    fn capture(counts: &HybridInstructionCounts, ticks: u64, clock: u64, frame: u64) -> Self {
+    pub(crate) fn capture(
+        counts: &HybridInstructionCounts,
+        ticks: u64,
+        clock: u64,
+        frame: u64,
+    ) -> Self {
         Self {
             main_thread_instructions: counts.main_thread,
             exception_handler_instructions: counts.exception_handler,
@@ -31,7 +36,7 @@ impl CallCounters {
             completed_video_frames: frame,
         }
     }
-    fn since(self, start: Self) -> Self {
+    pub(crate) fn since(self, start: Self) -> Self {
         Self {
             main_thread_instructions: self.main_thread_instructions
                 - start.main_thread_instructions,

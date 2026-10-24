@@ -3,11 +3,14 @@
 //! Bulk writers are Functional, not Atomic: immediate completion preserves their
 //! ordered transactions and stable ROM/RAM sources, but removes FIFO/DMA latency.
 //! Reset/exception paths are TimeAware and retain their distinct control-flow ABI.
+//! `timed` exposes instruction-phased candidates for private ClockedStrict proofs;
+//! legacy production entries remain unchanged until their cutover is approved.
 
 use crate::{Context, Result, execution::ExecutionClass};
 use tje_mem::ram;
 
 pub mod entries;
+pub mod timed;
 mod video;
 
 /// Canonical prepared-frame DMA for explicit private proof statics only.
@@ -240,8 +243,18 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
         function: crate::ids::MOVE_DATA_TO_VRAM,
         class: ExecutionClass::Functional,
         proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
-        operational_ceiling: None,
-        evidence: None,
+        // Actual original PreparedEntry zero-count maxima, both revisions:
+        // I=156,574, T=1,546,972, F=28. Double/round up; operational, not bounds.
+        operational_ceiling: Some(crate::execution::CallCeiling {
+            ticks: 4_000_000,
+            frames: 100,
+            reference_instructions: Some(1_000_000),
+        }),
+        evidence: Some(
+            "scratch/W0Platform/move-zero-cost-policy.json; completed original-only \
+             PreparedEntry REV02/REV00, exact 65536-word case, actual retired/IRQ \
+             counters to RTS; doubled rounded maxima, not source bounds",
+        ),
     },
     // vdp.s:117-147: row commands and stable-source words, no status observation.
     crate::execution::ExecutionContract {

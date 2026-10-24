@@ -13,6 +13,9 @@ use m68000_emu::BusInterface;
 
 const MAX_SETTLE_TICKS: u64 = 1_000_000;
 
+mod original_measurement;
+pub use original_measurement::OriginalFixtureMeasurement;
+
 /// Original progress made before fixture inputs may be written.
 ///
 /// `ticks` counts reference ticks, including IRQ recognition and bus/refresh
@@ -167,52 +170,7 @@ impl Host {
                 "clocked fixtures require exactly ClockedStrict and an RTS contract".into(),
             ));
         }
-        let caller_pc = self.cpu().pc();
-        let caller_prefetch = self.cpu().next_opcode();
-        if caller_pc & 1 != 0 || caller_pc == crate::abi::CALL_SENTINEL {
-            return Err(HostError::Metadata(
-                "clocked fixture caller is not a real even immutable-ROM return target".into(),
-            ));
-        }
-        // The existing debugger accessor requires a mutable borrow, but this
-        // validation only reads its raw words: no mirror, cheat or fallback.
-        let expected = self
-            .emulator
-            .hybrid_bus_mut()
-            .cartridge
-            .as_mut()
-            .and_then(|cartridge| {
-                cartridge
-                    .debug_rom_view()
-                    .get(caller_pc as usize / 2)
-                    .copied()
-            });
-        if expected != Some(caller_prefetch) {
-            return Err(HostError::Metadata(
-                "clocked fixture caller return is outside immutable ROM or has invalid prefetch"
-                    .into(),
-            ));
-        }
-        let saved_sp = self.cpu().stack_pointer();
-        let frame_bytes = u32::try_from(arguments.len())
-            .ok()
-            .and_then(|slots| slots.checked_add(1))
-            .and_then(|slots| slots.checked_mul(4))
-            .ok_or_else(|| {
-                HostError::Metadata("clocked fixture frame exceeds its representation".into())
-            })?;
-        let entry_sp = saved_sp
-            .checked_sub(frame_bytes)
-            .ok_or_else(|| HostError::Metadata("clocked fixture frame underflows".into()))?;
-        if saved_sp & 1 != 0
-            || (entry_sp & 0xffffff) < 0xe00000
-            || (saved_sp & 0xffffff) < 0xe00000
-            || (entry_sp & 0xffff) > (saved_sp & 0xffff)
-        {
-            return Err(HostError::Metadata(
-                "clocked fixture frame is outside its actual stack bank".into(),
-            ));
-        }
+        let (caller_pc, saved_sp, entry_sp) = self.real_fixture_caller(arguments)?;
         self.isolated_fixture(|host| {
             let mut sp = saved_sp;
             for &argument in arguments.iter().rev() {
@@ -343,13 +301,26 @@ impl Host {
     }
 
     pub(crate) fn tick_live_original(&mut self, inputs: &mut Inputs) -> Result<TickEffect> {
+        self.tick_live_original_counted(inputs, false)
+    }
+
+    fn tick_live_original_counted(
+        &mut self,
+        inputs: &mut Inputs,
+        force_counting: bool,
+    ) -> Result<TickEffect> {
         let pc = self.cpu().pc();
         let previous_line = self.emulator.hybrid_bus().vdp.scanline();
-        let observing_calls = self
-            .session_trace
-            .as_ref()
-            .is_some_and(|trace| trace.call_observer.is_some());
+        let observing_calls = force_counting
+            || self
+                .session_trace
+                .as_ref()
+                .is_some_and(|trace| trace.call_observer.is_some());
         let watch_before = self.begin_live_frame_observation()?;
+        let previous_counting = self
+            .cpu()
+            .hybrid_instruction_counts()
+            .is_some_and(|counts| counts.enabled());
         if observing_calls {
             self.emulator
                 .hybrid_parts()
@@ -361,7 +332,7 @@ impl Host {
             self.emulator
                 .hybrid_parts()
                 .0
-                .hybrid_set_instruction_counting(false);
+                .hybrid_set_instruction_counting(previous_counting);
         }
         let provenance = self.finish_live_frame_observation(watch_before);
         let effect = effect?;
