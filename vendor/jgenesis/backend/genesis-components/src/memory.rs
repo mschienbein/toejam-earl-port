@@ -19,6 +19,18 @@ pub struct Memory {
 }
 
 impl Memory {
+    /// TJE strict data-plane control view: retain audio RAM and cheat policy by
+    /// borrow, excluding only physical main RAM for a separately checked domain.
+    pub fn hybrid_control_without_main_ram(&self) -> impl Encode + '_ {
+        let Self { main_ram: _, audio_ram, ram_cheat_overrides } = self;
+        (audio_ram, ram_cheat_overrides)
+    }
+
+    /// Physical storage, not cheat-substituted logical reads. Inspection only.
+    pub fn hybrid_raw_main_ram(&self) -> &[u16] {
+        self.main_ram.as_ref()
+    }
+
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(config: &GenesisEmulatorConfig) -> Self {
@@ -94,5 +106,55 @@ impl Memory {
     #[must_use]
     pub fn debug_ram_view(&mut self) -> (&mut [u16], &mut [u8]) {
         (self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
+    }
+}
+
+#[cfg(test)]
+mod hybrid_control_tests {
+    use super::*;
+
+    fn control(memory: &Memory) -> Vec<u8> {
+        bincode::encode_to_vec(
+            memory.hybrid_control_without_main_ram(),
+            bincode::config::standard(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn control_view_keeps_audio_ram_and_cheats_but_not_physical_main_ram() {
+        let mut memory = Memory::new(&GenesisEmulatorConfig::default());
+        let before = bincode::encode_to_vec(&memory, bincode::config::standard()).unwrap();
+        let baseline = control(&memory);
+        assert_eq!(before, bincode::encode_to_vec(&memory, bincode::config::standard()).unwrap());
+        memory.write_main_ram_word(0xff0010, 0xabcd);
+        assert_eq!(control(&memory), baseline);
+        assert_eq!(memory.hybrid_raw_main_ram()[8], 0xabcd);
+        memory.write_audio_ram(0x17, 0x5a);
+        assert_ne!(control(&memory), baseline);
+        let audio = control(&memory);
+        memory.reload_config(&GenesisEmulatorConfig {
+            cheat_codes: vec![(0xff0010, 0x1234)],
+            ..GenesisEmulatorConfig::default()
+        });
+        assert_ne!(control(&memory), audio);
+        assert_eq!(memory.read_main_ram_word(0xff0010), 0x1234);
+        assert_eq!(memory.hybrid_raw_main_ram()[8], 0xabcd);
+    }
+
+    #[test]
+    fn encoding_and_raw_borrow_preserve_every_encoded_memory_byte() {
+        let mut memory = Memory::new(&GenesisEmulatorConfig {
+            cheat_codes: vec![(0xff0010, 0x1234)],
+            ..GenesisEmulatorConfig::default()
+        });
+        memory.write_main_ram_word(0xff0010, 0xabcd);
+        memory.write_audio_ram(3, 7);
+        let before = bincode::encode_to_vec(&memory, bincode::config::standard()).unwrap();
+        for _ in 0..4 {
+            assert!(!control(&memory).is_empty());
+            assert_eq!(memory.hybrid_raw_main_ram()[8], 0xabcd);
+        }
+        assert_eq!(before, bincode::encode_to_vec(&memory, bincode::config::standard()).unwrap());
     }
 }

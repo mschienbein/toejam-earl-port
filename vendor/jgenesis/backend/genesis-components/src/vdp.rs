@@ -574,6 +574,56 @@ pub struct Vdp {
 }
 
 impl Vdp {
+    /// TJE conservative control superset for data-only probe checks, by borrow.
+    /// Complete cross-language VDP equality remains a separate obligation.
+    /// FIFO stale words and InternalState data latches are deliberately retained:
+    /// this view may reject a valid data-only case, never silently widen it.
+    pub fn hybrid_control_view(&self) -> impl Encode + '_ {
+        let Self {
+            frame_buffer: _,
+            cram_dots: _,
+            vram: _,
+            cram: _,
+            vsram: _,
+            fifo,
+            dma_latency,
+            pending_fifo_writes,
+            timing_mode,
+            control_port,
+            state,
+            sprite_state: _,
+            registers,
+            debug_register,
+            latched_registers,
+            latched_h_scroll: _,
+            latched_full_screen_v_scroll: _,
+            cached_sprite_attributes: _,
+            latched_sprite_attributes: _,
+            bg_buffers: _,
+            sprite_buffers: _,
+            interlaced_sprite_buffers: _,
+            config,
+            color_tables,
+            vdp_event_times,
+            vdp_event_idx,
+        } = self;
+        (
+            fifo,
+            dma_latency,
+            pending_fifo_writes,
+            timing_mode,
+            control_port,
+            state,
+            registers,
+            debug_register,
+            latched_registers,
+            config,
+            color_tables,
+            vdp_event_times,
+            vdp_event_idx,
+        )
+    }
+
     /// TJE passive checkpoint. Exhaustive patterns make new state fields require
     /// an explicit decision here instead of silently weakening quiet-state checks.
     pub fn hybrid_checkpoint(&self) -> debug::HybridVdpCheckpoint {

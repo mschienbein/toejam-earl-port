@@ -56,7 +56,7 @@
       "upstream_path": "backend/genesis-components/src/lib.rs"
     },
     "backend/genesis-components/src/memory.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "bbbe21c3fa60b90efc502c1a55ef07249f8443ea",
       "upstream_path": "backend/genesis-components/src/memory.rs"
     },

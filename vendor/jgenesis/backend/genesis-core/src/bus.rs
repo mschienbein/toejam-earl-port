@@ -243,6 +243,69 @@ pub struct GenesisBus {
 }
 
 impl GenesisBus {
+    /// TJE strict data-plane control view. All bus fields except the VDP and
+    /// physical main RAM remain encoded, including diagnostic provenance.
+    /// Exhaustive binding makes a newly added state field a compile-time review.
+    pub(crate) fn hybrid_control_without_vdp_main_ram(&self) -> impl Encode + '_ {
+        let Self {
+            cartridge,
+            memory,
+            vdp: _,
+            psg,
+            ym2612,
+            input,
+            z80_bank,
+            z80_signals,
+            pending_writes,
+            cycles,
+            timing_mode,
+            open_bus,
+            m68k_opcode,
+            m68k_reset,
+            hybrid_writes,
+            hybrid_accesses,
+            timing_survey,
+            native_writes,
+            native_cpu_accesses,
+            native_ram_writes,
+            hybrid_cpu_accesses,
+            hybrid_exception_boundaries,
+            hybrid_dma_all_sources,
+            hybrid_functional,
+            hybrid_functional_violation,
+        } = self;
+        (
+            (
+                cartridge,
+                memory.hybrid_control_without_main_ram(),
+                psg,
+                ym2612,
+                input,
+                z80_bank,
+                z80_signals,
+                pending_writes,
+                cycles,
+                timing_mode,
+                open_bus,
+                m68k_opcode,
+                m68k_reset,
+            ),
+            (
+                hybrid_writes,
+                hybrid_accesses,
+                timing_survey,
+                native_writes,
+                native_cpu_accesses,
+                native_ram_writes,
+                hybrid_cpu_accesses,
+                hybrid_exception_boundaries,
+                hybrid_dma_all_sources,
+                hybrid_functional,
+                hybrid_functional_violation,
+            ),
+        )
+    }
+
     /// Snapshot actual scalar state by borrow. New fields force explicit review.
     pub fn hybrid_checkpoint(&self) -> HybridBusCheckpoint {
         let Self {
@@ -1232,5 +1295,86 @@ mod checkpoint_tests {
             assert!(bus.hybrid_checkpoint().cpu_halt);
         }
         assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod hybrid_control_tests {
+    use super::*;
+    use std::num::{NonZeroU32, NonZeroU64};
+
+    fn bus() -> GenesisBus {
+        GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default())
+    }
+
+    fn control(bus: &GenesisBus) -> Vec<u8> {
+        bincode::encode_to_vec(
+            bus.hybrid_control_without_vdp_main_ram(),
+            bincode::config::standard(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn every_included_bus_field_retains_its_control_and_observation_state() {
+        type Mutation = (&'static str, fn(&mut GenesisBus));
+        let mutations: &[Mutation] = &[
+            ("cartridge", |b| b.cartridge = Some(Cartridge::new(vec![0; 1024], None, None, &[]))),
+            ("audio_ram", |b| b.memory.write_audio_ram(0, 1)),
+            ("psg", |b| b.psg.write(0x91)),
+            ("ym", |b| b.ym2612.write_address_1(0x2a)),
+            ("input", |b| b.input.write_p1_data(0x42)),
+            ("z80_bank", |b| b.z80_bank.write_bit(true)),
+            ("busreq", |b| b.z80_signals.busreq = true),
+            ("reset", |b| b.z80_signals.reset = false),
+            ("pending_bytes", |b| b.pending_writes.byte.push((0xff0010, 7))),
+            ("pending_words", |b| b.pending_writes.word.push((0xff0010, 7))),
+            ("divider64", |b| b.cycles.m68k_divider = NonZeroU64::new(8).unwrap()),
+            ("divider32", |b| b.cycles.m68k_divider_u32 = NonZeroU32::new(8).unwrap()),
+            ("max_wait", |b| b.cycles.max_wait_cpu_cycles ^= 1),
+            ("wait", |b| b.cycles.m68k_wait_cpu_cycles ^= 1),
+            ("rounding", |b| b.cycles.m68k_wait_counter ^= 1),
+            ("m68k_clock", |b| b.cycles.m68k_mclk_cycles ^= 1),
+            ("z80_clock", |b| b.cycles.z80_mclk_cycles ^= 1),
+            ("ym_clock", |b| b.cycles.ym2612_mclk_cycles ^= 1),
+            ("ym_drain", |b| b.cycles.last_ym2612_drain_mclk ^= 1),
+            ("psg_clock", |b| b.cycles.psg_mclk_cycles ^= 1),
+            ("refresh", |b| b.cycles.m68k_refresh_counter ^= 1),
+            ("vdp_bus", |b| b.cycles.vdp_owns_bus = true),
+            ("z80_halt", |b| b.cycles.z80_halt = true),
+            ("timing_mode", |b| b.timing_mode = TimingMode::Pal),
+            ("open_bus", |b| b.open_bus ^= 1),
+            ("opcode", |b| b.m68k_opcode ^= 1),
+            ("m68k_reset", |b| b.m68k_reset = !b.m68k_reset),
+            ("hybrid_writes", |b| b.hybrid_writes = Some(Vec::new())),
+            ("hybrid_accesses", |b| b.hybrid_accesses = Some(Vec::new())),
+            ("survey", |b| b.timing_survey = Some(crate::timing_survey::TimingSurvey::default())),
+            ("native_writes", |b| b.native_writes = Some(Vec::new())),
+            ("native_cpu", |b| b.native_cpu_accesses = Some(Vec::new())),
+            ("native_ram", |b| b.native_ram_writes = Some(Vec::new())),
+            ("hybrid_cpu", |b| b.hybrid_cpu_accesses = Some(Vec::new())),
+            ("boundaries", |b| b.hybrid_exception_boundaries = Some(Vec::new())),
+            ("all_dma", |b| b.hybrid_dma_all_sources = true),
+            ("functional", |b| b.hybrid_functional = true),
+            ("violation", |b| b.hybrid_functional_violation = Some(7)),
+        ];
+        let baseline = control(&bus());
+        for &(name, mutate) in mutations {
+            let mut changed = bus();
+            mutate(&mut changed);
+            assert_ne!(baseline, control(&changed), "{name}");
+        }
+    }
+
+    #[test]
+    fn excluded_ram_and_vdp_still_require_their_separate_comparisons() {
+        let mut bus = bus();
+        let before = bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap();
+        let baseline = control(&bus);
+        assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
+        bus.memory.write_main_ram_word(0xff0010, 0xabcd);
+        bus.vdp.write_control(0x4000);
+        assert_eq!(baseline, control(&bus));
+        assert_ne!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
     }
 }

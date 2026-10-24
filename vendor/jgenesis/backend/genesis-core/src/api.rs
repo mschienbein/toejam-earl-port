@@ -53,6 +53,26 @@ pub struct GenesisEmulator {
 }
 
 impl GenesisEmulator {
+    /// TJE strict data-plane control encoding, by borrow. No machine clone,
+    /// normalization, queue flush, RAM rewrite or device advancement occurs.
+    /// Main RAM and the VDP have separate exact-domain/control/output checks.
+    pub fn hybrid_encode_non_vdp_main_ram_control(
+        &self,
+    ) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        let Self { m68k, z80, bus, timing_mode, audio_resampler, config } = self;
+        bincode::encode_to_vec(
+            (
+                m68k,
+                z80,
+                bus.hybrid_control_without_vdp_main_ram(),
+                timing_mode,
+                audio_resampler,
+                config,
+            ),
+            bincode::config::standard(),
+        )
+    }
+
     // TJE hybrid accessors: retain the upstream instruction/timing loop.
     pub fn hybrid_parts(&mut self) -> (&mut M68000, &mut GenesisBus) {
         (&mut self.m68k, &mut self.bus)
@@ -480,5 +500,58 @@ impl EmulatorTrait for GenesisEmulator {
         }
 
         SuggestedWindowSize { width, height, fallback_aspect_ratio: aspect_ratio.is_none() }
+    }
+}
+
+#[cfg(test)]
+mod hybrid_control_tests {
+    use super::*;
+
+    fn machine() -> GenesisEmulator {
+        let config = GenesisEmulatorConfig::default();
+        let timing_mode = TimingMode::Ntsc;
+        let m68k = M68000::builder()
+            .allow_tas_writes(false)
+            .name("Authored control fixture".into())
+            .build();
+        let z80 = Z80::new();
+        let bus = GenesisBus::new(timing_mode, None, &config);
+        let audio_resampler = GenesisAudioResampler::new(timing_mode, &config);
+        GenesisEmulator { m68k, z80, bus, timing_mode, audio_resampler, config }
+    }
+
+    #[test]
+    fn full_cpu_z80_resampler_config_and_bus_remain_in_control_encoding() {
+        type Mutation = (&'static str, fn(&mut GenesisEmulator));
+        let mutations: &[Mutation] = &[
+            ("cpu", |m| m.m68k.set_data_registers([1, 0, 0, 0, 0, 0, 0, 0])),
+            ("z80", |m| m.z80.set_pc(7)),
+            ("bus", |m| m.bus.open_bus ^= 1),
+            ("timing_mode", |m| m.timing_mode = TimingMode::Pal),
+            ("resampler", |m| m.audio_resampler.update_output_frequency(32000)),
+            ("config", |m| m.config.cheat_codes.push((0xff0010, 7))),
+        ];
+        let baseline = machine().hybrid_encode_non_vdp_main_ram_control().unwrap();
+        for &(name, mutate) in mutations {
+            let mut changed = machine();
+            mutate(&mut changed);
+            assert_ne!(
+                baseline,
+                changed.hybrid_encode_non_vdp_main_ram_control().unwrap(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn encoding_never_rewrites_state_and_excludes_only_explicit_data_planes() {
+        let mut machine = machine();
+        let before = bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap();
+        let baseline = machine.hybrid_encode_non_vdp_main_ram_control().unwrap();
+        assert_eq!(before, bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap());
+        machine.bus.memory.write_main_ram_word(0xff0010, 0xabcd);
+        machine.bus.vdp.write_control(0x4000);
+        assert_eq!(baseline, machine.hybrid_encode_non_vdp_main_ram_control().unwrap());
+        assert_ne!(before, bincode::encode_to_vec(&machine, bincode::config::standard()).unwrap());
     }
 }

@@ -786,3 +786,123 @@ mod checkpoint_tests {
         assert_eq!(before, bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap());
     }
 }
+
+#[cfg(test)]
+mod control_view_tests {
+    use super::*;
+    use crate::GenesisEmulatorConfigExt;
+    use genesis_config::GenesisEmulatorConfig;
+    use jgenesis_common::frontend::TimingMode;
+
+    fn vdp() -> Vdp {
+        Vdp::new(TimingMode::Ntsc, GenesisEmulatorConfig::default().to_vdp_config(false))
+    }
+
+    fn control(vdp: &Vdp) -> Vec<u8> {
+        bincode::encode_to_vec(vdp.hybrid_control_view(), bincode::config::standard()).unwrap()
+    }
+
+    #[test]
+    fn included_control_fields_and_conservative_data_latches_cannot_disappear() {
+        type Mutation = (&'static str, fn(&mut Vdp));
+        let mutations: &[Mutation] = &[
+            ("fifo", |v| v.fifo.push(v.control_port.new_fifo_entry(7, v.registers.vram_size))),
+            ("dma_latency", |v| v.dma_latency ^= 1),
+            ("pending_fifo", |v| {
+                v.pending_fifo_writes
+                    .push_back(v.control_port.new_fifo_entry(9, v.registers.vram_size))
+            }),
+            ("timing_mode", |v| v.timing_mode = TimingMode::Pal),
+            ("control_mode", |v| {
+                v.control_port.mode = if v.control_port.mode == DataPortMode::Read {
+                    DataPortMode::Write
+                } else {
+                    DataPortMode::Read
+                }
+            }),
+            ("location_bits", |v| v.control_port.location_bits ^= 1),
+            ("location", |v| {
+                v.control_port.location = if v.control_port.location == DataPortLocation::Vram {
+                    DataPortLocation::Cram
+                } else {
+                    DataPortLocation::Vram
+                }
+            }),
+            ("control_address", |v| v.control_port.control_address ^= 1),
+            ("data_address", |v| v.control_port.data_port_address ^= 1),
+            ("write_flag", |v| v.control_port.write_flag = ControlWriteFlag::Second),
+            ("dma_active", |v| v.control_port.dma_active = !v.control_port.dma_active),
+            ("v_irq", |v| v.state.v_interrupt_pending = !v.state.v_interrupt_pending),
+            ("h_irq", |v| v.state.h_interrupt_pending = !v.state.h_interrupt_pending),
+            ("v_irq_latch", |v| {
+                v.state.v_interrupt_enabled_latch = !v.state.v_interrupt_enabled_latch
+            }),
+            ("h_irq_latch", |v| {
+                v.state.h_interrupt_enabled_latch = !v.state.h_interrupt_enabled_latch
+            }),
+            ("h_irq_counter", |v| v.state.h_interrupt_counter ^= 1),
+            ("hv_latch", |v| v.state.latched_hv_counter = Some(7)),
+            ("border_forgotten", |v| v.state.v_border_forgotten = !v.state.v_border_forgotten),
+            ("top_border", |v| v.state.top_border ^= 1),
+            ("conservative_palette_data", |v| v.state.last_scroll_b_palettes[0] ^= 1),
+            ("scanline", |v| v.state.scanline ^= 1),
+            ("scanline_clock", |v| v.state.scanline_mclk_cycles ^= 1),
+            ("pixel", |v| v.state.pixel ^= 1),
+            ("vblank", |v| v.state.in_vblank = !v.state.in_vblank),
+            ("pending_dma_port", |v| v.state.pending_writes.push(vdp::PendingWrite::Control(7))),
+            ("display_pending", |v| {
+                v.state.display_enable_pending = !v.state.display_enable_pending
+            }),
+            ("read_wait", |v| v.state.data_port_read_wait = !v.state.data_port_read_wait),
+            ("conservative_fill_data", |v| v.state.vram_fill_data = Some(7)),
+            ("copy_slot", |v| v.state.vram_copy_odd_slot = !v.state.vram_copy_odd_slot),
+            ("interlaced", |v| v.state.interlaced_frame = !v.state.interlaced_frame),
+            ("odd_frame", |v| v.state.interlaced_odd = !v.state.interlaced_odd),
+            ("frame_resolution", |v| {
+                v.state.frame_h_resolution =
+                    if v.state.frame_h_resolution == vdp::HorizontalDisplaySize::ThirtyTwoCell {
+                        vdp::HorizontalDisplaySize::FortyCell
+                    } else {
+                        vdp::HorizontalDisplaySize::ThirtyTwoCell
+                    }
+            }),
+            ("registers", |v| v.registers.dma_length ^= 1),
+            ("debug_register", |v| {
+                v.debug_register.display_disabled = !v.debug_register.display_disabled
+            }),
+            ("latched_registers", |v| v.latched_registers.dma_length ^= 1),
+            ("config", |v| v.config.enforce_sprite_limits = !v.config.enforce_sprite_limits),
+            ("color_tables", |v| v.color_tables.normal[0] ^= 1),
+            ("event_times", |v| v.vdp_event_times[0].h ^= 1),
+            ("event_index", |v| v.vdp_event_idx ^= 1),
+        ];
+        let baseline = control(&vdp());
+        for &(name, mutate) in mutations {
+            let mut changed = vdp();
+            mutate(&mut changed);
+            assert_ne!(baseline, control(&changed), "{name}");
+        }
+    }
+
+    #[test]
+    fn real_vram_change_remains_full_state_output_not_a_control_view_difference() {
+        let baseline = vdp();
+        let mut changed = vdp();
+        changed.vram[0] ^= 1;
+        assert_ne!(baseline.hybrid_memories().0, changed.hybrid_memories().0);
+        assert!(!baseline.hybrid_state_eq(&changed));
+        assert_eq!(control(&baseline), control(&changed));
+    }
+
+    #[test]
+    fn borrowed_control_encoding_never_changes_full_vdp_state() {
+        let mut vdp = vdp();
+        vdp.write_control(0x4000);
+        vdp.state.pending_writes.push(vdp::PendingWrite::Data(7));
+        let before = bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap();
+        for _ in 0..4 {
+            assert!(!control(&vdp).is_empty());
+        }
+        assert_eq!(before, bincode::encode_to_vec(&vdp, bincode::config::standard()).unwrap());
+    }
+}
