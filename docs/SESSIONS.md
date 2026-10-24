@@ -458,13 +458,13 @@ inventing a downward elevator mode absent from the original.
 
 ## Latest content and rank checkpoint
 
-This measured **76-recording / 2,881,090-video-frame** content checkpoint
+This measured **78-recording / 3,024,964-video-frame** content checkpoint
 supersedes the historical 29-session coverage summary above. It combines
-50 inherited recordings (1,493,422 frames) with 26 new input-only recordings
-(1,387,668 frames); private bot experiments are not included.
+50 inherited recordings (1,493,422 frames) with 28 new input-only recordings
+(1,531,542 frames); private bot experiments are not included.
 
-The 26 new recordings have independent power-on **reference/reference** comparisons
-at every video frame: **1,387,668 compared frames**, no skipped lag ticks, and
+The 28 new recordings have independent power-on **reference/reference** comparisons
+at every video frame: **1,531,542 compared frames**, no skipped lag ticks, and
 `divergence: null` in every receipt. The
 [public proof index](../sessions/content-reference-proofs.json) preserves each
 actual compared session path and its receipt. Matching canonical controller
@@ -474,9 +474,9 @@ controller inputs.
 
 | Reference entry coverage | Observed | Still zero |
 | --- | ---: | ---: |
-| REV 00 | 635 / 648 | 13 |
+| REV 00 | 638 / 648 | 10 |
 | REV 02 | 636 / 648 | 12 |
-| Both revisions combined | 636 / 648 | 12 |
+| Both revisions combined | 638 / 648 | 10 |
 
 In each revision the aggregate replay checklist now observes all **28 present
 storage identities**, all **25 Earthling kinds**, all **11 tracked friendly
@@ -487,7 +487,7 @@ witnesses are not a single-game natural campaign.
 The four `rev00-content-final-display`, `rev02-content-final-display`,
 `rev00-content-final-two` and `rev02-content-final-two` continuations retain their
 explicitly disclosed original pause-secret ending prefixes. They are input-only,
-but are **not natural ten-piece evidence**. The other twenty-two new content/rank
+but are **not natural ten-piece evidence**. The other twenty-four new content/rank
 recordings use normal play.
 
 `rev00-content-full-inventory.tje.json` adds a real full-inventory ground-pickup
@@ -502,6 +502,15 @@ original bouncing-damage and free-timed-effect-slot entries respectively.
 The latter records funded P2 actually paying the singer near a weak native
 Earthling, not merely witnessing its definition. Both complete frame
 comparisons have `divergence: null`.
+
+`rev00-content-whirlwind-reset.tje.json` (79,716 frames) uses a real rocket
+present near the existing level-seven tornado and reaches the original saved
+position restore. `rev00-content-allocation-pressure.tje.json` (64,158 frames)
+uses real Hi-Tops, randomizers and clustered Earthling presents to enter both
+the priority-release helper and its shared-tomato check. These are actual
+executable entries, not injected allocation fixtures; the check's entry does
+not claim that a shared tomato was successfully released. Both complete
+frame comparisons have `divergence: null`.
 
 These are observed reference executable-entry/content counts, not a claim that
 the remaining entries are unreachable. Reference/reference determinism is a

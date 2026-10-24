@@ -9,15 +9,15 @@
     "runs"
   ],
   "renaming_policy": "The actual receipt session path is preserved. Matching canonical controller digests prove that renamed public recordings contain exactly the compared revision, power-on start and controller history; descriptions/tool metadata are not controller inputs.",
-  "new_session_count": 26,
-  "new_frames": 1387668,
+  "new_session_count": 28,
+  "new_frames": 1531542,
   "inherited_session_count": 50,
   "inherited_frames": 1493422,
   "corpus_entries_hit": {
-    "rev00": 635,
+    "rev00": 638,
     "rev02": 636
   },
-  "corpus_union_entries_hit": 636,
+  "corpus_union_entries_hit": 638,
   "inventory_entries": 648,
   "entries": [
     {
@@ -432,6 +432,38 @@
         "second_mode": "reference",
         "boundary": "video_frame",
         "compared": 26669,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-whirlwind-reset.tje.json",
+      "revision": "rev00",
+      "frames": 79716,
+      "file_sha256": "448e29aa1785944c0bda32de7f20c1f4541f1d94b9a8abeffc41c62ed7808f59",
+      "canonical_controller_sha256": "eb6c04d302ed0a824edbe898e33a5c16302a58dc665bf4374737ea8a4524250a",
+      "compared_input_canonical_controller_sha256": "eb6c04d302ed0a824edbe898e33a5c16302a58dc665bf4374737ea8a4524250a",
+      "reference_reference": {
+        "session": "../rev00-rocket-whirlwind-reset.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 79716,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      }
+    },
+    {
+      "session": "sessions/rev00-content-allocation-pressure.tje.json",
+      "revision": "rev00",
+      "frames": 64158,
+      "file_sha256": "7f4e667d85eb9414f23ff44748a30c0e68f36d7ca329f4bd1ce4f7d79812859e",
+      "canonical_controller_sha256": "1a2677f28961e64821b6720b16ad655941abbc6004c1b3a94f927f68c1c6635a",
+      "compared_input_canonical_controller_sha256": "1a2677f28961e64821b6720b16ad655941abbc6004c1b3a94f927f68c1c6635a",
+      "reference_reference": {
+        "session": "../pressure00-hitops-chase.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 64158,
         "skipped_lag_ticks": [],
         "divergence": null
       }
