@@ -394,6 +394,11 @@ fn main() {
         check_registers::prove_indexes(&root, &evidence, &script);
         return;
     }
+    if check_registers::sprite_requested() {
+        let (root, evidence) = check_registers::paths();
+        check_registers::prove_sprite(&root, &evidence, &script);
+        return;
+    }
     let selected: Vec<_> = env::var("TJE_SPRITE_FUNCTIONS")
         .map(|names| {
             names

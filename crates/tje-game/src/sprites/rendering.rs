@@ -223,9 +223,18 @@ pub fn append_sprite_tiles_to_buffer(
 }
 
 /// G/src/sprites/set_sprite.c:7, SetSprite. Read descriptors through revision-selected ROM views.
+/// Matching c_set_sprite.s:4-41 also defines D0.B, D1, A0/A1 and final CCR.
+/// Preserve D0's upper24 bits and the ASR.B X carried through a zero-count ASL.L.
 pub fn set_sprite(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let state = arguments[1] as i8;
+    context.set_address_register(0, arguments[0]);
+    context.set_data_register(
+        0,
+        (context.data_register(0) & !0xff) | u32::from(state as u8),
+    );
     if state < 0 {
+        // TST.B sets N and clears Z/V/C while retaining entry X.
+        context.set_status_register((context.status_register() & !0x0f) | 8);
         return Ok(None);
     }
     let entity = Address::<ObjectState>::new(arguments[0]);
@@ -236,6 +245,7 @@ pub fn set_sprite(context: &mut dyn Context, arguments: &[u32]) -> Result<Option
         rom::player2_animation_descriptors(revision)
     };
     let definition = definitions.at(i32::from(state));
+    context.set_address_register(1, definition.address());
     entity
         .sequence()
         .write(context, definition.sequence().read(context));
@@ -248,10 +258,32 @@ pub fn set_sprite(context: &mut dyn Context, arguments: &[u32]) -> Result<Option
     entity.frame_duration().write(context, 1);
     entity.frame().write(context, -1);
     entity.sprite_state().write(context, state);
-    entity.animation_group_mask().write(
-        context,
-        lsl_u32(1, (entity.sprite_state().read(context) >> 2) as u32),
+    let stored_state = entity.sprite_state().read(context);
+    let shifted = stored_state >> 2;
+    context.set_data_register(
+        0,
+        (context.data_register(0) & !0xff) | u32::from(shifted as u8),
     );
+    let count = u32::from(shifted as u8) & 63;
+    let mask = lsl_u32(1, count);
+    context.set_data_register(1, mask);
+    entity.animation_group_mask().write(context, mask);
+    // ASR.B #2 supplies X if ASL.L has count0; otherwise only count32 shifts
+    // the initial one out last. MOVE.L to the field then clears V/C, sets N/Z.
+    let x = if count == 0 {
+        stored_state as u8 & 2 != 0
+    } else {
+        count == 32
+    };
+    let nz = if mask == 0 {
+        4
+    } else if mask & 0x8000_0000 != 0 {
+        8
+    } else {
+        0
+    };
+    context
+        .set_status_register((context.status_register() & !0x1f) | nz | if x { 0x10 } else { 0 });
     Ok(None)
 }
 

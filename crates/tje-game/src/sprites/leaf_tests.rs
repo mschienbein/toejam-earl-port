@@ -370,6 +370,53 @@ fn descriptor_reads_are_revision_selected_and_negative_state_is_noop() {
 }
 
 #[test]
+fn set_sprite_preserves_full_volatile_outputs_for_all_states_and_entry_flags() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        for player in 0..2 {
+            let entity = ram::g_player_info(revision).at(player);
+            entity.entity_index().write(&mut machine, player as i8);
+            for state in 0..=255u32 {
+                for upper in [0, 0x1234_5600, 0xffff_ff00] {
+                    for ccr in 0..32u16 {
+                        machine.data = [0xa5a5_1234; 8];
+                        machine.data[0] = upper | 0x5a;
+                        machine.data[1] = 0x89ab_cdef;
+                        machine.address = [0x1020_3040; 7];
+                        machine.sr = 0x2700 | ccr;
+                        rendering::set_sprite(&mut machine, &[entity.address(), state]).unwrap();
+                        assert_eq!(machine.address[0], entity.address());
+                        assert_eq!(&machine.data[2..], &[0xa5a5_1234; 6]);
+                        assert_eq!(&machine.address[2..], &[0x1020_3040; 5]);
+                        assert_eq!(machine.sp, 0xff8000);
+                        if state >= 128 {
+                            assert_eq!(machine.data[0], upper | state);
+                            assert_eq!(machine.data[1], 0x89ab_cdef);
+                            assert_eq!(machine.address[1], 0x1020_3040);
+                            assert_eq!(machine.sr, 0x2708 | (ccr & 0x10));
+                        } else {
+                            let shift = state / 4;
+                            let mask = 1u32 << shift;
+                            let definitions = if player == 0 {
+                                rom::player_animation_descriptors(revision)
+                            } else {
+                                rom::player2_animation_descriptors(revision)
+                            };
+                            assert_eq!(machine.data[0], upper | shift);
+                            assert_eq!(machine.data[1], mask);
+                            assert_eq!(machine.address[1], definitions.at(state as i32).address());
+                            let n = if state >= 124 { 8 } else { 0 };
+                            let x = if matches!(state, 2 | 3) { 0x10 } else { 0 };
+                            assert_eq!(machine.sr, 0x2700 | n | x);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn visibility_uses_signed_emitted_bounds_and_distinct_split_view_height() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut machine = Machine::new(revision);
