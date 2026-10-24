@@ -39,15 +39,15 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::RESTORE_GAMEPLAY_GRAPHICS,
         function: restore_gameplay_graphics,
     },
-    crate::Translation {
-        id: ids::ANIMATE_TRANSITION_BACKGROUND,
-        function: animate_transition_background,
-    },
 ];
 
 /// Complete bodies awaiting their explicitly reviewed check-mode proofs.
 /// Never registered by production or replacement mode.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+    crate::Translation {
+        id: ids::ANIMATE_TRANSITION_BACKGROUND,
+        function: animate_transition_background,
+    },
     crate::Translation {
         id: ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
         function: animate_ship_screen_background,
@@ -87,6 +87,9 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 ];
 
 pub static PENDING: &[crate::FunctionId] = &[
+    // Corpus REV00 final-menus frame5470: frame counter FF800F original01/Rust00;
+    // the original call spans a VBlank that the zero-time body does not.
+    ids::ANIMATE_TRANSITION_BACKGROUND,
     // Real-clock counter-only proof differs by one IRQ frame in both revisions.
     ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
     // The original plane fill consumes eight additional IRQ frames at frame 2000.
