@@ -375,6 +375,32 @@ YM BUSY/BUSACK predicates without advancing clocks;
 their live replacement envelope uses real-clock waits rather than spinning on
 timed hardware.
 
+### Discarded bus operands
+
+`tje_game::Platform` (and therefore `dyn Context`) exposes
+`discard_u8(address)` and `discard_u16(address)`, both returning `Result<()>`.
+They perform exactly one real byte or word read, tagged
+`ReadPurpose::Discarded`, without returning an operand to the translation.
+For a source CLR.W read-before-write, for example:
+
+```rust
+context.discard_u16(address)?;
+context.write_u16(address, 0);
+```
+
+Use the actual compiled instruction's ordered physical reads for a long
+operation; there is no guessed `discard_u32` expansion. Do not replace a
+discarded read with `let _ = context.read_u16(...)`: that is a semantic read.
+Do not invent a discarded read where the pinned instruction performs none.
+Host and native adapters keep the real ROM/RAM/open-bus/latch/device effects;
+unsupported adapters fail closed rather than relabelling a semantic read.
+The unused value does not initialize a local or create a semantic dead-stack
+dependency. A later semantic read at the same address is still audited.
+
+`LocalFrame::leave` performs MOVEM's terminal discarded **word** immediately
+after the final restored register, before UNLK, only when a MOVEM mask is
+nonempty. Its operand remains unavailable to game code.
+
 ### Functional device semantics and their limits
 
 `GenesisBus::hybrid_set_functional_mode(true)` is enabled on check forks only.
@@ -1639,8 +1665,8 @@ calls, original bridges and live returns, restoring scope/frame bookkeeping on
 failure. Control-transfer mint/finish paths must validate the same contract
 before treating a transfer as success.
 
-The narrow `discard_z80_bus_request_read()` operation preserves CLR.W's real
-read-before-write without exposing a value. It is accepted only against an
+The generic `discard_u8(address)` / `discard_u16(address)` operations preserve
+real unused ROM/RAM/MMIO reads without exposing operands. They match only an
 original discarded read; a semantic BUSACK operand cannot be relabelled
 discarded to evade the source requirement. Reviewed readiness predicates remain
 narrow mask-only operations, not a global guard toggle. Wait masks that observe

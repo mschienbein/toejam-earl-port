@@ -12,6 +12,6 @@ mod devices;
 #[cfg(feature = "game-adapter")]
 pub use context::{InterruptHandlers, NativePlatform, StartError};
 pub use devices::{
-    ClockedDevices, DeviceAccess, DeviceRuntime, DeviceStep, DeviceTrace, DeviceWrite, Origin,
-    RamWrite, Registers, TimedWrite,
+    BusReadPurpose, ClockedDevices, DeviceAccess, DeviceRuntime, DeviceStep, DeviceTrace,
+    DeviceWrite, Origin, RamWrite, Registers, TimedWrite,
 };

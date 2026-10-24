@@ -64,6 +64,16 @@ impl tje_mem::Platform for Machine {
 }
 
 impl Platform for Machine {
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        // Only LocalFrame's MOVEM terminal word is expected: a stack read, never a timer operand,
+        // so it stays out of `word_reads`.
+        assert!(
+            (0xff7000..0xff8000).contains(&address),
+            "unexpected discarded read {address:08x}"
+        );
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("RAM-only sequencer timer fixture accessed a device");
     }

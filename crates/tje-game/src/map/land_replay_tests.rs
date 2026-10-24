@@ -16,6 +16,8 @@ use tje_mem::{AddressSpace, Bus, Revision};
 enum Access {
     Read(u8, u32),
     Write(u8, u32, u32),
+    /// A tagged discarded read (e.g. the MOVEM terminal word before UNLK): never a semantic read.
+    Discard(u8, u32),
 }
 struct Machine {
     memory: AddressSpace,
@@ -106,6 +108,16 @@ impl tje_mem::Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn discard_u8(&mut self, address: u32) -> crate::Result<()> {
+        self.trace.borrow_mut().push(Access::Discard(1, address));
+        let _ = self.memory.read_u8(address);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> crate::Result<()> {
+        self.trace.borrow_mut().push(Access::Discard(2, address));
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         panic!("unexpected device byte read {address:08x}");
     }

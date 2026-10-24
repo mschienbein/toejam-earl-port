@@ -351,6 +351,12 @@ fn translated_subsystems_match_original_from_live_captures() {
                         word,
                         value,
                     } => (address, word, true, value),
+                    genesis_core::HybridAccess::DmaRead { .. }
+                    | genesis_core::HybridAccess::Z80Write { .. }
+                    | genesis_core::HybridAccess::HostMutation { .. }
+                    | genesis_core::HybridAccess::ExceptionBoundary { .. } => {
+                        panic!("non-device event in the device-only reference journal")
+                    }
                 };
                 let mask = if !write && (0xc00004..=0xc00007).contains(&address) {
                     if word {

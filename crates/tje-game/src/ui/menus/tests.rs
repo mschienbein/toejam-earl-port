@@ -49,6 +49,10 @@ impl tje_mem::Platform for Fixture {
     }
 }
 impl crate::Platform for Fixture {
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("unexpected device read");
     }

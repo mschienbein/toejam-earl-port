@@ -445,6 +445,20 @@ impl<B: TimingBackend> tje_mem::Platform for NativeTimingContext<'_, B> {
     }
 }
 impl<B: TimingBackend> Platform for NativeTimingContext<'_, B> {
+    fn discard_u8(&mut self, address: u32) -> tje_game::Result<()> {
+        let _ = self
+            .machine
+            .devices_mut()
+            .read8(address, ReadKind::Discarded);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> tje_game::Result<()> {
+        let _ = self
+            .machine
+            .devices_mut()
+            .read16(address, ReadKind::Discarded);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         self.machine
             .devices_mut()

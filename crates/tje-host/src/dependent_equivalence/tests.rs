@@ -575,6 +575,12 @@ impl tje_mem::Platform for MutantContext<'_> {
     }
 }
 impl tje_game::Platform for MutantContext<'_> {
+    fn discard_u8(&mut self, address: u32) -> tje_game::Result<()> {
+        self.inner.discard_u8(address)
+    }
+    fn discard_u16(&mut self, address: u32) -> tje_game::Result<()> {
+        self.inner.discard_u16(address)
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         self.inner.read_device_u8(address)
     }

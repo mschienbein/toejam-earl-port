@@ -311,11 +311,19 @@ pub trait Platform: tje_mem::Platform {
         Ok(())
     }
 
-    /// The original CLR.W pre-read is observable, but its value is discarded.
-    /// This narrow operation exposes no undefined bits to translated software.
-    fn discard_z80_bus_request_read(&mut self) -> Result<()> {
-        let _ = self.read_device_u16(0xa11100);
-        self.check_mmio_contract()
+    /// Perform one byte bus read for its hardware effects, without exposing an
+    /// operand to software. Implementations must retain the Discarded purpose.
+    fn discard_u8(&mut self, _address: u32) -> Result<()> {
+        Err(Error::Platform(
+            "discarded bus reads are unavailable".into(),
+        ))
+    }
+
+    /// Word counterpart; this is one physical 16-bit read, not two byte reads.
+    fn discard_u16(&mut self, _address: u32) -> Result<()> {
+        Err(Error::Platform(
+            "discarded bus reads are unavailable".into(),
+        ))
     }
 
     /// Suspend while the platform makes real clock/interrupt progress. Native

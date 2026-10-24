@@ -268,6 +268,14 @@ impl tje_mem::Platform for NativePlatform {
     }
 }
 impl Platform for NativePlatform {
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        self.devices.discard_bus_byte(address);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        self.devices.discard_bus_word(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         self.devices.read_bus_byte(address)
     }
@@ -367,5 +375,54 @@ impl Context for NativePlatform {
     }
     fn call_original(&mut self, function: FunctionId, _: &[u32]) -> Result<u32> {
         Err(Error::Untranslated(function))
+    }
+}
+
+#[cfg(test)]
+mod discard_tests {
+    use super::*;
+
+    #[test]
+    fn readable_native_discard_keeps_bus_effects_without_register_operands() {
+        let mut rom = vec![0; 256];
+        rom[..4].copy_from_slice(&0xff7ff0_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x40_u32.to_be_bytes());
+        rom[0x40..0x44].copy_from_slice(&[0x12, 0x34, 0xab, 0xcd]);
+        let mut memory = AddressSpace::new(rom, Revision::Rev02);
+        memory.write_u16(0xff1234, 0x5678);
+        let mut platform = NativePlatform::new(
+            memory,
+            &[],
+            InterruptHandlers::default(),
+            &GenesisEmulatorConfig::default(),
+        )
+        .unwrap();
+        let before = platform.registers;
+        platform.devices.enable_trace();
+        platform.discard_u16(0xff1234).unwrap();
+        assert_eq!(platform.capture_state().open_bus, 0x5678);
+        platform.discard_u8(0x43).unwrap();
+        assert_eq!(platform.capture_state().open_bus, 0xcd78);
+        platform.write_device_u16(0xc00004, 0x4000);
+        assert!(
+            platform
+                .devices
+                .vdp()
+                .hybrid_checkpoint()
+                .control_word_pending
+        );
+        platform.discard_u16(0xc00004).unwrap();
+        assert!(
+            !platform
+                .devices
+                .vdp()
+                .hybrid_checkpoint()
+                .control_word_pending
+        );
+        assert_eq!(platform.registers, before);
+        let accesses = &platform.devices.trace().unwrap().accesses;
+        assert_eq!(accesses.len(), 2);
+        assert_eq!(accesses[1].purpose, Some(2));
+        assert_eq!((accesses[1].address, accesses[1].word), (0xc00004, true));
     }
 }

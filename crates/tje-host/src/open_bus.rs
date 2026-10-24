@@ -539,7 +539,7 @@ mod tests {
                     .unwrap(),
                 0x1334,
             );
-            context.discard_z80_bus_request_read().unwrap();
+            context.discard_u16(0xa11100).unwrap();
             assert!(context.check_mmio_contract().is_ok());
             assert_eq!(
                 context.audit.borrow().stack_reads.as_ref().unwrap().len(),
@@ -601,7 +601,7 @@ mod tests {
                     .unwrap(),
                 0x1334,
             );
-            context.discard_z80_bus_request_read().unwrap();
+            context.discard_u16(0xa11100).unwrap();
             assert!(context.check_mmio_contract().is_ok());
             let audit = context.audit.borrow();
             let reads = audit.stack_reads.as_ref().unwrap();

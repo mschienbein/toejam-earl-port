@@ -402,3 +402,17 @@ fn zero_time_rng_rejection_expires_work_without_repairing_rng_outputs() {
         assert_eq!(usage.frames, 0);
     }
 }
+
+#[test]
+fn unsupported_discard_never_falls_back_to_a_semantic_read() {
+    let mut context = Fixture::new(Dispatcher::hybrid());
+    assert!(matches!(
+        tje_game::Platform::discard_u8(&mut context, 0xff0100),
+        Err(Error::Platform(_))
+    ));
+    assert!(matches!(
+        tje_game::Platform::discard_u16(&mut context, 0xa11100),
+        Err(Error::Platform(_))
+    ));
+    assert!(context.ports.is_empty());
+}

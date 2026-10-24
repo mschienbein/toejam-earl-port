@@ -21,8 +21,20 @@ use z80_emu::{BusInterface, Z80, debug::DummyZ80Debugger, traits::InterruptLine}
 #[cfg(test)]
 mod z80_capacity_tests;
 
+#[cfg(test)]
+mod discard_tests;
+
 pub use genesis_core::native::RamWrite;
 pub use genesis_core::native::{DeviceWrite, Origin, TimedWrite};
+
+/// Bus-read classification independent of any 68000 interpreter dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BusReadPurpose {
+    Semantic = 0,
+    Prefetch = 1,
+    Discarded = 2,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceAccess {
@@ -33,6 +45,8 @@ pub struct DeviceAccess {
     pub word: bool,
     pub write: bool,
     pub value: u16,
+    /// Stable CPU issue tags: semantic=0, prefetch=1, discarded=2; writes None.
+    pub purpose: Option<u8>,
 }
 
 /// Disabled by default; allocating observations are confined to explicit proofs.
@@ -147,7 +161,14 @@ impl DeviceBus {
         }
     }
 
-    fn record_access(&mut self, address: u32, word: bool, write: bool, value: u16) {
+    fn record_access(
+        &mut self,
+        address: u32,
+        word: bool,
+        write: bool,
+        value: u16,
+        purpose: Option<u8>,
+    ) {
         let clock = self.trace_clock();
         let pc = self.trace_pc();
         if (0x800000..0xe00000).contains(&address)
@@ -161,6 +182,7 @@ impl DeviceBus {
                 word,
                 write,
                 value,
+                purpose,
             });
         }
     }
@@ -240,7 +262,7 @@ impl DeviceBus {
         }
     }
 
-    fn read_main<const WORD: bool>(&mut self, address: u32) -> u16 {
+    fn read_main<const WORD: bool>(&mut self, address: u32, purpose: BusReadPurpose) -> u16 {
         let address = address & ADDRESS_MASK;
         let value = match address {
             0..=0x7fffff => {
@@ -302,7 +324,7 @@ impl DeviceBus {
                 }
             }
         };
-        self.record_access(address, WORD, false, value);
+        self.record_access(address, WORD, false, value, Some(purpose as u8));
         if WORD {
             self.open_bus = value;
         } else {
@@ -362,7 +384,7 @@ impl DeviceBus {
 
     fn apply_main<const WORD: bool>(&mut self, address: u32, value: u16) {
         let address = address & ADDRESS_MASK;
-        self.record_access(address, WORD, true, value);
+        self.record_access(address, WORD, true, value, None);
         match address {
             0xa00000..=0xa0ffff if self.busack() => {
                 self.cycles.record_68k_z80_bus_access();
@@ -435,7 +457,7 @@ impl BusInterface for DeviceBus {
                 let main = (self.bank << 15) | u32::from(address & 0x7fff);
                 match main {
                     0xa00000..=0xa0ffff | 0xe00000..=0xffffff => 0xff,
-                    _ => self.read_main::<false>(main) as u8,
+                    _ => self.read_main::<false>(main, BusReadPurpose::Semantic) as u8,
                 }
             }
             _ => 0xff,
@@ -865,6 +887,26 @@ impl DeviceRuntime {
         }
     }
 
+    /// One actual bus read with its caller-supplied architectural purpose.
+    pub fn read_bus_byte_tagged(&mut self, address: u32, purpose: BusReadPurpose) -> u8 {
+        self.bus.read_main::<false>(address, purpose) as u8
+    }
+
+    /// One physical word read; no semantic pre-read or post-read relabelling.
+    pub fn read_bus_word_tagged(&mut self, address: u32, purpose: BusReadPurpose) -> u16 {
+        self.bus.read_main::<true>(address, purpose)
+    }
+
+    #[cfg(any(test, feature = "game-adapter"))]
+    pub(crate) fn discard_bus_byte(&mut self, address: u32) {
+        self.read_bus_byte_tagged(address, BusReadPurpose::Discarded);
+    }
+
+    #[cfg(any(test, feature = "game-adapter"))]
+    pub(crate) fn discard_bus_word(&mut self, address: u32) {
+        self.read_bus_word_tagged(address, BusReadPurpose::Discarded);
+    }
+
     /// Advance a precisely supplied noninstruction interval (for a suspended
     /// frontend/STOP). IRQ acceptance is still owned by the instruction runtime.
     pub fn advance_master_clocks(&mut self, mut clocks: u64) -> bool {
@@ -894,10 +936,10 @@ impl ClockedDevices for DeviceRuntime {
         self.bus.opcode = opcode;
     }
     fn read_bus_byte(&mut self, address: u32) -> u8 {
-        self.bus.read_main::<false>(address) as u8
+        self.read_bus_byte_tagged(address, BusReadPurpose::Semantic)
     }
     fn read_bus_word(&mut self, address: u32) -> u16 {
-        self.bus.read_main::<true>(address)
+        self.read_bus_word_tagged(address, BusReadPurpose::Semantic)
     }
     fn write_bus_byte(&mut self, address: u32, value: u8) {
         self.bus.pending_bytes.push((address, value));

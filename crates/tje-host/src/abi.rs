@@ -1255,9 +1255,15 @@ impl tje_game::Platform for HookContext<'_> {
         Ok(())
     }
 
-    fn discard_z80_bus_request_read(&mut self) -> tje_game::Result<()> {
+    fn discard_u8(&mut self, address: u32) -> tje_game::Result<()> {
         self.check_mmio_contract()?;
-        self.read_bus_tagged(0xa11100, true, ReadPurpose::Discarded);
+        self.read_bus_tagged(address, false, ReadPurpose::Discarded);
+        self.check_mmio_contract()
+    }
+
+    fn discard_u16(&mut self, address: u32) -> tje_game::Result<()> {
+        self.check_mmio_contract()?;
+        self.read_bus_tagged(address, true, ReadPurpose::Discarded);
         self.check_mmio_contract()
     }
 
@@ -1980,3 +1986,7 @@ impl HookContext<'_> {
 #[cfg(test)]
 #[path = "abi/timing_call_tests.rs"]
 mod timing_call_tests;
+
+#[cfg(test)]
+#[path = "abi/discard_tests.rs"]
+mod discard_tests;

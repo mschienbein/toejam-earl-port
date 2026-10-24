@@ -69,6 +69,10 @@ impl Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("unexpected byte device read")
     }

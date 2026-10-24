@@ -32,7 +32,7 @@ pub fn are_both_controllers_connected(context: &mut dyn Context, _: &[u32]) -> R
             present = false;
         }
     }
-    context.discard_z80_bus_request_read()?;
+    context.discard_u16(0xa11100)?;
     context.write_z80_bus_request(0);
     Ok(Some(u32::from(present)))
 }

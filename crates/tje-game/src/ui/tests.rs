@@ -48,6 +48,14 @@ impl tje_mem::Platform for Fixture {
     }
 }
 impl crate::Platform for Fixture {
+    fn discard_u16(&mut self, address: u32) -> crate::Result<()> {
+        let (expected, _discarded) = self
+            .word_reads
+            .pop_front()
+            .expect("unexpected discarded word read");
+        assert_eq!(address, expected);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         let (expected, value) = self.reads.pop_front().expect("unexpected device read");
         assert_eq!(address, expected);

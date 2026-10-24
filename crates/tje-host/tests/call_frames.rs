@@ -1,6 +1,6 @@
 //! Exact stack-slot protocol using retail AllocateSpriteSlots and the canonical
 //! pending framed Rust body through the same hook/native dispatch contract.
-use std::{fs, path::PathBuf};
+use std::{cell::RefCell, fs, path::PathBuf};
 use tje_game::call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments};
 use tje_game::{Context, Dispatcher, Error, FramedTranslation, Result, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry};
@@ -137,6 +137,8 @@ struct Native {
     frame: FrameState,
     dispatcher: Dispatcher,
     word_writes: Vec<(u32, u16)>,
+    discarded_reads: Vec<(u32, bool)>,
+    ram_reads: RefCell<Vec<(u32, bool, m68000_emu::ReadPurpose, u16)>>,
     forbidden_read: Option<std::ops::Range<u32>>,
 }
 impl Native {
@@ -150,20 +152,44 @@ impl Native {
             frame: FrameState::new(sp),
             dispatcher,
             word_writes: Vec::new(),
+            discarded_reads: Vec::new(),
+            ram_reads: RefCell::new(Vec::new()),
             forbidden_read: None,
         }
+    }
+
+    fn observed_read(&self, address: u32, word: bool, purpose: m68000_emu::ReadPurpose) -> u16 {
+        if purpose == m68000_emu::ReadPurpose::Semantic {
+            for offset in 0..if word { 2 } else { 1 } {
+                assert!(
+                    !self.forbidden_read.as_ref().is_some_and(
+                        |range| range.contains(&(address.wrapping_add(offset) & 0xff_ffff))
+                    ),
+                    "unused fourth argument was eagerly read at {address:06X}"
+                );
+            }
+        }
+        let value = if word {
+            self.memory.read_u16(address)
+        } else {
+            u16::from(self.memory.read_u8(address))
+        };
+        self.ram_reads
+            .borrow_mut()
+            .push((address, word, purpose, value));
+        value
     }
 }
 impl Bus for Native {
     fn read_u8(&self, address: u32) -> u8 {
-        assert!(
-            !self
-                .forbidden_read
-                .as_ref()
-                .is_some_and(|range| range.contains(&(address & 0xff_ffff))),
-            "unused fourth argument was eagerly read at {address:06X}"
-        );
-        self.memory.read_u8(address)
+        self.observed_read(address, false, m68000_emu::ReadPurpose::Semantic) as u8
+    }
+    fn read_u16(&self, address: u32) -> u16 {
+        self.observed_read(address, true, m68000_emu::ReadPurpose::Semantic)
+    }
+    fn read_u32(&self, address: u32) -> u32 {
+        (u32::from(self.read_u16(address)) << 16)
+            | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     fn write_u8(&mut self, address: u32, value: u8) {
         self.memory.write_u8(address, value);
@@ -186,6 +212,18 @@ impl m68000_emu::BusInterface for Native {
     }
     fn read_word(&mut self, address: u32) -> u16 {
         self.read_u16(address)
+    }
+    fn read_byte_tagged(&mut self, address: u32, purpose: m68000_emu::ReadPurpose) -> u8 {
+        if purpose == m68000_emu::ReadPurpose::Discarded {
+            self.discarded_reads.push((address, false));
+        }
+        self.observed_read(address, false, purpose) as u8
+    }
+    fn read_word_tagged(&mut self, address: u32, purpose: m68000_emu::ReadPurpose) -> u16 {
+        if purpose == m68000_emu::ReadPurpose::Discarded {
+            self.discarded_reads.push((address, true));
+        }
+        self.observed_read(address, true, purpose)
     }
     fn write_byte(&mut self, address: u32, value: u8) {
         self.write_u8(address, value);
@@ -215,6 +253,22 @@ impl tje_mem::Platform for Native {
     }
 }
 impl tje_game::Platform for Native {
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        let _ = m68000_emu::BusInterface::read_byte_tagged(
+            self,
+            address,
+            m68000_emu::ReadPurpose::Discarded,
+        );
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        let _ = m68000_emu::BusInterface::read_word_tagged(
+            self,
+            address,
+            m68000_emu::ReadPurpose::Discarded,
+        );
+        Ok(())
+    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("RAM-only frame test read device")
     }
@@ -555,5 +609,86 @@ fn explicit_framed_entry_never_preloads_slots_or_ignores_value_arguments() {
         assert!(context.frame.is_prepared_for(ids::ABS));
         assert_eq!(context.sp, entry.entry_sp);
         assert!(context.word_writes.is_empty());
+    }
+}
+
+#[test]
+fn movem_terminal_discard_matches_the_actual_cpu_in_both_revisions() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (linked, saved) in [(false, false), (false, true), (true, false), (true, true)] {
+            let mut original = Native::new(revision, Dispatcher::hybrid());
+            let mut translated = Native::new(revision, Dispatcher::hybrid());
+            let entry_sp = original.sp;
+            original.data[2] = 0x12345678;
+            translated.data[2] = original.data[2];
+            original.address[6] = 0xff6000;
+            translated.address[6] = original.address[6];
+            let mut words = Vec::new();
+            let mut instructions = 0;
+            if linked {
+                words.extend([0x4e56, 0xfff8]); // Authored LINK A6,#-8.
+                instructions += 1;
+            }
+            if saved {
+                words.extend([0x48e7, 0x2000, 0x4cdf, 0x0004]); // D2 save/restore.
+                instructions += 2;
+            }
+            if linked {
+                words.push(0x4e5e); // UNLK A6 follows MOVEM's terminal read.
+                instructions += 1;
+            }
+            words.push(0x4e71);
+            for (index, word) in words.into_iter().enumerate() {
+                original.memory.write_u16(CODE + 2 * index as u32, word);
+            }
+            let mut cpu = m68000_emu::M68000::default();
+            cpu.set_status_register(0x2700);
+            cpu.set_data_registers(original.data);
+            cpu.set_address_registers(original.address, entry_sp, entry_sp);
+            cpu.set_pc(CODE, &mut original);
+            for _ in 0..instructions {
+                cpu.execute_instruction(&mut original);
+            }
+            let layout = if linked {
+                FrameLayout::link(8, if saved { 4 } else { 0 }, 0)
+            } else {
+                FrameLayout::movem(0, if saved { 4 } else { 0 }, 0)
+            };
+            LocalFrame::enter(&mut translated, layout)
+                .unwrap()
+                .leave(&mut translated)
+                .unwrap();
+            let non_prefetch = |reads: &RefCell<Vec<_>>| {
+                reads
+                    .borrow()
+                    .iter()
+                    .copied()
+                    .filter(|(_, _, purpose, _)| *purpose != m68000_emu::ReadPurpose::Prefetch)
+                    .collect::<Vec<_>>()
+            };
+            let original_reads = non_prefetch(&original.ram_reads);
+            let translated_reads = non_prefetch(&translated.ram_reads);
+            assert_eq!(
+                translated_reads, original_reads,
+                "restored-register words, terminal discarded word, then UNLK words must retain CPU order"
+            );
+            if linked && saved {
+                assert_eq!(translated_reads[2].2, m68000_emu::ReadPurpose::Discarded);
+                assert_eq!(translated_reads[3].0, entry_sp - 4);
+                assert_eq!(translated_reads[4].0, entry_sp - 2);
+            }
+            assert_eq!(translated.discarded_reads, original.discarded_reads);
+            assert_eq!(translated.discarded_reads.len(), usize::from(saved));
+            if saved {
+                assert_eq!(
+                    translated.discarded_reads[0],
+                    (entry_sp - if linked { 12 } else { 0 }, true)
+                );
+            }
+            assert_eq!(translated.sp, entry_sp);
+            assert_eq!(cpu.stack_pointer(), entry_sp);
+            assert_eq!(translated.data[2], cpu.data_registers()[2]);
+            assert_eq!(translated.address[6], cpu.address_registers()[6]);
+        }
     }
 }

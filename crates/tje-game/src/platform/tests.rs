@@ -87,6 +87,10 @@ impl tje_mem::Platform for TestContext {
 }
 
 impl Platform for TestContext {
+    fn discard_u16(&mut self, address: u32) -> crate::Result<()> {
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         let value = match address {
             0xa10003 | 0xa10005 => {

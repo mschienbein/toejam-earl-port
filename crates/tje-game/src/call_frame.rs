@@ -212,6 +212,11 @@ impl LocalFrame {
                 cursor = cursor.wrapping_add(4);
             }
         }
+        if self.layout.saved_bytes() != 0 {
+            // The pinned 68000 MOVEM performs one terminal word read even
+            // though the operand is unused, before a following UNLK.
+            context.discard_u16(cursor)?;
+        }
         if self.layout.linked {
             let fp = context.address_register(6);
             let old_a6 = context.read_u32(fp);

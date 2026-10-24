@@ -7,7 +7,7 @@ use genesis_config::GenesisInputs;
 use jgenesis_common::frontend::{Color, FrameSize};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use tje_native_platform::{ClockedDevices, DeviceRuntime};
+use tje_native_platform::{BusReadPurpose, ClockedDevices, DeviceRuntime};
 
 pub type Engine<B> = Machine<PlatformDevices, B>;
 
@@ -142,9 +142,17 @@ impl From<tje_native_platform::DeviceStep> for DeviceStep {
     }
 }
 
+fn native_read_purpose(kind: ReadKind) -> BusReadPurpose {
+    match kind {
+        ReadKind::Semantic => BusReadPurpose::Semantic,
+        ReadKind::Prefetch => BusReadPurpose::Prefetch,
+        ReadKind::Discarded => BusReadPurpose::Discarded,
+    }
+}
+
 impl Bus for PlatformDevices {
     fn read8(&mut self, address: u32, kind: ReadKind) -> u8 {
-        let value = self.read_bus_byte(address);
+        let value = self.read_bus_byte_tagged(address, native_read_purpose(kind));
         self.record(BusAccess::Read {
             address: address & 0xFFFFFF,
             word: false,
@@ -155,7 +163,7 @@ impl Bus for PlatformDevices {
     }
 
     fn read16(&mut self, address: u32, kind: ReadKind) -> u16 {
-        let value = self.read_bus_word(address);
+        let value = self.read_bus_word_tagged(address, native_read_purpose(kind));
         self.record(BusAccess::Read {
             address: address & 0xFFFFFF,
             word: true,
@@ -306,5 +314,46 @@ impl<B: Backend> Machine<PlatformDevices, B> {
             && self.cpu.pending_interrupt == 0
             && u32::from(ClockedDevices::pending_interrupt(&self.devices.devices))
                 <= ((self.cpu.sr >> 8) & 7)
+    }
+}
+
+#[cfg(test)]
+mod discard_forwarding_tests {
+    use super::*;
+
+    #[test]
+    fn read_kind_reaches_one_device_read_and_the_unchanged_cpu_journal() {
+        let memory = tje_mem::AddressSpace::new(vec![0; 256], tje_mem::Revision::Rev02);
+        let runtime = DeviceRuntime::new(memory, &genesis_config::GenesisEmulatorConfig::default());
+        let mut devices = PlatformDevices::from(runtime);
+        devices.enable_trace();
+        devices.enable_instruction_trace();
+        for kind in [ReadKind::Semantic, ReadKind::Prefetch, ReadKind::Discarded] {
+            Bus::read16(&mut devices, 0xa10003, kind);
+        }
+        let cpu = devices.instruction_trace().unwrap();
+        let hardware = &devices.trace().unwrap().accesses;
+        assert_eq!(cpu.len(), 3);
+        assert_eq!(hardware.len(), 3);
+        for (index, kind) in [ReadKind::Semantic, ReadKind::Prefetch, ReadKind::Discarded]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(matches!(cpu[index], BusAccess::Read {
+                address: 0xa10003, word: true, kind: actual, ..
+            } if actual == kind));
+            assert_eq!(
+                hardware[index].purpose,
+                Some(native_read_purpose(kind) as u8)
+            );
+            assert_eq!(
+                (
+                    hardware[index].address,
+                    hardware[index].word,
+                    hardware[index].write
+                ),
+                (0xa10003, true, false)
+            );
+        }
     }
 }

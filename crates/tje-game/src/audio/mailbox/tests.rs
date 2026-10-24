@@ -63,6 +63,10 @@ impl tje_mem::Platform for Machine {
     }
 }
 impl Platform for Machine {
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         assert!(self.requested && !self.reset);
         self.z80[(address - 0xa00000) as usize]
