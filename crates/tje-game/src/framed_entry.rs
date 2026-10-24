@@ -239,6 +239,15 @@ impl Dispatcher {
         }))
     }
 
+    /// Process-local static selection identity for immutable startup capability
+    /// validation. This is not body equivalence or a proof-origin approval.
+    pub fn same_selection(self, other: Self) -> bool {
+        std::ptr::eq(self.translations, other.translations)
+            && std::ptr::eq(self.framed_translations, other.framed_translations)
+            && std::ptr::eq(self.subsystems, other.subsystems)
+            && self.original_fallback == other.original_fallback
+    }
+
     pub fn framed_translation(self, id: FunctionId) -> Option<&'static FramedTranslation> {
         match self.resolve_entry(id).ok().flatten()?.entry() {
             TranslatedEntry::Framed(translation) => Some(translation),

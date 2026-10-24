@@ -75,7 +75,7 @@ pub(crate) fn take_receipt_fault() -> Option<ReceiptFault> {
     RECEIPT_FAULT.with(|value| value.replace(None))
 }
 pub(crate) fn consume_receipt(
-    ledger: &mut CompletionLedger,
+    ledger: &mut CompletionOwners,
     mut request: game::CompletionRequest,
     cpu: &CpuState,
 ) -> std::result::Result<game::Completion, tje_engine_core::timing_region::TimingError> {
@@ -92,7 +92,7 @@ pub(crate) fn consume_receipt(
 pub(super) fn failure() -> Option<FailureSnapshot> {
     FAILURE.with(|value| value.borrow_mut().take())
 }
-pub(super) fn begin_invocation() {
+pub(crate) fn begin_invocation() {
     FAILURE.with(|value| {
         value.borrow_mut().take();
     });

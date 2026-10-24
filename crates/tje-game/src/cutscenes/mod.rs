@@ -234,6 +234,7 @@ mod rocketship_allocate;
 mod rocketship_foreground;
 mod rocketship_release;
 mod sega_logo_vblank;
+pub mod timed_clear_lower;
 mod title_and_transition;
 
 /// Available Rust entries owned by this subsystem.

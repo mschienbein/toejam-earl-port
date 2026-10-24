@@ -26,6 +26,34 @@ fn strict_registry(revision: tje_rom::Revision) -> HookRegistry {
         .with_timing_sources(SOURCES)
         .unwrap()
 }
+fn bind_registry(host: &mut Host, bytes: &[u8], registry: HookRegistry) {
+    let old = host.timing_services.take();
+    if let Some(services) = &old {
+        assert!(services.authority.completion.protected_entry().is_none());
+        assert!(services.authority.parents.is_empty());
+    }
+    let cartridge = Rom::import(bytes).unwrap();
+    let mut prepared = if registry.timing_sources().is_empty() {
+        None
+    } else {
+        Some(
+            TimingServices::prepare(
+                &cartridge,
+                registry.timing_sources(),
+                host.emulator.hybrid_bus().cycles.m68k_divider_u32.get(),
+                registry.dispatcher(),
+                host.mode,
+            )
+            .unwrap(),
+        )
+    };
+    if let (Some(old), Some(new)) = (old, prepared.as_mut()) {
+        // Explicit cold selection revalidation retains live trajectory identity.
+        new.authority = old.authority;
+    }
+    host.registry = registry;
+    host.timing_services = prepared;
+}
 fn capture(
     cartridge: &[u8],
     revision: tje_rom::Revision,
@@ -160,7 +188,7 @@ fn both_revision_canonical_framed_context_strict_steps_edge_cases_and_cycle_muta
             (837, Arc::new(script) as Arc<dyn WaitInputPoller>),
         ] {
             let mut host = capture(&rom, revision, inputs, first);
-            host.registry = strict_registry(revision);
+            bind_registry(&mut host, &rom, strict_registry(revision));
             host.checks = crate::CheckReport::registered(&host.registry);
             let initial_frame = host.frame_count();
             check(&mut host).unwrap();
@@ -221,7 +249,10 @@ fn both_revision_canonical_framed_context_strict_steps_edge_cases_and_cycle_muta
                 "{error}"
             );
             assert!(proof::receipts().is_empty());
-            let live = format!("{:?}", host.timing_services.as_ref().unwrap().completion);
+            let live = format!(
+                "{:?}",
+                host.timing_services.as_ref().unwrap().authority.completion
+            );
             check(&mut host).unwrap();
             assert_eq!(
                 proof::receipts().len(),
@@ -230,7 +261,10 @@ fn both_revision_canonical_framed_context_strict_steps_edge_cases_and_cycle_muta
             );
             assert_eq!(
                 live,
-                format!("{:?}", host.timing_services.as_ref().unwrap().completion)
+                format!(
+                    "{:?}",
+                    host.timing_services.as_ref().unwrap().authority.completion
+                )
             );
             eprintln!(
                 "{revision:?}: canonical +2-cycle prefix mutant REJECTED; zero/negative/display-off actual-frame cases PASS"
@@ -250,7 +284,7 @@ fn public_clocked_fixture_preserves_real_caller_and_source_capture_in_both_revis
     ] {
         let rom = fs::read(std::env::var(key).unwrap()).unwrap();
         let mut host = capture(&rom, revision, Arc::new(InputScript::default()), 480);
-        host.registry = strict_registry(revision);
+        bind_registry(&mut host, &rom, strict_registry(revision));
         host.checks = crate::CheckReport::registered(&host.registry);
         host.set_check_capture(true).unwrap();
         host.settle_fixture_boundary(host.wait_clock.inputs)
@@ -260,7 +294,10 @@ fn public_clocked_fixture_preserves_real_caller_and_source_capture_in_both_revis
         let before = host.cpu().hybrid_state_words();
         let before_devices =
             bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap();
-        let live_authority = format!("{:?}", host.timing_services.as_ref().unwrap().completion);
+        let live_authority = format!(
+            "{:?}",
+            host.timing_services.as_ref().unwrap().authority.completion
+        );
         assert_eq!(
             host.check_clocked_fixture(
                 ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision),
@@ -276,7 +313,10 @@ fn public_clocked_fixture_preserves_real_caller_and_source_capture_in_both_revis
             "discarded strict fixture must restore the real caller's complete devices",
         );
         assert_eq!(
-            format!("{:?}", host.timing_services.as_ref().unwrap().completion),
+            format!(
+                "{:?}",
+                host.timing_services.as_ref().unwrap().authority.completion
+            ),
             live_authority,
         );
         let receipt = proof::receipts().pop().unwrap();
@@ -461,7 +501,7 @@ fn mixed_root_epochs_speculative_failure_and_real_reset_are_isolated() {
     ] {
         let rom = fs::read(std::env::var(key).unwrap()).unwrap();
         let mut host = capture(&rom, revision, Arc::new(InputScript::default()), 480);
-        host.registry = mixed_registry(revision);
+        bind_registry(&mut host, &rom, mixed_registry(revision));
         host.checks = crate::CheckReport::registered(&host.registry);
         let sp = host.cpu().stack_pointer();
         let memory = &host.emulator.hybrid_bus().memory;
@@ -484,7 +524,10 @@ fn mixed_root_epochs_speculative_failure_and_real_reset_are_isolated() {
             drop(proof::receipts());
         }
         seed_lifetime_entry(&mut host, ids::WAIT_FOR_NEXT_V_BLANK, sp, return_pc, 0);
-        let live = format!("{:?}", host.timing_services.as_ref().unwrap().completion);
+        let live = format!(
+            "{:?}",
+            host.timing_services.as_ref().unwrap().authority.completion
+        );
         host.set_check_failure_policy(crate::CheckFailurePolicy::ContinueOriginal)
             .unwrap();
         proof::mutate_next(2);
@@ -504,7 +547,10 @@ fn mixed_root_epochs_speculative_failure_and_real_reset_are_isolated() {
         );
         assert_eq!(
             live,
-            format!("{:?}", host.timing_services.as_ref().unwrap().completion)
+            format!(
+                "{:?}",
+                host.timing_services.as_ref().unwrap().authority.completion
+            )
         );
         host.isolated_fixture(|host| {
             seed_lifetime_entry(host, ids::ABS, sp, return_pc, (-7_i32) as u32);
@@ -518,13 +564,19 @@ fn mixed_root_epochs_speculative_failure_and_real_reset_are_isolated() {
         .unwrap();
         assert_eq!(
             live,
-            format!("{:?}", host.timing_services.as_ref().unwrap().completion)
+            format!(
+                "{:?}",
+                host.timing_services.as_ref().unwrap().authority.completion
+            )
         );
         check(&mut host).unwrap(); // Explicit correct diagnostic probe, not live reactivation.
         assert_eq!(proof::receipts().len(), 1);
         assert_eq!(
             live,
-            format!("{:?}", host.timing_services.as_ref().unwrap().completion)
+            format!(
+                "{:?}",
+                host.timing_services.as_ref().unwrap().authority.completion
+            )
         );
         assert!(
             host.disabled_check_roots
@@ -591,6 +643,14 @@ fn failing_after_real_source(context: &mut dyn tje_game::Context) -> tje_game::R
             error: tje_game::execution::CallClockError::Unavailable,
         });
     }
+    if fault == 7 {
+        return Err(tje_game::Error::ControlTransfer(
+            tje_game::exits::ControlTransfer {
+                entry: ids::WAIT_FOR_NEXT_V_BLANK,
+                exit: tje_game::exits::Exit::Terminal,
+            },
+        ));
+    }
     if matches!(fault, 1 | 3) {
         return Err(tje_game::Error::Platform(
             "authored primary after actual RTS".into(),
@@ -620,10 +680,14 @@ fn admitted_prepared_failures_preserve_actual_frames_and_first_causes() {
         for case in 0..12 {
             let mut host = capture(&rom, revision, Arc::new(InputScript::default()), 480);
             if case >= 6 {
-                host.registry = HookRegistry::proof_with_frames(revision, &[], BAD_WRAPPER)
-                    .unwrap()
-                    .with_timing_sources(SOURCES)
-                    .unwrap();
+                bind_registry(
+                    &mut host,
+                    &rom,
+                    HookRegistry::proof_with_frames(revision, &[], BAD_WRAPPER)
+                        .unwrap()
+                        .with_timing_sources(SOURCES)
+                        .unwrap(),
+                );
             }
             WRAPPER_FAILURE.with(|value| value.set(if case >= 6 { case - 5 } else { 0 }));
             let sp = host.cpu().stack_pointer();
@@ -811,10 +875,14 @@ fn consumed_source_does_not_make_new_legacy_diagnostic_errors_fatal() {
         seed_lifetime_entry(&mut host, ids::WAIT_FOR_NEXT_V_BLANK, sp, return_pc, 0);
         actual_lifetime_root(&mut host, ids::WAIT_FOR_NEXT_V_BLANK, true).unwrap();
         drop(proof::receipts());
-        host.registry = HookRegistry::proof_with_frames(revision, LEGACY_ERROR, FRAMED)
-            .unwrap()
-            .with_timing_sources(SOURCES)
-            .unwrap();
+        bind_registry(
+            &mut host,
+            &rom,
+            HookRegistry::proof_with_frames(revision, LEGACY_ERROR, FRAMED)
+                .unwrap()
+                .with_timing_sources(SOURCES)
+                .unwrap(),
+        );
         seed_lifetime_entry(&mut host, ids::ABS, sp, return_pc, 7);
         let before = host.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
         let clock = host.wait_clock.clone();
@@ -923,10 +991,14 @@ fn source_callback_causes_survive_owned_boundaries_and_secondary_checks() {
         let rom = fs::read(std::env::var(key).unwrap()).unwrap();
         for stage in 0..4 {
             let mut host = capture(&rom, revision, Arc::new(InputScript::default()), 480);
-            host.registry = HookRegistry::proof_with_frames(revision, &[], FAILING)
-                .unwrap()
-                .with_timing_sources(SOURCES)
-                .unwrap();
+            bind_registry(
+                &mut host,
+                &rom,
+                HookRegistry::proof_with_frames(revision, &[], FAILING)
+                    .unwrap()
+                    .with_timing_sources(SOURCES)
+                    .unwrap(),
+            );
             SOURCE_FAILURE_STAGE.with(|value| value.set(stage));
             let sp = host.cpu().stack_pointer();
             let memory = &host.emulator.hybrid_bus().memory;
@@ -982,3 +1054,6 @@ fn empty_source_registry_keeps_host_timing_state_absent() {
         assert!(host.timing_services.is_none());
     }
 }
+
+#[path = "nonleaf_tests.rs"]
+mod nonleaf;

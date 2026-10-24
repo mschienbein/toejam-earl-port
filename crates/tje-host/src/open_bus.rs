@@ -380,12 +380,16 @@ mod tests {
         let mut emulator = emulator();
         let dispatcher = tje_game::Dispatcher::hybrid_with(INVALID_READER);
         {
-            let mut context =
-                crate::abi::HookContext::new(&mut emulator, tje_rom::Revision::Rev02, dispatcher)
-                    .with_execution(
-                        tje_game::execution::ExecutionClass::TimeAware,
-                        crate::execution::WaitClock::default(),
-                    );
+            let mut context = crate::abi::HookContext::new(
+                &mut emulator,
+                tje_rom::Revision::Rev02,
+                dispatcher,
+                crate::Mode::Replace,
+            )
+            .with_execution(
+                tje_game::execution::ExecutionClass::TimeAware,
+                crate::execution::WaitClock::default(),
+            );
             let id = tje_game::ids::GET_RANDOM_NUMBER;
             assert!(matches!(
                 dispatcher.call(&mut context, id, &[]),
@@ -422,8 +426,12 @@ mod tests {
         use tje_game::Context;
         let mut emulator = emulator();
         let dispatcher = tje_game::Dispatcher::hybrid_with(INVALID_READER);
-        let mut context =
-            crate::abi::HookContext::new(&mut emulator, tje_rom::Revision::Rev02, dispatcher);
+        let mut context = crate::abi::HookContext::new(
+            &mut emulator,
+            tje_rom::Revision::Rev02,
+            dispatcher,
+            crate::Mode::Replace,
+        );
         let before = context.stack_pointer().unwrap();
         let site = tje_game::call_frame::CallSite::new(0x206);
         assert!(
@@ -439,8 +447,12 @@ mod tests {
         use tje_game::Platform;
         let mut emulator = emulator();
         let dispatcher = tje_game::Dispatcher::hybrid();
-        let mut context =
-            crate::abi::HookContext::new(&mut emulator, tje_rom::Revision::Rev02, dispatcher);
+        let mut context = crate::abi::HookContext::new(
+            &mut emulator,
+            tje_rom::Revision::Rev02,
+            dispatcher,
+            crate::Mode::Replace,
+        );
         let before = (context.cpu().pc(), context.cpu().stack_pointer());
         assert!(
             context
@@ -483,6 +495,7 @@ mod tests {
             &mut emulator,
             tje_rom::Revision::Rev02,
             tje_game::Dispatcher::hybrid(),
+            crate::Mode::Replace,
         )
         .with_execution(
             tje_game::execution::ExecutionClass::TimeAware,
@@ -514,6 +527,7 @@ mod tests {
                 &mut emulator,
                 tje_rom::Revision::Rev02,
                 tje_game::Dispatcher::hybrid(),
+                crate::Mode::Replace,
             );
             let stack = crate::abi::StackAuditState::new(context.cpu().stack_pointer(), true);
             let audit = stack.empty_run();
@@ -568,6 +582,7 @@ mod tests {
                 &mut emulator,
                 tje_rom::Revision::Rev02,
                 tje_game::Dispatcher::hybrid(),
+                crate::Mode::Replace,
             );
             let stack = crate::abi::StackAuditState::new(context.cpu().stack_pointer(), true);
             let audit = stack.empty_run();
@@ -638,12 +653,16 @@ mod tests {
             let mut emulator = emulator();
             let dispatcher =
                 tje_game::Dispatcher::hybrid_with_overrides_and_frames(&[], INVALID_FRAMED_READER);
-            let mut context =
-                crate::abi::HookContext::new(&mut emulator, tje_rom::Revision::Rev02, dispatcher)
-                    .with_execution(
-                        tje_game::execution::ExecutionClass::TimeAware,
-                        crate::execution::WaitClock::default(),
-                    );
+            let mut context = crate::abi::HookContext::new(
+                &mut emulator,
+                tje_rom::Revision::Rev02,
+                dispatcher,
+                crate::Mode::Replace,
+            )
+            .with_execution(
+                tje_game::execution::ExecutionClass::TimeAware,
+                crate::execution::WaitClock::default(),
+            );
             let before = context.stack_pointer().unwrap();
             let result = if typed_entry {
                 tje_game::exits::enter(&mut context, tje_game::ids::GET_RANDOM_NUMBER, &[])

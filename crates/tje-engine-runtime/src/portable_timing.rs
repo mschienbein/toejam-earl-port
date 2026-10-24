@@ -2,7 +2,8 @@
 //! the active root ledger; a source cannot configure any of those policies.
 use crate::CpuState;
 use crate::timing_region::{
-    RegionEdge, RegionStorage, ReturnTarget, ReviewedRegion, TimingProgram, compile_schedule_ir,
+    CallToken, RegionCall, RegionEdge, RegionStorage, ReturnTarget, ReviewedRegion, TimingProgram,
+    compile_schedule_ir,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tje_engine_core::{
@@ -17,6 +18,12 @@ use tje_rom::Rom;
 
 mod completion;
 pub use completion::{CertifiedReturn, CompletionLedger, Invocation};
+mod child_ownership;
+pub use child_ownership::{CallProfile, CompletionOwners, ReturnedCall};
+mod plans;
+pub use plans::{ActiveSource, PausedSource, PreparedSources, ValidatedCalls};
+mod original;
+pub use original::{OriginalController, OriginalInstruction};
 
 #[cfg(feature = "devices")]
 pub mod engine;
@@ -75,10 +82,28 @@ pub trait TimingBackend: crate::Backend {
     ) -> bool;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallIntent {
+    pub target: FunctionId,
+    pub return_to: game::Location,
+}
+#[derive(Debug)]
+pub enum PortableControl {
+    Continue,
+    Call(CallIntent),
+    Return(game::TimedExit),
+}
+pub struct FinishedInstruction {
+    pub registers: game::Registers,
+    pub path: RustPathChoice,
+    pub control: PortableControl,
+}
+
 struct BoundSite {
     source: game::InstructionSite,
     ordinary_return: bool,
     opcode: u16,
+    call: Option<&'static game::CallSite>,
 }
 
 pub struct BoundProgram {
@@ -91,6 +116,7 @@ pub struct BoundProgram {
     divider: u32,
     irq_policy: &'static [u8],
     rom_length: usize,
+    call_targets: BTreeMap<FunctionId, u16>,
 }
 impl BoundProgram {
     /// IRQ requirements are adapter-reviewed policy, never source authority.
@@ -129,20 +155,6 @@ impl BoundProgram {
             if declaration.roles == 0 || !functions.insert(declaration.function) {
                 return Err(TimingError::InvalidIr("duplicate or empty source function"));
             }
-        }
-        if !functions.contains(&entry)
-            || source.functions.iter().any(|declaration| {
-                declaration
-                    .function
-                    .metadata()
-                    .callees
-                    .iter()
-                    .any(|callee| !functions.contains(callee))
-            })
-        {
-            return Err(TimingError::InvalidIr(
-                "source function/callee closure is incomplete",
-            ));
         }
         for declaration in source.functions {
             let metadata = declaration.function.metadata();
@@ -188,6 +200,7 @@ impl BoundProgram {
                                 Instruction::Return { restore_ccr: false }
                             ),
                             opcode: ir.opcode,
+                            call: None,
                         },
                     )
                     .is_some()
@@ -216,17 +229,78 @@ impl BoundProgram {
                 to: address(edge.to)?,
             });
         }
+        let mut calls = Vec::new();
+        let mut call_targets = BTreeMap::new();
+        let mut call_sites = BTreeSet::new();
+        let caller_class = tje_game::execution_class(entry).ok_or(TimingError::WrongEntry)?;
+        for call in source.calls {
+            let from = address(call.at)?;
+            let resume = address(call.resume)?;
+            let site = sites.get_mut(&from).ok_or(TimingError::WrongEntry)?;
+            if call.targets.is_empty()
+                || !call_sites.insert(from)
+                || call.at.function != entry
+                || call.resume.function != entry
+                || resume != site.source.fallthrough
+                || !matches!(
+                    decode(site.opcode),
+                    Instruction::JumpToSubroutine(_) | Instruction::BranchToSubroutine(_)
+                )
+            {
+                return Err(TimingError::InvalidIr("invalid source call declaration"));
+            }
+            let mut targets = BTreeSet::new();
+            for &callee in call.targets {
+                let class = tje_game::execution_class(callee).ok_or(TimingError::WrongEntry)?;
+                let target = callee.metadata().address(revision);
+                if !targets.insert(callee)
+                    || !entry.metadata().callees.contains(&callee)
+                    || !caller_class.permits(class)
+                    || tje_game::exits::contract(callee) != tje_game::exits::ExitContract::Rts
+                {
+                    return Err(TimingError::InvalidIr(
+                        "unreviewed source callee class or exit",
+                    ));
+                }
+                let bytes = rom
+                    .get(target as usize..target as usize + 2)
+                    .ok_or(TimingError::WrongEntry)?;
+                call_targets.insert(callee, u16::from_be_bytes([bytes[0], bytes[1]]));
+                calls.push(RegionCall {
+                    from,
+                    target,
+                    resume,
+                });
+            }
+            site.call = Some(call);
+        }
+        if entry
+            .metadata()
+            .callees
+            .iter()
+            .any(|callee| !call_targets.contains_key(callee))
+        {
+            return Err(TimingError::InvalidIr(
+                "source call declarations omit a committed callee",
+            ));
+        }
         let reviewed = ReviewedRegion {
             name: source.name,
             source: source.source,
             entry: address(source.entry)?,
             instruction_pcs: sites.keys().copied().collect(),
             edges,
+            calls,
             return_pc: None,
             maximum_steps: u64::MAX,
             required_interrupts,
         };
-        let schedules = compile_schedule_ir(rom, decoded.into_iter().map(Ok), &[], divider)?;
+        let schedules = compile_schedule_ir(
+            rom,
+            decoded.into_iter().map(Ok),
+            reviewed.calls.iter().map(|call| call.target),
+            divider,
+        )?;
         let timing = TimingProgram::from_schedules(reviewed, schedules, divider, None)?;
         Ok(Self {
             source,
@@ -238,6 +312,7 @@ impl BoundProgram {
             divider,
             irq_policy: required_interrupts,
             rom_length: rom.len(),
+            call_targets,
         })
     }
     pub fn timing(&self) -> &TimingProgram {
@@ -266,6 +341,39 @@ impl BoundProgram {
     }
     pub fn invocation_target(&self, pc: u32) -> Result<ReturnTarget, TimingError> {
         ReturnTarget::in_rom(self.rom_length, pc)
+    }
+    pub fn callees(&self) -> impl Iterator<Item = FunctionId> + '_ {
+        self.call_targets.keys().copied()
+    }
+    pub fn authenticate_call(
+        &self,
+        intent: CallIntent,
+        token: &CallToken,
+        cpu: &CpuState,
+        return_word: u32,
+    ) -> Result<(), TimingError> {
+        let site = self
+            .sites
+            .get(&token.call_pc())
+            .ok_or(TimingError::WrongToken)?;
+        let declared = site.call.ok_or(TimingError::WrongToken)?;
+        if !declared.targets.contains(&intent.target)
+            || declared.resume != intent.return_to
+            || self.locations.get(&intent.return_to).copied() != Some(token.return_pc())
+            || token.target() != intent.target.metadata().address(self.revision)
+            || cpu.pc != token.target()
+            || self
+                .call_targets
+                .get(&intent.target)
+                .copied()
+                .map(u32::from)
+                != Some(cpu.prefetch)
+            || cpu.read_address(7) != token.entry_stack()
+            || return_word != token.return_pc()
+        {
+            return Err(TimingError::WrongToken);
+        }
+        Ok(())
     }
     pub fn begin<'a>(
         &'a self,
@@ -463,9 +571,7 @@ impl PortableInstruction<'_> {
         }
         result
     }
-    pub fn finish(
-        self,
-    ) -> Result<(game::Registers, RustPathChoice, Option<game::TimedExit>), PortableError> {
+    pub fn finish(self) -> Result<FinishedInstruction, PortableError> {
         if self.failed
             || self.expected.is_some()
             || self.pending.is_some()
@@ -480,7 +586,7 @@ impl PortableInstruction<'_> {
         if commit.registers.status & !0xa71f != 0 {
             return Err(TimingError::WrongObservation.into());
         }
-        let (next_pc, completed) = match commit.path {
+        let (next_pc, control) = match commit.path {
             game::Path::Next(location) => {
                 let pc = *self
                     .bound
@@ -490,7 +596,20 @@ impl PortableInstruction<'_> {
                 if !self.bound.timing.permits_edge(self.entry.pc, pc) {
                     return Err(TimingError::InvalidIr("source path escapes reviewed edges").into());
                 }
-                (pc, None)
+                (pc, PortableControl::Continue)
+            }
+            game::Path::Call { target, return_to } => {
+                let call = self.site.call.ok_or(TimingError::WrongEntry)?;
+                if call.resume != return_to || !call.targets.contains(&target) {
+                    return Err(TimingError::InvalidIr(
+                        "source call target or return role mismatch",
+                    )
+                    .into());
+                }
+                (
+                    target.metadata().address(self.bound.revision),
+                    PortableControl::Call(CallIntent { target, return_to }),
+                )
             }
             game::Path::Return { address, value } => {
                 if !self.site.ordinary_return
@@ -515,7 +634,7 @@ impl PortableInstruction<'_> {
                 }
                 (
                     address,
-                    Some(game::TimedExit {
+                    PortableControl::Return(game::TimedExit {
                         entry: self.bound.source.entry.function,
                         program_counter: address,
                         stack_pointer: commit.registers.stack_pointer(),
@@ -524,7 +643,11 @@ impl PortableInstruction<'_> {
                 )
             }
         };
-        Ok((commit.registers, RustPathChoice { next_pc }, completed))
+        Ok(FinishedInstruction {
+            registers: commit.registers,
+            path: RustPathChoice { next_pc },
+            control,
+        })
     }
 }
 
@@ -555,3 +678,6 @@ mod error_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod call_tests;

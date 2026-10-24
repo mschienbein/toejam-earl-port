@@ -24,6 +24,14 @@ pub struct Edge {
     pub to: Location,
 }
 
+/// A separately scoped call, not permission to inline another function's roles.
+#[derive(Debug, Clone, Copy)]
+pub struct CallSite {
+    pub at: Location,
+    pub targets: &'static [FunctionId],
+    pub resume: Location,
+}
+
 /// Source control-flow metadata, never a ROM listing or an elapsed-time table.
 pub struct Program {
     pub name: &'static str,
@@ -31,6 +39,7 @@ pub struct Program {
     pub entry: Location,
     pub functions: &'static [FunctionRegion],
     pub edges: &'static [Edge],
+    pub calls: &'static [CallSite],
 }
 
 /// Architectural game state only: no opcode, prefetch or private timing state.
@@ -94,12 +103,16 @@ pub struct Observation {
     pub value: u16,
 }
 
-/// Source chooses every branch/callee/return. The engine validates, not chooses,
-/// the corresponding runtime instruction boundary. Calls and their stack effects
-/// are real source operations; there is no original-callee execution directive.
+/// Source chooses every branch, call target and return. The adapter authenticates
+/// the original instruction boundary and selects the reviewed callee profile.
+/// The source owns real call stack effects, never an original-root directive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Path {
     Next(Location),
+    Call {
+        target: FunctionId,
+        return_to: Location,
+    },
     /// Complete this program, never an internal RTS. Internal returns use Next
     /// after the source's real return-address reads and stack update.
     Return {

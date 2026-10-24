@@ -100,6 +100,7 @@ fn run(source: &mut Source, mut registers: Registers, memory: &mut Memory) -> Co
                 registers = commit.registers;
             }
             Path::Return { .. } => return commit,
+            Path::Call { .. } => panic!("a declared platform leaf emitted a callee path"),
         }
     }
     panic!("source fixture did not return within its diagnostic instruction ceiling");

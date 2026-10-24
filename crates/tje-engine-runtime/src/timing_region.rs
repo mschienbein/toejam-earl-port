@@ -7,9 +7,13 @@
 //! real scheduled ISR closure instead, never an original-code fallback.
 use crate::{CpuState, DeviceStep, Devices};
 use std::collections::{BTreeMap, BTreeSet};
+mod calls;
 mod native_interrupt;
 mod native_program;
 mod native_source;
+#[cfg(feature = "devices")]
+pub(crate) use calls::CompiledCallStart;
+pub use calls::{CallToken, CalleeKind, ParkedRegion, RegionCall, RegionWork};
 pub use native_interrupt::{IsrAction, NativeInterruptStep, RteReceipt, ScheduledIsrClosure};
 pub use native_program::{InterruptEntry, NativeIsrContract, NativeIsrProgram};
 pub use native_source::{IsrEffects, IsrSourceContext};
@@ -33,6 +37,7 @@ pub struct ReviewedRegion {
     pub entry: u32,
     pub instruction_pcs: Vec<u32>,
     pub edges: Vec<RegionEdge>,
+    pub calls: Vec<RegionCall>,
     /// Some fixes a low-level region boundary; None is a source-owned RTS exit
     /// whose actual target is supplied by the prepared invocation, not compiled.
     pub return_pc: Option<u32>,
@@ -78,6 +83,7 @@ pub struct TimingProgram {
     reviewed: ReviewedRegion,
     instructions: BTreeMap<u32, TimingInstruction>,
     edges: BTreeSet<(u32, u32)>,
+    calls: BTreeMap<(u32, u32), u32>,
     divider: u32,
     id: ScratchIdentity,
     fixed_target: Option<ReturnTarget>,
@@ -91,7 +97,11 @@ impl TimingProgram {
         let instructions = compile_schedules(
             rom,
             &reviewed.instruction_pcs,
-            reviewed.return_pc.as_slice(),
+            reviewed
+                .calls
+                .iter()
+                .map(|call| call.target)
+                .chain(reviewed.return_pc),
             divider,
         )?;
         let fixed_target = reviewed
@@ -127,10 +137,36 @@ impl TimingProgram {
         {
             return Err(TimingError::InvalidIr("uncovered reviewed edge"));
         }
+        let mut calls = BTreeMap::new();
+        for call in &reviewed.calls {
+            let instruction = instructions
+                .get(&call.from)
+                .ok_or(TimingError::WrongEntry)?;
+            if !calls::is_call(instruction.opcode())
+                || call.target & 1 != 0
+                || call.resume != instruction.next_pc()
+                || !(instructions.contains_key(&call.resume)
+                    || Some(call.resume) == reviewed.return_pc)
+                || edges.iter().any(|&(from, _)| from == call.from)
+                || calls
+                    .insert((call.from, call.target), call.resume)
+                    .is_some()
+            {
+                return Err(TimingError::InvalidIr("invalid or duplicate scoped call"));
+            }
+        }
+        if instructions.iter().any(|(&pc, instruction)| {
+            calls::is_call(instruction.opcode()) && !calls.keys().any(|&(from, _)| from == pc)
+        }) {
+            return Err(TimingError::InvalidIr(
+                "call instruction has no scoped target",
+            ));
+        }
         Ok(Self {
             reviewed,
             instructions,
             edges,
+            calls,
             divider,
             id: TimingScratch::default().identity()?,
             fixed_target,
@@ -154,6 +190,7 @@ pub struct RegionStorage {
     scratch: TimingScratch,
     native_frames: Vec<native_interrupt::Frame>,
     native_program: Option<std::sync::Arc<NativeIsrProgram>>,
+    lease: Option<CursorIdentity>,
 }
 impl RegionStorage {
     pub fn new(program: &TimingProgram) -> Self {
@@ -164,7 +201,11 @@ impl RegionStorage {
             scratch,
             native_frames: Vec::new(),
             native_program: None,
+            lease: None,
         }
+    }
+    pub(crate) fn available_for(&self, program: &TimingProgram) -> bool {
+        self.program == program.id && self.lease.is_none()
     }
     pub fn prepare_native(&mut self, program: &std::sync::Arc<NativeIsrProgram>) {
         self.scratch.reserve_for(program.instructions.values());
@@ -176,7 +217,7 @@ impl RegionStorage {
 fn compile_schedules(
     rom: &[u8],
     pcs: &[u32],
-    extra_prefetch: &[u32],
+    extra_prefetch: impl IntoIterator<Item = u32>,
     divider: u32,
 ) -> Result<BTreeMap<u32, TimingInstruction>, TimingError> {
     compile_schedule_ir(
@@ -194,7 +235,7 @@ fn compile_schedules(
 pub(crate) fn compile_schedule_ir(
     rom: &[u8],
     input: impl IntoIterator<Item = Result<tje_engine_core::ir::InstructionIr, TimingError>>,
-    extra_prefetch: &[u32],
+    extra_prefetch: impl IntoIterator<Item = u32>,
     divider: u32,
 ) -> Result<BTreeMap<u32, TimingInstruction>, TimingError> {
     if divider == 0 {
@@ -230,7 +271,7 @@ pub(crate) fn compile_schedule_ir(
         }
         decoded.push(ir);
     }
-    for &pc in extra_prefetch {
+    for pc in extra_prefetch {
         words.insert(pc, read_word(pc)?);
     }
     let words = std::sync::Arc::new(words);
@@ -325,6 +366,16 @@ pub struct RegionUsage {
     pub original_isr_instructions: u64,
     pub scheduled_isr_instructions: u64,
     pub compiled_isr_instructions: u64,
+    pub nested_source_instructions: u64,
+    pub original_callee_instructions: u64,
+    pub compiled_original_callee_instructions: u64,
+    pub call_profile: Option<&'static str>,
+    pub timed_callee_calls: u64,
+    pub original_substitution_calls: u64,
+    pub compiled_original_callee_calls: u64,
+    pub original_substitution_label: Option<&'static str>,
+    pub compiled_original_callee_label: Option<&'static str>,
+    pub separate_callee_proof_obligations: u64,
 }
 
 // Native ISR service is implemented by the real exception/clock controller in
@@ -348,6 +399,10 @@ pub struct TimingRegion<'a> {
     entry_sp: u32,
     returned: bool,
     last_opcode: Option<u16>,
+    call_entry: Option<calls::CallEntry>,
+    call_pending: Option<calls::PendingCall>,
+    lease: &'a mut Option<CursorIdentity>,
+    parked: bool,
 }
 impl<'a> TimingRegion<'a> {
     pub fn begin_oracle(
@@ -448,12 +503,14 @@ impl<'a> TimingRegion<'a> {
             return Err(TimingError::WrongEntry);
         }
         if storage.program != program.id
+            || storage.lease.is_some()
             || target.pc & 1 != 0
             || program.fixed_target.is_some_and(|fixed| fixed != target)
         {
             return Err(TimingError::WrongEntry);
         }
         let owner = storage.scratch.claim_identity()?;
+        storage.lease = Some(owner);
         Ok(Self {
             program,
             scratch: &mut storage.scratch,
@@ -476,13 +533,28 @@ impl<'a> TimingRegion<'a> {
             entry_sp: entry.read_address(7),
             returned: false,
             last_opcode: None,
+            call_entry: None,
+            call_pending: None,
+            lease: &mut storage.lease,
+            parked: false,
         })
     }
     pub fn usage(&self) -> RegionUsage {
         self.usage
     }
+    pub fn set_call_profile(&mut self, profile: &'static str) -> Result<(), TimingError> {
+        if profile.is_empty()
+            || self.usage.scheduler_steps != 0
+            || self.usage.instructions != 0
+            || self.usage.call_profile.is_some()
+        {
+            return Err(TimingError::WrongToken);
+        }
+        self.usage.call_profile = Some(profile);
+        Ok(())
+    }
     pub fn is_complete(&self) -> bool {
-        self.current.is_none() && !self.suspended && self.returned
+        self.current.is_none() && !self.suspended && self.call_pending.is_none() && self.returned
     }
     pub fn identity(&self) -> CursorIdentity {
         self.owner
@@ -498,6 +570,7 @@ impl<'a> TimingRegion<'a> {
         if self.program.reviewed.return_pc.is_some()
             || self.current.is_some()
             || self.suspended
+            || self.call_pending.is_some()
             || self.last_opcode != Some(0x4e75)
             || cpu.pc != self.target.pc
             || cpu.pc != self.next.pc
@@ -526,6 +599,7 @@ impl<'a> TimingRegion<'a> {
     ) -> Result<TimingCursor<'b>, TimingError> {
         if self.suspended
             || self.current.is_some()
+            || self.call_pending.is_some()
             || admission != BoundaryAction::Ready
             || entry.pc != self.next.pc
             || entry.prefetch != self.next.prefetch
@@ -544,6 +618,8 @@ impl<'a> TimingRegion<'a> {
         let mut cursor = TimingCursor::begin(instruction, entry, self.scratch)?;
         cursor.bind_return_prefetch(self.target.pc, self.target.prefetch)?;
         self.current = Some((entry.pc, cursor.identity()));
+        self.call_entry =
+            calls::is_call(instruction.opcode()).then(|| calls::CallEntry::capture(entry));
         Ok(cursor)
     }
     /// Validate and consume the grant before advancing clocks. This does not
@@ -555,7 +631,12 @@ impl<'a> TimingRegion<'a> {
     ) -> Result<InstructionTiming, TimingError> {
         if self.suspended
             || self.current != Some((timing.pc(), timing.identity()))
+            || self.call_pending.is_some()
             || !(self.program.permits_edge(timing.pc(), timing.pipeline().pc)
+                || self
+                    .program
+                    .calls
+                    .contains_key(&(timing.pc(), timing.pipeline().pc))
                 || (self.program.reviewed.return_pc.is_none()
                     && timing.opcode() == 0x4e75
                     && timing.pipeline().pc == self.target.pc))
@@ -564,6 +645,7 @@ impl<'a> TimingRegion<'a> {
                 "unreviewed Rust control-flow edge or foreign grant",
             ));
         }
+        self.arm_call(&timing)?;
         self.current = None;
         self.next = timing.pipeline();
         self.last_opcode = Some(timing.opcode());

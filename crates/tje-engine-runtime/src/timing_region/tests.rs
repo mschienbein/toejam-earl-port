@@ -11,6 +11,7 @@ fn plan() -> TimingProgram {
     TimingProgram::compile(
         &rom,
         ReviewedRegion {
+            calls: Vec::new(),
             name: "authored single-instruction region",
             source: "synthetic NOP stream",
             entry: 0,

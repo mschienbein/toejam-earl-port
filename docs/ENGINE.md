@@ -294,12 +294,14 @@ dispatcher. Its actual entry PC, stack pointer, physical frame, revision and
 prefetch must already agree. Neither the bridge nor the body repairs an entry
 snapshot, pushes a sentinel return, or patches arguments. Descriptors alone do
 not activate translations or change their execution class.
-The ordinary portable profile owns exactly one reviewed function scope. It
-rejects multi-function descriptors at startup rather than allowing source
-paths to bypass foreign callee classes or nested operational ceilings. Its
-class must match the literal execution contract, its actual root scope must
-be active, and its physical clock must run without Functional normalization.
-ClockedStrict proof admission does not escalate a source class.
+Each portable program owns exactly one reviewed function scope; foreign bodies
+are never inlined into it. `Program.calls` declares separately scoped JSR/BSR
+sites, finite FunctionId targets and the parent return Location. The source's
+`Path::Call` selects that target/return role, while the adapter validates the
+actual resolved EA, real call stack word, PC/prefetch and caller-owned fallthrough
+against the user's ROM. Every source keeps its literal execution class, inherited
+callee permissions and physical clock; ClockedStrict is a proof envelope, not a
+class escalation or an original-execution capability.
 
 Startup validates immutable source descriptors against the verified revision,
 ROM, device divider and interrupt policy. It lowers each instruction once and
@@ -378,6 +380,115 @@ The typed failure is never an approved transfer: callers return it before any
 SP/frame/register restoration or argument release, leaving actual CPU/device
 state exactly at failure. Clean consumption ends this protection for unrelated
 ordinary errors; a failed or pending invocation still cannot be rebound.
+
+### Nested calls, substitution profiles and authority
+
+Caller source owns the complete JSR/BSR instruction: argument/local preparation,
+real return-address writes, register updates and its exact instruction/device
+charge. The child is already physically prepared. The bridge must not push
+another argument/RA, call an ordinary setup helper that uses `set_pc`, pre-read
+or substitute its caller opcode, or release outgoing slots on return. Post-JSR
+debt and legal IRQ admission occur in the child's inherited scope before its
+first opcode. Child post-RTS waits/IRQs drain before its single sealed receipt
+can resume the parent's authenticated return role. Actual callee registers and
+CCR remain visible; no pre-call CPU image is restored.
+
+Plans and buffers are not invocation authority. Immutable bindings are shared,
+but every active depth owns distinct prepared scratch and its own affine
+completion ledger. A parked non-Clone continuation keeps its storage leased,
+so recursive A→B→A cannot alias an active parent's scratch. Per-function pools
+reuse those buffers. A child's public frame changes bind only its new owner,
+never `change_scope` on an in-flight parent. A consumed child does not consume,
+renew or unpoison the suspended parent.
+After validated RTS consumption, the controller closes the child ceiling
+**before** finishing/popping its owner, resuming a cursor or restoring parent
+frame/class metadata. An orphan/LIFO ceiling failure is still a child-finalizing
+failure, even though its source ledger's RTS was consumed. The active child
+binding retains protection until that transition succeeds; failure preserves
+the child metadata, actual returned CPU/debt/queues and first cause without
+caller argument cleanup.
+
+The root initialized-byte map and chronological audit remain shared across
+all nested paths, including original execution. The active root CallClock is
+also shared: class and child ceilings tighten its absolute existing deadlines;
+no region gets a fresh root allowance. Device steps charge it once. Inclusive
+ancestor progress/call counters are observations, not aggregate cycle grants.
+Any descendant admission/execution/receipt failure poisons the admitted chain,
+retains the first cause and actual failed frame/CPU/device queues, and performs
+no caller epilogue or argument cleanup. Discarded worlds move the entire nested
+authority aside and restore live authority on every Result path. Their scratch
+may be recycled only after discard; live debt clears only after actual reset.
+
+Callee ownership is explicit and independent from both class and proof envelope:
+
+| Runtime profile | Callee with selected timing roles | Callee without timing roles |
+| --- | --- | --- |
+| `HostCheckOriginalSubstitution` | Canonical selected timed Rust, including Atomic/Functional | Exact original, including a ready production Rust body, only under actual Host `Mode::Check` |
+| `HostHybridReference` | Selected timed Rust | Existing unselected original hybrid path; never substitute behind selected ready untimed Rust |
+| `NativeStrictReadable` | Every callee must be selected timed Rust | Startup rejection |
+| `NativeCompiledOriginalCallees` (opt-in transitional) | Selected timed Rust | Only unselected/pending original continuations; selected ready untimed Rust rejects at startup |
+
+Host CHECK substitution is labelled verbatim **“original-callee substitution
+(callee proven separately)”**, counted separately, and never composition
+evidence. Its receipt retains a separate-callee-proof obligation, so the label
+does not certify an unproven/pending body. Actual immutable Host mode is carried
+by trusted context/fork factories; neither audit presence, proof registry,
+ClockedStrict nor fixture status can mint that permission. Reference/replacement
+contexts do not inherit CHECK's ready-untimed substitution.
+
+The native transitional profile executes authenticated compiled original
+instructions, never an interpreter. Its original-callee driver intercepts
+internal **actual** JSR/BSR boundaries too: selected timed targets hand off to
+their Rust entry; selected untimed targets reject the startup closure. There is
+no opaque-original-subtree exemption or original-root directive. These
+**compiled-original CALLEE** counts are neither Rust nor ISR counts and grant
+no readable/native-composition coverage. Unknown targets, ambiguous/uncovered
+edges and unsupported nonlocal/terminal/RTE exits fail closed.
+
+Receipt profile/kind and the separate-proof flag survive the handoff. Startup
+closure caches bind the immutable dispatcher data-table selection, descriptor
+set, runtime profile/whitelist and ROM/revision/divider/backend authority.
+Table identity is not canonical body approval; independent diagnostic-origin
+and resolved-body admission guards still apply. Changed selection/profile
+requires explicit startup revalidation rather than a hidden warm-entry walk.
+
+The nonleaf candidate is the public
+`cutscenes::timed_clear_lower::clear_lower_vram_tilemap_framed`
+(`G/src/cutscenes/title_and_transition.c:99`). Its source owns the saved loop
+register, real WaitForNextVBlank call and caller cleanup, all 32×64 VDP writes,
+actual saved-local reload and RTS. It activates no registry identity.
+
+#### Proof-only structural call window
+
+The non-default runtime feature `call-window-proofs` exposes a separate
+`CallWindow` constructor for structural evidence, not a source-root entry.
+It authenticates the **live settled** compiled JSR/BSR, opcode, pure control EA,
+SP, immutable ROM/backend identity, actual committed caller extent and callee
+edge. Only that authenticated callsite derives the additional transitive
+selection root; no public arbitrary whitelist/seed is accepted. Class, exit,
+ceiling ownership and transitive selected-body/role checks precede every call
+effect. Callee bindings are genuine; the window has **no root BoundProgram**.
+
+Rust owns that one actual call instruction's ordered prefetch/RA/SP effects.
+The ordinary child controllers then execute original B and redispatch selected
+timed C, retaining real RTS, prefetch debt and boundary IRQ ownership. The
+returned observation is labelled **“structural call window (not whole-root
+translation)”**. It certifies no whole caller, grants no readable coverage and
+contains no reusable root invocation/completion authority. There is no original
+root directive, snapshot import, fake source/root receipt or state repair.
+The constructor, window and observation types do not exist without the feature;
+both shipping frontend dependency guards explicitly forbid enabling it.
+An admitted/fatal window error invalidates the existing shared clock without
+repairing physical state or renewing private authority. Ordinary pre-admission
+missing/stale input-latch errors do neither: the unchanged world and caller
+clock scope remain retryable after correcting the caller-owned latch.
+Its optional failure tap is diagnostic structural-window observation only:
+copied frame/class and borrowed CPU/devices/first cause, after fatal protection
+and poisoning. It receives no Context, mutable state, token/ledger or completion
+authority and cannot replace the outcome. Pre-admission ordinary errors do not
+run this admitted-failure tap.
+
+
 
 The first reviewed source exemplar is `WaitForNextVBlank`: eleven source roles
 validated against the user's revision at runtime, including the original prefix,

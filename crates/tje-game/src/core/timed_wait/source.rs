@@ -38,6 +38,7 @@ static PROGRAM: Program = Program {
         edge(WaitRole::CountBranch, WaitRole::CaptureCounter),
         edge(WaitRole::CountBranch, WaitRole::Return),
     ],
+    calls: &[],
 };
 
 pub struct WaitSource {

@@ -381,7 +381,9 @@ fn enter_body(
         let _ = context.leave_call_ceiling(ceiling);
         return Err(error);
     }
-    let result = body.invoke_entry(context, arguments);
+    let result = body
+        .invoke_entry(context, arguments)
+        .map_err(|error| context.protect_timing_failure(error));
     let result = validate(entry, contract(entry), result, context.revision())
         .map_err(|error| context.protect_timing_failure(error));
     let restore = if class != parent {

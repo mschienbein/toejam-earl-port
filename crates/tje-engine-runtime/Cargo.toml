@@ -9,6 +9,8 @@ rust-version.workspace = true
 [features]
 default = ["devices"]
 devices = ["dep:tje-native-platform", "dep:genesis-config", "dep:jgenesis-common"]
+# Non-shipping structural evidence. It cannot invoke or certify a source root.
+call-window-proofs = ["devices"]
 
 [dependencies]
 tje-engine-core = { path = "../tje-engine-core" }

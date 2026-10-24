@@ -133,6 +133,7 @@ fn main_program(rom: &[u8]) -> TimingProgram {
     TimingProgram::compile(
         rom,
         ReviewedRegion {
+            calls: Vec::new(),
             name: "authored main suspension",
             source: "synthetic NOP/BRA source loop",
             entry: MAIN,

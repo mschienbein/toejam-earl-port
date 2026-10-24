@@ -20,7 +20,12 @@ fn idle_machine(revision: Revision, counter_changed: bool) -> GenesisEmulator {
             0x60f0,
         ],
     );
-    let mut context = HookContext::new(&mut emulator, revision, Dispatcher::hybrid_with(&[]));
+    let mut context = HookContext::new(
+        &mut emulator,
+        revision,
+        Dispatcher::hybrid_with(&[]),
+        crate::Mode::Replace,
+    );
     context.write_u16(COUNTER, if counter_changed { 8 } else { 7 });
     context.set_data_register(3, 7);
     context.write_u16(BEGIN, 0x4e71);

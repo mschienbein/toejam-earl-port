@@ -17,6 +17,7 @@ use genesis_core::{GenesisBus, GenesisEmulator};
 use m68000_emu::{BusInterface, M68000, ReadPurpose, debug::DummyM68000Debugger};
 use serde::Serialize;
 use std::{cell::RefCell, collections::BTreeSet};
+use tje_game::Context as _;
 use tje_game::call_frame::FrameState;
 use tje_game::execution::{ExecutionClass, WaitRequest};
 use tje_game::{Dispatcher, FunctionId};
@@ -432,6 +433,7 @@ pub struct HookContext<'a> {
     emulator: &'a mut GenesisEmulator,
     pub nested_calls: u64,
     revision: Revision,
+    mode: crate::Mode,
     dispatcher: Dispatcher,
     pub(crate) audit: RefCell<AtomicRun>,
     pub(crate) logic_trace: RefCell<LogicTrace>,
@@ -455,11 +457,13 @@ impl<'a> HookContext<'a> {
         emulator: &'a mut GenesisEmulator,
         revision: Revision,
         dispatcher: Dispatcher,
+        mode: crate::Mode,
     ) -> Self {
         let frame_state = FrameState::new(emulator.hybrid_cpu().stack_pointer());
         Self {
             emulator,
             revision,
+            mode,
             dispatcher,
             audit: RefCell::new(AtomicRun::default()),
             logic_trace: RefCell::new(LogicTrace::default()),
@@ -535,18 +539,12 @@ impl<'a> HookContext<'a> {
         }
     }
     pub(crate) fn protect_host_timing_failure(&self, cause: HostError) -> HostError {
-        if matches!(
-            &cause,
-            HostError::Translation(tje_game::Error::ControlTransfer(_))
-        ) {
-            return cause;
-        }
         let Some(services) = self.timing_services.as_ref() else {
             return cause;
         };
-        match services.completion.protected_entry() {
+        match services.authority.completion.protected_entry() {
             Some(entry) => {
-                services.completion.fail();
+                services.authority.completion.fail();
                 #[cfg(test)]
                 crate::timing_region::game_bridge::proof::record_failure(
                     self.emulator,
@@ -573,9 +571,13 @@ impl<'a> HookContext<'a> {
         }
         if !self.timing_root_started && self.timing_services.is_some() {
             if let Some(services) = self.timing_services.as_deref_mut() {
-                let changed = services.completion.change_scope().map_err(|error| {
-                    HostError::Metadata(format!("timing root authority: {error}"))
-                });
+                let changed = services
+                    .authority
+                    .completion
+                    .begin_root_scope()
+                    .map_err(|error| {
+                        HostError::Metadata(format!("timing root authority: {error}"))
+                    });
                 changed.map_err(|error| self.protect_host_timing_failure(error))?;
             }
             self.timing_root_started = true;
@@ -1398,8 +1400,9 @@ impl tje_game::Context for HookContext<'_> {
     fn set_frame_state(&mut self, state: FrameState) -> tje_game::Result<()> {
         if let Some(services) = self.timing_services.as_deref_mut() {
             services
+                .authority
                 .completion
-                .change_scope()
+                .bind_frame()
                 .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
         }
         self.frame_state = state;
@@ -1430,34 +1433,241 @@ impl tje_game::Context for HookContext<'_> {
         entry: tje_game::FunctionId,
         source: &mut dyn tje_game::timing::TimingSource,
     ) -> tje_game::Result<tje_game::timing::TimedExit> {
-        tje_game::Platform::check_mmio_contract(self)?;
-        let services = self.timing_services.as_deref_mut().ok_or_else(|| {
-            tje_game::Error::Platform(
-                "source timing descriptors were not prepared at startup".into(),
-            )
-        })?;
-        let scope = crate::timing_region::game_bridge::ExecutionScope {
-            emulator: self.emulator,
-            revision: self.revision,
-            frame: self.frame_state,
-            class: self.execution_class,
-            clocked: self.timed_execution,
-            clock: &mut self.wait_clock,
-            audio: std::mem::take(&mut self.time_audio),
-            audit: self.stack_audit.is_some(),
-            observers: self.stack_audit.as_ref().map_or_else(
-                crate::execution::PhysicalObservers::default,
-                StackAuditState::physical_observers,
-            ),
+        use crate::timing_region::game_bridge::{
+            self, EntryScope, ExecutionScope, PausedHostSource, PreparedInvocation, SourceAdvance,
+            SourceProof, SourceRequest,
         };
-        let result = crate::timing_region::game_bridge::execute(scope, services, entry, source);
-        let admitted = result.admitted;
-        self.merge_clock_run(result.clock_run);
-        let outcome = result.outcome.map_err(Self::game_platform_error);
-        if admitted {
-            outcome.map_err(|cause| tje_game::Error::timing_execution_failure(entry, cause))
-        } else {
-            outcome
+        use tje_engine_runtime::{
+            portable_timing::{ActiveSource, PausedSource},
+            timing_region::TimingRegion,
+        };
+        let timing_error = |cause: tje_engine_core::timing_region::TimingError| {
+            tje_game::Error::Platform(cause.to_string())
+        };
+        tje_game::Platform::check_mmio_contract(self)?;
+        let PreparedInvocation {
+            initial,
+            target,
+            active,
+            profile,
+        } = {
+            let services = self.timing_services.as_deref_mut().ok_or_else(|| {
+                tje_game::Error::Platform(
+                    "source timing descriptors were not prepared at startup".into(),
+                )
+            })?;
+            game_bridge::prepare_entry(
+                EntryScope {
+                    emulator: self.emulator,
+                    revision: self.revision,
+                    frame: self.frame_state,
+                    class: self.execution_class,
+                    clocked: self.timed_execution,
+                    clock: &mut self.wait_clock,
+                    mode: self.mode,
+                    dispatcher: self.dispatcher,
+                },
+                services,
+                entry,
+                source,
+            )
+            .map_err(Self::game_platform_error)?
+        };
+        let ActiveSource {
+            mut bound,
+            mut storage,
+        } = active;
+        let begun = TimingRegion::begin_oracle(bound.timing(), &initial, target, &mut storage);
+        if let Err(cause) = &begun {
+            let primary = tje_game::Error::Platform(cause.to_string());
+            drop(begun);
+            let _ = self
+                .timing_services
+                .as_deref_mut()
+                .expect("active source service")
+                .plans
+                .release(ActiveSource { bound, storage }, Default::default());
+            return Err(primary);
+        }
+        let mut region = begun.expect("region admission error handled");
+        region
+            .set_call_profile(profile.label())
+            .map_err(timing_error)?;
+        let invocation = match self
+            .timing_services
+            .as_deref_mut()
+            .expect("active source service")
+            .authority
+            .completion
+            .begin(entry, self.frame_state.entry_sp, &region)
+        {
+            Ok(invocation) => invocation,
+            Err(cause) => {
+                let usage = region.usage();
+                drop(region);
+                let _ = self
+                    .timing_services
+                    .as_deref_mut()
+                    .expect("active source service")
+                    .plans
+                    .release(ActiveSource { bound, storage }, usage);
+                return Err(self.protect_timing_failure(timing_error(cause)));
+            }
+        };
+        #[cfg(test)]
+        game_bridge::proof::begin_invocation();
+        let mut proof = SourceProof::begin(
+            self.emulator,
+            &self.wait_clock,
+            self.time_audio.len(),
+            &self
+                .timing_services
+                .as_deref()
+                .expect("active source service")
+                .authority
+                .parents,
+        );
+        let mut dispatch = self
+            .wait_clock
+            .call_clock
+            .dispatch_step()
+            .map_err(tje_game::Error::from);
+        let result = loop {
+            if let Err(cause) = dispatch {
+                break Err(cause);
+            }
+            dispatch = Ok(());
+            let run = {
+                let services = self
+                    .timing_services
+                    .as_deref_mut()
+                    .expect("active source service");
+                game_bridge::run(
+                    ExecutionScope {
+                        emulator: self.emulator,
+                        #[cfg(test)]
+                        frame: self.frame_state,
+                        clock: &mut self.wait_clock,
+                        audio: std::mem::take(&mut self.time_audio),
+                        audit: self.stack_audit.is_some(),
+                        observers: self.stack_audit.as_ref().map_or_else(
+                            crate::execution::PhysicalObservers::default,
+                            StackAuditState::physical_observers,
+                        ),
+                    },
+                    SourceRequest {
+                        bound: &bound,
+                        region: &mut region,
+                        source,
+                        invocation: &invocation,
+                        parents: &mut services.authority.parents,
+                        proof,
+                    },
+                )
+            };
+            self.merge_clock_run(run.clock_run);
+            proof = run.proof;
+            match run.outcome.map_err(Self::game_platform_error) {
+                Err(cause) => break Err(cause),
+                Ok(SourceAdvance::Returned(completed)) => {
+                    break self
+                        .timing_services
+                        .as_deref_mut()
+                        .expect("active source service")
+                        .authority
+                        .completion
+                        .complete(invocation, completed)
+                        .map_err(timing_error);
+                }
+                Ok(SourceAdvance::Call { intent, token }) => {
+                    let parent_frame = self.frame_state;
+                    let parent_class = self.execution_class;
+                    let continuation = region
+                        .park()
+                        .map_err(|cause| self.protect_timing_failure(timing_error(cause)))?;
+                    self.timing_services
+                        .as_deref_mut()
+                        .expect("active source service")
+                        .authority
+                        .parents
+                        .push(PausedHostSource {
+                            source: PausedSource {
+                                active: ActiveSource { bound, storage },
+                                continuation,
+                            },
+                            proof,
+                        });
+                    self.invoke_timing_callee(&invocation, intent.target, &token)?;
+                    let actual = crate::timing_region::state(self.emulator);
+                    let returned = self
+                        .timing_services
+                        .as_deref_mut()
+                        .expect("active source service")
+                        .authority
+                        .completion
+                        .finish_child(token, &actual)
+                        .map_err(timing_error)
+                        .map_err(|cause| self.protect_timing_failure(cause))?;
+                    let counted = {
+                        let services = self
+                            .timing_services
+                            .as_deref_mut()
+                            .expect("active source service");
+                        services
+                            .authority
+                            .parents
+                            .iter_mut()
+                            .try_for_each(|parent| {
+                                parent.source.continuation.observe_return(returned.kind())
+                            })
+                    };
+                    counted.map_err(|cause| self.protect_timing_failure(timing_error(cause)))?;
+                    let paused = self
+                        .timing_services
+                        .as_deref_mut()
+                        .expect("active source service")
+                        .authority
+                        .parents
+                        .pop()
+                        .ok_or_else(|| {
+                            self.protect_timing_failure(tje_game::Error::Platform(
+                                "missing suspended parent source".into(),
+                            ))
+                        })?;
+                    bound = paused.source.active.bound;
+                    storage = paused.source.active.storage;
+                    proof = paused.proof;
+                    region = paused
+                        .source
+                        .continuation
+                        .resume(bound.timing(), &mut storage)
+                        .map_err(|cause| self.protect_timing_failure(timing_error(cause)))?;
+                    returned
+                        .resume(
+                            &mut region,
+                            &actual,
+                            crate::timing_region::boundary_signals(self.emulator),
+                        )
+                        .map_err(|cause| self.protect_timing_failure(timing_error(cause)))?;
+                    self.frame_state = parent_frame;
+                    self.execution_class = parent_class;
+                }
+            }
+        };
+        let usage = region.usage();
+        drop(region);
+        let release = self
+            .timing_services
+            .as_deref_mut()
+            .expect("active source service")
+            .plans
+            .release(ActiveSource { bound, storage }, usage)
+            .map_err(timing_error);
+        match result {
+            Err(cause) => Err(self.protect_timing_failure(cause)),
+            Ok(exit) => release
+                .map(|()| exit)
+                .map_err(|cause| self.protect_timing_failure(cause)),
         }
     }
     fn consume_timing_completion(
@@ -1470,12 +1680,12 @@ impl tje_game::Context for HookContext<'_> {
         let state = crate::timing_region::state(self.emulator);
         #[cfg(test)]
         let result = crate::timing_region::game_bridge::proof::consume_receipt(
-            &mut services.completion,
+            &mut services.authority.completion,
             request,
             &state,
         );
         #[cfg(not(test))]
-        let result = services.completion.consume(request, &state);
+        let result = services.authority.completion.consume(request, &state);
         #[cfg(test)]
         if result.is_err() {
             crate::timing_region::game_bridge::proof::record_failure(
@@ -1492,15 +1702,12 @@ impl tje_game::Context for HookContext<'_> {
         })
     }
     fn protect_timing_failure(&self, cause: tje_game::Error) -> tje_game::Error {
-        if matches!(cause, tje_game::Error::ControlTransfer(_)) {
-            return cause;
-        }
         let Some(services) = self.timing_services.as_ref() else {
             return cause;
         };
-        match services.completion.protected_entry() {
+        match services.authority.completion.protected_entry() {
             Some(entry) => {
-                services.completion.fail();
+                services.authority.completion.fail();
                 #[cfg(test)]
                 crate::timing_region::game_bridge::proof::record_failure(
                     self.emulator,
@@ -1623,3 +1830,153 @@ mod tests {
         );
     }
 }
+
+impl HookContext<'_> {
+    fn invoke_timing_callee(
+        &mut self,
+        parent: &tje_engine_runtime::portable_timing::Invocation,
+        target: FunctionId,
+        token: &tje_engine_runtime::timing_region::CallToken,
+    ) -> tje_game::Result<()> {
+        use tje_engine_runtime::timing_region::CalleeKind;
+        let result = (|| {
+            let class =
+                tje_game::execution_class(target).ok_or(tje_game::Error::Unclassified(target))?;
+            if !self.execution_class.permits(class)
+                || tje_game::exits::contract(target) != tje_game::exits::ExitContract::Rts
+            {
+                return Err(tje_game::Error::ExecutionUnavailable {
+                    caller: self.execution_class,
+                    callee: class,
+                });
+            }
+            let selected = self.dispatcher.resolve_entry(target)?;
+            let services = self.timing_services.as_deref_mut().ok_or_else(|| {
+                tje_game::Error::Platform("source service lease is unavailable".into())
+            })?;
+            let profile = services
+                .profile(self.mode, self.dispatcher)
+                .map_err(Self::game_platform_error)?;
+            let timed = services.plans.binding(target).is_some();
+            let kind = if timed {
+                if !matches!(
+                    selected.map(|entry| entry.entry()),
+                    Some(tje_game::TranslatedEntry::Framed(_))
+                ) {
+                    return Err(tje_game::Error::Platform(
+                        "timed callee has no effective framed Rust entry".into(),
+                    ));
+                }
+                CalleeKind::TimedRust
+            } else {
+                if !services
+                    .permits_original(self.mode, self.dispatcher, target)
+                    .map_err(Self::game_platform_error)?
+                {
+                    return Err(tje_game::Error::Platform(
+                        "callee substitution is unavailable in this actual host mode".into(),
+                    ));
+                }
+                CalleeKind::ReferenceOriginalSubstitution
+            };
+            services
+                .authority
+                .completion
+                .enter_child(parent, token, target, profile, kind)
+                .map_err(|cause| tje_game::Error::Platform(cause.to_string()))?;
+            self.frame_state = FrameState::new(token.entry_stack());
+            self.execution_class = class;
+            let scope = self.enter_call_ceiling(target)?;
+            self.nested_calls = self
+                .nested_calls
+                .checked_add(1)
+                .ok_or_else(|| tje_game::Error::Platform("source call counter exhausted".into()))?;
+            let body = if timed {
+                selected
+                    .expect("validated timed callee")
+                    .invoke_prepared(self)
+            } else {
+                self.execute_original_timing_callee(token)
+            };
+            let body = body.map_err(|cause| self.protect_timing_failure(cause));
+            let result = tje_game::exits::validate_call(target, body, self.revision);
+            let value = tje_game::Error::after_contract_check(self, result)?;
+            if self.consume_timing_completion(tje_game::timing::CompletionRequest {
+                entry: target,
+                entry_sp: token.entry_stack(),
+                kind: tje_game::timing::CompletionKind::Rts,
+                expected_pc: Some(token.return_pc()),
+                value,
+            })? != tje_game::timing::Completion::Consumed
+            {
+                return Err(tje_game::Error::Platform(
+                    "callee did not produce a sealed actual RTS receipt".into(),
+                ));
+            }
+            // Child finalization remains fallible after its real RTS. Close
+            // the scope while the child owner/frame is still current.
+            self.leave_call_ceiling(scope)?;
+            Ok(())
+        })();
+        result.map_err(|cause| self.protect_timing_failure(cause))
+    }
+    fn execute_original_timing_callee(
+        &mut self,
+        token: &tje_engine_runtime::timing_region::CallToken,
+    ) -> tje_game::Result<Option<u32>> {
+        use crate::timing_region::game_bridge::{self, ExecutionScope};
+        let result = (|| {
+            let actual = crate::timing_region::state(self.emulator);
+            let mut controller = self
+                .timing_services
+                .as_deref_mut()
+                .ok_or_else(|| {
+                    tje_game::Error::Platform("original child lost its source owner".into())
+                })?
+                .authority
+                .completion
+                .begin_original(token, &actual)
+                .map_err(|cause| tje_game::Error::Platform(cause.to_string()))?;
+            let (outcome, run) = {
+                let services = self
+                    .timing_services
+                    .as_deref_mut()
+                    .expect("active original child");
+                game_bridge::run_original(
+                    ExecutionScope {
+                        emulator: self.emulator,
+                        #[cfg(test)]
+                        frame: self.frame_state,
+                        clock: &mut self.wait_clock,
+                        audio: std::mem::take(&mut self.time_audio),
+                        audit: self.stack_audit.is_some(),
+                        observers: self.stack_audit.as_ref().map_or_else(
+                            crate::execution::PhysicalObservers::default,
+                            StackAuditState::physical_observers,
+                        ),
+                    },
+                    &mut services.authority.parents,
+                    &mut controller,
+                )
+            };
+            self.merge_clock_run(run);
+            outcome.map_err(Self::game_platform_error)?;
+            let actual = crate::timing_region::state(self.emulator);
+            let signals = crate::timing_region::boundary_signals(self.emulator);
+            let exit = self
+                .timing_services
+                .as_deref_mut()
+                .expect("active original child")
+                .authority
+                .completion
+                .complete_original(controller, &actual, signals)
+                .map_err(|cause| tje_game::Error::Platform(cause.to_string()))?;
+            Ok(exit.value)
+        })();
+        result.map_err(|cause| self.protect_timing_failure(cause))
+    }
+}
+
+#[cfg(test)]
+#[path = "abi/timing_call_tests.rs"]
+mod timing_call_tests;

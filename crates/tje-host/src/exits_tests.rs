@@ -25,7 +25,12 @@ fn machine(revision: Revision, words: &[u16]) -> GenesisEmulator {
         &mut NoCartridgeSaves,
     );
     {
-        let mut context = HookContext::new(&mut emulator, revision, Dispatcher::hybrid_with(&[]));
+        let mut context = HookContext::new(
+            &mut emulator,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        );
         for (index, &word) in words.iter().enumerate() {
             context.write_u16(CODE + 2 * index as u32, word);
         }
@@ -71,11 +76,21 @@ fn run_pair(
 ) -> (GenesisEmulator, crate::abi::AtomicRun, EntryOutcome) {
     let mut translated = original.partial_clone();
     let entry = {
-        let context = HookContext::new(original, revision, Dispatcher::hybrid_with(&[]));
+        let context = HookContext::new(
+            original,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        );
         EntryState::capture(&context, hook.exit_contract).unwrap()
     };
     let outcome = {
-        let mut context = HookContext::new(&mut translated, revision, Dispatcher::hybrid_with(&[]));
+        let mut context = HookContext::new(
+            &mut translated,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        );
         let outcome = hook.execute(&mut context).unwrap();
         finish(&mut context, hook, outcome).unwrap();
         outcome
@@ -131,8 +146,12 @@ fn authored_rte_matches_original_for_supervisor_and_user_resume_in_both_revision
         for saved_status in [0x0015, 0x231a] {
             let mut original = machine(revision, &[0x4e73]); // Authored RTE.
             {
-                let mut context =
-                    HookContext::new(&mut original, revision, Dispatcher::hybrid_with(&[]));
+                let mut context = HookContext::new(
+                    &mut original,
+                    revision,
+                    Dispatcher::hybrid_with(&[]),
+                    crate::Mode::Replace,
+                );
                 context.write_u16(STACK, saved_status);
                 context.write_u32(STACK + 2, RESUME);
                 context.write_u32(USER_STACK, 0x5a6b7c8d);
@@ -191,7 +210,12 @@ fn final_jsr_pushes_the_authored_return_word_instead_of_a_sentinel() {
         assert_eq!(audit.instructions, 1);
         assert_eq!(strict_compare(&mut original, &mut translated, &hook), Ok(0));
         assert_eq!(translated.hybrid_cpu().stack_pointer(), STACK - 4);
-        let context = HookContext::new(&mut translated, revision, Dispatcher::hybrid_with(&[]));
+        let context = HookContext::new(
+            &mut translated,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        );
         assert_eq!(context.read_u32(STACK - 4), CODE + 6);
     }
 }
@@ -239,8 +263,13 @@ fn persistent_frame_bytes_are_live_below_the_initial_entry_stack() {
         let (mut translated, audit, _) = run_pair(&mut original, &hook, revision);
         assert_eq!(audit.instructions, 1);
         assert_eq!(strict_compare(&mut original, &mut translated, &hook), Ok(0));
-        HookContext::new(&mut translated, revision, Dispatcher::hybrid_with(&[]))
-            .write_u8(STACK - 1, 0xff);
+        HookContext::new(
+            &mut translated,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        )
+        .write_u8(STACK - 1, 0xff);
         let mismatch = strict_compare(&mut original, &mut translated, &hook).unwrap_err();
         assert!(mismatch.contains("RAM"));
     }
@@ -294,7 +323,12 @@ fn poisoned_mmio_cannot_be_finalized_as_a_terminal_transfer() {
         let revision = Revision::Rev02;
         let mut emulator = machine(revision, &[0x60fe]);
         let hook = hook(revision, ExitContract::Terminal, body);
-        let mut context = HookContext::new(&mut emulator, revision, Dispatcher::hybrid_with(&[]));
+        let mut context = HookContext::new(
+            &mut emulator,
+            revision,
+            Dispatcher::hybrid_with(&[]),
+            crate::Mode::Replace,
+        );
         let before = (context.cpu().pc(), context.cpu().stack_pointer());
         let error = hook.execute(&mut context).unwrap_err();
         match (&error, transfers) {

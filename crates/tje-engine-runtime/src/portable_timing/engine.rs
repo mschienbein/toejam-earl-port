@@ -1,9 +1,12 @@
 //! Ordinary readable source composed with authenticated generated IRQ code.
 //! This profile is NOT evidence for readable Rust ISR implementations.
-use super::{BoundProgram, CompletionLedger, PortableError, TimingBackend, apply_registers, game};
+use super::{
+    ActiveSource, BoundProgram, CallIntent, CallProfile, CompletionOwners, PausedSource,
+    PortableControl, PortableError, PreparedSources, TimingBackend, apply_registers, game,
+};
 use crate::timing_region::{
-    BoundaryAction, BoundarySignals, InterruptToken, RegionStorage, RegionUsage, TimingRegion,
-    advance_and_commit, classify_boundary,
+    BoundaryAction, BoundarySignals, CallToken, InterruptToken, RegionUsage, RegionWork,
+    TimingRegion, advance_and_commit, classify_boundary,
 };
 use crate::{Bus, CpuState, DeviceStep, Devices, Engine, RuntimeStep, StepKind};
 use genesis_config::GenesisInputs;
@@ -23,19 +26,6 @@ use tje_rom::Rom;
 
 fn error(error: impl std::fmt::Display) -> Error {
     Error::Platform(error.to_string())
-}
-
-fn protect(ledger: &CompletionLedger, cause: Error) -> Error {
-    if matches!(cause, Error::ControlTransfer(_)) {
-        return cause;
-    }
-    match ledger.protected_entry() {
-        Some(entry) => {
-            ledger.fail();
-            Error::timing_execution_failure(entry, cause)
-        }
-        None => cause,
-    }
 }
 
 /// The caller owns a per-machine input latch. Entry only borrows its current
@@ -58,6 +48,7 @@ pub trait FrameTimeline {
 pub enum ProgressOwner {
     SourceInstruction,
     CompiledEngineInterrupt { instruction: bool },
+    CompiledOriginalCallee { instruction: bool },
     HardwareWait,
 }
 
@@ -74,12 +65,19 @@ pub trait StepObserver {
 }
 
 /// Immutable startup attestation for the actual compiled backend, not an ISA
-/// interpreter label. It retains neither ROM nor the frontend's generated IR.
+/// interpreter label. It retains no ROM or full IR, only authenticated call boundaries.
+#[derive(Clone, Copy)]
+struct OriginalCallSite {
+    opcode: u16,
+    resume: u32,
+    return_prefetch: Option<u16>,
+}
 pub struct CompiledTimingCapability {
     identity: ([u8; 20], [u8; 32]),
     divider: u32,
     revision: tje_mem::Revision,
     rom_identity: tje_mem::RomIdentity,
+    calls: std::collections::BTreeMap<u32, OriginalCallSite>,
 }
 impl CompiledTimingCapability {
     pub fn validate<B: TimingBackend>(machine: &Engine<B>, cartridge: &Rom) -> Result<Self> {
@@ -106,14 +104,35 @@ impl CompiledTimingCapability {
         if !machine
             .backend()
             .authenticates_compilation(digest, &program)
-            || program
-                .instructions
-                .iter()
-                .any(|ir| !machine.backend().contains_compiled_instruction(ir.pc))
         {
             return Err(error(
                 "backend has no authenticated complete compiled IRQ/callee capability",
             ));
+        }
+        let mut calls = std::collections::BTreeMap::new();
+        for instruction in &program.instructions {
+            if !machine
+                .backend()
+                .contains_compiled_instruction(instruction.pc)
+            {
+                return Err(error("backend omits an authenticated continuation"));
+            }
+            if matches!(
+                tje_engine_core::decode::decode(instruction.opcode),
+                tje_engine_core::decode::Instruction::JumpToSubroutine(_)
+                    | tje_engine_core::decode::Instruction::BranchToSubroutine(_)
+            ) {
+                calls.insert(
+                    instruction.pc,
+                    OriginalCallSite {
+                        opcode: instruction.opcode,
+                        resume: instruction.next_pc,
+                        return_prefetch: program
+                            .instruction(instruction.next_pc)
+                            .map(|next| next.opcode),
+                    },
+                );
+            }
         }
         // These are the Genesis device layer's IRQ sources, not source-supplied
         // permissions. Every instruction in their conservative metadata closure
@@ -134,6 +153,7 @@ impl CompiledTimingCapability {
             divider,
             revision: cartridge.revision(),
             rom_identity: machine.devices().memory().rom_identity(),
+            calls,
         })
     }
     fn check<B: TimingBackend>(&self, machine: &Engine<B>, cartridge: &Rom) -> Result<()> {
@@ -154,20 +174,56 @@ impl CompiledTimingCapability {
 /// Startup-prepared immutable binding plus reusable per-machine scratch.
 /// Construction may allocate; creating/invoking a warm Context does not.
 pub struct NativeSourceState {
-    cache: Arc<BoundProgram>,
-    storage: RegionStorage,
+    root_cache: Option<Arc<BoundProgram>>,
+    plans: PreparedSources,
+    parents: Vec<PausedSource>,
     irq_frames: Vec<Frame>,
-    completion: CompletionLedger,
+    completion: CompletionOwners,
+    profile: CallProfile,
+    validated_dispatcher: Option<(Dispatcher, CallProfile, bool)>,
+    selected_calls: Option<super::ValidatedCalls>,
 }
 impl NativeSourceState {
-    pub fn new(cache: Arc<BoundProgram>) -> Self {
-        let storage = cache.prepare_storage();
-        Self {
-            cache,
-            storage,
-            irq_frames: Vec::with_capacity(8),
-            completion: CompletionLedger::default(),
+    fn root_binding(&self) -> Result<&BoundProgram> {
+        self.root_cache
+            .as_deref()
+            .ok_or_else(|| error("proof call-window authority cannot enter a whole source root"))
+    }
+    pub fn new(
+        cache: Arc<BoundProgram>,
+        callees: &[Arc<BoundProgram>],
+        profile: CallProfile,
+    ) -> Result<Self> {
+        if matches!(
+            profile,
+            CallProfile::HostHybridReference | CallProfile::HostCheckOriginalSubstitution
+        ) || callees.iter().any(|callee| {
+            callee.revision != cache.revision
+                || callee.rom_digest != cache.rom_digest
+                || callee.divider != cache.divider
+                || callee.irq_policy != cache.irq_policy
+        }) {
+            return Err(error(
+                "native source set has an invalid profile or mixed binding authority",
+            ));
         }
+        let plans = PreparedSources::new(
+            std::iter::once(Arc::clone(&cache)).chain(callees.iter().cloned()),
+        )
+        .map_err(error)?;
+        let mut completion = CompletionOwners::default();
+        completion.prepare_depth(plans.len());
+        let parents = Vec::with_capacity(plans.len());
+        Ok(Self {
+            root_cache: Some(cache),
+            plans,
+            parents,
+            irq_frames: Vec::with_capacity(8),
+            completion,
+            profile,
+            validated_dispatcher: None,
+            selected_calls: None,
+        })
     }
 }
 
@@ -201,24 +257,49 @@ where
         dispatcher: Dispatcher,
         state: &'a mut NativeSourceState,
     ) -> Result<Self> {
-        if !clock.contains_scope(state.cache.entry()) {
+        let root = state.root_binding()?;
+        let root_entry = root.entry();
+        if !clock.contains_scope(root_entry) {
             return Err(error(
                 "native timing requires its actual owner-bound root scope",
             ));
         }
         capability.check(machine, cartridge)?;
-        if !state.cache.matches(cartridge, capability.divider, &[4, 6]) {
+        if !root.matches(cartridge, capability.divider, &[4, 6]) {
             return Err(error(
                 "native source cache has the wrong cartridge, divider or IRQ policy",
             ));
         }
-        let class = tje_game::execution_contract(state.cache.entry())
+        match state.validated_dispatcher {
+            Some((selected, profile, diagnostic))
+                if selected.same_selection(dispatcher)
+                    && profile == state.profile
+                    && state
+                        .selected_calls
+                        .as_ref()
+                        .is_some_and(|calls| calls.has_diagnostic_candidates() == diagnostic) => {}
+            Some(_) => {
+                return Err(error(
+                    "native call closure selection/profile changed after startup validation",
+                ));
+            }
+            None => {
+                let calls = state
+                    .plans
+                    .validate_selection(dispatcher, state.profile)
+                    .map_err(PortableError::into_game_error)?;
+                let diagnostic = calls.has_diagnostic_candidates();
+                state.selected_calls = Some(calls);
+                state.validated_dispatcher = Some((dispatcher, state.profile, diagnostic));
+            }
+        }
+        let class = tje_game::execution_contract(root_entry)
             .ok_or_else(|| error("native source has no reviewed execution contract"))?
             .class;
         state
             .completion
-            .change_scope()
-            .map_err(|cause| protect(&state.completion, error(cause)))?;
+            .begin_root_scope()
+            .map_err(|cause| state.completion.protect_failure(error(cause)))?;
         let inputs = timeline.latched_inputs(machine.frame_count())?;
         let frame = FrameState::new(machine.cpu().read_address(7));
         Ok(Self {
@@ -251,7 +332,7 @@ where
     pub fn invoke_prepared(&mut self, entry: FunctionId) -> Result<Option<u32>> {
         let entry_sp = self.machine.cpu().read_address(7);
         if tje_game::exits::contract(entry) != tje_game::exits::ExitContract::Rts
-            || entry != self.state.cache.entry()
+            || entry != self.state.root_binding()?.entry()
         {
             return Err(error(
                 "native source context is bound to a different ordinary-return entry",
@@ -274,6 +355,69 @@ where
             ));
         }
         Ok(value)
+    }
+    fn invoke_callee(
+        &mut self,
+        parent: &super::Invocation,
+        target: FunctionId,
+        token: &CallToken,
+    ) -> Result<()> {
+        let result = (|| {
+            let class = tje_game::execution_class(target).ok_or(Error::Unclassified(target))?;
+            if !self.class.permits(class)
+                || tje_game::exits::contract(target) != tje_game::exits::ExitContract::Rts
+            {
+                return Err(Error::ExecutionUnavailable {
+                    caller: self.class,
+                    callee: class,
+                });
+            }
+            let selected = self.dispatcher.resolve_entry(target)?;
+            match selected.map(|entry| entry.entry()) {
+                Some(tje_game::TranslatedEntry::Framed(_))
+                    if self.state.plans.binding(target).is_some() => {}
+                Some(_) => {
+                    return Err(error(
+                        "selected Rust callee lacks reviewed framed timing roles",
+                    ));
+                }
+                None if self.state.profile == CallProfile::NativeCompiledOriginalCallees => {}
+                None => return Err(Error::Untranslated(target)),
+            }
+            let kind = if selected.is_some() {
+                crate::timing_region::CalleeKind::TimedRust
+            } else {
+                crate::timing_region::CalleeKind::CompiledOriginal
+            };
+            self.state
+                .completion
+                .enter_child(parent, token, target, self.state.profile, kind)
+                .map_err(error)?;
+            self.frame = FrameState::new(token.entry_stack());
+            self.class = class;
+            let scope = self.enter_call_ceiling(target)?;
+            let body = match selected {
+                Some(body) => body.invoke_prepared(self),
+                None => self.execute_original_callee(target, token),
+            };
+            let body = body.map_err(|cause| self.state.completion.protect_failure(cause));
+            let result = tje_game::exits::validate_call(target, body, self.revision());
+            let value = Error::after_contract_check(self, result)?;
+            if self.consume_timing_completion(game::CompletionRequest {
+                entry: target,
+                entry_sp: token.entry_stack(),
+                kind: game::CompletionKind::Rts,
+                expected_pc: Some(token.return_pc()),
+                value,
+            })? != game::Completion::Consumed
+            {
+                return Err(error("callee did not produce a sealed actual RTS receipt"));
+            }
+            // Never restore a suspended parent before fallible child cleanup.
+            self.leave_call_ceiling(scope)?;
+            Ok(())
+        })();
+        result.map_err(|cause| self.state.completion.protect_failure(cause))
     }
 }
 
@@ -354,7 +498,7 @@ where
         Some(self.frame)
     }
     fn set_frame_state(&mut self, frame: FrameState) -> Result<()> {
-        self.state.completion.change_scope().map_err(error)?;
+        self.state.completion.bind_frame().map_err(error)?;
         self.frame = frame;
         Ok(())
     }
@@ -425,12 +569,16 @@ where
         {
             return Err(error("prepared source frame is not entirely live work RAM"));
         }
-        let return_pc = self.machine.devices().memory().read_u32(entry_sp);
-        let bound = &self.state.cache;
-        if !bound.accepts(entry, source.program()) {
+        let preview = self
+            .state
+            .plans
+            .binding(entry)
+            .ok_or_else(|| error("source has no prepared timing roles"))?;
+        if !preview.accepts(entry, source.program()) {
             return Err(error("source cache descriptor/entry mismatch"));
         }
-        let target = bound
+        let return_pc = self.machine.devices().memory().read_u32(entry_sp);
+        let target = preview
             .return_target(self.cartridge, return_pc)
             .map_err(error)?;
         if !self
@@ -440,46 +588,127 @@ where
         {
             return Err(error("source caller target is not a compiled continuation"));
         }
-        let mut region = TimingRegion::begin_compiled(
-            bound.timing(),
-            self.machine.cpu(),
-            target,
-            &mut self.state.storage,
-        )
-        .map_err(error)?;
-        let invocation = self
-            .state
-            .completion
-            .begin(entry, entry_sp, &region)
-            .map_err(error)?;
-        let result = self
-            .clock
-            .dispatch_step()
-            .map_err(Error::from)
-            .and_then(|()| {
-                NativeDrive {
-                    machine: self.machine,
-                    clock: self.clock,
-                    timeline: self.timeline,
-                    inputs: &mut self.inputs,
-                    observer: &mut self.observer,
-                    irq_frames: &mut self.state.irq_frames,
-                }
-                .run(bound, source, &mut region, &invocation)
-            });
-        self.usage = Some(region.usage());
-        let result = match result {
-            Ok(completed) => self
+        let ActiveSource {
+            mut bound,
+            mut storage,
+        } = self.state.plans.acquire(entry).map_err(error)?;
+        let begun =
+            TimingRegion::begin_compiled(bound.timing(), self.machine.cpu(), target, &mut storage);
+        if let Err(cause) = &begun {
+            let primary = error(cause);
+            drop(begun);
+            let _ = self
                 .state
-                .completion
-                .complete(invocation, completed)
-                .map_err(error),
-            Err(error) => {
-                self.state.completion.fail();
-                Err(error)
+                .plans
+                .release(ActiveSource { bound, storage }, RegionUsage::default());
+            return Err(primary);
+        }
+        let mut region = begun.expect("region admission error handled");
+        region
+            .set_call_profile(self.state.profile.label())
+            .map_err(error)?;
+        let invocation = match self.state.completion.begin(entry, entry_sp, &region) {
+            Ok(invocation) => invocation,
+            Err(cause) => {
+                let usage = region.usage();
+                drop(region);
+                let _ = self
+                    .state
+                    .plans
+                    .release(ActiveSource { bound, storage }, usage);
+                return Err(self.state.completion.protect_failure(error(cause)));
             }
         };
-        result.map_err(|cause| Error::timing_execution_failure(entry, cause))
+        let mut initial_dispatch = self.clock.dispatch_step().map_err(Error::from);
+        let result = loop {
+            if let Err(cause) = initial_dispatch {
+                break Err(cause);
+            }
+            initial_dispatch = Ok(());
+            let advanced = NativeDrive {
+                machine: self.machine,
+                clock: self.clock,
+                timeline: self.timeline,
+                inputs: &mut self.inputs,
+                observer: &mut self.observer,
+                irq_frames: &mut self.state.irq_frames,
+                parents: &mut self.state.parents,
+            }
+            .run(&bound, source, &mut region, &invocation);
+            match advanced {
+                Err(cause) => break Err(cause),
+                Ok(SourceAdvance::Returned(completed)) => {
+                    break self
+                        .state
+                        .completion
+                        .complete(invocation, completed)
+                        .map_err(error);
+                }
+                Ok(SourceAdvance::Call { intent, token }) => {
+                    let parent_frame = self.frame;
+                    let parent_class = self.class;
+                    let continuation = region
+                        .park()
+                        .map_err(|cause| self.state.completion.protect_failure(error(cause)))?;
+                    self.state.parents.push(PausedSource {
+                        active: ActiveSource { bound, storage },
+                        continuation,
+                    });
+                    if let Err(cause) = self.invoke_callee(&invocation, intent.target, &token) {
+                        self.state.completion.fail();
+                        self.usage = self
+                            .state
+                            .parents
+                            .last()
+                            .map(|parent| parent.continuation.usage());
+                        return Err(Error::timing_execution_failure(entry, cause));
+                    }
+                    let returned = self
+                        .state
+                        .completion
+                        .finish_child(token, self.machine.cpu())
+                        .map_err(|cause| self.state.completion.protect_failure(error(cause)))?;
+                    for parent in &mut self.state.parents {
+                        parent
+                            .continuation
+                            .observe_return(returned.kind())
+                            .map_err(|cause| self.state.completion.protect_failure(error(cause)))?;
+                    }
+                    let paused = self.state.parents.pop().ok_or_else(|| {
+                        self.state
+                            .completion
+                            .protect_failure(error("missing suspended parent source"))
+                    })?;
+                    bound = paused.active.bound;
+                    storage = paused.active.storage;
+                    region = paused
+                        .continuation
+                        .resume(bound.timing(), &mut storage)
+                        .map_err(|cause| self.state.completion.protect_failure(error(cause)))?;
+                    returned
+                        .resume(&mut region, self.machine.cpu(), signals(self.machine))
+                        .map_err(|cause| self.state.completion.protect_failure(error(cause)))?;
+                    self.frame = parent_frame;
+                    self.class = parent_class;
+                }
+            }
+        };
+        let usage = region.usage();
+        self.usage = Some(usage);
+        drop(region);
+        let release = self
+            .state
+            .plans
+            .release(ActiveSource { bound, storage }, usage)
+            .map_err(error);
+        let result = match result {
+            Err(cause) => Err(cause),
+            Ok(exit) => release.map(|()| exit),
+        };
+        result.map_err(|cause| {
+            self.state.completion.fail();
+            Error::timing_execution_failure(entry, cause)
+        })
     }
     fn consume_timing_completion(
         &mut self,
@@ -491,8 +720,16 @@ where
             .map_err(|cause| Error::timing_execution_failure(request.entry, error(cause)))
     }
     fn protect_timing_failure(&self, cause: Error) -> Error {
-        protect(&self.state.completion, cause)
+        self.state.completion.protect_failure(cause)
     }
+}
+
+enum SourceAdvance {
+    Call {
+        intent: CallIntent,
+        token: CallToken,
+    },
+    Returned(super::CertifiedReturn),
 }
 
 struct NativeDrive<'a, 'observer, B> {
@@ -502,6 +739,7 @@ struct NativeDrive<'a, 'observer, B> {
     inputs: &'a mut GenesisInputs,
     observer: &'a mut Option<&'observer mut dyn StepObserver>,
     irq_frames: &'a mut Vec<Frame>,
+    parents: &'a mut [PausedSource],
 }
 impl<B: TimingBackend> NativeDrive<'_, '_, B>
 where
@@ -513,7 +751,7 @@ where
         source: &mut dyn game::TimingSource,
         region: &mut TimingRegion<'_>,
         invocation: &super::Invocation,
-    ) -> Result<super::CertifiedReturn> {
+    ) -> Result<SourceAdvance> {
         let mut completed = None;
         loop {
             self.admit(region)?;
@@ -530,7 +768,7 @@ where
             self.machine
                 .devices
                 .begin_instruction(entry.pc, entry.prefetch as u16);
-            let (timing, registers) = loop {
+            let (timing, registers, control) = loop {
                 match cursor.next_event().map_err(error)? {
                     TimingEvent::Bus { token, expected } => {
                         let request = portable
@@ -584,14 +822,13 @@ where
                         cursor.acknowledge_offset(token).map_err(error)?;
                     }
                     TimingEvent::InstructionComplete { token, .. } => {
-                        let (registers, path, exit) =
-                            portable.finish().map_err(PortableError::into_game_error)?;
-                        if exit.is_some() {
-                            completed = exit;
-                        }
+                        let finished = portable.finish().map_err(PortableError::into_game_error)?;
                         break (
-                            cursor.complete_instruction(token, path).map_err(error)?,
-                            registers,
+                            cursor
+                                .complete_instruction(token, finished.path)
+                                .map_err(error)?,
+                            finished.registers,
+                            finished.control,
                         );
                     }
                     TimingEvent::Exception { .. } => {
@@ -608,15 +845,32 @@ where
                 .frames
                 .checked_add(u64::from(step.frame_complete))
                 .ok_or_else(|| error("native frame counter overflow"))?;
-            self.record(region, step, ProgressOwner::SourceInstruction)?;
-            if completed.is_some() {
-                region.complete_return(self.machine.cpu()).map_err(error)?;
+            self.record(Some(&mut *region), step, ProgressOwner::SourceInstruction)?;
+            match control {
+                PortableControl::Continue => {}
+                PortableControl::Return(exit) => {
+                    completed = Some(exit);
+                    region.complete_return(self.machine.cpu()).map_err(error)?;
+                }
+                PortableControl::Call(intent) => {
+                    let token = region.authorize_call(self.machine.cpu()).map_err(error)?;
+                    let return_word = self
+                        .machine
+                        .devices()
+                        .memory()
+                        .read_u32(token.entry_stack());
+                    bound
+                        .authenticate_call(intent, &token, self.machine.cpu(), return_word)
+                        .map_err(error)?;
+                    return Ok(SourceAdvance::Call { intent, token });
+                }
             }
         }
         let exit =
             completed.ok_or_else(|| error("source region completed without a source return"))?;
         bound
             .certify_return(region, invocation, self.machine.cpu(), exit, self.signals())
+            .map(SourceAdvance::Returned)
             .map_err(error)
     }
     fn boundary(&self) -> BoundaryAction {
@@ -645,7 +899,7 @@ where
         } else {
             ProgressOwner::HardwareWait
         };
-        self.record(region, step.devices, owner)?;
+        self.record(Some(&mut *region), step.devices, owner)?;
         Ok((step, before))
     }
     fn admit(&mut self, region: &mut TimingRegion<'_>) -> Result<()> {
@@ -703,16 +957,20 @@ where
     }
     fn record(
         &mut self,
-        region: &mut TimingRegion<'_>,
+        mut region: Option<&mut TimingRegion<'_>>,
         step: DeviceStep,
         owner: ProgressOwner,
     ) -> Result<()> {
-        let compiled = owner == (ProgressOwner::CompiledEngineInterrupt { instruction: true });
-        let progress = region.record_progress(step).map_err(error);
-        let retired = if compiled {
-            region.record_compiled_instruction().map_err(error)
-        } else {
-            Ok(())
+        let compiled_isr = owner == (ProgressOwner::CompiledEngineInterrupt { instruction: true });
+        let compiled =
+            compiled_isr || owner == (ProgressOwner::CompiledOriginalCallee { instruction: true });
+        let progress = match region.as_mut() {
+            Some(region) => region.record_progress(step).map_err(error),
+            None => Ok(()),
+        };
+        let retired = match region.as_mut() {
+            Some(region) if compiled_isr => region.record_compiled_instruction().map_err(error),
+            _ => Ok(()),
         };
         let clock = self.clock.record(ClockUsage {
             ticks: 1,
@@ -738,6 +996,24 @@ where
         } else {
             Ok(())
         };
+        let work = match owner {
+            ProgressOwner::SourceInstruction => RegionWork::SourceInstruction,
+            ProgressOwner::CompiledEngineInterrupt { instruction: true } => {
+                RegionWork::CompiledIsrInstruction
+            }
+            ProgressOwner::CompiledOriginalCallee { instruction: true } => {
+                RegionWork::CompiledOriginalCalleeInstruction
+            }
+            _ => RegionWork::Hardware,
+        };
+        let mut ancestors = Ok(());
+        for parent in self.parents.iter_mut() {
+            if let Err(cause) = parent.observe(step, work)
+                && ancestors.is_ok()
+            {
+                ancestors = Err(error(cause));
+            }
+        }
         let observed = if let Some(observer) = self.observer.as_mut() {
             observer.completed_step(owner, step, self.machine.cpu(), self.machine.devices())
         } else {
@@ -762,6 +1038,7 @@ where
         observed?;
         output?;
         budget?;
+        ancestors?;
         Ok(())
     }
 }
@@ -803,6 +1080,15 @@ impl CompiledIrqGuard {
         frames.clear();
         Self {
             identity: token.identity(),
+            frames,
+            entered: false,
+            instructions: 0,
+        }
+    }
+    fn for_original(identity: (CursorIdentity, u64), mut frames: Vec<Frame>) -> Self {
+        frames.clear();
+        Self {
+            identity,
             frames,
             entered: false,
             instructions: 0,
@@ -885,3 +1171,219 @@ impl CompiledInterruptReceipt {
         self.instructions
     }
 }
+
+fn signals<B: TimingBackend>(machine: &Engine<B>) -> BoundarySignals {
+    BoundarySignals {
+        wait: machine.devices().cycles().m68k_wait_cpu_cycles != 0,
+        reset: machine.devices().reset_asserted(),
+        halted: machine.devices().cpu_halted(),
+        interrupt_level: machine.devices().pending_interrupt(),
+    }
+}
+
+impl<B: TimingBackend> NativeTimingContext<'_, B>
+where
+    B::Error: std::fmt::Display,
+{
+    fn execute_original_callee(
+        &mut self,
+        entry: FunctionId,
+        token: &CallToken,
+    ) -> Result<Option<u32>> {
+        let result = (|| {
+            if self.state.profile != CallProfile::NativeCompiledOriginalCallees
+                || !self
+                    .state
+                    .selected_calls
+                    .as_ref()
+                    .is_some_and(|selection| selection.permits_original(self.state.profile, entry))
+                || self.dispatcher.resolve_entry(entry)?.is_some()
+            {
+                return Err(error(
+                    "compiled original callee is not in the opted-in unselected closure",
+                ));
+            }
+            let mut controller = self
+                .state
+                .completion
+                .begin_original(token, self.machine.cpu())
+                .map_err(error)?;
+            let mut irq: Option<CompiledIrqGuard> = None;
+            loop {
+                let boundary = classify_boundary(self.machine.cpu(), signals(self.machine));
+                if controller.saw_return() && irq.is_none() && boundary == BoundaryAction::Ready {
+                    break;
+                }
+                if matches!(boundary, BoundaryAction::Faulted | BoundaryAction::Reset) {
+                    return Err(error("original callee abandoned by actual fault or reset"));
+                }
+                if irq.is_none()
+                    && matches!(
+                        boundary,
+                        BoundaryAction::InterruptAdmission { .. }
+                            | BoundaryAction::InterruptAcknowledge { .. }
+                    )
+                {
+                    let identity = controller.interrupt_identity(boundary).map_err(error)?;
+                    irq = Some(CompiledIrqGuard::for_original(
+                        identity,
+                        std::mem::take(&mut self.state.irq_frames),
+                    ));
+                }
+                let interrupt = irq.is_some();
+                if !interrupt && boundary == BoundaryAction::Ready && !controller.saw_return() {
+                    let pc = self.machine.cpu().pc;
+                    let start = entry.metadata().address(self.revision());
+                    let end = start
+                        .checked_add(entry.metadata().size(self.revision()))
+                        .ok_or_else(|| error("original callee extent overflow"))?;
+                    if !(start..end).contains(&pc) {
+                        return Err(error(
+                            "original callee took an unsupported nonlocal or tail exit",
+                        ));
+                    }
+                }
+                self.clock.before_tick()?;
+                if let Some(guard) = &irq {
+                    guard.before(self.machine.cpu())?;
+                }
+                let cpu = self.machine.cpu();
+                let before_pc = cpu.pc;
+                let before_opcode = cpu.prefetch as u16;
+                let before_stack = cpu.read_address(7);
+                let before_irq = interrupt.then(|| Frame::capture(cpu));
+                let prepared_call = if !interrupt
+                    && boundary == BoundaryAction::Ready
+                    && !controller.saw_return()
+                {
+                    if let Some(call) = self.capability.calls.get(&cpu.pc).copied() {
+                        if u32::from(call.opcode) != cpu.prefetch {
+                            return Err(error(
+                                "compiled original call has a stale prefetched opcode",
+                            ));
+                        }
+                        let prefetch = call.return_prefetch.ok_or_else(|| {
+                            error("original call has no published return continuation")
+                        })?;
+                        Some(
+                            controller
+                                .prepare_compiled_call(cpu, call.resume, prefetch)
+                                .map_err(error)?,
+                        )
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let step = self.machine.step(self.inputs).map_err(error)?;
+                let instruction = step.instruction_pc.map(|pc| super::OriginalInstruction {
+                    pc,
+                    opcode: before_opcode,
+                    stack: before_stack,
+                    interrupt,
+                });
+                let reported = if step.instruction_pc.is_some_and(|pc| pc != before_pc) {
+                    Err(error(
+                        "actual compiled instruction receipt disagrees with its entry",
+                    ))
+                } else {
+                    Ok(())
+                };
+                let observed = controller
+                    .observe(step.devices, instruction, self.machine.cpu())
+                    .map_err(error);
+                let monitored = if let Some(guard) = &mut irq {
+                    guard.observe(
+                        before_irq.expect("active IRQ checkpoint"),
+                        &step,
+                        self.machine.cpu(),
+                    )
+                } else {
+                    Ok(())
+                };
+                let owner = if interrupt {
+                    ProgressOwner::CompiledEngineInterrupt {
+                        instruction: step.kind == StepKind::Instruction,
+                    }
+                } else {
+                    ProgressOwner::CompiledOriginalCallee {
+                        instruction: step.kind == StepKind::Instruction,
+                    }
+                };
+                let recorded = NativeDrive {
+                    machine: self.machine,
+                    clock: self.clock,
+                    timeline: self.timeline,
+                    inputs: &mut self.inputs,
+                    observer: &mut self.observer,
+                    irq_frames: &mut self.state.irq_frames,
+                    parents: &mut self.state.parents,
+                }
+                .record(None, step.devices, owner);
+                reported?;
+                observed?;
+                monitored?;
+                recorded?;
+                if irq.as_ref().is_some_and(CompiledIrqGuard::finished)
+                    && classify_boundary(self.machine.cpu(), signals(self.machine))
+                        == BoundaryAction::Ready
+                {
+                    let (_, frames) = irq.take().expect("completed actual IRQ").receipt()?;
+                    self.state.irq_frames = frames;
+                }
+                if let Some(start) = prepared_call
+                    && step.kind == StepKind::Instruction
+                {
+                    let word = self
+                        .machine
+                        .devices()
+                        .memory()
+                        .read_u32(self.machine.cpu().read_address(7));
+                    let call = controller
+                        .suspend_compiled_call(start, step, self.machine.cpu(), word)
+                        .map_err(error)?;
+                    let target = tje_game::function_at(self.revision(), call.target())
+                        .ok_or_else(|| error("original call resolved an unclassified target"))?;
+                    if !entry.metadata().callees.contains(&target) {
+                        return Err(error(
+                            "original call escaped its committed callee whitelist",
+                        ));
+                    }
+                    let parent_frame = self.frame;
+                    let parent_class = self.class;
+                    self.invoke_callee(controller.invocation(), target, &call)?;
+                    let returned = self
+                        .state
+                        .completion
+                        .finish_child(call, self.machine.cpu())
+                        .map_err(error)?;
+                    for parent in &mut self.state.parents {
+                        parent
+                            .continuation
+                            .observe_return(returned.kind())
+                            .map_err(error)?;
+                    }
+                    returned
+                        .resume_original(&mut controller, self.machine.cpu(), signals(self.machine))
+                        .map_err(error)?;
+                    self.frame = parent_frame;
+                    self.class = parent_class;
+                }
+            }
+            let exit = self
+                .state
+                .completion
+                .complete_original(controller, self.machine.cpu(), signals(self.machine))
+                .map_err(error)?;
+            Ok(exit.value)
+        })();
+        result.map_err(|cause| self.state.completion.protect_failure(cause))
+    }
+}
+
+#[cfg(feature = "call-window-proofs")]
+#[path = "call_window.rs"]
+mod call_window;
+#[cfg(feature = "call-window-proofs")]
+pub use call_window::{CallWindow, CallWindowReceipt, WindowFailureObservation};

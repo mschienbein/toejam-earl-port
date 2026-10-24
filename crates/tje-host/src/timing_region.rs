@@ -48,6 +48,7 @@ pub trait RustInstruction {
 pub enum ProgressOwner {
     RustInstruction,
     OriginalInterrupt { instruction: bool },
+    OriginalCallee { instruction: bool },
     HardwareWait,
 }
 /// Root call ceilings can plug into this exact per-step hook. No new deadline is
@@ -251,13 +252,7 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
         classify_boundary(cpu, self.signals())
     }
     pub(crate) fn signals(&self) -> BoundarySignals {
-        let bus = self.emulator.hybrid_bus();
-        BoundarySignals {
-            wait: bus.cycles.m68k_wait_cpu_cycles != 0,
-            reset: bus.m68k_reset,
-            halted: bus.vdp.should_halt_cpu(),
-            interrupt_level: bus.interrupt_level(),
-        }
+        boundary_signals(self.emulator)
     }
     fn original_noninstruction(
         &mut self,
@@ -306,7 +301,7 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
                     ));
                 }
             };
-            self.record(region, owner, before, effect)
+            self.record(Some(&mut *region), owner, before, effect)
         })();
         let captured = self
             .ledger
@@ -315,7 +310,7 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
     }
     fn record(
         &mut self,
-        region: &mut TimingRegion<'_>,
+        mut region: Option<&mut TimingRegion<'_>>,
         owner: ProgressOwner,
         before: u64,
         effect: TickEffect,
@@ -334,14 +329,20 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
             frame_complete: effect == TickEffect::FrameRendered,
         };
         self.last_step = Some(step);
-        let progress = region.record_progress(step).map_err(timing_error);
-        let retired = if matches!(
-            owner,
-            ProgressOwner::OriginalInterrupt { instruction: true }
-        ) {
-            region.record_original_instruction().map_err(timing_error)
-        } else {
-            Ok(())
+        let progress = match region.as_mut() {
+            Some(region) => region.record_progress(step).map_err(timing_error),
+            None => Ok(()),
+        };
+        let retired = match region.as_mut() {
+            Some(region)
+                if matches!(
+                    owner,
+                    ProgressOwner::OriginalInterrupt { instruction: true }
+                ) =>
+            {
+                region.record_original_instruction().map_err(timing_error)
+            }
+            _ => Ok(()),
         };
         let input = if step.frame_complete {
             self.clock.advance_frame(self.emulator)
@@ -479,7 +480,98 @@ impl<'a, L: TimingLedger> TimingHost<'a, L> {
                 &mut NoCartridgeSaves,
             )
             .map_err(|e| HostError::Emulator(e.to_string()))?;
-        self.record(region, ProgressOwner::RustInstruction, before, effect)
+        self.record(
+            Some(&mut *region),
+            ProgressOwner::RustInstruction,
+            before,
+            effect,
+        )
+    }
+    /// One real reference kernel tick of an authenticated child. The original
+    /// target PC/prefetch/RA already exist: no setup read, flush or set_pc.
+    pub(crate) fn step_original_callee(
+        &mut self,
+        controller: &mut tje_engine_runtime::portable_timing::OriginalController,
+        base_depth: u32,
+    ) -> Result<()> {
+        let owner = ProgressOwner::OriginalCallee { instruction: false };
+        self.ledger.before_step(owner, self.clock)?;
+        let before = self.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+        let before_count = Self::instruction_total(self.emulator)?;
+        let before_sp = self.emulator.hybrid_cpu().stack_pointer();
+        self.ledger
+            .prepare_actual_step(owner, self.emulator, self.clock.frame)?;
+        self.last_step = None;
+        let result = (|| {
+            let effect = self
+                .emulator
+                .tick(
+                    &mut HeadlessOutput,
+                    &mut self.audio,
+                    &mut Inputs(self.clock.inputs),
+                    &mut NoCartridgeSaves,
+                )
+                .map_err(|cause| HostError::Emulator(cause.to_string()))?;
+            let delta = Self::instruction_total(self.emulator)?
+                .checked_sub(before_count)
+                .ok_or_else(|| {
+                    HostError::Metadata("original callee instruction counter regressed".into())
+                })?;
+            if delta > 1 {
+                return Err(HostError::Metadata(
+                    "original callee tick executed multiple opcodes".into(),
+                ));
+            }
+            let executed = if delta == 1 {
+                Some(
+                    self.emulator
+                        .hybrid_cpu()
+                        .hybrid_instruction_counts()
+                        .and_then(|counts| counts.last_instruction)
+                        .ok_or_else(|| {
+                            HostError::Metadata(
+                                "original callee has no actual opcode receipt".into(),
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
+            let owner =
+                if executed.is_some_and(|instruction| instruction.exception_depth > base_depth) {
+                    ProgressOwner::OriginalInterrupt { instruction: true }
+                } else {
+                    ProgressOwner::OriginalCallee {
+                        instruction: delta == 1,
+                    }
+                };
+            let recorded = self.record(None, owner, before, effect);
+            let observed = if let Some(step) = self.last_step {
+                controller
+                    .observe(
+                        step,
+                        executed.map(|instruction| {
+                            tje_engine_runtime::portable_timing::OriginalInstruction {
+                                pc: instruction.pc,
+                                opcode: instruction.opcode,
+                                stack: before_sp,
+                                interrupt: instruction.exception_depth > base_depth,
+                            }
+                        }),
+                        &self.state(),
+                    )
+                    .map_err(timing_error)
+            } else {
+                Err(HostError::Metadata(
+                    "original callee lost its actual device step".into(),
+                ))
+            };
+            recorded.and(observed)
+        })();
+        let captured = self
+            .ledger
+            .capture_actual_step(owner, self.emulator, self.last_step);
+        result.and(captured)
     }
     fn instruction_total(state: &GenesisEmulator) -> Result<u64> {
         let counts = state
@@ -568,3 +660,13 @@ pub fn state(emulator: &GenesisEmulator) -> CpuState {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn boundary_signals(emulator: &GenesisEmulator) -> BoundarySignals {
+    let bus = emulator.hybrid_bus();
+    BoundarySignals {
+        wait: bus.cycles.m68k_wait_cpu_cycles != 0,
+        reset: bus.m68k_reset,
+        halted: bus.vdp.should_halt_cpu(),
+        interrupt_level: bus.interrupt_level(),
+    }
+}

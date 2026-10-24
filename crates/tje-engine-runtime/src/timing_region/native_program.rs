@@ -30,7 +30,8 @@ impl NativeIsrProgram {
         if contract.name.is_empty() || contract.source.is_empty() || contract.entries.is_empty() {
             return Err(TimingError::MissingIsrCapability);
         }
-        let instructions = compile_schedules(rom, &contract.instruction_pcs, &[], divider)?;
+        let instructions =
+            compile_schedules(rom, &contract.instruction_pcs, std::iter::empty(), divider)?;
         let edges: BTreeSet<_> = contract.edges.iter().map(|e| (e.from, e.to)).collect();
         if edges.len() != contract.edges.len()
             || edges.iter().any(|&(from, to)| {

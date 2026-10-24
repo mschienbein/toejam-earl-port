@@ -356,6 +356,8 @@ impl Host {
                 &rom,
                 registry.timing_sources(),
                 divider,
+                registry.dispatcher(),
+                mode,
             )?)
         };
         let mut saves = NoCartridgeSaves;
@@ -707,6 +709,7 @@ impl Host {
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
+            self.mode,
         )
         .with_timing_services(self.timing_services.as_mut());
         if progresses_time {

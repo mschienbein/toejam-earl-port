@@ -58,6 +58,7 @@ impl Host {
     ) -> Result<CheckRun> {
         let revision = self.revision;
         let dispatcher = self.registry.dispatcher();
+        let mode = self.mode;
         let mut clock = self.wait_clock.clone();
         let entry_frame = clock.frame;
         let dependent = hook.dependent_proof.is_some();
@@ -81,9 +82,9 @@ impl Host {
         }
         // Each fork/probe is a separate discarded CPU/device trajectory.
         // Reuse only plans/scratch; never clone, consume or poison live authority.
-        let live_completion = timing_services
+        let live_authority = timing_services
             .as_mut()
-            .map(|services| std::mem::take(&mut services.completion));
+            .map(|services| std::mem::take(&mut services.authority));
         let executed = self.execute_fork(fork, |emulator| {
             let entry_usage = clock.call_clock.usage();
             let ceiling = if route.progresses_time() {
@@ -225,7 +226,7 @@ impl Host {
                         }
                     }
                     CheckSide::Rust => {
-                        let mut context = HookContext::new(emulator, revision, dispatcher)
+                        let mut context = HookContext::new(emulator, revision, dispatcher, mode)
                             .with_timing_services(timing_services.as_mut())
                             .with_execution(hook.execution_class, std::mem::take(&mut clock))
                             .with_check_route(route);
@@ -337,12 +338,15 @@ impl Host {
         });
         // Restore before any Result/provenance propagation. A failed/pending
         // speculative receipt belongs only to the now-discarded fork.
-        if let Some(completion) = live_completion {
-            timing_services
+        let discarded = if let Some(authority) = live_authority {
+            let services = timing_services
                 .as_mut()
-                .expect("proof retains timing-service lease")
-                .completion = completion;
-        }
+                .expect("proof retains timing-service lease");
+            let speculative = std::mem::replace(&mut services.authority, authority);
+            services.discard_authority(speculative)
+        } else {
+            Ok(())
+        };
         self.timing_services = timing_services;
         let result = match executed {
             Ok((result, provenance)) => {
@@ -361,7 +365,7 @@ impl Host {
                 matches!(purpose, ClockRunPurpose::Baseline),
             );
         }
-        result
+        result.and_then(|run| discarded.map(|()| run))
     }
 
     pub(super) fn check_stack_dependencies(

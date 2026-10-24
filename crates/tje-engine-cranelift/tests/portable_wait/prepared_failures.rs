@@ -100,7 +100,7 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
             Session::from_json(&fs::read_to_string(std::env::var(session_key).unwrap()).unwrap())
                 .unwrap(),
         );
-        let (entry, frame) = capture(&cartridge, &timeline, 837);
+        let (entry, frame) = capture(&cartridge, &timeline, ids::WAIT_FOR_NEXT_V_BLANK, 837);
         let program =
             metadata::compile_program(cartridge.bytes(), &metadata::game_metadata(revision))
                 .unwrap();
@@ -124,7 +124,12 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
             let mut machine = Engine::from_state(cpu(&entry), devices, backend, frame);
             machine.devices_mut().enable_exception_trace();
             let capability = CompiledTimingCapability::validate(&machine, &cartridge).unwrap();
-            let mut state = NativeSourceState::new(Arc::clone(&cache));
+            let mut state = NativeSourceState::new(
+                Arc::clone(&cache),
+                &[],
+                tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+            )
+            .unwrap();
             let sp = machine.cpu().read_address(7);
             let return_pc = machine.devices().memory().read_u32(sp);
             let mut clock = CallClock::default();
@@ -232,6 +237,10 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
                 },
                 error: tje_game::execution::CallClockError::Unavailable,
             },
+            Error::ControlTransfer(tje_game::exits::ControlTransfer {
+                entry: ids::WAIT_FOR_NEXT_V_BLANK,
+                exit: tje_game::exits::Exit::Terminal,
+            }),
         ] {
             let mut devices = PlatformDevices::from(
                 DeviceRuntime::from_state(memory.clone(), entry.capture_native_state()).unwrap(),
@@ -244,7 +253,12 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
             let mut machine = Engine::from_state(initial, devices, backend, frame);
             machine.devices_mut().enable_exception_trace();
             let capability = CompiledTimingCapability::validate(&machine, &cartridge).unwrap();
-            let mut state = NativeSourceState::new(Arc::clone(&cache));
+            let mut state = NativeSourceState::new(
+                Arc::clone(&cache),
+                &[],
+                tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+            )
+            .unwrap();
             let mut clock = CallClock::default();
             let _root = clock
                 .enter(ids::WAIT_FOR_NEXT_V_BLANK, CallCeiling::DEFAULT)
@@ -275,7 +289,12 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
                     tje_game::exits::EntryOutcome::Returned(None),
                 );
                 let frame_before = context.frame_state();
-                assert_eq!(context.protect_timing_failure(preboxed.clone()), preboxed);
+                let expected = if preboxed.is_failed_execution() {
+                    preboxed.clone()
+                } else {
+                    Error::timing_execution_failure(ids::WAIT_FOR_NEXT_V_BLANK, preboxed.clone())
+                };
+                assert_eq!(context.protect_timing_failure(preboxed), expected);
                 assert!(
                     context
                         .consume_timing_completion(tje_game::timing::CompletionRequest {

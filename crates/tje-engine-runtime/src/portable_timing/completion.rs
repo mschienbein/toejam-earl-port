@@ -54,6 +54,40 @@ pub struct CertifiedReturn {
     exit: game::TimedExit,
     boundary: Boundary,
 }
+pub(super) fn certify_original_return(
+    invocation: &Invocation,
+    owner: CursorIdentity,
+    return_pc: u32,
+    cpu: &CpuState,
+    signals: BoundarySignals,
+) -> Result<CertifiedReturn, TimingError> {
+    if invocation.key.region != owner
+        || cpu.pc != return_pc
+        || cpu.read_address(7) != invocation.key.entry_sp.wrapping_add(4)
+        || classify_boundary(cpu, signals) != BoundaryAction::Ready
+        || cpu.address_error != 0
+        || cpu.frozen != 0
+    {
+        return Err(TimingError::WrongToken);
+    }
+    let exit = game::TimedExit {
+        entry: invocation.key.entry,
+        program_counter: cpu.pc,
+        stack_pointer: cpu.read_address(7),
+        value: invocation
+            .key
+            .entry
+            .metadata()
+            .abi
+            .returns_value
+            .then_some(cpu.d[0]),
+    };
+    Ok(CertifiedReturn {
+        key: invocation.key,
+        exit,
+        boundary: Boundary::capture(cpu),
+    })
+}
 impl BoundProgram {
     pub fn certify_return(
         &self,
@@ -124,19 +158,49 @@ impl CompletionLedger {
             None
         }
     }
+    pub(super) fn admits_child(
+        &self,
+        invocation: &Invocation,
+        token: &crate::timing_region::CallToken,
+    ) -> bool {
+        !self.failed.load(Ordering::Relaxed)
+            && self.inflight == Some(invocation.key)
+            && self.identity == Some(invocation.key.ledger)
+            && self.scope == invocation.key.scope
+            && invocation.key.region == token.identity().0
+            && self.pending.is_none()
+    }
+    pub(super) fn was_consumed(&self) -> bool {
+        !self.failed.load(Ordering::Relaxed)
+            && self.inflight.is_none()
+            && self.pending.is_none()
+            && self.consumed_scope == Some(self.scope)
+    }
     pub fn begin(
         &mut self,
         entry: FunctionId,
         entry_sp: u32,
         region: &TimingRegion<'_>,
     ) -> Result<Invocation, TimingError> {
+        if region.usage().scheduler_steps != 0
+            || region.usage().instructions != 0
+            || region.entry_stack() != entry_sp
+        {
+            self.failed.store(true, Ordering::Relaxed);
+            return Err(TimingError::WrongToken);
+        }
+        self.begin_identity(entry, entry_sp, region.identity())
+    }
+    pub(super) fn begin_identity(
+        &mut self,
+        entry: FunctionId,
+        entry_sp: u32,
+        region: CursorIdentity,
+    ) -> Result<Invocation, TimingError> {
         if self.failed.load(Ordering::Relaxed)
             || self.inflight.is_some()
             || self.pending.is_some()
             || self.consumed_scope == Some(self.scope)
-            || region.usage().scheduler_steps != 0
-            || region.usage().instructions != 0
-            || region.entry_stack() != entry_sp
         {
             self.failed.store(true, Ordering::Relaxed);
             return Err(TimingError::WrongToken);
@@ -153,7 +217,7 @@ impl CompletionLedger {
         let key = InvocationKey {
             ledger,
             scope: self.scope,
-            region: region.identity(),
+            region,
             entry,
             entry_sp,
         };
@@ -237,6 +301,7 @@ mod tests {
         let program = TimingProgram::compile(
             &rom,
             ReviewedRegion {
+                calls: Vec::new(),
                 name: "authored ledger fixture",
                 source: "synthetic NOP, ledger protocol only",
                 entry: 0x200,

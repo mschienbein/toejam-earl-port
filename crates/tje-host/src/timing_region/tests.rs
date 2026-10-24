@@ -138,6 +138,7 @@ fn two_word_effects_issue_at_base_and_commit_after_real_device_advance() {
     let program = TimingProgram::compile(
         &rom,
         ReviewedRegion {
+            calls: Vec::new(),
             name: "authored two-word source store",
             source: "ROM-free MOVE.L D0,(A0) fixture",
             entry: ENTRY,
@@ -351,6 +352,7 @@ fn post_rts_actual_vdp_irq_is_serviced_without_a_caller_opcode_or_state_repair()
     let program = TimingProgram::compile(
         &rom,
         ReviewedRegion {
+            calls: Vec::new(),
             name: "actual authored RTS edge",
             source: "synthetic RTS +real VDP IRQ6 +ADDQ/RTE",
             entry: ENTRY,

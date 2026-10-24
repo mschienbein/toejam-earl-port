@@ -249,10 +249,10 @@ impl Host {
     ) -> Result<T> {
         let mut saved = self.emulator.partial_clone();
         let terminal_entry = self.terminal_entry;
-        let live_completion = self
+        let live_authority = self
             .timing_services
             .as_mut()
-            .map(|services| std::mem::take(&mut services.completion));
+            .map(|services| std::mem::take(&mut services.authority));
         let provenance = self.begin_isolated_provenance();
         let result = execute(self);
         if let Some(cartridge) = saved.hybrid_bus_mut().cartridge.as_mut() {
@@ -266,15 +266,20 @@ impl Host {
         }
         self.emulator = saved;
         self.terminal_entry = terminal_entry;
-        if let Some(completion) = live_completion {
-            self.timing_services
+        let discarded = if let Some(authority) = live_authority {
+            let services = self
+                .timing_services
                 .as_mut()
-                .expect("fixture restores timing-service lease")
-                .completion = completion;
-        }
+                .expect("fixture restores timing-service lease");
+            let speculative = std::mem::replace(&mut services.authority, authority);
+            services.discard_authority(speculative)
+        } else {
+            Ok(())
+        };
         let watched = self.finish_isolated_provenance(provenance);
         let value = result?;
         watched?;
+        discarded?;
         Ok(value)
     }
 

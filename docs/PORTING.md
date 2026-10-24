@@ -691,9 +691,10 @@ declared legacy identity is not a migration.
    binds ordinals to instructions in the user's matching ROM and committed
    function metadata at startup. Missing roles, overlapping extents, undeclared
    callees or edges fail closed.
-   The ordinary capability admits **exactly one reviewed function**. A
-   multi-function descriptor rejects at startup: a source path cannot bypass a
-   foreign callee's declared class or operational ceiling.
+   Each descriptor still owns **exactly one reviewed function**. Declare
+   separately scoped `CallSite { at, targets, resume }` entries in `Program.calls`;
+   an inlined multi-function descriptor cannot bypass class or ceiling checks.
+   Leaves declare `calls: &[]`.
 2. Implement the object-safe protocol:
    `begin_instruction(InstructionSite, Registers)`,
    `next_effect()`, `acknowledge(Observation)`, and
@@ -708,10 +709,13 @@ declared legacy identity is not a migration.
    ordered words. In particular MOVEM restore's terminal **discarded word read**
    is real and must occur, even when it creates no output dependency.
 4. Return source-owned register/flag/stack state and `Path::Next(location)` for
-   each control-flow edge inside that admitted function. Any JSR/RTS stack
-   effects and return-address reads remain real source operations;
-   `Path::Return` completes the **whole program only**. A declared D0 result
-   must agree with actual raw D0, not manufacture different residual bits.
+   an edge inside the current function. At its real JSR/BSR, return
+   `Path::Call { target, return_to }`, matching the declared call site. The source
+   still performs the actual stack writes; the bridge does not call `call_at`
+   or materialize another outgoing area. After the real child RTS, the next
+   source role sees actual output registers/CCR. Caller cleanup is another
+   caller-owned source instruction. `Path::Return` completes this function
+   only; its declared D0 result must agree with actual raw D0.
 
 Pipeline prefetch is infrastructure: the adapter performs its actual bus read,
 with the original purpose, exactly once. It is not disclosed as an opcode
@@ -721,6 +725,54 @@ ordinary logical Context helpers that flush before a read. CPU writes issue at
 the reference's base phase; the complete instruction advance and original
 deferred-width commit/stall order follow. This is the pinned jgenesis model,
 **not invented physical per-word microcycles**. See [ENGINE.md](ENGINE.md).
+
+#### Callee selection is a runtime profile, not a class exemption
+
+Register the same canonical public framed candidate and its timing descriptor
+for every callee that will run timed Rust. A callee need not have an independent
+root Hook: the effective selected Dispatcher entry is the binding, and executing
+it does not add an independent checked/proven ID. If a Hook exists, it must
+agree. Descriptors do not select bodies, activate hooks or grant proof origin.
+After the actual child RTS is validated and consumed, the controller must close
+the callee ceiling while that child owner/frame/class is still current. Only a
+successful close permits owner finish/pop, caller-cursor resumption or parent
+metadata restoration. An orphan scope at this point is fatal child cleanup,
+not an excuse to restore parent metadata, release arguments or repair physical
+CPU/device state. No root allowance is renewed.
+
+Atomic and Functional are original execution classes, **not zero-time
+capabilities**. In `NativeStrictReadable`, every selected callee needs its own
+reviewed source roles. Missing roles reject at startup; never run a zero-time
+Rust body then charge a guessed block or synthesize its interrupt-visible
+compiler state. The parent cannot inline foreign roles to evade those guards.
+
+Only actual Host **`Mode::Check`** grants
+`HostCheckOriginalSubstitution`: a missing-role callee, including ready production
+Rust, may run exact original code inside the same audited child scope. Label it
+**“original-callee substitution (callee proven separately)”**, count it
+separately and retain the separate-proof obligation for pending/unproven
+callees. This proves the timed caller under a substituted callee, **not**
+Rust composition or that callee's promotion. Callees with selected timing
+roles run timed Rust. Do not infer CHECK from ClockedStrict, stack audit,
+proof registry or fixture status, and do not reuse its cached permission in
+Reference/replacement/native profiles.
+
+The optional `NativeCompiledOriginalCallees` profile is separately labelled and
+never readable coverage. It permits only unselected original callees, through
+authenticated compiled continuations. Every internal actual JSR/BSR still
+redispatches selected timed Rust; any selected ready untimed target rejects the
+startup closure. It is neither a native interpreter nor an original-root path.
+ISR ownership/counts remain a separate axis.
+
+Nested frame/ledger/scratch ownership is platform authority. Keep the same
+ROOT initialized-byte map and absolute shared CallClock. Child argument/local
+reads remain lazy; pass real locations, not a preload of slot values. Never
+rebind or clear the suspended parent's in-flight ledger, alias its storage,
+renew its deadline, restore its old registers or release its arguments.
+Only the controller's single real RTS receipt resumes the parent return role.
+Any child failure poisons the admitted chain and retains the first physical
+failure; all speculative nested authority is isolated from live state.
+
 
 #### Enter through a real prepared frame
 

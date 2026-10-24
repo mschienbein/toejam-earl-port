@@ -906,6 +906,7 @@ impl Host {
             &mut self.emulator,
             self.revision,
             self.registry.dispatcher(),
+            self.mode,
         )
         .with_inspection_provenance(provenance)
         .with_timing_services(self.timing_services.as_mut())

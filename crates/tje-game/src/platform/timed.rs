@@ -79,6 +79,7 @@ static CONTROLLER1: Program = Program {
         roles: 20,
     }],
     edges: &controller_edges(ids::GET_CTRL1_INPUT),
+    calls: &[],
 };
 static CONTROLLER2: Program = Program {
     name: "GetCtrl2Input source roles",
@@ -89,6 +90,7 @@ static CONTROLLER2: Program = Program {
         roles: 20,
     }],
     edges: &controller_edges(ids::GET_CTRL2_INPUT),
+    calls: &[],
 };
 static WORD_STREAM: Program = Program {
     name: "MoveDataToVRAM source roles",
@@ -99,6 +101,7 @@ static WORD_STREAM: Program = Program {
         roles: 6,
     }],
     edges: &word_stream_edges(),
+    calls: &[],
 };
 static PALETTE: Program = Program {
     name: "CopyPaletteToCRAMSlot source roles",
@@ -109,6 +112,7 @@ static PALETTE: Program = Program {
         roles: 11,
     }],
     edges: &palette_edges(),
+    calls: &[],
 };
 static DMA: Program = Program {
     name: "DmaCopyWordsToVram source roles",
@@ -119,6 +123,7 @@ static DMA: Program = Program {
         roles: 54,
     }],
     edges: &forward_edges::<53>(ids::DMA_COPY_WORDS_TO_VRAM),
+    calls: &[],
 };
 
 /// The five G assembly leaves with complete portable semantic instruction roles.
@@ -583,6 +588,9 @@ impl TimingSource for Source {
         match commit.path {
             Path::Next(next) => self.next = next,
             Path::Return { .. } => self.finished = true,
+            Path::Call { .. } => {
+                return Err(self.reject("leaf platform source cannot cross a call boundary"));
+            }
         }
         Ok(commit)
     }

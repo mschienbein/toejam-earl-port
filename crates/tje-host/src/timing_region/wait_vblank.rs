@@ -172,6 +172,7 @@ impl WaitPlan {
         let timing = TimingProgram::compile(
             rom,
             ReviewedRegion {
+                calls: Vec::new(),
                 name: "WaitForNextVBlank",
                 source: "src/core/startup_and_main_loop.c:142; compiled source roles",
                 entry: start,

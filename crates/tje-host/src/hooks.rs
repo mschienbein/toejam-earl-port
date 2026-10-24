@@ -171,6 +171,8 @@ impl Hook {
             }
             Body::Continuation(function) => self.execute_value_body(context, function),
         };
+        let result =
+            result.map_err(|error| tje_game::Context::protect_timing_failure(context, error));
         let result = exits::validate_at(
             self.symbol.id,
             self.exit_contract,
@@ -671,17 +673,25 @@ impl HookRegistry {
         let mut ids = std::collections::BTreeSet::new();
         for source in sources {
             let entry = source.entry.function;
-            let hook = self
-                .hooks
-                .get(&entry.metadata().address(self.revision))
-                .ok_or_else(|| {
-                    HostError::Metadata("timing descriptor has no effective proof candidate".into())
-                })?;
+            let selected = self
+                .dispatcher
+                .resolve_entry(entry)
+                .map_err(HostError::from)?;
+            let hook = self.hooks.get(&entry.metadata().address(self.revision));
             if !ids.insert(entry)
                 || source.entry.role != 0
-                || !matches!(hook.body, Body::Framed(_))
-                || hook.symbol.id != entry
-                || hook.exit_contract != ExitContract::Rts
+                || !matches!(
+                    selected.map(|entry| entry.entry()),
+                    Some(tje_game::TranslatedEntry::Framed(_))
+                )
+                || tje_game::execution_class(entry).is_none()
+                || tje_game::exits::contract(entry) != ExitContract::Rts
+                || hook.is_some_and(|hook| {
+                    !matches!(hook.body, Body::Framed(_))
+                        || hook.symbol.id != entry
+                        || hook.exit_contract != ExitContract::Rts
+                        || Some(hook.execution_class) != tje_game::execution_class(entry)
+                })
             {
                 return Err(HostError::Metadata(
                     "duplicate, conflicting or non-framed timing descriptor".into(),
@@ -939,11 +949,16 @@ mod tests {
                 cpu.set_status_register(0x2700);
                 crate::abi::set_sp(cpu, 0xff7000);
             }
-            let mut context = HookContext::new(&mut emulator, revision, registry.dispatcher())
-                .with_execution(
-                    ExecutionClass::Functional,
-                    crate::execution::WaitClock::default(),
-                );
+            let mut context = HookContext::new(
+                &mut emulator,
+                revision,
+                registry.dispatcher(),
+                crate::Mode::Replace,
+            )
+            .with_execution(
+                ExecutionClass::Functional,
+                crate::execution::WaitClock::default(),
+            );
             let error = hook.execute(&mut context).unwrap_err();
             let HostError::Translation(error) = error else {
                 panic!("root transfer lost its typed failure: {error}");

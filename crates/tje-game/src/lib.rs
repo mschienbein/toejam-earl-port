@@ -707,7 +707,9 @@ impl Dispatcher {
                 });
             }
             let ceiling = context.enter_call_ceiling(id)?;
-            let result = context.call_original_with_execution(id, arguments, class);
+            let result = context
+                .call_original_with_execution(id, arguments, class)
+                .map_err(|error| context.protect_timing_failure(error));
             let result = exits::validate_call(id, result.map(Some), context.revision());
             let result = Error::after_contract_check(context, result)
                 .map(|value| value.expect("RTS-only original returned its D0"));
@@ -760,6 +762,7 @@ impl Dispatcher {
             Some(arguments) => entry.invoke_values(context, arguments),
             None => entry.invoke_prepared(context),
         };
+        let result = result.map_err(|error| context.protect_timing_failure(error));
         let result = exits::validate_call(entry.id(), result, context.revision());
         let result = Error::after_contract_check(context, result).map(|value| {
             if let Some(value) = value {

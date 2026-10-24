@@ -117,7 +117,9 @@ impl Host {
         // Completion authority belongs to the old physical trajectory, not the
         // immutable plan/scratch cache. Invalidate only after the real reset.
         if let Some(services) = self.timing_services.as_mut() {
-            services.completion = Default::default();
+            services
+                .reset_after_actual_reset()
+                .expect("actual reset owns every parked source lease");
         }
         self.wait_clock.call_clock = Default::default();
         self.frame = 0;

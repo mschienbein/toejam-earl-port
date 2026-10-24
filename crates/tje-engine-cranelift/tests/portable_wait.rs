@@ -1,5 +1,7 @@
 #![cfg(feature = "devices")]
 //! Private-cartridge proof of the canonical framed body through real Context.
+#[path = "portable_wait/nonleaf.rs"]
+mod nonleaf;
 #[path = "portable_wait/prepared_failures.rs"]
 mod prepared_failures;
 use bincode::{Decode, Encode};
@@ -257,7 +259,12 @@ fn fork(cartridge: &Rom, entry: &GenesisEmulator) -> GenesisEmulator {
     bus.enable_native_write_trace();
     fork
 }
-fn capture(cartridge: &Rom, timeline: &Timeline, first_frame: u64) -> (GenesisEmulator, u64) {
+fn capture(
+    cartridge: &Rom,
+    timeline: &Timeline,
+    function: tje_game::FunctionId,
+    first_frame: u64,
+) -> (GenesisEmulator, u64) {
     let mut reference = GenesisEmulator::create(
         Some(cartridge.bytes().to_vec()),
         GenesisEmulatorConfig::default(),
@@ -269,17 +276,15 @@ fn capture(cartridge: &Rom, timeline: &Timeline, first_frame: u64) -> (GenesisEm
         let original = reference.hybrid_cpu();
         let bus = reference.hybrid_bus();
         if frame >= first_frame
-            && original.pc()
-                == ids::WAIT_FOR_NEXT_V_BLANK
-                    .metadata()
-                    .address(cartridge.revision())
+            && original.pc() == function.metadata().address(cartridge.revision())
             && original.hybrid_instruction_ready(bus)
             && bus.cycles.m68k_wait_cpu_cycles == 0
-            && bus.memory.read_main_ram_word(original.stack_pointer() + 6) == 1
-            && bus.memory.read_main_ram_byte(
-                tje_mem::ram::g_mode2_reg_softcopy(cartridge.revision()).address(),
-            ) & 0x40
-                != 0
+            && (function != ids::WAIT_FOR_NEXT_V_BLANK
+                || (bus.memory.read_main_ram_word(original.stack_pointer() + 6) == 1
+                    && bus.memory.read_main_ram_byte(
+                        tje_mem::ram::g_mode2_reg_softcopy(cartridge.revision()).address(),
+                    ) & 0x40
+                        != 0))
         {
             return (reference, frame);
         }
@@ -296,7 +301,7 @@ fn capture(cartridge: &Rom, timeline: &Timeline, first_frame: u64) -> (GenesisEm
             frame += 1;
         }
     }
-    panic!("canonical natural wait entry not reached");
+    panic!("canonical natural source entry not reached");
 }
 struct Oracle {
     reference: GenesisEmulator,
@@ -307,6 +312,7 @@ struct Oracle {
     commits: usize,
     source: u64,
     compiled: u64,
+    compiled_original_callee: u64,
     steps: u64,
 }
 struct Observe(Rc<RefCell<Oracle>>);
@@ -376,6 +382,8 @@ impl StepObserver for Observe {
         oracle.source += u64::from(owner == ProgressOwner::SourceInstruction);
         oracle.compiled +=
             u64::from(owner == (ProgressOwner::CompiledEngineInterrupt { instruction: true }));
+        oracle.compiled_original_callee +=
+            u64::from(owner == (ProgressOwner::CompiledOriginalCallee { instruction: true }));
         if step.frame_complete {
             oracle.frame += 1;
         }
@@ -465,12 +473,28 @@ fn registers(cpu: &CpuState) -> Registers {
         supervisor_stack_pointer: cpu.ssp,
     }
 }
+struct CaseConfig {
+    root: tje_game::FunctionId,
+    sources: &'static [&'static tje_game::timing::Program],
+    framed: &'static [FramedTranslation],
+    profile: tje_engine_runtime::portable_timing::CallProfile,
+}
+static WAIT_SOURCES: &[&tje_game::timing::Program] =
+    &[tje_game::core::timed_wait::WaitSource::definition()];
+const WAIT_CASE: CaseConfig = CaseConfig {
+    root: ids::WAIT_FOR_NEXT_V_BLANK,
+    sources: WAIT_SOURCES,
+    framed: FRAMED,
+    profile: tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+};
+
 fn run_case(
     cartridge: &Rom,
     entry: &GenesisEmulator,
     frame: u64,
     session: &Session,
     backend: NativeProgram,
+    config: &CaseConfig,
 ) -> (Engine<NativeProgram>, u64, u64) {
     let mut devices: PlatformDevices = DeviceRuntime::from_state(
         AddressSpace::new(cartridge.bytes().to_vec(), cartridge.revision()),
@@ -483,17 +507,28 @@ fn run_case(
     devices.enable_trace();
     let mut machine = Engine::from_state(cpu(entry), devices, backend, frame);
     let capability = CompiledTimingCapability::validate(&machine, cartridge).unwrap();
-    let cache = Arc::new(
-        BoundProgram::compile(
-            cartridge,
-            ids::WAIT_FOR_NEXT_V_BLANK,
-            tje_game::core::timed_wait::WaitSource::definition(),
-            machine.devices().cycles().m68k_divider_u32.get(),
-            &[4, 6],
-        )
-        .unwrap(),
-    );
-    let mut state = NativeSourceState::new(cache);
+    let mut bindings = config
+        .sources
+        .iter()
+        .map(|&source| {
+            Arc::new(
+                BoundProgram::compile(
+                    cartridge,
+                    source.entry.function,
+                    source,
+                    machine.devices().cycles().m68k_divider_u32.get(),
+                    &[4, 6],
+                )
+                .unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let root_index = bindings
+        .iter()
+        .position(|binding| binding.entry() == config.root)
+        .unwrap();
+    let cache = bindings.remove(root_index);
+    let mut state = NativeSourceState::new(cache, &bindings, config.profile).unwrap();
     let timeline = Rc::new(Timeline::new(session.clone()));
     let oracle = Rc::new(RefCell::new(Oracle {
         reference: fork(cartridge, entry),
@@ -504,17 +539,15 @@ fn run_case(
         commits: 0,
         source: 0,
         compiled: 0,
+        compiled_original_callee: 0,
         steps: 0,
     }));
     let mut frame_timeline = Timeline::new(session.clone());
     frame_timeline.oracle = Some(Rc::clone(&oracle));
     let mut observer = Observe(Rc::clone(&oracle));
-    let dispatcher =
-        Dispatcher::native_with_frames(&[ids::WAIT_FOR_NEXT_V_BLANK], &[], FRAMED).unwrap();
+    let dispatcher = Dispatcher::hybrid_with_frames(&[], config.framed);
     let mut clock = CallClock::default();
-    let root = clock
-        .enter(ids::WAIT_FOR_NEXT_V_BLANK, CallCeiling::DEFAULT)
-        .unwrap();
+    let root = clock.enter(config.root, CallCeiling::DEFAULT).unwrap();
     let usage = {
         let mut context = NativeTimingContext::new(
             &mut machine,
@@ -527,10 +560,7 @@ fn run_case(
         )
         .unwrap()
         .with_observer(&mut observer);
-        assert_eq!(
-            context.invoke_prepared(ids::WAIT_FOR_NEXT_V_BLANK).unwrap(),
-            None
-        );
+        assert_eq!(context.invoke_prepared(config.root).unwrap(), None);
         context.usage().unwrap()
     };
     clock.leave(root).unwrap();
@@ -544,7 +574,26 @@ fn run_case(
         "compiled ISR is not readable ISR proof"
     );
     assert_eq!(usage.compiled_isr_instructions, oracle.compiled);
-    assert_eq!(usage.instructions, oracle.source);
+    assert_eq!(
+        usage.instructions + usage.nested_source_instructions,
+        oracle.source
+    );
+    assert_eq!(
+        usage.compiled_original_callee_instructions,
+        oracle.compiled_original_callee
+    );
+    assert_eq!(usage.call_profile, Some(config.profile.label()));
+    if config.profile == tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable {
+        assert_eq!(usage.compiled_original_callee_instructions, 0);
+        assert_eq!(usage.separate_callee_proof_obligations, 0);
+    } else {
+        assert!(usage.compiled_original_callee_instructions > 0);
+        assert!(usage.separate_callee_proof_obligations > 0);
+        assert_eq!(
+            usage.compiled_original_callee_label,
+            Some("compiled-original callee (transitional, not readable coverage)")
+        );
+    }
     assert_eq!(
         words(machine.cpu()),
         oracle.reference.hybrid_cpu().hybrid_state_words()
@@ -571,10 +620,13 @@ fn run_case(
         "timed chip/video writes"
     );
     eprintln!(
-        "{:?}: canonical framed Context source={}; compiled_engine_ISR={}; steps={}; frames={}→{}; per-step25CPU/bus/RAM and full devices/audio exact",
+        "{:?}: canonical {} profile={} source={}; compiled_engine_ISR={}; compiled_original_CALLEE={}; steps={}; frames={}→{}; per-step25CPU/bus/RAM and full devices/audio exact",
         cartridge.revision(),
+        config.root.metadata().name,
+        config.profile.label(),
         oracle.source,
         oracle.compiled,
+        oracle.compiled_original_callee,
         oracle.steps,
         frame,
         oracle.frame
@@ -595,7 +647,7 @@ fn both_revision_canonical_context_wait_composes_with_actual_compiled_irqs() {
             Session::from_json(&fs::read_to_string(std::env::var(session_key).unwrap()).unwrap())
                 .unwrap();
         let timeline = Timeline::new(session.clone());
-        let (entry, frame) = capture(&cartridge, &timeline, 837);
+        let (entry, frame) = capture(&cartridge, &timeline, ids::WAIT_FOR_NEXT_V_BLANK, 837);
         assert_eq!(frame, 837);
         let program =
             metadata::compile_program(cartridge.bytes(), &metadata::game_metadata(revision))
@@ -603,7 +655,8 @@ fn both_revision_canonical_context_wait_composes_with_actual_compiled_irqs() {
         let digest: [u8; 20] = sha1::Sha1::digest(cartridge.bytes()).into();
         let backend = NativeProgram::compile(digest, &program).unwrap();
         assert!(backend.authenticates_compilation(digest, &program));
-        let (_, source, compiled) = run_case(&cartridge, &entry, frame, &session, backend);
+        let (_, source, compiled) =
+            run_case(&cartridge, &entry, frame, &session, backend, &WAIT_CASE);
         assert!(source > 11 && compiled > 0);
     }
 }
@@ -864,7 +917,7 @@ fn warm_real_source_entries_and_actual_compiled_irqs_allocate_zero() {
             Session::from_json(&fs::read_to_string(std::env::var(session_key).unwrap()).unwrap())
                 .unwrap();
         let timeline = Timeline::new(session);
-        let (entry, frame) = capture(&cartridge, &timeline, 837);
+        let (entry, frame) = capture(&cartridge, &timeline, ids::WAIT_FOR_NEXT_V_BLANK, 837);
         let program =
             metadata::compile_program(cartridge.bytes(), &metadata::game_metadata(revision))
                 .unwrap();
@@ -886,7 +939,12 @@ fn warm_real_source_entries_and_actual_compiled_irqs_allocate_zero() {
             )
             .unwrap(),
         );
-        let mut state = NativeSourceState::new(Arc::clone(&cache));
+        let mut state = NativeSourceState::new(
+            Arc::clone(&cache),
+            &[],
+            tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+        )
+        .unwrap();
         unobserved_call(
             &mut machine,
             &cartridge,
@@ -989,7 +1047,12 @@ fn warm_real_source_entries_and_actual_compiled_irqs_allocate_zero() {
                 .unwrap()
                 .into();
             let mut machine = Engine::from_state(cpu(&entry), devices, backend, frame);
-            let mut state = NativeSourceState::new(Arc::clone(&cache));
+            let mut state = NativeSourceState::new(
+                Arc::clone(&cache),
+                &[],
+                tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+            )
+            .unwrap();
             let mut latched = LatchedTimeline::new(&timeline, frame);
             latched.fault = fault;
             let mut clock = CallClock::default();
@@ -1083,6 +1146,7 @@ fn cross_cartridge_wrong_divider_ir_and_missing_continuations_reject_before_effe
             },
         ],
         edges: &[],
+        calls: &[],
     };
     for cartridge in [&a, &b] {
         assert!(matches!(
@@ -1119,7 +1183,12 @@ fn cross_cartridge_wrong_divider_ir_and_missing_continuations_reject_before_effe
         )
         .unwrap(),
     );
-    let mut state = NativeSourceState::new(cache);
+    let mut state = NativeSourceState::new(
+        cache,
+        &[],
+        tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+    )
+    .unwrap();
     let mut clock = CallClock::default();
     let root = clock
         .enter(ids::WAIT_FOR_NEXT_V_BLANK, CallCeiling::DEFAULT)
@@ -1246,7 +1315,7 @@ fn actual_wrong_frame_rte_keeps_real_return_marker_and_state_but_rejects_approva
             Session::from_json(&fs::read_to_string(std::env::var(session_key).unwrap()).unwrap())
                 .unwrap();
         let timeline = Timeline::new(session.clone());
-        let (entry, frame) = capture(&cartridge, &timeline, 837);
+        let (entry, frame) = capture(&cartridge, &timeline, ids::WAIT_FOR_NEXT_V_BLANK, 837);
         let program =
             metadata::compile_program(cartridge.bytes(), &metadata::game_metadata(revision))
                 .unwrap();
@@ -1271,7 +1340,12 @@ fn actual_wrong_frame_rte_keeps_real_return_marker_and_state_but_rejects_approva
             )
             .unwrap(),
         );
-        let mut state = NativeSourceState::new(cache);
+        let mut state = NativeSourceState::new(
+            cache,
+            &[],
+            tje_engine_runtime::portable_timing::CallProfile::NativeStrictReadable,
+        )
+        .unwrap();
         let saved_pc = Rc::new(std::cell::Cell::new(None));
         let corrupt = CorruptReturn {
             timeline: Timeline::new(session),
