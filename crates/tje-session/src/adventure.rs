@@ -70,6 +70,7 @@ pub struct Adventure {
     coop_center: (i16, i16),
     final_entry: Option<u64>,
     final_ready: bool,
+    maximum_hit_damage: Option<i8>,
     last_status: u64,
 }
 impl Adventure {
@@ -101,9 +102,36 @@ impl Adventure {
             last_inventory_kind: [-1; 2],
             final_entry: None,
             final_ready: false,
+            maximum_hit_damage: None,
             last_status: 0,
         }
     }
+    fn reconsider_routes(&mut self, player: usize, level: i8) {
+        self.blocked.retain(|(blocked_level, goal)| {
+            *blocked_level != level || !matches!(goal, Goal::Item { .. } | Goal::Doorway)
+        });
+        self.ship_contacts[player] = None;
+    }
+    fn interaction_done(
+        &self,
+        memory: &Ram<'_>,
+        revision: Revision,
+        content: &Content,
+        player: usize,
+        kind: i8,
+    ) -> bool {
+        match kind {
+            24 => self.bath_since[player].is_some(),
+            23 => {
+                ram::g_player_lemonade_reward_states(revision)
+                    .at(player as i32)
+                    .read(memory)
+                    == 2
+            }
+            _ => friendly_done(content, kind),
+        }
+    }
+
     pub fn observe(&mut self, observations: &FrameObservations, revision: Revision) {
         for event in &observations.entries {
             match entry_name(revision, event.address) {
@@ -135,6 +163,7 @@ impl Adventure {
                         self.doorway_used[player] = true;
                         self.mobility_needed[player] = false;
                         self.goals[player] = None;
+                        self.reconsider_routes(player, self.levels[player]);
                     }
                 }
                 "MenuWhoHandler" => {
@@ -142,6 +171,7 @@ impl Adventure {
                     self.blocked.clear();
                     self.levels = [-1; 2];
                     self.arrival_exit = [None; 2];
+                    self.bath_since = [None; 2];
                     self.final_entry = None;
                     self.final_ready = false;
                 }
@@ -197,7 +227,7 @@ impl Adventure {
                 self.goals[player] = None;
                 self.mobility_needed[player] = false;
                 self.doorway_used[player] = false;
-                self.ship_contacts[player] = None;
+                self.reconsider_routes(player, level);
             }
             if ram::g_player_lives(revision).at(player as i32).read(memory) < 0 {
                 self.mobility_needed[player] = false;
@@ -211,8 +241,8 @@ impl Adventure {
                 continue;
             }
             if matches!(view.sprite_state().read(memory), 116 | 117) {
-                if frame % 48 < 12 {
-                    *pad |= A;
+                if view.sprite_state().read(memory) == 117 {
+                    *pad |= [A, UP, RIGHT, DOWN, LEFT][((frame / 4) % 5) as usize];
                 }
                 continue;
             }
@@ -281,7 +311,7 @@ impl Adventure {
             }
             if let Some(Goal::Present { kind, .. }) = self.goals[player] {
                 if self.last_inventory_kind[player] == kind
-                    && frame - self.last_inventory_action[player] < 140
+                    && frame - self.last_inventory_action[player] < present_settle_frames(kind)
                 {
                     continue;
                 }
@@ -291,6 +321,96 @@ impl Adventure {
                 .at(player as i32)
                 .read(memory);
             let position = (view.x().read(memory), view.y().read(memory));
+            let terrain = if player == 0 {
+                ram::g_player1_terrain_underfoot(revision)
+            } else {
+                ram::g_player2_terrain_underfoot(revision)
+            };
+            if self.objective == Objective::Campaign
+                && self.goals[player] != Some(Goal::Fall)
+                && health > 0
+                && view.height().read(memory) == 0
+                && terrain.read(memory) & 0xF0 == 0x80
+                && !matches!(
+                    ram::g_player_powerups(revision)
+                        .at(player as i32)
+                        .read(memory),
+                    0 | 2
+                )
+                && let Some(input) =
+                    self.navigation[player].return_to_shore(memory, rom, revision, player, frame)
+            {
+                // An accidental splash is not a new swimming campaign route:
+                // get back to dry footing before reconsidering the old goal.
+                if self.goals[player].is_some() {
+                    self.reconsider_routes(player, level);
+                }
+                self.goals[player] = None;
+                self.goal_since[player] = frame;
+                self.mobility_needed[player] = false;
+                *pad |= input;
+                continue;
+            }
+            if self.objective == Objective::Campaign
+                && health > 0
+                && self
+                    .maximum_hit_damage
+                    .is_none_or(|maximum| health <= maximum)
+                && view.height().read(memory) <= 0
+                && terrain.read(memory) & 0xF0 <= 0x50
+                && frame - self.last_inventory_action[player]
+                    > present_settle_frames(self.last_inventory_kind[player])
+            {
+                // Spend held food before another lethal hit; if none remains,
+                // real wings can take us out of nearby ground-contact danger.
+                let inventory = ram::g_player_inventory(revision).at(player as i32);
+                let mut healing = None;
+                let mut healing_priority = 0;
+                let mut wings = None;
+                for slot in 0..16 {
+                    let kind = inventory.at(slot as i32).read(memory);
+                    // Sundae and rootbeer heal reliably; ordinary food can
+                    // instead be yucky, so keep it behind those real options.
+                    let priority = match kind {
+                        14 => 3,
+                        10 => 2,
+                        9 => 1,
+                        _ => 0,
+                    };
+                    if priority > healing_priority {
+                        healing = Some((slot, kind));
+                        healing_priority = priority;
+                        if kind == 14 {
+                            break;
+                        }
+                    }
+                    if kind == 0 && wings.is_none() {
+                        wings = Some((slot, kind));
+                    }
+                }
+                let present = healing.or_else(|| {
+                    wings.filter(|_| {
+                        level > 0
+                            && ram::g_player_powerups(revision)
+                                .at(player as i32)
+                                .read(memory)
+                                != 0
+                            && Navigator::nearby_threat(memory, revision, level, position)
+                    })
+                });
+                if let Some((slot, kind)) = present {
+                    let maximum_damage = *self.maximum_hit_damage.get_or_insert_with(|| {
+                        let definitions = tje_mem::rom::earthling_definitions(revision);
+                        (0..25).fold(0, |maximum, kind| {
+                            maximum.max(rom[definitions.at(kind).damage().address() as usize] as i8)
+                        })
+                    });
+                    if health <= maximum_damage {
+                        self.goals[player] = Some(Goal::Present { slot, kind });
+                        self.goal_since[player] = frame;
+                    }
+                }
+            }
             if self.goals[player].is_none() || frame - self.goal_since[player] > 7200 {
                 if let Some(goal) = self.goals[player]
                     && !self.blocked.contains(&(level, goal))
@@ -304,7 +424,10 @@ impl Adventure {
             if let Some(goal) = self.goals[player] {
                 match goal {
                     Goal::Present { slot: _, kind } => {
-                        if frame - self.last_inventory_action[player] > 120 && frame % 32 < 12 {
+                        if frame - self.last_inventory_action[player]
+                            > present_settle_frames(self.last_inventory_kind[player])
+                            && frame % 32 < 12
+                        {
                             *pad |= B;
                             self.last_inventory_kind[player] = kind;
                         }
@@ -318,7 +441,9 @@ impl Adventure {
                             continue;
                         }
                         let kind = earthling.kind().read(memory);
-                        if matches!(goal, Goal::Earthling { .. }) && friendly_done(content, kind) {
+                        if matches!(goal, Goal::Earthling { .. })
+                            && self.interaction_done(memory, revision, content, player, kind)
+                        {
                             if !self.blocked.contains(&(level, goal)) {
                                 self.blocked.push((level, goal));
                             }
@@ -499,10 +624,14 @@ impl Adventure {
                     }
                     Goal::Elevator { bank } => {
                         let elevator = ram::g_elevator_records(revision).at(bank).at(0);
-                        let target = (elevator.x().read(memory), elevator.y().read(memory) + 22);
+                        let doorway = (elevator.x().read(memory), elevator.y().read(memory));
+                        let target = departure_approach(position, doorway);
                         let state = elevator.state().read(memory);
-                        let dy = position.1 - elevator.y().read(memory);
-                        if (position.0 - target.0).abs() < 8 && (0..40).contains(&dy) {
+                        let dy = position.1 - doorway.1;
+                        if target.0 == doorway.0
+                            && (position.0 - doorway.0).abs() < 8
+                            && (0..40).contains(&dy)
+                        {
                             if state == 3 {
                                 *pad |= UP;
                             } else if state <= 1 {
@@ -542,6 +671,7 @@ impl Adventure {
                             .read(memory);
                         if cell & 0x4000 == 0 {
                             self.goals[player] = None;
+                            self.reconsider_routes(player, level);
                         } else if let Some(input) = self.navigation[player].toward(
                             memory,
                             rom,
@@ -578,6 +708,9 @@ impl Adventure {
                         {
                             *pad |= input;
                         } else {
+                            if !self.blocked.contains(&(level, goal)) {
+                                self.blocked.push((level, goal));
+                            }
                             self.goals[player] = None;
                         }
                     }
@@ -589,32 +722,27 @@ impl Adventure {
                         if let Some(target) =
                             self.navigation[player].nearest_terrain(position, 0x90)
                         {
-                            let direction = self.navigation[player].toward(
-                                memory,
-                                rom,
-                                revision,
-                                player,
-                                (target, Travel::Fall),
-                                frame,
-                            );
-                            if ram::g_player_powerups(revision)
+                            let travel = if ram::g_player_powerups(revision)
                                 .at(player as i32)
                                 .read(memory)
                                 == 0
                             {
-                                let distance = (i32::from(position.0) - i32::from(target.0)).abs()
-                                    + (i32::from(position.1) - i32::from(target.1)).abs();
-                                let flight = (60..64).contains(&view.sprite_state().read(memory));
-                                if !flight && frame % 24 < 12 {
-                                    *pad |= A;
-                                } else if let Some(direction) = direction {
-                                    *pad |= direction;
-                                    if distance > 16 && frame % 24 < 12 {
-                                        *pad |= A;
-                                    }
-                                }
-                            } else if let Some(direction) = direction {
+                                Travel::Fly
+                            } else {
+                                Travel::Fall
+                            };
+                            if let Some(direction) = self.navigation[player].toward(
+                                memory,
+                                rom,
+                                revision,
+                                player,
+                                (target, travel),
+                                frame,
+                            ) {
                                 *pad |= direction;
+                            } else {
+                                self.goals[player] = None;
+                                self.mobility_needed[player] = true;
                             }
                         }
                     }
@@ -644,6 +772,7 @@ impl Adventure {
                     .read(memory)
                     == 7
                 && *pad & (UP | DOWN | LEFT | RIGHT) != 0
+                && self.navigation[player].safe_to_run(position, *pad)
             {
                 let target = match self.goals[player] {
                     Some(Goal::Elevator { bank }) => {
@@ -668,8 +797,8 @@ impl Adventure {
                             > 64
                     })
                 {
-                    // A is the original hitops run modifier, including its
-                    // terrain-edge hop; release it for precise contact/elevator entry.
+                    // A is the original hitops run modifier. Avoid edge hops
+                    // around narrow corners and release it for precise contact.
                     *pad |= A;
                 }
             }
@@ -838,8 +967,8 @@ impl Adventure {
         frame: u64,
     ) -> bool {
         self.objective == Objective::LevelZero
-            && friendly_done(content, 23)
-            && friendly_done(content, 24)
+            && self.interaction_done(memory, revision, content, 0, 24)
+            && self.interaction_done(memory, revision, content, 0, 23)
             && ram::g_player_info(revision).at(0).level().read(memory) > 0
             && ram::g_player_fall_states(revision).at(0).read(memory) == 0
             && frame - self.level_since[0] > 180
@@ -875,10 +1004,10 @@ impl Adventure {
         // Actual active wings satisfy the travel demand. Do not cancel them
         // with a spare tube/door/randomizer merely because an old flag remains.
         let mobility_needed = self.mobility_needed[player] && power != 0;
-        if self.objective == Objective::LevelZero
+        if matches!(self.objective, Objective::Campaign | Objective::LevelZero)
             && level == 0
-            && friendly_done(content, 23)
-            && friendly_done(content, 24)
+            && self.interaction_done(memory, revision, content, player, 23)
+            && self.interaction_done(memory, revision, content, player, 24)
         {
             return Some(Goal::Fall);
         }
@@ -892,6 +1021,7 @@ impl Adventure {
         if doorway > 0
             && power != 0
             && (mobility_needed || !self.doorway_used[player])
+            && !self.blocked.contains(&(level, Goal::Doorway))
             && ram::g_player_info(revision)
                 .at(i32::from(doorway))
                 .level()
@@ -975,7 +1105,7 @@ impl Adventure {
         }
         let present = (0..16).find_map(|slot| {
             let kind = inventory.at(slot as i32).read(memory);
-            let useful = (health < 12 && matches!(kind, 9 | 14 | 17))
+            let useful = (health < 12 && matches!(kind, 9 | 10 | 14 | 17))
                 || (self.objective == Objective::Explore
                     && (0..28).contains(&kind)
                     && content
@@ -983,7 +1113,7 @@ impl Adventure {
                         .get(&(kind as u8))
                         .is_some_and(Option::is_none));
             let useful = useful
-                || (self.objective == Objective::Campaign && kind == 17 && lives < 5)
+                || (self.objective == Objective::Campaign && kind == 17 && lives < 8)
                 || (self.objective == Objective::Campaign
                     && kind == 18
                     && mobility_needed
@@ -999,7 +1129,8 @@ impl Adventure {
                 || matches!(kind, 20 | 21)
                 || (kind == 11 && ram::g_player_rank(revision).at(player as i32).read(memory) < 8)
                 || (count >= 14
-                    && matches!(kind, 1 | 3 | 4 | 6 | 7 | 9 | 10 | 14 | 17 | 19 | 25 | 27));
+                    && matches!(kind, 1 | 3 | 4 | 6 | 7 | 9 | 10 | 14 | 17 | 19 | 25 | 27)
+                    && (self.objective != Objective::Campaign || !matches!(kind, 9 | 10 | 14)));
             useful.then_some(Goal::Present { slot, kind })
         });
         if present.is_some() {
@@ -1039,7 +1170,7 @@ impl Adventure {
                             .get(&(kind as u8))
                             .is_some_and(Option::is_none)
                             || (matches!(kind, 9..=11 | 17 | 23..=24)
-                                && !friendly_done(content, kind)))
+                                && !self.interaction_done(memory, revision, content, player, kind)))
                     {
                         return Some(goal);
                     }
@@ -1048,6 +1179,26 @@ impl Adventure {
         }
         let view = ram::g_player_info(revision).at(player as i32);
         let position = (view.x().read(memory), view.y().read(memory));
+        let departure = (0..2).find_map(|bank| {
+            let elevator = ram::g_elevator_records(revision).at(bank).at(0);
+            (elevator.level().read(memory) == level && elevator.state().read(memory) != 11)
+                .then_some(Goal::Elevator { bank })
+        });
+        if self.objective == Objective::Campaign
+            && level > 0
+            && health >= 14
+            && ship.is_none()
+            && let Some(Goal::Elevator { bank }) = departure
+        {
+            let elevator = ram::g_elevator_records(revision).at(bank).at(0);
+            let distance = (i32::from(position.0) - i32::from(elevator.x().read(memory))).abs()
+                + (i32::from(position.1) - i32::from(elevator.y().read(memory))).abs();
+            if distance <= 96 {
+                // Already at a usable exit: do not abandon it for a distant
+                // proactive reserve after this level's real piece is collected.
+                return departure;
+            }
+        }
         let mut best_item = None;
         for bank in 0..2 {
             for index in 0..28 {
@@ -1064,8 +1215,11 @@ impl Adventure {
                     0 | 8 => inventory_counts[kind as usize] < 2,
                     2 => inventory_counts[2] == 0,
                     7 | 27 => inventory_counts[7] + inventory_counts[27] < 2,
+                    9 | 10 | 14 => {
+                        inventory_counts[9] + inventory_counts[10] + inventory_counts[14] < 2
+                    }
                     11 => rank < 8 && inventory_counts[11] == 0,
-                    17 => lives < 5 && inventory_counts[17] == 0,
+                    17 => lives < 8 && inventory_counts[17] == 0,
                     20 | 21 => bucks < 10 && inventory_counts[kind as usize] == 0,
                     26 => {
                         inventory_counts[26] == 0 && inventory_counts[0] + inventory_counts[8] == 0
@@ -1102,13 +1256,7 @@ impl Adventure {
         if ship.is_some() {
             return ship;
         }
-        for bank in 0..2 {
-            let elevator = ram::g_elevator_records(revision).at(bank).at(0);
-            if elevator.level().read(memory) == level && elevator.state().read(memory) != 11 {
-                return Some(Goal::Elevator { bank });
-            }
-        }
-        None
+        departure
     }
 
     fn inventory_input(
@@ -1154,6 +1302,10 @@ impl Adventure {
         } else {
             if kind == 8 {
                 self.doorway_used[player] = false;
+                let level = self.levels[player];
+                self.blocked.retain(|(blocked_level, goal)| {
+                    *blocked_level != level || *goal != Goal::Doorway
+                });
             }
             *pad |= A;
             self.last_inventory_action[player] = frame;
@@ -1161,6 +1313,30 @@ impl Adventure {
             self.held_action[player] = A;
             self.held_until[player] = frame + 12;
         }
+    }
+}
+
+fn departure_approach(position: (i16, i16), elevator: (i16, i16)) -> (i16, i16) {
+    let side = elevator.0 + if position.0 < elevator.0 { -32 } else { 32 };
+    let dx = (position.0 - elevator.0).abs();
+    if position.1 <= elevator.1 && dx < 24 {
+        // Original ElevatorBlocksPlayerMovement rejects crossing the roof
+        // line within20 pixels. Leave it sideways before approaching the door.
+        (side, elevator.1 - 8)
+    } else if position.1 < elevator.1 + 18 && dx >= 24 {
+        // Stay on that flank until below the doorway. Turning inward as soon
+        // as X clears the roof re-enters the sideways stage on the next step.
+        (side, elevator.1 + 22)
+    } else {
+        (elevator.0, elevator.1 + 22)
+    }
+}
+
+fn present_settle_frames(kind: i8) -> u64 {
+    if matches!(kind, 0 | 9 | 10 | 14) {
+        32
+    } else {
+        140
     }
 }
 
@@ -1191,6 +1367,478 @@ mod tests {
     use tje_session::CONNECTED;
 
     #[test]
+    fn sleeping_campaigns_change_real_inputs_in_each_poll_window() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 6);
+            player.sprite_state().write(&mut memory, 117);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 4);
+            let mut planner = Adventure::new(Objective::Campaign);
+            for (step, expected) in [A, UP, RIGHT, DOWN, LEFT].into_iter().enumerate() {
+                let mut pads = [CONNECTED, 0];
+                planner.choose(
+                    &Ram(memory.ram()),
+                    &[],
+                    revision,
+                    &Content::new(),
+                    3200 + step as u64 * 4,
+                    &mut pads,
+                );
+                assert_eq!(pads[0], CONNECTED | expected);
+            }
+            player.sprite_state().write(&mut memory, 116);
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &[],
+                revision,
+                &Content::new(),
+                3224,
+                &mut pads,
+            );
+            assert_eq!(pads[0], CONNECTED);
+        }
+    }
+
+    #[test]
+    fn a_campaign_leaves_level_zero_after_its_real_services() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            ram::g_player_lemonade_reward_states(revision)
+                .at(0)
+                .write(&mut memory, 2);
+            let mut content = Content::new();
+            content
+                .friendly_interactions
+                .insert("lemonade_reward".into(), Some(1));
+            content
+                .friendly_interactions
+                .insert("hottub_bath".into(), Some(2));
+            for objective in [Objective::Campaign, Objective::LevelZero] {
+                let mut planner = Adventure::new(objective);
+                planner.levels[0] = 0;
+                planner.bath_since[0] = Some(2);
+                assert_eq!(
+                    planner.select_goal(&Ram(memory.ram()), &[], revision, &content, 0, 27),
+                    Some(Goal::Fall)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn current_island_witnesses_keep_lemonade_23_and_hot_tub_24_distinct() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::LevelZero);
+            let content = Content::new();
+            ram::g_player_lemonade_reward_states(revision)
+                .at(0)
+                .write(&mut memory, 2);
+            assert!(planner.interaction_done(&Ram(memory.ram()), revision, &content, 0, 23));
+            assert!(!planner.interaction_done(&Ram(memory.ram()), revision, &content, 0, 24));
+            ram::g_player_lemonade_reward_states(revision)
+                .at(0)
+                .write(&mut memory, 0);
+            planner.bath_since[0] = Some(1);
+            assert!(!planner.interaction_done(&Ram(memory.ram()), revision, &content, 0, 23));
+            assert!(planner.interaction_done(&Ram(memory.ram()), revision, &content, 0, 24));
+        }
+    }
+
+    #[test]
+    fn elevator_roof_approach_goes_around_the_original_blocking_line() {
+        assert_eq!(departure_approach((302, 298), (300, 300)), (332, 292));
+        assert_eq!(departure_approach((298, 290), (300, 300)), (268, 292));
+        assert_eq!(departure_approach((350, 290), (300, 300)), (332, 322));
+        assert_eq!(departure_approach((300, 312), (300, 300)), (300, 322));
+        assert_eq!(departure_approach((330, 292), (300, 300)), (332, 322));
+        assert_eq!(departure_approach((332, 314), (300, 300)), (332, 322));
+        assert_eq!(departure_approach((332, 320), (300, 300)), (300, 322));
+        assert_eq!(departure_approach((268, 292), (300, 300)), (268, 322));
+        assert_eq!(departure_approach((268, 314), (300, 300)), (268, 322));
+        assert_eq!(departure_approach((268, 320), (300, 300)), (300, 322));
+    }
+
+    #[test]
+    fn elevator_flank_staging_is_not_mistaken_for_a_door_approach() {
+        for revision in Revision::ALL {
+            for x in [268, 332] {
+                let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+                let player = ram::g_player_info(revision).at(0);
+                player.level().write(&mut memory, 5);
+                player.x().write(&mut memory, x);
+                player.y().write(&mut memory, 312);
+                ram::g_player_health(revision).at(0).write(&mut memory, 27);
+                ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+                ram::g_player_powerups(revision)
+                    .at(0)
+                    .write(&mut memory, -1);
+                ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x10);
+                for slot in 0..16 {
+                    ram::g_player_inventory(revision)
+                        .at(0)
+                        .at(slot)
+                        .write(&mut memory, -1);
+                }
+                let elevator = ram::g_elevator_records(revision).at(0).at(0);
+                elevator.level().write(&mut memory, 5);
+                elevator.x().write(&mut memory, 300);
+                elevator.y().write(&mut memory, 300);
+                let mut rom = vec![0; revision.rom_size()];
+                rom[tje_mem::rom::player_tile_property_lookup(revision).address() as usize] = 0x10;
+                let mut planner = Adventure::new(Objective::Campaign);
+                planner.levels[0] = 5;
+                planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+                let mut pads = [CONNECTED, 0];
+                planner.choose(
+                    &Ram(memory.ram()),
+                    &rom,
+                    revision,
+                    &Content::new(),
+                    3200,
+                    &mut pads,
+                );
+                assert_eq!(pads[0], CONNECTED | DOWN);
+                assert_eq!(planner.goals[0], Some(Goal::Elevator { bank: 0 }));
+            }
+        }
+    }
+
+    #[test]
+    fn an_explicit_campaign_fall_does_not_turn_back_toward_shore() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 300);
+            player.y().write(&mut memory, 68);
+            ram::g_player_health(revision).at(0).write(&mut memory, 27);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x80);
+            let mut rom = vec![0; revision.rom_size()];
+            rom[tje_mem::rom::player_tile_property_lookup(revision).address() as usize] = 0x10;
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Fall);
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3200,
+                &mut pads,
+            );
+            assert_eq!(pads[0], CONNECTED | UP);
+            assert_eq!(planner.goals[0], Some(Goal::Fall));
+        }
+    }
+
+    #[test]
+    fn old_island_coverage_cannot_complete_a_new_level_zero_excursion() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 12);
+            let mut content = Content::new();
+            content
+                .friendly_interactions
+                .insert("lemonade_reward".into(), Some(1));
+            content
+                .friendly_interactions
+                .insert("hottub_bath".into(), Some(2));
+            let mut planner = Adventure::new(Objective::LevelZero);
+            assert!(!planner.hidden_level_complete(&Ram(memory.ram()), revision, &content, 1000));
+            planner.bath_since[0] = Some(500);
+            assert!(!planner.hidden_level_complete(&Ram(memory.ram()), revision, &content, 1000));
+            ram::g_player_lemonade_reward_states(revision)
+                .at(0)
+                .write(&mut memory, 2);
+            assert!(planner.hidden_level_complete(&Ram(memory.ram()), revision, &content, 1000));
+        }
+    }
+
+    #[test]
+    fn revealed_roads_reconsider_items_and_invalidate_the_old_ship_contact() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 5);
+            ram::g_player_health(revision).at(0).write(&mut memory, 27);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Path { target: (164, 84) });
+            planner.ship_contacts[0] = Some(ShipContact {
+                level: 5,
+                goal: Goal::Ship { bank: 0, index: 1 },
+                point: (100, 100),
+            });
+            planner.blocked = vec![
+                (5, Goal::Item { bank: 0, index: 0 }),
+                (5, Goal::Earthling { bank: 0, index: 2 }),
+                (6, Goal::Item { bank: 0, index: 0 }),
+            ];
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &[],
+                revision,
+                &Content::new(),
+                1000,
+                &mut pads,
+            );
+            assert!(planner.goals[0].is_none());
+            assert!(planner.ship_contacts[0].is_none());
+            assert_eq!(planner.blocked.len(), 2);
+            assert!(
+                planner
+                    .blocked
+                    .contains(&(5, Goal::Earthling { bank: 0, index: 2 }))
+            );
+            assert!(
+                planner
+                    .blocked
+                    .contains(&(6, Goal::Item { bank: 0, index: 0 }))
+            );
+        }
+    }
+
+    #[test]
+    fn an_accidentally_swimming_campaign_returns_to_shore_before_its_old_goal() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 300);
+            player.y().write(&mut memory, 300);
+            ram::g_player_health(revision).at(0).write(&mut memory, 20);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 7);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x80);
+            for slot in 0..16 {
+                ram::g_player_inventory(revision)
+                    .at(0)
+                    .at(slot)
+                    .write(&mut memory, -1);
+            }
+            ram::g_player_inventory(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 14);
+            let mut rom = vec![0; revision.rom_size()];
+            rom[tje_mem::rom::player_tile_property_lookup(revision).address() as usize] = 0x10;
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+            planner.blocked.push((5, Goal::Item { bank: 0, index: 0 }));
+            planner.mobility_needed[0] = true;
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3200,
+                &mut pads,
+            );
+            assert_ne!(pads[0] & (UP | DOWN | LEFT | RIGHT), 0);
+            assert_eq!(pads[0] & (A | B), 0);
+            assert_eq!(planner.goals[0], None);
+            assert!(!planner.mobility_needed[0]);
+            assert!(
+                !planner
+                    .blocked
+                    .contains(&(5, Goal::Item { bank: 0, index: 0 }))
+            );
+            assert_eq!(
+                ram::g_player_inventory(revision).at(0).at(0).read(&memory),
+                14
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_healing_present_preempts_a_long_route_at_critical_health() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            ram::g_player_health(revision).at(0).write(&mut memory, 15);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x10);
+            for slot in 0..16 {
+                ram::g_player_inventory(revision)
+                    .at(0)
+                    .at(slot)
+                    .write(&mut memory, -1);
+            }
+            ram::g_player_inventory(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 14);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+            let mut pads = [CONNECTED, 0];
+            let mut rom = vec![0; revision.rom_size()];
+            let damage = tje_mem::rom::earthling_definitions(revision).at(1).damage();
+            rom[damage.address() as usize] = 24;
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3200,
+                &mut pads,
+            );
+            assert_eq!(planner.goals[0], Some(Goal::Present { slot: 0, kind: 14 }));
+            assert_eq!(pads[0], CONNECTED | B);
+            assert_eq!(planner.maximum_hit_damage, Some(24));
+            assert_eq!(
+                ram::g_player_inventory(revision).at(0).at(0).read(&memory),
+                14
+            );
+            planner.goals[0] = Some(Goal::Present { slot: 0, kind: 14 });
+            planner.last_inventory_kind[0] = 14;
+            planner.last_inventory_action[0] = 3200;
+            ram::g_player_inventory(revision)
+                .at(0)
+                .at(0)
+                .write(&mut memory, 9);
+            player.height().write(&mut memory, -6);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x20);
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3233,
+                &mut pads,
+            );
+            assert_eq!(planner.goals[0], Some(Goal::Present { slot: 0, kind: 9 }));
+            assert_eq!(pads[0], CONNECTED | B);
+        }
+    }
+
+    #[test]
+    fn guaranteed_heals_precede_risky_food_regardless_of_inventory_order() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 5);
+            ram::g_player_health(revision).at(0).write(&mut memory, 15);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x10);
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 9);
+            inventory.at(1).write(&mut memory, 10);
+            inventory.at(2).write(&mut memory, 14);
+            let mut rom = vec![0; revision.rom_size()];
+            let damage = tje_mem::rom::earthling_definitions(revision).at(1).damage();
+            rom[damage.address() as usize] = 24;
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            for (step, (slot, kind)) in [(2, 14), (1, 10), (0, 9)].into_iter().enumerate() {
+                planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+                let mut pads = [CONNECTED, 0];
+                planner.choose(
+                    &Ram(memory.ram()),
+                    &rom,
+                    revision,
+                    &Content::new(),
+                    3200 + step as u64 * 256,
+                    &mut pads,
+                );
+                assert_eq!(planner.goals[0], Some(Goal::Present { slot, kind }));
+                assert_eq!(pads[0], CONNECTED | B);
+                assert_eq!(inventory.at(slot as i32).read(&memory), kind);
+                inventory.at(slot as i32).write(&mut memory, -1);
+            }
+            assert_eq!(present_settle_frames(10), 32);
+        }
+    }
+
+    #[test]
+    fn critical_ground_danger_spends_real_wings_when_no_food_remains() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 84);
+            ram::g_player_health(revision).at(0).write(&mut memory, 15);
+            ram::g_player_lives(revision).at(0).write(&mut memory, 2);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            ram::g_player1_terrain_underfoot(revision).write(&mut memory, 0x10);
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            inventory.at(0).write(&mut memory, 0);
+            let enemy = ram::g_earthling_banks(revision).at(0).at(0);
+            enemy.kind().write(&mut memory, 19);
+            enemy.level().write(&mut memory, 5);
+            enemy.object().write(&mut memory, 6);
+            let object = ram::g_player_info(revision).at(6);
+            object.level().write(&mut memory, 5);
+            object.x().write(&mut memory, 200);
+            object.y().write(&mut memory, 84);
+            let mut rom = vec![0; revision.rom_size()];
+            let damage = tje_mem::rom::earthling_definitions(revision).at(1).damage();
+            rom[damage.address() as usize] = 24;
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3200,
+                &mut pads,
+            );
+            assert_eq!(planner.goals[0], Some(Goal::Present { slot: 0, kind: 0 }));
+            assert_eq!(pads[0], CONNECTED | B);
+            assert_eq!(inventory.at(0).read(&memory), 0);
+            inventory.at(1).write(&mut memory, 14);
+            planner.goals[0] = Some(Goal::Elevator { bank: 0 });
+            let mut pads = [CONNECTED, 0];
+            planner.choose(
+                &Ram(memory.ram()),
+                &rom,
+                revision,
+                &Content::new(),
+                3232,
+                &mut pads,
+            );
+            assert_eq!(planner.goals[0], Some(Goal::Present { slot: 1, kind: 14 }));
+            assert_eq!(pads[0], CONNECTED | B);
+            assert_eq!(inventory.at(0).read(&memory), 0);
+        }
+    }
+
+    #[test]
     fn inventory_action_survives_both_controller_poll_parities() {
         let revision = Revision::Rev02;
         let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
@@ -1215,6 +1863,53 @@ mod tests {
             assert_eq!(pads[0], CONNECTED | A, "frame {frame}");
         }
         assert_eq!(planner.held_until[0], 76);
+    }
+
+    #[test]
+    fn a_nearby_departure_precedes_a_healthy_campaigns_reserve_detour() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 300);
+            player.y().write(&mut memory, 300);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            ram::g_player_rank(revision).at(0).write(&mut memory, 8);
+            for slot in 0..16 {
+                ram::g_player_inventory(revision)
+                    .at(0)
+                    .at(slot)
+                    .write(&mut memory, -1);
+            }
+            let wings = ram::g_object_table(revision).at(0).at(0);
+            wings.kind().write(&mut memory, 0);
+            wings.level().write(&mut memory, 5);
+            wings.x().write(&mut memory, 1200);
+            wings.y().write(&mut memory, 800);
+            let elevator = ram::g_elevator_records(revision).at(0).at(0);
+            elevator.level().write(&mut memory, 5);
+            elevator.x().write(&mut memory, 332);
+            elevator.y().write(&mut memory, 312);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 55),
+                Some(Goal::Elevator { bank: 0 })
+            );
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 13),
+                Some(Goal::Item { bank: 0, index: 0 })
+            );
+            let ship = ram::g_earthling_banks(revision).at(0).at(0);
+            ship.kind().write(&mut memory, 0);
+            ship.level().write(&mut memory, 5);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 55),
+                Some(Goal::Ship { bank: 0, index: 0 })
+            );
+        }
     }
 
     #[test]
@@ -1261,6 +1956,50 @@ mod tests {
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 7),
                 Some(Goal::Present { slot: 0, kind: 0 })
             ));
+        }
+    }
+
+    #[test]
+    fn a_campaign_keeps_a_bounded_food_reserve_before_health_becomes_critical() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let mut planner = Adventure::new(Objective::Campaign);
+            planner.levels[0] = 5;
+            ram::g_player_info(revision)
+                .at(0)
+                .level()
+                .write(&mut memory, 5);
+            ram::g_player_powerups(revision)
+                .at(0)
+                .write(&mut memory, -1);
+            let inventory = ram::g_player_inventory(revision).at(0);
+            for slot in 0..16 {
+                inventory.at(slot).write(&mut memory, -1);
+            }
+            let item = ram::g_object_table(revision).at(0).at(0);
+            item.kind().write(&mut memory, 10);
+            item.level().write(&mut memory, 5);
+            let elevator = ram::g_elevator_records(revision).at(0).at(0);
+            elevator.level().write(&mut memory, 5);
+            elevator.x().write(&mut memory, 1200);
+            elevator.y().write(&mut memory, 800);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 27),
+                Some(Goal::Item { bank: 0, index: 0 })
+            );
+            inventory.at(0).write(&mut memory, 10);
+            inventory.at(1).write(&mut memory, 14);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 27),
+                Some(Goal::Elevator { bank: 0 })
+            );
+            for slot in 0..14 {
+                inventory.at(slot).write(&mut memory, 10);
+            }
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 27),
+                Some(Goal::Elevator { bank: 0 })
+            );
         }
     }
 
@@ -1416,10 +2155,19 @@ mod tests {
                 inventory.at(slot).write(&mut memory, -1);
             }
             inventory.at(0).write(&mut memory, 17);
-            ram::g_player_lives(revision).at(0).write(&mut memory, 1);
+            for lives in [1, 5, 7] {
+                ram::g_player_lives(revision)
+                    .at(0)
+                    .write(&mut memory, lives);
+                assert_eq!(
+                    planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                    Some(Goal::Present { slot: 0, kind: 17 })
+                );
+            }
+            ram::g_player_lives(revision).at(0).write(&mut memory, 8);
             assert_eq!(
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
-                Some(Goal::Present { slot: 0, kind: 17 })
+                None
             );
             assert_eq!(inventory.at(0).read(&memory), 17);
         }
@@ -1451,6 +2199,23 @@ mod tests {
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
                 Some(Goal::Doorway)
             );
+            planner.blocked.push((7, Goal::Doorway));
+            inventory.at(0).write(&mut memory, 8);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Present { slot: 0, kind: 8 })
+            );
+            planner.goals[0] = Some(Goal::Present { slot: 0, kind: 8 });
+            let mut pad = CONNECTED;
+            planner.inventory_input(&Ram(memory.ram()), revision, 0, 64, &mut pad);
+            assert_eq!(pad, CONNECTED | A);
+            assert!(!planner.blocked.contains(&(7, Goal::Doorway)));
+            inventory.at(0).write(&mut memory, -1);
+            assert_eq!(
+                planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),
+                Some(Goal::Doorway)
+            );
+            planner.doorway_used[0] = true;
             planner.mobility_needed[0] = false;
             assert_eq!(
                 planner.select_goal(&Ram(memory.ram()), &[], revision, &Content::new(), 0, 23),

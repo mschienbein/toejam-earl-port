@@ -213,10 +213,17 @@ blindly across the final water/space gap. Live doorway entities contribute the
 original conditional 4-by-3 ground footprint, and centered upward input opens a
 closed doorway. Campaign planning carries real mobility presents for disconnected
 terrain instead of spending them on unrelated encounter targets.
+Diagonal land steps require support on both intervening orthogonal cells, in both
+route planning and reachable-goal searches. This conservative controller policy
+prevents waypoint tolerance from clipping a void corner, holding an original lean
+pose and eventually triggering its short fall; it does not change game motion.
 Ship collection targets the nearest reachable boundary of the cartridge's actual
 contact rectangle, not a solid or unwalkable sprite-center tile. Mobility demand is
 recomputed after level changes. Ordinary walking never silently becomes swimming;
 a real active innertube explicitly enables water routing.
+An explicit fall journey can also cross upper-level water when that real tube is
+active. If a walking fall route is inaccessible, the controller considers held
+mobility instead of waiting indefinitely with unused wings or a tube.
 Macro-map connectivity includes hidden roads. Before spending mobility to escape
 a disconnected component, the campaign targets reachable ground inside a live
 `0x4000` marked metatile with an adjacent terrain class at least `0x50`. This is
@@ -232,19 +239,78 @@ choice sets are unknown/unsafe, never vacuously safe. Requiring future terrain
 class at most `0x50` is a conservative bot policy; the original post-redraw fall
 test specifically checks void `0x90` together with animation and height gates.
 On later campaign levels, existing super-hitops presents can be opened for real
-speed and the original A-modified terrain-edge hop. The bot releases A near
-interaction/elevator targets rather than treating the speed power as a grant.
+speed. Running requires a five-by-five stable-ground corridor through the next
+32 world pixels, so it is not used to edge-hop around narrow path corners.
+The bot also releases A near interaction/elevator targets rather than treating
+the speed power as a grant.
 If a path animation severs the route to an older trigger, the planner abandons
 that stale trigger and considers actual inventory mobility instead of idling.
+An observed road reveal, doorway teleport or level change invalidates the old ship
+contact and clears that level's inaccessible-item/doorway exclusions. A failed pickup on
+the old component must not permanently hide real mobility or food after the route
+changes; completed friendly interactions remain excluded.
 Campaign reserves are tracked by present kind: possessing an innertube does not
 suppress collecting real wings or doorways. An unreachable ship target yields to
 needed pickups instead of starving its own mobility supply. Real extra lives,
 promotions and later-level speed presents are used through the inventory; a live
 doorway may be reused if another route becomes inaccessible. Mystery/randomizer
 fallbacks remain actual present opens, not fabricated effects or grants.
+An unreachable old doorway is excluded until the route changes or a real spare
+doorway is opened, so it cannot starve held wings, doorways or mystery presents.
+Extra-life reserves are used up to the original limit of eight lives, not an
+artificial five-life ceiling.
+The campaign also collects up to two healing presents in advance and does not
+open that reserve at full health merely because the inventory is nearly full.
+The reserve includes genuine rootbeer as well as food and fudge sundaes. Critical
+selection prefers a guaranteed sundae or rootbeer heal before ordinary food,
+whose original effect can be yucky, rather than blindly opening the first slot.
+A held real healing present preempts a long route when health is at most the
+largest single Earthling hit in the runtime cartridge, once the player is
+grounded on walkable terrain, including the original negative quicksand height.
+That bound is observed and cached, not copied from
+a retail resource table. A fixed very-low-health band misses lethal two-hit
+sequences that jump past it. The inventory is not opened in mid-flight, and
+health changes still come only from the real present.
+Healing presents also use a short controller-settle interval before reopening
+the menu for a second held heal; the longer unrelated-present pause must not
+leave another one-hit-health gap between two actual food uses.
+At that same one-hit bound, if food is exhausted and an awake allocated hazard
+is nearby, a held real wing present is used to escape instead of being hoarded
+for a terrain failure. Food still wins when both are available. Wing takeoff
+uses the short settle interval and a nearby danger can request launch even for
+a close destination; an already-flying player still stops flapping to land at
+the real target. No replacement wing, extra flight time or health is granted.
 Already-active wings satisfy a stale mobility demand: a spare innertube, doorway
 or mystery present must not cancel the real flight. A successful elevator route
 clears the prior demand before choosing more inventory actions.
+A healthy campaign already near a real departure does not abandon it for a
+distant proactive reserve once that level's ship piece is collected. Actual
+uncollected pieces and critical healing still take precedence over that exit.
+Sleeping players use the content planner's four-frame cycle of distinct real
+A/direction inputs, following the original changed-input wake rule instead of
+repeating one A-only phase. Reading the book still waits for its real countdown;
+the controller never writes a wake state or fabricates a wake-effect entity.
+
+Flight steers toward the world-space destination, with a velocity-based braking
+estimate, rather than chasing individual eight-pixel land waypoints. Wings still
+use the original directional acceleration, coasting, A flaps and finite timer;
+the controller model does not alter the game's physics or grant flight time.
+For a distant flight destination, takeoff uses neutral/released and A-only inputs
+until the original flying pose is observed. An unrelated nearby pickup cannot
+suppress that launch or cause a grounded walk into space before the next flap.
+An existing lean first receives the opposite direction to step back onto support:
+neutral/A does not cancel that original pose. Automatic flaps preserve this
+back-out input instead of replacing it with an A-only command.
+The same wing controller handles deliberate falls toward level zero; it does not
+reintroduce a separate eight-pixel waypoint flap policy for that journey.
+A campaign resumed from a genuine level-zero prefix also leaves the island after
+its observed lemonade and hot-tub interactions: the original fall returns it to
+the highest reached ordinary level instead of leaving it idle without an elevator.
+A resumed `level-zero` excursion requires a bath witnessed by its current
+controller before returning complete. Old aggregate service coverage from a
+failed earlier game cannot end the excursion before it actually revisits zero.
+Its service goals use the current bath and live lemonade-reward state; menus
+clear the controller's prior bath state.
 Blocking map-screen exits use the controller that requested the map, including
 P2's telephone map; P1's C button cannot dismiss a P2-owned map wait.
 No map, route, present table, or decoded resource is embedded in the crate or
@@ -258,11 +324,31 @@ collision geometry and moving Earthlings, approaches the original doorway strip
 before pressing Up, exits arrival elevators, chooses inventory slots through the
 real cursor and holds actions through both controller-poll parities. It never
 grants presents or health.
+Nearby awake, allocated hazards shorten the replan interval rather than leaving
+a moving-enemy cost map stale for two seconds. Costs use the live entity
+position (the bank mirrors it only on alternating updates) and an eight-tick
+velocity-sized safety margin. This is conservative controller routing, not an
+exact enemy-AI prediction; it draws no randomness and changes no game state.
+Threat surveys are rate-limited and skipped when a target/map/motion change
+already requires replanning; they do not allocate or poll every far-away frame.
+An elevator approached from its roof side first receives a lateral staging
+target outside the original twenty-pixel crossing barrier, stays on that flank
+until below the doorway, and only then turns inward to its front target. This
+prevents a sideways/inward goal oscillation without crossing the closed roof.
+Door fine-adjustment tests the real doorway coordinates, not the temporary
+lateral waypoint, so reaching a flank cannot freeze the frontward staging leg.
 
 Land routes never silently retry as swimming routes: an unreachable land goal is
 reported to its caller, which must explicitly choose swimming or use a real
 mobility present. This prevents inaccessible item goals from becoming drowning
 instructions while preserving explicit `game-over` and travel goals.
+If live terrain instead proves that a campaign player has already splashed into
+water without active wings or an inner tube, the controller explicitly seeks
+the closest reachable dry footing before resuming its old objective. This
+shortest-cost shore search uses the existing navigation buffers, respects void
+corners and real doorway ground, and stops at the shore rather than converting
+the old objective into an unbounded swim. It does not change deliberate
+`game-over` drowning, a deliberate fall, or an explicitly buoyant travel route.
 
 `campaign` prioritizes uncollected ship-piece records; `campaign-two` runs the
 same feedback policy with both players and pads, without an all-pieces shortcut.

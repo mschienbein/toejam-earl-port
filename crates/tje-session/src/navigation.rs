@@ -2,7 +2,7 @@
 use crate::runner::Ram;
 use std::{cmp::Reverse, collections::BinaryHeap};
 use tje_mem::{Bus, Revision, ram};
-use tje_session::{DOWN, LEFT, RIGHT, UP};
+use tje_session::{A, DOWN, LEFT, RIGHT, UP};
 
 const WIDTH: usize = 336;
 const HEIGHT: usize = 224;
@@ -117,6 +117,7 @@ fn edge_alternatives(
 pub enum Travel {
     Land,
     Swim,
+    Shore,
     Fall,
     Fly,
 }
@@ -135,6 +136,7 @@ pub struct Navigator {
     path_index: usize,
     target: Option<((i16, i16), Travel)>,
     last_plan: u64,
+    last_hazard_check: u64,
     previous: (i16, i16),
     last_motion: u64,
     reachable: bool,
@@ -155,6 +157,7 @@ impl Navigator {
             path_index: 0,
             target: None,
             last_plan: 0,
+            last_hazard_check: 0,
             previous: (0, 0),
             last_motion: 0,
             reachable: false,
@@ -179,6 +182,26 @@ impl Navigator {
             _ => Travel::Land,
         };
         self.toward(memory, rom, revision, player, (target, travel), frame)
+    }
+
+    /// Leave an already-observed water tile for the closest reachable dry
+    /// footing. This does not authorize swimming toward an ordinary land goal.
+    pub fn return_to_shore(
+        &mut self,
+        memory: &Ram<'_>,
+        rom: &[u8],
+        revision: Revision,
+        player: usize,
+        frame: u64,
+    ) -> Option<u16> {
+        self.toward(
+            memory,
+            rom,
+            revision,
+            player,
+            ((0, 0), Travel::Shore),
+            frame,
+        )
     }
 
     pub fn toward(
@@ -231,11 +254,55 @@ impl Navigator {
             self.last_motion = frame;
             self.previous = position;
         }
-        if self.target != Some(goal)
-            || frame.saturating_sub(self.last_plan) > 120
+        if goal.1 == Travel::Fly {
+            // Wings accelerate and coast in world space. Chasing each 8-pixel
+            // A* waypoint makes the player reverse before reaching the next one.
+            // Air has no terrain barriers, so steer to the real destination and
+            // begin braking before the original movement carries us past it.
+            let flying = (60..64).contains(&view.sprite_state().read(memory));
+            let distance = manhattan(position, goal.0);
+            let needs_flight = distance > 48
+                || (!flying
+                    && distance > 8
+                    && Self::nearby_threat(memory, revision, level, position));
+            if needs_flight && !flying {
+                let pose = view.sprite_state().read(memory);
+                if (16..20).contains(&pose) {
+                    // Neutral/A cannot cancel the original lean. Back onto
+                    // support before asking the idle player to start a flap.
+                    return Some([DOWN, UP, RIGHT, LEFT][(pose - 16) as usize]);
+                }
+                // An unrelated nearby pickup must not suppress takeoff. Do not
+                // walk off the departure ledge during the released half-flap.
+                return Some(if frame % 24 < 12 { A } else { 0 });
+            }
+            let direction = flight_heading(
+                position,
+                (
+                    view.velocity_x().read(memory),
+                    view.velocity_y().read(memory),
+                ),
+                goal.0,
+            );
+            return Some(
+                direction
+                    | if needs_flight && frame % 24 < 12 {
+                        A
+                    } else {
+                        0
+                    },
+            );
+        }
+        let plan_age = frame.saturating_sub(self.last_plan);
+        let mut replan = self.target != Some(goal)
+            || plan_age > 120
             || frame.saturating_sub(self.last_motion) > 60
-            || (self.path_index >= self.path.len() && self.reachable)
-        {
+            || (self.path_index >= self.path.len() && self.reachable);
+        if !replan && plan_age > 8 && frame.saturating_sub(self.last_hazard_check) >= 8 {
+            self.last_hazard_check = frame;
+            replan = Self::nearby_threat(memory, revision, self.level, position);
+        }
+        if replan {
             self.plan(memory, revision, player, position, goal);
             self.target = Some(goal);
             self.last_plan = frame;
@@ -256,6 +323,9 @@ impl Navigator {
             let dy = point.1 - position.1;
             return Some(heading(dx, dy));
         }
+        if goal.1 == Travel::Shore {
+            return Some(0);
+        }
         let dx = goal.0.0 - position.0;
         let dy = goal.0.1 - position.1;
         if dx.abs() <= 3 && dy.abs() <= 3 {
@@ -266,6 +336,25 @@ impl Navigator {
 
     pub fn terrain_at(&self, position: (i16, i16)) -> u8 {
         position_cell(position).map_or(0x90, |cell| self.terrain[cell])
+    }
+
+    /// Running can edge-hop in the original game. Keep its short lookahead
+    /// corridor on stable ground instead of hopping around a narrow A* corner.
+    pub fn safe_to_run(&self, position: (i16, i16), direction: u16) -> bool {
+        let dx = i16::from(direction & RIGHT != 0) - i16::from(direction & LEFT != 0);
+        let dy = i16::from(direction & DOWN != 0) - i16::from(direction & UP != 0);
+        if dx == 0 && dy == 0 {
+            return false;
+        }
+        (0..=4).all(|step| {
+            let center = (position.0 + dx * step * 8, position.1 + dy * step * 8);
+            (-2..=2).all(|row| {
+                (-2..=2).all(|column| {
+                    position_cell((center.0 + column * 8, center.1 + row * 8))
+                        .is_some_and(|cell| self.terrain[cell] <= 0x50 && self.safe_footing[cell])
+                })
+            })
+        })
     }
 
     pub fn nearest_terrain(&self, position: (i16, i16), terrain: u8) -> Option<(i16, i16)> {
@@ -365,6 +454,9 @@ impl Navigator {
                 if self.parents[next] == usize::MAX
                     && self.terrain[next] <= 0x50
                     && self.safe_footing[next]
+                    && clear_diagonal(cell, next, |side| {
+                        self.terrain[side] <= 0x50 && self.safe_footing[side]
+                    })
                 {
                     self.parents[next] = cell;
                     self.frontier.push(Reverse((0, 0, next)));
@@ -467,7 +559,16 @@ impl Navigator {
         let Some(goal_cell) = position_cell(goal.0) else {
             return;
         };
+        let fall_water = goal.1 == Travel::Fall
+            && (self.level == 1
+                || ram::g_player_powerups(revision)
+                    .at(player as i32)
+                    .read(memory)
+                    == 2);
         let heuristic = |cell: usize| {
+            if goal.1 == Travel::Shore {
+                return 0;
+            }
             let point = cell_position(cell);
             (i32::from(point.0) - i32::from(goal.0.0))
                 .unsigned_abs()
@@ -503,14 +604,26 @@ impl Navigator {
             for index in 0..20 {
                 let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
                 let kind = earthling.kind().read(memory);
-                if earthling.level().read(memory) == self.level
-                    && matches!(kind, 1..=8 | 12..=16 | 18..=19 | 21..=22)
-                {
-                    self.obstacle(
-                        (earthling.x().read(memory), earthling.y().read(memory)),
-                        (48, 24),
-                        150,
+                if earthling.level().read(memory) == self.level && dangerous_kind(kind) {
+                    let handle = earthling.object().read(memory);
+                    let active = (handle > 0)
+                        .then(|| ram::g_player_info(revision).at(i32::from(handle)))
+                        .filter(|object| object.level().read(memory) == self.level);
+                    let position = active.map_or_else(
+                        || (earthling.x().read(memory), earthling.y().read(memory)),
+                        |object| (object.x().read(memory), object.y().read(memory)),
                     );
+                    // A short velocity-sized margin is a conservative route
+                    // cost, not a prediction of the original enemy's next RNG.
+                    let radius = active.map_or((48, 24), |object| {
+                        (
+                            48 + (i32::from(object.velocity_x().read(memory)).abs() * 8 / 256)
+                                as i16,
+                            24 + (i32::from(object.velocity_y().read(memory)).abs() * 8 / 256)
+                                as i16,
+                        )
+                    });
+                    self.obstacle(position, radius, 150);
                 }
             }
         }
@@ -589,7 +702,15 @@ impl Navigator {
             if cost != self.distance[cell] {
                 continue;
             }
-            if cell == goal_cell {
+            let shore = goal.1 == Travel::Shore
+                && cell != start_cell
+                && ((self.terrain[cell] <= 0x50 && self.safe_footing[cell])
+                    || doorway_ground.iter().flatten().any(|&(left, top)| {
+                        let column = (cell % WIDTH) as i32;
+                        let row = (cell / WIDTH) as i32;
+                        column >= left && column < left + 4 && row >= top && row < top + 3
+                    }));
+            if shore || (goal.1 != Travel::Shore && cell == goal_cell) {
                 end = Some(cell);
                 break;
             }
@@ -603,13 +724,28 @@ impl Navigator {
                 let permitted = goal.1 == Travel::Fly
                     || (terrain <= 0x50
                         && (doorway || self.safe_footing[next] || goal.1 == Travel::Fall))
-                    || (goal.1 == Travel::Swim && terrain == 0x80)
+                    || (matches!(goal.1, Travel::Swim | Travel::Shore) && terrain == 0x80)
                     || (goal.1 == Travel::Fall
                         && (next == goal_cell
                             || cell == goal_cell
-                            || (self.level == 1 && terrain == 0x80)));
+                            || (fall_water && terrain == 0x80)));
                 let point = cell_position(next);
                 if !permitted || point.0 < 32 || point.0 > 2648 || point.1 < 52 || point.1 > 1732 {
+                    continue;
+                }
+                if matches!(goal.1, Travel::Land | Travel::Shore)
+                    && !clear_diagonal(cell, next, |side| {
+                        let column = (side % WIDTH) as i32;
+                        let row = (side / WIDTH) as i32;
+                        let doorway = doorway_ground.iter().flatten().any(|&(left, top)| {
+                            column >= left && column < left + 4 && row >= top && row < top + 3
+                        });
+                        (doorway
+                            || (self.terrain[side] <= 0x50 && self.safe_footing[side])
+                            || (goal.1 == Travel::Shore && self.terrain[side] == 0x80))
+                            && self.dynamic_cost[side] != u16::MAX
+                    })
+                {
                     continue;
                 }
                 if goal.1 != Travel::Fly && self.dynamic_cost[next] == u16::MAX && next != goal_cell
@@ -644,6 +780,31 @@ impl Navigator {
         self.reachable = true;
     }
 
+    pub fn nearby_threat(
+        memory: &Ram<'_>,
+        revision: Revision,
+        level: i8,
+        position: (i16, i16),
+    ) -> bool {
+        (0..2).any(|bank| {
+            (0..20).any(|index| {
+                let earthling = ram::g_earthling_banks(revision).at(bank).at(index);
+                let handle = earthling.object().read(memory);
+                if handle <= 0
+                    || earthling.level().read(memory) != level
+                    || !dangerous_kind(earthling.kind().read(memory))
+                    || earthling.state().read(memory) == 99
+                {
+                    return false;
+                }
+                let object = ram::g_player_info(revision).at(i32::from(handle));
+                object.level().read(memory) == level
+                    && (object.x().read(memory) - position.0).abs() < 160
+                    && (object.y().read(memory) - position.1).abs() < 96
+            })
+        })
+    }
+
     fn obstacle(&mut self, position: (i16, i16), radius: (i16, i16), cost: u16) {
         let left = (i32::from(position.0 - radius.0) / 8).clamp(0, WIDTH as i32 - 1) as usize;
         let right = (i32::from(position.0 + radius.0) / 8).clamp(0, WIDTH as i32 - 1) as usize;
@@ -671,6 +832,16 @@ fn neighbors(cell: usize) -> [Option<usize>; 8] {
         (y + 1 < HEIGHT && x + 1 < WIDTH).then_some(cell + WIDTH + 1),
     ]
 }
+fn clear_diagonal(from: usize, to: usize, permitted: impl Fn(usize) -> bool) -> bool {
+    from % WIDTH == to % WIDTH
+        || from / WIDTH == to / WIDTH
+        || (permitted(from / WIDTH * WIDTH + to % WIDTH)
+            && permitted(to / WIDTH * WIDTH + from % WIDTH))
+}
+
+fn dangerous_kind(kind: i8) -> bool {
+    matches!(kind, 1..=8 | 12..=16 | 18..=19 | 21..=22)
+}
 
 fn heading(dx: i16, dy: i16) -> u16 {
     let horizontal = if dx.abs() <= 3 {
@@ -689,6 +860,22 @@ fn heading(dx: i16, dy: i16) -> u16 {
     };
     horizontal | vertical
 }
+fn flight_heading(position: (i16, i16), velocity: (i16, i16), target: (i16, i16)) -> u16 {
+    let aim = |position: i16, velocity: i16, target: i16| {
+        // Released directions lose 10/256 pixel per logic tick; opposing input
+        // also applies acceleration. Use the slower release as the conservative
+        // braking bound, without modifying any part of the original physics.
+        let velocity = i32::from(velocity);
+        let stopping_distance = velocity * velocity.abs() / (2 * 10 * 256);
+        (i32::from(target) - i32::from(position) - stopping_distance)
+            .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+    };
+    heading(
+        aim(position.0, velocity.0, target.0),
+        aim(position.1, velocity.1, target.1),
+    )
+}
+
 fn position_cell(position: (i16, i16)) -> Option<usize> {
     if position.0 < 0 || position.1 < 0 {
         return None;
@@ -712,7 +899,107 @@ mod tests {
     use super::*;
 
     #[test]
-    fn diagonal_land_contacts_are_valid_original_pad_routes() {
+    fn wings_steer_to_the_destination_and_brake_in_world_space() {
+        assert_eq!(flight_heading((100, 100), (0, 0), (200, 200)), RIGHT | DOWN);
+        assert_eq!(flight_heading((100, 100), (512, 0), (140, 100)), LEFT);
+        assert_eq!(flight_heading((100, 100), (-512, 0), (60, 100)), RIGHT);
+        assert_eq!(flight_heading((100, 100), (0, 320), (100, 115)), UP);
+        assert_eq!(flight_heading((100, 100), (0, 0), (103, 97)), 0);
+    }
+
+    #[test]
+    fn active_wings_do_not_chase_the_first_land_grid_waypoint() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 1);
+        player.x().write(&mut memory, 100);
+        player.y().write(&mut memory, 100);
+        player.velocity_x().write(&mut memory, 512);
+        player.sprite_state().write(&mut memory, 60);
+        ram::g_player_powerups(revision).at(0).write(&mut memory, 0);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        navigator.path = vec![position_cell((108, 100)).unwrap()];
+        let input = navigator.steer(&Ram(memory.ram()), &[], revision, 0, (300, 100), 1000);
+        assert_eq!(input, Some(RIGHT));
+        assert_eq!(navigator.path_index, 0);
+        assert_eq!(navigator.last_plan, 0);
+    }
+
+    #[test]
+    fn wings_take_off_before_moving_even_beside_an_unrelated_pickup() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 1);
+        player.x().write(&mut memory, 100);
+        player.y().write(&mut memory, 100);
+        player.sprite_state().write(&mut memory, 4);
+        ram::g_player_powerups(revision).at(0).write(&mut memory, 0);
+        let mut navigator = Navigator::new();
+        navigator.level = 1;
+        player.sprite_state().write(&mut memory, 19);
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (300, 100), 1008),
+            Some(LEFT)
+        );
+        player.sprite_state().write(&mut memory, 4);
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (300, 100), 1000),
+            Some(0)
+        );
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (300, 100), 1008),
+            Some(A)
+        );
+        player.sprite_state().write(&mut memory, 60);
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (300, 100), 1008),
+            Some(RIGHT | A)
+        );
+        let enemy = ram::g_earthling_banks(revision).at(0).at(0);
+        enemy.kind().write(&mut memory, 19);
+        enemy.level().write(&mut memory, 1);
+        enemy.object().write(&mut memory, 6);
+        let object = ram::g_player_info(revision).at(6);
+        object.level().write(&mut memory, 1);
+        object.x().write(&mut memory, 120);
+        object.y().write(&mut memory, 100);
+        player.sprite_state().write(&mut memory, 4);
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (132, 100), 1008),
+            Some(A)
+        );
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (100, 100), 1008),
+            Some(0)
+        );
+        player.sprite_state().write(&mut memory, 60);
+        assert_eq!(
+            navigator.steer(&Ram(memory.ram()), &[], revision, 0, (132, 100), 1008),
+            Some(RIGHT)
+        );
+    }
+
+    #[test]
+    fn running_requires_a_stable_ground_corridor_beyond_the_next_waypoint() {
+        let mut navigator = Navigator::new();
+        navigator.terrain.fill(0x10);
+        let position = (164, 84);
+        assert!(navigator.safe_to_run(position, RIGHT | DOWN));
+        let edge = position_cell((position.0 + 48, position.1)).unwrap();
+        navigator.terrain[edge] = 0x90;
+        assert!(!navigator.safe_to_run(position, RIGHT));
+        navigator.terrain[edge] = 0x10;
+        navigator.safe_footing[edge] = false;
+        assert!(!navigator.safe_to_run(position, RIGHT));
+        assert!(navigator.safe_to_run(position, LEFT));
+        assert!(!navigator.safe_to_run(position, 0));
+    }
+
+    #[test]
+    fn diagonal_land_routes_do_not_cut_an_unsupported_corner() {
         let revision = Revision::Rev02;
         let memory = tje_mem::AddressSpace::new(Vec::new(), revision);
         let mut navigator = Navigator::new();
@@ -728,10 +1015,90 @@ mod tests {
             cell_position(start),
             (cell_position(goal), Travel::Land),
         );
+        assert!(!navigator.reachable);
+        navigator.terrain[start + 1] = 0x10;
+        navigator.terrain[start + WIDTH] = 0x10;
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(goal), Travel::Land),
+        );
         assert!(navigator.reachable);
         assert_eq!(heading(8, 8), RIGHT | DOWN);
         assert_eq!(neighbors(0).into_iter().flatten().count(), 3);
         assert_eq!(neighbors(CELLS - 1).into_iter().flatten().count(), 3);
+    }
+
+    #[test]
+    fn moving_hazards_use_live_positions_and_a_velocity_safety_margin() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let mut navigator = Navigator::new();
+        navigator.level = 5;
+        navigator.terrain.fill(0x10);
+        let start = (164, 84);
+        let earthling = ram::g_earthling_banks(revision).at(0).at(0);
+        earthling.level().write(&mut memory, 5);
+        earthling.kind().write(&mut memory, 19);
+        earthling.object().write(&mut memory, 6);
+        earthling.x().write(&mut memory, 2000);
+        earthling.y().write(&mut memory, 1000);
+        let object = ram::g_player_info(revision).at(6);
+        object.level().write(&mut memory, 5);
+        object.x().write(&mut memory, 224);
+        object.y().write(&mut memory, 84);
+        object.velocity_x().write(&mut memory, 512);
+        object.velocity_y().write(&mut memory, -256);
+        assert!(Navigator::nearby_threat(
+            &Ram(memory.ram()),
+            revision,
+            navigator.level,
+            start
+        ));
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            start,
+            ((300, 84), Travel::Land),
+        );
+        assert_eq!(
+            navigator.dynamic_cost[position_cell((284, 84)).unwrap()],
+            150
+        );
+        earthling.state().write(&mut memory, 99);
+        assert!(!Navigator::nearby_threat(
+            &Ram(memory.ram()),
+            revision,
+            navigator.level,
+            start
+        ));
+        earthling.state().write(&mut memory, 0);
+        earthling.object().write(&mut memory, 0);
+        assert!(!Navigator::nearby_threat(
+            &Ram(memory.ram()),
+            revision,
+            navigator.level,
+            start
+        ));
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 5);
+        player.x().write(&mut memory, start.0);
+        player.y().write(&mut memory, start.1);
+        navigator.previous = start;
+        let goal = ((300, 84), Travel::Land);
+        navigator.target = Some(goal);
+        let _ = navigator.toward(&Ram(memory.ram()), &[], revision, 0, goal, 9);
+        assert_eq!(navigator.last_hazard_check, 9);
+        let _ = navigator.toward(&Ram(memory.ram()), &[], revision, 0, goal, 16);
+        assert_eq!(navigator.last_hazard_check, 9);
+        let _ = navigator.toward(&Ram(memory.ram()), &[], revision, 0, goal, 17);
+        assert_eq!(navigator.last_hazard_check, 17);
+        earthling.object().write(&mut memory, 6);
+        let _ = navigator.toward(&Ram(memory.ram()), &[], revision, 0, goal, 25);
+        assert_eq!(navigator.last_plan, 25);
     }
 
     #[test]
@@ -794,6 +1161,97 @@ mod tests {
     }
 
     #[test]
+    fn an_explicit_shore_exit_finds_reachable_ground_and_stops_there() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 84);
+            let mut navigator = Navigator::new();
+            navigator.level = 5;
+            navigator.cost.fill(10);
+            let start = position_cell((164, 84)).unwrap();
+            for offset in 0..3 {
+                navigator.terrain[start + offset] = 0x80;
+            }
+            navigator.terrain[start + 3] = 0x10;
+            // Closer dry terrain is isolated behind void, not a valid exit.
+            navigator.terrain[start - 2 * WIDTH] = 0x10;
+            assert_eq!(
+                navigator.return_to_shore(&Ram(memory.ram()), &[], revision, 0, 10),
+                Some(RIGHT)
+            );
+            assert_eq!(navigator.path.last(), Some(&(start + 3)));
+            for (x, frame, expected) in [(172, 11, RIGHT), (180, 12, RIGHT), (188, 13, 0)] {
+                player.x().write(&mut memory, x);
+                assert_eq!(
+                    navigator.return_to_shore(&Ram(memory.ram()), &[], revision, 0, frame),
+                    Some(expected)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_explicit_shore_exit_does_not_cut_a_void_corner() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let player = ram::g_player_info(revision).at(0);
+        player.level().write(&mut memory, 5);
+        player.x().write(&mut memory, 164);
+        player.y().write(&mut memory, 84);
+        let mut navigator = Navigator::new();
+        navigator.level = 5;
+        navigator.cost.fill(10);
+        let start = position_cell((164, 84)).unwrap();
+        navigator.terrain[start] = 0x80;
+        navigator.terrain[start - WIDTH + 1] = 0x10;
+        assert!(
+            navigator
+                .return_to_shore(&Ram(memory.ram()), &[], revision, 0, 10)
+                .is_none()
+        );
+        navigator.terrain[start + 1] = 0x80;
+        navigator.target = None;
+        assert_eq!(
+            navigator.return_to_shore(&Ram(memory.ram()), &[], revision, 0, 11),
+            Some(RIGHT)
+        );
+    }
+
+    #[test]
+    fn an_active_doorways_real_ground_can_be_a_shore_exit() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 5);
+            player.x().write(&mut memory, 164);
+            player.y().write(&mut memory, 84);
+            ram::g_player_doorway_entities(revision)
+                .at(0)
+                .write(&mut memory, 10);
+            let doorway = ram::g_player_info(revision).at(10);
+            doorway.level().write(&mut memory, 5);
+            doorway.x().write(&mut memory, 200);
+            doorway.y().write(&mut memory, 84);
+            doorway.sprite_state().write(&mut memory, 1);
+            let mut navigator = Navigator::new();
+            navigator.level = 5;
+            navigator.cost.fill(10);
+            let start = position_cell((164, 84)).unwrap();
+            for offset in 0..4 {
+                navigator.terrain[start + offset] = 0x80;
+            }
+            assert_eq!(
+                navigator.return_to_shore(&Ram(memory.ram()), &[], revision, 0, 10),
+                Some(RIGHT)
+            );
+            assert_eq!(navigator.path.last(), Some(&(start + 3)));
+        }
+    }
+
+    #[test]
     fn selector_sixteen_uses_the_original_preceding_overlay_record() {
         for revision in Revision::ALL {
             let mut bytes = vec![0; revision.rom_size()];
@@ -814,6 +1272,45 @@ mod tests {
                 0x30
             );
         }
+    }
+
+    #[test]
+    fn an_explicit_fall_can_cross_water_only_with_real_buoyancy_on_upper_levels() {
+        let revision = Revision::Rev02;
+        let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+        let mut navigator = Navigator::new();
+        navigator.level = 5;
+        let start = 10 * WIDTH + 20;
+        let goal = start + 5;
+        navigator.terrain[start] = 0x10;
+        for cell in start + 1..goal {
+            navigator.terrain[cell] = 0x80;
+        }
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(goal), Travel::Fall),
+        );
+        assert!(!navigator.reachable);
+        ram::g_player_powerups(revision).at(0).write(&mut memory, 2);
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(goal), Travel::Fall),
+        );
+        assert!(navigator.reachable);
+        navigator.plan(
+            &Ram(memory.ram()),
+            revision,
+            0,
+            cell_position(start),
+            (cell_position(goal), Travel::Land),
+        );
+        assert!(!navigator.reachable);
     }
 
     #[test]

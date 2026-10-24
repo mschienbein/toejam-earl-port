@@ -444,7 +444,12 @@ fn logical_controls(
                         && (earthling.y().read(memory) - view.y().read(memory)).abs() < 24
                 })
             });
-            if !near_elevator && !near_pickup && !near_service && frame % 24 < 12 {
+            if !near_elevator
+                && !near_pickup
+                && !near_service
+                && !(16..20).contains(&view.sprite_state().read(memory))
+                && frame % 24 < 12
+            {
                 if !(60..64).contains(&view.sprite_state().read(memory)) {
                     *pad &= !15;
                 }
@@ -654,6 +659,22 @@ pub fn generate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_flaps_preserve_the_input_that_backs_out_of_a_lean() {
+        for revision in Revision::ALL {
+            let mut memory = tje_mem::AddressSpace::new(Vec::new(), revision);
+            let player = ram::g_player_info(revision).at(0);
+            player.level().write(&mut memory, 1);
+            player.x().write(&mut memory, 100);
+            player.y().write(&mut memory, 100);
+            player.sprite_state().write(&mut memory, 19);
+            ram::g_player_powerups(revision).at(0).write(&mut memory, 0);
+            let mut pads = [CONNECTED | LEFT, 0];
+            logical_controls(&mut pads, &Ram(memory.ram()), &[], revision, 1008);
+            assert_eq!(pads, [CONNECTED | LEFT, 0]);
+        }
+    }
 
     #[test]
     fn natural_two_player_campaign_uses_both_pads_and_the_real_adventure_policy() {
