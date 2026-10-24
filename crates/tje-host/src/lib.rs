@@ -308,21 +308,26 @@ pub struct Host {
 
 impl Host {
     pub fn new(bytes: &[u8], mode: Mode, registry: HookRegistry) -> Result<Self> {
-        Self::from_rom(Rom::import(bytes)?, mode, registry)
+        if mode == Mode::Replace {
+            registry.ensure_replacement_admission()?;
+        }
+        Self::from_admitted_rom(Rom::import(bytes)?, mode, registry)
     }
 
     pub fn from_rom(rom: Rom, mode: Mode, registry: HookRegistry) -> Result<Self> {
+        if mode == Mode::Replace {
+            registry.ensure_replacement_admission()?;
+        }
+        Self::from_admitted_rom(rom, mode, registry)
+    }
+
+    fn from_admitted_rom(rom: Rom, mode: Mode, registry: HookRegistry) -> Result<Self> {
         let revision = rom.revision();
         if registry.revision() != revision {
             return Err(HostError::HookRevisionMismatch {
                 registry: registry.revision(),
                 rom: revision,
             });
-        }
-        if mode == Mode::Replace && registry.iter().any(|hook| hook.proof_only_admission()) {
-            return Err(HostError::Metadata(
-                "check-only proof-envelope registries cannot be used for replacement/play".into(),
-            ));
         }
         if registry
             .iter()
@@ -432,6 +437,9 @@ impl Host {
     }
 
     pub fn run_frame(&mut self, inputs: GenesisInputs) -> Result<FrameSnapshot> {
+        if self.mode == Mode::Replace {
+            self.registry.ensure_replacement_admission()?;
+        }
         self.observe_retained_native_prefix()?;
         self.wait_clock.frame = self.frame;
         self.wait_clock.inputs = inputs;
@@ -691,11 +699,8 @@ impl Host {
     }
 
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
-        if hook.proof_only_admission() {
-            return Err(HostError::Metadata(
-                "a check-only proof envelope cannot dispatch replacement/play".into(),
-            ));
-        }
+        self.registry.ensure_replacement_admission()?;
+        hook.ensure_replacement_admission()?;
         let progresses_time = hook.execution_class != ExecutionClass::Atomic;
         let entry_usage = self.wait_clock.call_clock.usage();
         let mut context = HookContext::new(

@@ -392,14 +392,19 @@ fn terminal_entry_is_dispatched_once_while_original_clocks_and_irqs_continue() {
         }
         host.checks = CheckReport::registered(&registry);
         host.registry = registry;
+        if mode == Mode::Replace {
+            let before = machine_bytes(&host);
+            let error = host.play_frame(GenesisInputs::default()).unwrap_err();
+            assert!(error.to_string().contains("canonical production bodies"));
+            assert_eq!(machine_bytes(&host), before);
+            assert_eq!(host.terminal_entry, None);
+            assert_eq!(host.frame_count(), 0);
+            continue;
+        }
         host.context().cpu().set_status_register(0x2000);
         write(host.emulator.hybrid_bus_mut(), 0xc00004, 0x8120);
         for _ in 0..3 {
-            if mode == Mode::Check {
-                host.run_frame(GenesisInputs::default()).unwrap();
-            } else {
-                host.play_frame(GenesisInputs::default()).unwrap();
-            }
+            host.run_frame(GenesisInputs::default()).unwrap();
         }
         let terminal = &host.checks.by_function["AuthoredTerminal"];
         assert_eq!(terminal.calls_checked + terminal.calls_replaced, 1);

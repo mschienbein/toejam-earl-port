@@ -560,31 +560,13 @@ fn gameplay_10000_frames_both_revisions_and_every_pilot_hook() {
 #[test]
 #[ignore = "requires both private retail ROMs"]
 fn replacement_mode_executes_rust_on_live_machine() {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static CALLS: AtomicU64 = AtomicU64::new(0);
-    fn counted(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        CALLS.fetch_add(1, Ordering::Relaxed);
-        translated_rng(c)
-    }
     for revision in [Revision::Rev02, Revision::Rev00] {
-        CALLS.store(0, Ordering::Relaxed);
-        let mut registry = HookRegistry::empty(revision);
-        registry
-            .register(
-                &FunctionCatalogue::new(revision),
-                "GetRandomNumber",
-                counted,
-            )
-            .unwrap();
+        let registry = HookRegistry::filtered(revision, &[], &[ids::GET_RANDOM_NUMBER]).unwrap();
         let mut host = Host::new(&rom(revision), Mode::Replace, registry).unwrap();
         for _ in 0..30 {
             host.run_frame(InputScript::default().at(0)).unwrap();
         }
-        assert!(CALLS.load(Ordering::Relaxed) >= 59);
+        assert!(host.checks.by_function["GetRandomNumber"].calls_replaced >= 59);
         assert_eq!(host.checks.calls, 0);
-        assert_eq!(
-            host.checks.by_function["GetRandomNumber"].calls_replaced,
-            CALLS.load(Ordering::Relaxed)
-        );
     }
 }

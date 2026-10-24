@@ -19,6 +19,9 @@ impl Host {
                     .into(),
             ));
         }
+        if self.mode == Mode::Replace {
+            self.registry.ensure_replacement_admission()?;
+        }
         self.wait_clock.frame = self.frame;
         self.wait_clock.inputs = inputs;
         self.audio.samples.clear();

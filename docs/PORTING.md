@@ -565,10 +565,31 @@ Comparison retains full CPU/register/banked-stack/prefetch/IRQ state, actual CPU
 issues, all-origin RAM commits, timed chip dispatches, complete actual DMA source
 words, emitted audio bits and the existing complete encoded CPU/Z80/device/RAM/
 clock/raster/resampler/timing state. An instantaneous legacy body cannot pass merely
-because final VRAM/RAM matches. Explicit proof-only registry overrides cannot drive
-live replacement/play. That admission provenance is separate from the owner's
-reviewed check policy: an owner envelope persists through promotion and does not
-change a proven body's source class or runtime eligibility.
+because final VRAM/RAM matches. Live replacement/play requires canonical
+production bodies, independently of the source class and owner check envelope.
+Every `proof*` constructor records explicit diagnostic admission, even when all
+supplied bodies happen to be canonical. That provenance is sticky through clones
+and root selection; clearing a check policy is not promotion.
+
+`from_entries` and manual registration do not grant production approval either.
+Every effective hook and callee overlay, including an **unhooked** pending callee,
+must match the canonical production id, entry form and function body. Host-side
+instrumentation and derived fixture continuations remain diagnostic. Existing
+class, ABI, canonical-address and exit-contract checks still apply; matching a
+function pointer is not permission to override those contracts.
+
+`Host::new` rejects an ineligible replacement registry before ROM parsing;
+`from_rom` rejects before device/timing preparation. Both frame entry points and
+the actual replacement hook recheck admission before guest effects, including a
+passed hook's own provenance. The immutable registry caches independent proof,
+dispatcher-overlay and hook barriers; warmed live guards do not scan the corpus
+or allocate.
+
+An owner's strict/commuting check policy persists through genuine canonical
+promotion and does **not** itself prohibit replacement or change the source
+class. `with_timing_sources` binds runtime capability, not body approval: a
+descriptor neither promotes a pending body nor makes an otherwise canonical body
+proof-only merely by being nonempty.
 
 `ClockedCommutingInterrupts` is a reviewed check-policy declaration, not automatic
 permission to move or drop interrupts. This typed-contract cut admits only the
@@ -688,8 +709,9 @@ let host = Host::new(user_rom, Mode::Check, registry)?;
 
 This is a **proof-only** CHECK registry; it preserves the declared class and
 callee permissions while selecting full real-clock comparison on both forks.
-It cannot dispatch production replacement. Runtime/lifecycle tests use a
-separate ordinary registry, without a forced proof envelope.
+It cannot dispatch production replacement. Runtime/lifecycle replacement uses
+a genuinely canonical production registry, without diagnostic constructor
+provenance or noncanonical bodies; removing a forced envelope alone is not enough.
 
 The borrowed descriptors prepare immutable ROM/revision/divider/program/policy
 bindings and reusable scratch at startup. They grant no class, IRQ, translation

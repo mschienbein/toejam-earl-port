@@ -2,7 +2,7 @@
 use std::{fs, path::PathBuf};
 use tje_game::ids;
 use tje_host::{Host, Mode, hooks::HookRegistry};
-use tje_mem::Revision;
+use tje_mem::{Revision, ram};
 
 #[path = "support/allocation_counter.rs"]
 mod allocation_counter;
@@ -64,35 +64,21 @@ fn warm_replacement_dispatch_allocates_zero_times_in_both_revisions() {
 
 #[test]
 #[ignore = "requires both private retail ROMs"]
-fn functional_noop_replacement_allocates_nothing_and_keeps_no_success_journal() {
-    fn noop(_: &mut tje_host::abi::HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        Ok(None)
-    }
+fn canonical_functional_early_return_allocates_nothing_and_keeps_no_success_journal() {
     const DRIVER: u32 = 0xfff000;
-    const TARGET: u32 = 0xfff010;
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
-        symbol.name = "AuthoredFunctionalNoop";
-        symbol.addresses = [TARGET; 2];
-        symbol.sizes = [2; 2];
-        symbol.abi.argument_count = 0;
-        symbol.abi.returns_value = false;
-        let mut registry = HookRegistry::empty(revision);
-        registry
-            .register_execution_contract(
-                symbol,
-                tje_game::execution::ExecutionClass::Functional,
-                noop,
-            )
-            .unwrap();
+        let target = ids::TEXT_ANIMATE_FONT_BANKS.metadata().address(revision);
+        let registry =
+            HookRegistry::filtered(revision, &[], &[ids::TEXT_ANIMATE_FONT_BANKS]).unwrap();
         let mut host = Host::new(&rom(revision), Mode::Replace, registry).unwrap();
-        for (index, word) in [0x4eb9, (TARGET >> 16) as u16, TARGET as u16, 0x60f8]
+        ram::g_text_font_animation_enabled(revision).write(&mut host.context(), 0);
+        ram::g_text_font_bank(revision).write(&mut host.context(), 0);
+        for (index, word) in [0x4eb9, (target >> 16) as u16, target as u16, 0x60f8]
             .into_iter()
             .enumerate()
         {
             host.context().write_u16(DRIVER + 2 * index as u32, word);
         }
-        host.context().write_u16(TARGET, 0x4e75);
         let mut cpu = host.cpu().clone();
         cpu.set_status_register(0x2700);
         cpu.set_pc(DRIVER, &mut host.context().bus());
@@ -101,7 +87,7 @@ fn functional_noop_replacement_allocates_nothing_and_keeps_no_success_journal() 
             host.play_frame(Default::default()).unwrap();
         }
         assert!(host.checks.call_clocks.is_empty());
-        let before = host.checks.by_function["AuthoredFunctionalNoop"].calls_replaced;
+        let before = host.checks.by_function["TextAnimateFontBanks"].calls_replaced;
         ALLOCATIONS.with(|counter| counter.set((true, 0, 0)));
         for _ in 0..100 {
             std::hint::black_box(host.play_frame(Default::default()).unwrap());
@@ -111,7 +97,7 @@ fn functional_noop_replacement_allocates_nothing_and_keeps_no_success_journal() 
             counter.set((false, result.1, result.2));
             result
         });
-        let replaced = host.checks.by_function["AuthoredFunctionalNoop"].calls_replaced - before;
+        let replaced = host.checks.by_function["TextAnimateFontBanks"].calls_replaced - before;
         assert!(replaced > 100_000);
         assert_eq!(
             allocations, 0,

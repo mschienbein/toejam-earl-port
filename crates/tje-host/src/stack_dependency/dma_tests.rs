@@ -144,9 +144,10 @@ fn dma_only_sequential_consumer_rejects_the_omitted_producer_in_both_revisions()
                     "{error}"
                 );
             }
-            // The same authored A/B composition really diverges in replacement:
-            // the original's producer store is observed only through DMA.
-            for (mode, expected) in [(Mode::Reference, 0x1234), (Mode::Replace, 0)] {
+            // Original-only audit still witnesses the physical producer through
+            // DMA. The unapproved authored replacement is now rejected instead
+            // of being permitted to demonstrate that known live divergence.
+            for mode in [Mode::Reference, Mode::Replace] {
                 let mut live = host(
                     revision,
                     class,
@@ -155,10 +156,23 @@ fn dma_only_sequential_consumer_rejects_the_omitted_producer_in_both_revisions()
                     &original_consumer(false, false),
                 );
                 live.mode = mode;
+                if mode == Mode::Replace {
+                    let before =
+                        bincode::encode_to_vec(&live.emulator, bincode::config::standard())
+                            .unwrap();
+                    let error = live.run_frame(Default::default()).unwrap_err();
+                    assert!(error.to_string().contains("canonical production bodies"));
+                    assert_eq!(
+                        before,
+                        bincode::encode_to_vec(&live.emulator, bincode::config::standard())
+                            .unwrap()
+                    );
+                    continue;
+                }
                 live.run_frame(Default::default()).unwrap();
                 assert_eq!(
                     vram_word(&mut live),
-                    expected,
+                    0x1234,
                     "{revision:?} {class:?} {mode:?}"
                 );
             }

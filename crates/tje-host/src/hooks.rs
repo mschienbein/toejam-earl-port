@@ -1,3 +1,7 @@
+mod admission;
+pub use admission::BodyProvenance;
+use admission::{RegistryAdmission, body_provenance};
+
 use crate::{
     HostError, Result,
     abi::HookContext,
@@ -39,7 +43,8 @@ pub struct Hook {
     pub symbol: HookSymbol,
     pub execution_class: ExecutionClass,
     pub proof_envelope: ProofEnvelope,
-    proof_only_override: bool,
+    proof_only_admission: bool,
+    body_provenance: BodyProvenance,
     pub exit_contract: ExitContract,
     pub(crate) dependent_proof: Option<crate::dependent_equivalence::ProofSetting>,
     pub(crate) coverage_index: usize,
@@ -56,9 +61,25 @@ impl Hook {
         )
     }
 
-    /// Explicit diagnostic registry admission, independent of owner check policy.
+    /// Explicit diagnostic constructor admission, independent of body
+    /// approval and the owner's reviewed execution class/check policy.
     pub fn proof_only_admission(&self) -> bool {
-        self.proof_only_override
+        self.proof_only_admission
+    }
+
+    pub fn body_provenance(&self) -> BodyProvenance {
+        self.body_provenance
+    }
+
+    pub(crate) fn ensure_replacement_admission(&self) -> Result<()> {
+        if self.proof_only_admission || self.body_provenance != BodyProvenance::CanonicalProduction
+        {
+            return Err(HostError::Metadata(format!(
+                "replacement/play requires canonical production bodies: {} has {:?} body / explicit proof admission={}",
+                self.symbol.name, self.body_provenance, self.proof_only_admission,
+            )));
+        }
+        Ok(())
     }
 
     pub(crate) fn dependent_frame_sp(&self, current_sp: u32) -> u32 {
@@ -176,6 +197,9 @@ impl Hook {
             id: self.symbol.id,
             function,
         });
+        // Replacing a body invalidates canonical approval independently of the
+        // inherited constructor provenance and owner execution/check policy.
+        hook.body_provenance = BodyProvenance::CandidateOverride;
         hook.frame_state = Some((frame, expected_sp));
         Ok((hook, pc))
     }
@@ -187,6 +211,7 @@ pub struct HookRegistry {
     revision: Revision,
     dispatcher: Dispatcher,
     timing_sources: &'static [&'static tje_game::timing::Program],
+    admission: RegistryAdmission,
 }
 impl Default for HookRegistry {
     fn default() -> Self {
@@ -223,6 +248,7 @@ impl HookRegistry {
             revision,
             dispatcher: Dispatcher::hybrid(),
             timing_sources: &[],
+            admission: RegistryAdmission::default(),
         }
     }
     pub fn translated(revision: Revision) -> Result<Self> {
@@ -275,6 +301,8 @@ impl HookRegistry {
         Self::from_entries(revision, translations, &[])
     }
 
+    /// Bounded bodies/callees. Supplied entries are not production approval:
+    /// live replacement requires the canonical production form and function.
     pub fn from_entries(
         revision: Revision,
         translations: &'static [Translation],
@@ -283,6 +311,9 @@ impl HookRegistry {
         let mut registry = Self::empty(revision);
         registry.dispatcher = Dispatcher::hybrid_with_frames(translations, framed);
         registry.dispatcher.validate_entries()?;
+        registry
+            .admission
+            .record_dispatcher_entries(translations, framed);
         for &translation in translations {
             registry.register_translation(translation)?;
         }
@@ -294,6 +325,8 @@ impl HookRegistry {
 
     /// Opt-in pending proof: hook only supplied entries, but use them ahead of
     /// all proven translations when a checked Rust caller dispatches a callee.
+    /// Every proof constructor is diagnostic even for a canonical supplied body;
+    /// root filtering does not discard or authorize unhooked callee overlays.
     pub fn proof(revision: Revision, pending: &'static [Translation]) -> Result<Self> {
         Self::proof_with_frames(revision, pending, &[])
     }
@@ -334,6 +367,10 @@ impl HookRegistry {
         let mut registry = Self::empty(revision);
         registry.dispatcher = Dispatcher::hybrid_with_overrides_and_frames(pending, framed);
         registry.dispatcher.validate_entries()?;
+        registry.admission.proof_only = true;
+        registry
+            .admission
+            .record_dispatcher_entries(pending, framed);
         for translation in pending
             .iter()
             .copied()
@@ -363,7 +400,6 @@ impl HookRegistry {
         let mut registry = Self::proof_filtered_with_frames(revision, pending, framed, functions)?;
         for hook in registry.hooks.values_mut() {
             hook.proof_envelope = ProofEnvelope::ClockedStrict;
-            hook.proof_only_override = true;
         }
         Ok(registry)
     }
@@ -468,6 +504,7 @@ impl HookRegistry {
                 "duplicate hook at {address:06X}"
             )));
         }
+        let body_provenance = body_provenance(body);
         let coverage_index = self.hooks.len();
         self.hooks.insert(
             address,
@@ -475,7 +512,8 @@ impl HookRegistry {
                 symbol,
                 execution_class,
                 proof_envelope,
-                proof_only_override: false,
+                proof_only_admission: self.admission.proof_only,
+                body_provenance,
                 exit_contract,
                 coverage_index,
                 body,
@@ -485,6 +523,7 @@ impl HookRegistry {
                 clock_evidence,
             },
         );
+        self.admission.record_hook(body_provenance);
         Ok(())
     }
     /// Explicit host-side instrumentation hook; production game bodies live only
@@ -574,7 +613,8 @@ impl HookRegistry {
         )
     }
 
-    /// Production counterpart: a lane supplies the reviewed class explicitly.
+    /// A generated entry retains its reviewed class. A supplied body that is not
+    /// canonical production remains diagnostic, not an approval by registration.
     pub fn register_translation_with_execution(
         &mut self,
         translation: Translation,
@@ -608,6 +648,10 @@ impl HookRegistry {
             Body::Framed(translation),
         )
     }
+    pub(crate) fn ensure_replacement_admission(&self) -> Result<()> {
+        self.admission.ensure_replacement()
+    }
+
     pub fn revision(&self) -> Revision {
         self.revision
     }
@@ -982,9 +1026,9 @@ mod tests {
     }
 
     #[test]
-    fn owner_check_policy_survives_runtime_admission_without_game_promotion() {
-        // Local admission fixture only: this is NOT the pending game's body or
-        // evidence of its cartridge equivalence, and changes no production table.
+    fn pending_owner_check_policy_is_not_live_admission() {
+        // This local pending-body fixture is not canonical production merely
+        // because its id has an owner-reviewed commuting check policy.
         fn admission_fixture(
             context: &mut dyn Context,
             _: &[u32],
@@ -1006,7 +1050,8 @@ mod tests {
             hook.proof_envelope,
             ProofEnvelope::ClockedCommutingInterrupts
         );
-        assert!(!hook.proof_only_admission());
+        assert!(hook.proof_only_admission());
+        assert_eq!(hook.body_provenance(), BodyProvenance::CandidateOverride);
         let mut host = crate::fixture::tests::synthetic_host(
             &[0x4eb9, (target >> 16) as u16, target as u16, 0x60fe],
             &[0x4e73],
@@ -1014,8 +1059,13 @@ mod tests {
         host.mode = crate::Mode::Replace;
         host.registry = registry;
         host.checks = crate::CheckReport::registered(&host.registry);
-        host.play_frame(Default::default()).unwrap();
-        assert_eq!(host.context().read_u8(0xff9000), 1);
+        let before = bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap();
+        assert!(host.play_frame(Default::default()).is_err());
+        assert_eq!(
+            before,
+            bincode::encode_to_vec(&host.emulator, bincode::config::standard()).unwrap()
+        );
+        assert_eq!(host.context().read_u8(0xff9000), 0);
         assert_eq!(
             host.registry.at(target).unwrap().proof_envelope,
             ProofEnvelope::ClockedCommutingInterrupts

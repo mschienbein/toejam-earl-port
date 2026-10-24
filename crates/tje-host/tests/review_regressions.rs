@@ -185,7 +185,13 @@ fn sequential_dead_stack_composition_fails_approval() {
             .register_contract(b.0.clone(), b.1, previous)
             .unwrap();
         for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
-            let mut host = Host::new(&bytes(revision), mode, registry.clone()).unwrap();
+            let attempt = Host::new(&bytes(revision), mode, registry.clone());
+            if mode == Mode::Replace {
+                let error = attempt.err().expect("instrumentation cannot dispatch live");
+                assert!(error.to_string().contains("canonical production bodies"));
+                continue;
+            }
+            let mut host = attempt.unwrap();
             code(&mut host, CODE, &[0x2f7c, 0x1234, 0x5678, 0xfffc, 0x4e75]);
             code(&mut host, CODE + 0x20, &[0x202f, 0xfffc, 0x4e75]);
             code(
@@ -211,14 +217,7 @@ fn sequential_dead_stack_composition_fails_approval() {
                 assert!(error.to_string().contains("original dependency"), "{error}");
             } else {
                 result.unwrap();
-                assert_eq!(
-                    host.context().read_u32(0xffe000),
-                    if mode == Mode::Reference {
-                        0x12345678
-                    } else {
-                        0
-                    }
-                );
+                assert_eq!(host.context().read_u32(0xffe000), 0x12345678);
             }
         }
     }
@@ -257,7 +256,13 @@ fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
             let (b, atomic) = contract("ConstantOriginalRustStackRead", CODE + 0x20, true, 0, true);
             registry.register_contract(b, atomic, read).unwrap();
             for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
-                let mut host = Host::new(&bytes(revision), mode, registry.clone()).unwrap();
+                let attempt = Host::new(&bytes(revision), mode, registry.clone());
+                if mode == Mode::Replace {
+                    let error = attempt.err().expect("instrumentation cannot dispatch live");
+                    assert!(error.to_string().contains("canonical production bodies"));
+                    continue;
+                }
+                let mut host = attempt.unwrap();
                 code(&mut host, CODE, &[0x2f7c, 0x1234, 0x5678, 0xfffc, 0x4e75]);
                 // Original B returns a constant; only the incorrect Rust body reads stack.
                 code(&mut host, CODE + 0x20, &[0x203c, 0x1234, 0x5678, 0x4e75]);
@@ -287,12 +292,7 @@ fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
                     assert!(error.to_string().contains("Rust dependency"), "{error}");
                 } else {
                     result.unwrap();
-                    let expected = if mode == Mode::Reference {
-                        0x12345678
-                    } else {
-                        0
-                    };
-                    assert_eq!(host.context().read_u32(0xffe000), expected);
+                    assert_eq!(host.context().read_u32(0xffe000), 0x12345678);
                 }
             }
         }
@@ -419,7 +419,7 @@ fn framed_sequence(
     rust_abs: bool,
     later_store: bool,
     class: ExecutionClass,
-) -> Host {
+) -> tje_host::Result<Host> {
     fn omitted(_: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         Ok(None)
     }
@@ -435,7 +435,7 @@ fn framed_sequence(
     registry
         .register_execution_contract(b, class, hook)
         .unwrap();
-    let mut host = Host::new(&bytes(revision), mode, registry).unwrap();
+    let mut host = Host::new(&bytes(revision), mode, registry)?;
     code(&mut host, CODE, &[0x2f7c, 0, 40, 0xfff8, 0x4e75]);
     if later_store {
         code(
@@ -483,7 +483,7 @@ fn framed_sequence(
     let mut cpu = host.cpu().clone();
     cpu.set_pc(CODE + 0x200, &mut host.context().bus());
     *host.context().cpu() = cpu;
-    host
+    Ok(host)
 }
 
 #[test]
@@ -497,8 +497,14 @@ fn prepared_original_and_rust_arguments_share_the_suspended_root_audit() {
                     (true, omitted_framed_abs),
                 ] {
                     for mode in [Mode::Check, Mode::Reference, Mode::Replace] {
-                        let mut host =
-                            framed_sequence(revision, mode, hook, rust_abs, false, class);
+                        let attempt = framed_sequence(revision, mode, hook, rust_abs, false, class);
+                        if mode == Mode::Replace {
+                            let error =
+                                attempt.err().expect("instrumentation cannot dispatch live");
+                            assert!(error.to_string().contains("canonical production bodies"));
+                            continue;
+                        }
+                        let mut host = attempt.unwrap();
                         let result = host.run_frame(InputScript::default().at(0));
                         if mode == Mode::Check && missing {
                             let error = result.unwrap_err();
@@ -519,14 +525,7 @@ fn prepared_original_and_rust_arguments_share_the_suspended_root_audit() {
                             result.unwrap();
                             assert_eq!(host.checks.mismatches, 0);
                             assert!(host.checks.uninitialized_stack_reads.is_empty());
-                            assert_eq!(
-                                host.context().read_u32(0xffe000),
-                                if mode == Mode::Replace && missing {
-                                    0
-                                } else {
-                                    40
-                                },
-                            );
+                            assert_eq!(host.context().read_u32(0xffe000), 40);
                         }
                     }
                 }
@@ -547,7 +546,8 @@ fn nested_original_read_before_a_later_write_is_not_retroactively_initialized() 
                 false,
                 true,
                 class,
-            );
+            )
+            .unwrap();
             let error = host.run_frame(InputScript::default().at(0)).unwrap_err();
             assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
             assert!(error.to_string().contains("Rust dependency"), "{error}");
