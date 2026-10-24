@@ -39,6 +39,20 @@ def synthetic_rom(seed: int) -> bytes:
 IMAGES = [synthetic_rom(2), synthetic_rom(7)]
 
 
+def synthetic_session(description: str = "Synthetic controller-only campaign.") -> bytes:
+    runs = [{"frames": 1 + index % 3, "pads": [256 + index % 2, 0]} for index in range(27_995)]
+    return json.dumps({
+        "format": 1,
+        "revision": "rev02",
+        "start": {"kind": "power_on"},
+        "frames": sum(run["frames"] for run in runs),
+        "tool": "tje-session/synthetic-audit",
+        "runs": runs,
+        # Last on purpose: a large valid prefix must never hide the payload.
+        "description": description,
+    }, separators=(",", ":")).encode()
+
+
 def declaration(expression: bytes) -> bytes:
     if expression.startswith(b"["):
         expression = b"&" + expression
@@ -360,6 +374,65 @@ class PublicationScopeTests(GitAuditCase):
         for refs in ([], ["--all"], ["missing-reference"]):
             with self.subTest(refs=refs), self.assertRaises(audit.AuditError):
                 audit.audit(self.repo, no_rom=True, publish_refs=refs)
+
+
+class ResourceBudgetTests(GitAuditCase):
+    def test_node_allowance_scales_linearly_and_has_an_absolute_cap(self) -> None:
+        self.assertEqual(audit.syntax_node_limit(0), audit.MIN_SYNTAX_NODES)
+        for size in (10_000, 100_000, 799_116):
+            self.assertEqual(audit.syntax_node_limit(size), audit.SYNTAX_NODES_PER_BYTE * size)
+        self.assertEqual(audit.syntax_node_limit(100_000_000), audit.MAX_SYNTAX_NODES)
+
+    def test_large_controller_only_session_is_clean_in_both_modes(self) -> None:
+        data = synthetic_session()
+        self.assertGreater(len(data), 750_000)
+        self.assertLess(len(data), audit.MAX_BYTES)
+        self.assertGreater(audit.source_parser("json").parse(data).root_node.descendant_count, 400_000)
+        path = "sessions/synthetic-campaign.tje.json"
+        context = audit.SourceContext.build(path, data)
+        for index in (None, audit.RomIndex(IMAGES)):
+            with self.subTest(private=index is not None):
+                self.assertEqual(audit.content_reasons(path, data, index, source=context), [])
+
+    def test_large_session_does_not_hide_a_late_encoded_rom_window(self) -> None:
+        window = IMAGES[0][OFFSET:OFFSET + WINDOW_SIZE]
+        data = synthetic_session("Synthetic rejected payload: " + window.hex())
+        path = "sessions/synthetic-rejected.tje.json"
+        context = audit.SourceContext.build(path, data)
+        for index in (None, audit.RomIndex(IMAGES)):
+            with self.subTest(private=index is not None):
+                reasons = audit.content_reasons(path, data, index, source=context)
+                expected = "ROM window" if index is not None else "decoded non-text payload"
+                self.assertTrue(any(expected in reason for reason in reasons), reasons)
+                self.assertFalse(any("budget" in reason for reason in reasons), reasons)
+
+    def test_deep_input_still_fails_with_a_depth_resource_error(self) -> None:
+        text = "[" * (audit.MAX_JSON_DEPTH + 2) + "0" + "]" * (audit.MAX_JSON_DEPTH + 2)
+        with self.assertRaisesRegex(audit.DecodeLimitError, "bounded.*depth"):
+            audit.SourceContext.build("deep.json", text.encode())
+        with self.assertRaisesRegex(audit.DecodeLimitError, "bounded decoding depth"):
+            list(audit.json_payloads(text, audit.DecodeBudget()))
+
+    def test_wide_traversals_still_fail_at_the_absolute_node_cap(self) -> None:
+        text = json.dumps([0] * 128)
+        # Exercise the real traversal/cap branches without an eight-million-node
+        # fixture in every CI run. The byte-proportional allowance is above 64.
+        with mock.patch.object(audit, "MAX_SYNTAX_NODES", 64):
+            with self.assertRaisesRegex(audit.DecodeLimitError, "source grammar.*node budget \\(64 nodes\\)"):
+                audit.SourceContext.build("wide.json", text.encode())
+            with self.assertRaisesRegex(audit.DecodeLimitError, "JSON.*node budget \\(64 nodes\\)"):
+                list(audit.json_payloads(text, audit.DecodeBudget()))
+
+    def test_oversized_wide_file_still_fails_the_public_blob_limit(self) -> None:
+        data = b"[" + b"0," * (audit.MAX_BYTES // 2) + b"0]"
+        path = "sessions/oversized.tje.json"
+        put(self.repo, path, data)
+        self.git("add", path)
+        for private in (False, True):
+            with self.subTest(private=private):
+                matches = [finding for finding in self.inspect(private) if finding.path == path]
+                self.assertEqual({finding.source for finding in matches}, {"index:0", "worktree"})
+                self.assertTrue(all("blob exceeds 1 MB" in finding.reason for finding in matches), matches)
 
 
 class DecoderTests(unittest.TestCase):

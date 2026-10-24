@@ -45,7 +45,9 @@ VENDOR_PREFIX = "vendor/jgenesis/"
 VENDOR_MANIFEST = VENDOR_PREFIX + "UPSTREAM.json"
 MAX_BYTES = 1_000_000
 MAX_DECODED_BYTES = 16 * MAX_BYTES
-MAX_JSON_NODES = 400_000
+MIN_SYNTAX_NODES = 4096
+SYNTAX_NODES_PER_BYTE = 8
+MAX_SYNTAX_NODES = 8_000_000
 MIN_TEXT_MATCH = 64
 MAX_JSON_DEPTH = 64
 MAX_NON_TEXT_ESCAPES = 8
@@ -340,6 +342,11 @@ class LiteralDecodeError(DecodeLimitError):
     """A speculative literal spelling is invalid, unlike an exhausted decode budget."""
 
 
+def syntax_node_limit(input_bytes: int) -> int:
+    """Bound complete traversals linearly, including dense controller recordings."""
+    return min(MAX_SYNTAX_NODES, max(MIN_SYNTAX_NODES, SYNTAX_NODES_PER_BYTE * input_bytes))
+
+
 class DecodeBudget:
     def __init__(self):
         self.used = 0
@@ -500,11 +507,14 @@ def json_payloads(text: str, budget: DecodeBudget):
 
     work = [(document, 0)]
     nodes = 0
+    node_limit = syntax_node_limit(len(text.encode("utf-8", "surrogatepass")))
     while work:
         value, depth = work.pop()
         nodes += 1
-        if nodes > MAX_JSON_NODES or depth > MAX_JSON_DEPTH:
-            raise DecodeLimitError("JSON exceeds the bounded decoding node/depth budget")
+        if nodes > node_limit:
+            raise DecodeLimitError(f"JSON exceeds the bounded decoding node budget ({node_limit} nodes)")
+        if depth > MAX_JSON_DEPTH:
+            raise DecodeLimitError(f"JSON exceeds the bounded decoding depth ({MAX_JSON_DEPTH})")
         if isinstance(value, str):
             yield from variants(value)
         elif isinstance(value, dict):
@@ -1408,11 +1418,14 @@ def source_tokens(data: bytes, path: str, *,
 
     tokens, pending = [], [(parse(data, parser_language(path)), 0, data, 0)]
     visited = 0
+    node_limit = syntax_node_limit(len(data))
     while pending:
         node, base, region, depth = pending.pop()
         visited += 1
-        if visited > MAX_JSON_NODES or depth > MAX_ENCODING_DEPTH:
-            raise DecodeLimitError("source grammar exceeds the bounded node/injection budget")
+        if visited > node_limit:
+            raise DecodeLimitError(f"source grammar exceeds the bounded node budget ({node_limit} nodes)")
+        if depth > MAX_ENCODING_DEPTH:
+            raise DecodeLimitError(f"source grammar exceeds the bounded injection depth ({MAX_ENCODING_DEPTH})")
         value = region[node.start_byte:node.end_byte]
         start = base + node.start_byte
         if not value:

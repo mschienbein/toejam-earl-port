@@ -57,6 +57,11 @@ Cargo-provided package metadata is a public fact,
 not an evaluated environment value; literal bytes around it are still checked.
 Vendored modifications use the same full-source tokens before changed-line
 projection, so comments or unchanged macro delimiters cannot hide new data.
+Parsing traversals allow eight nodes per input byte (a 4,096-node minimum and an
+8,000,000-node absolute cap), so dense controller-only recordings are not rejected
+by an arbitrary fixed node count. The 1 MB public-blob, nesting and decoded-byte
+limits still apply. Exhausting a resource limit fails the audit; no traversal is
+silently truncated and no remaining content checks are skipped on success.
 
 Compile-time `include_bytes!`, `include_str!` and `include!` may name only a direct
 literal path to a regular, tracked public input in the same audited Git state.
