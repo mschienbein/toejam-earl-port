@@ -57,6 +57,8 @@ pub fn hud_position_level_number_sprites(
 /// G/src/ui/hud.c:133 (`HudPositionActionIconSprite`).
 /// Icon origins are signed chars read from the revision's ROM pointer table.
 /// Pointer-table indexing retains MCC68K's word-sized ASL.W offset.
+/// c_hud.s:315-416 (both revisions): retain the volatile register producers read
+/// by whole-call return contracts, including ADD.L's X before the final MOVE.W.
 pub fn hud_position_action_icon_sprite(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -64,6 +66,8 @@ pub fn hud_position_action_icon_sprite(
     let player = i32::from(arguments[0] as i16);
     let revision = context.revision();
     let powerup = ram::g_player_powerups(revision).at(player);
+    context.set_address_register(1, ram::g_player_powerups(revision).address());
+    let mut d1_high = context.data_register(1) & 0xffff0000;
     let icon_number = if powerup.read(context) == -1 {
         player as i16
     } else {
@@ -88,26 +92,47 @@ pub fn hud_position_action_icon_sprite(
         != 0
     {
         208
-    } else if ram::g_split_screen_enabled(revision).read(context) != 0
-        || ram::g_player_inventory_open(revision)
-            .at(player ^ 1)
-            .read(context)
-            != 0
-    {
-        y = 1;
-        if powerup.read(context) != -1 {
-            y = if player == 0 { 136 } else { 249 };
-        }
-        392
     } else {
-        y = 321;
-        if player == 0 { 136 } else { 306 }
+        let split = ram::g_split_screen_enabled(revision).read(context);
+        if split == 0 {
+            // MOVE.W player,D1; EXT.L D1; EOR.L #1,D1 replaces the high word.
+            d1_high = (player as u32 ^ 1) & 0xffff0000;
+        }
+        if split != 0
+            || ram::g_player_inventory_open(revision)
+                .at(player ^ 1)
+                .read(context)
+                != 0
+        {
+            y = 1;
+            if powerup.read(context) != -1 {
+                y = if player == 0 { 136 } else { 249 };
+            }
+            392
+        } else {
+            y = 321;
+            if player == 0 { 136 } else { 306 }
+        }
     };
-    let x = i16::from(icon.x().read(context)).wrapping_add(x);
-    let sprite = ram::g_hardware_sprite_table(revision).at(sprite);
-    sprite.x().write(context, x);
-    let y = i16::from(icon.y().read(context)).wrapping_add(y);
-    sprite.y().write(context, y);
+    let sprites = ram::g_hardware_sprite_table(revision);
+    context.set_address_register(0, sprites.at(0).address());
+    context.set_data_register(1, d1_high | ((sprite as u32 * 8) & 0xffff));
+    let x = i32::from(icon.x().read(context)) + i32::from(x);
+    context.set_data_register(0, x as u32);
+    let sprite = sprites.at(sprite);
+    sprite.x().write(context, x as i16);
+    let (y, carry) =
+        (i32::from(icon.y().read(context)) as u32).overflowing_add(i32::from(y) as u32);
+    context.set_data_register(0, y);
+    sprite.y().write(context, y as i16);
+    let nz = if y as u16 == 0 {
+        4
+    } else if y & 0x8000 != 0 {
+        8
+    } else {
+        0
+    };
+    context.set_status_register((context.status_register() & !0x1f) | (u16::from(carry) << 4) | nz);
     Ok(None)
 }
 

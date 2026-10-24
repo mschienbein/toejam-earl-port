@@ -99,6 +99,106 @@ impl Context for Fixture {
 }
 
 #[test]
+fn action_icon_position_publishes_volatile_registers_and_every_byte_origin_ccr() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut bytes = vec![0; 0x100000];
+        let table = rom::spr_action_icons(revision).at(0).address() as usize;
+        // Authored test descriptor in RAM, not copied cartridge sprite data.
+        let descriptor = 0xff6000_u32;
+        for index in 0..3 {
+            bytes[table + index * 4..table + index * 4 + 4]
+                .copy_from_slice(&descriptor.to_be_bytes());
+        }
+        let mut c = Fixture::new(revision);
+        c.memory = AddressSpace::new(bytes, revision);
+        c.write_u8(descriptor + 2, (-7_i8) as u8);
+        for player in [0, 1] {
+            for lives in [-1, 0] {
+                ram::g_player_lives(revision)
+                    .at(player)
+                    .write(&mut c, lives);
+                for own in [0, 1] {
+                    ram::g_player_inventory_open(revision)
+                        .at(player)
+                        .write(&mut c, own);
+                    for split in [0, -1] {
+                        ram::g_split_screen_enabled(revision).write(&mut c, split);
+                        for other in [0, 3] {
+                            ram::g_player_inventory_open(revision)
+                                .at(player ^ 1)
+                                .write(&mut c, other);
+                            for powerup in [-1, 0] {
+                                ram::g_player_powerups(revision)
+                                    .at(player)
+                                    .write(&mut c, powerup);
+                                let y_base = if lives < 0 {
+                                    1
+                                } else if own != 0 {
+                                    if player == 0 { 218 } else { 321 }
+                                } else if split != 0 || other != 0 {
+                                    if powerup == -1 {
+                                        1
+                                    } else if player == 0 {
+                                        136
+                                    } else {
+                                        249
+                                    }
+                                } else {
+                                    321
+                                };
+                                for origin in i8::MIN..=i8::MAX {
+                                    c.write_u8(descriptor + 3, origin as u8);
+                                    for entry_d1 in [0x1234_abcd, 0xffff_5555] {
+                                        c.data = [0x8765_4321; 8];
+                                        c.data[1] = entry_d1;
+                                        c.addresses = [0x7654_3210; 8];
+                                        c.status = 0xa71f;
+                                        c.call(
+                                            ids::HUD_POSITION_ACTION_ICON_SPRITE,
+                                            &[0x7777_0000 | player as u32],
+                                        );
+                                        let y = i32::from(origin) + y_base;
+                                        let high = if lives >= 0 && own == 0 && split == 0 {
+                                            0
+                                        } else {
+                                            entry_d1 & 0xffff0000
+                                        };
+                                        assert_eq!(c.data[0], y as u32);
+                                        assert_eq!(
+                                            c.data[1],
+                                            high | if player == 0 { 168 } else { 176 }
+                                        );
+                                        assert_eq!(
+                                            c.addresses[0],
+                                            ram::g_hardware_sprite_table(revision).at(0).address()
+                                        );
+                                        assert_eq!(
+                                            c.addresses[1],
+                                            ram::g_player_powerups(revision).address()
+                                        );
+                                        assert_eq!(&c.data[2..], &[0x8765_4321; 6]);
+                                        assert_eq!(&c.addresses[2..], &[0x7654_3210; 6]);
+                                        let x = u16::from(origin < 0 && y >= 0) << 4;
+                                        let nz = if y == 0 {
+                                            4
+                                        } else if y < 0 {
+                                            8
+                                        } else {
+                                            0
+                                        };
+                                        assert_eq!(c.status, 0xa700 | x | nz);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn glyph_controls_signed_inputs_and_cache_wrap() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut c = Fixture::new(revision);

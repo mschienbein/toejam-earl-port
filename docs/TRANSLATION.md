@@ -487,6 +487,7 @@ narrower. Known cases, each confirmed in G's emitted assembly:
 | `GetPlayerInput` | D0, D1, A0 and CCR as the source leaves them (lines 489-568), seen by `FurtherInitialisation`'s after-menu stage |
 | `SetRAMIndexes` | D0 = (entry & 0xFFFF0000) \| 40, A0 = player info + 40 × 128, CCR Z only; D1/A1 preserved (`c_entity_indexes.s` lines 4-15) |
 | `GetRandomNumber` | D1, A0, A1 and CCR as compiled |
+| `HudPositionActionIconSprite` | A0 = hardware-sprite-table base, A1 = powerup-array base, D0 = full signed icon-y plus selected y base. D1.low = sprite21/22 ×8; D1.high retains entry bits except the nondead/closed-inventory/nonsplit partner check sign-extends player into D1. Final CCR has word-y N/Z, cleared V/C and X from the preceding long addition. Observed by `PresentTryEndActivePowerup`'s strict return (`c_hud.s:315-416`, both revisions). |
 
 Prove such callees with strict register comparison over all registers and CCR, not
 the scratch-clobber C ABI check alone.
