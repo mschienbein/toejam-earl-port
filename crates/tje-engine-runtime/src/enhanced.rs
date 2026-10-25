@@ -4,6 +4,13 @@
 //! ordinary `Machine::step` and `Machine::play_frame` paths never consult it.
 
 mod context;
+mod resumable;
+mod sidecar;
+mod snapshot;
+pub use resumable::{
+    Context, Continuation, EnhancedInputs, OverrideStep, ResumableTranslation, Wait,
+};
+pub use sidecar::{Sidecar, Sidecars};
 #[cfg(test)]
 mod tests;
 
@@ -21,6 +28,8 @@ pub struct EnhancedProfile {
     pub id: &'static str,
     pub translations: &'static [Translation],
     pub framed_translations: &'static [FramedTranslation],
+    pub resumable_translations: &'static [ResumableTranslation],
+    pub resumable_sets: &'static [&'static [ResumableTranslation]],
 }
 
 impl EnhancedProfile {
@@ -33,7 +42,22 @@ impl EnhancedProfile {
             id,
             translations,
             framed_translations,
+            resumable_translations: &[],
+            resumable_sets: &[],
         }
+    }
+
+    pub const fn with_resumable(mut self, entries: &'static [ResumableTranslation]) -> Self {
+        self.resumable_translations = entries;
+        self
+    }
+
+    pub const fn with_resumable_sets(
+        mut self,
+        sets: &'static [&'static [ResumableTranslation]],
+    ) -> Self {
+        self.resumable_sets = sets;
+        self
     }
 
     fn dispatcher(self) -> Dispatcher {
@@ -68,8 +92,8 @@ impl<E: std::error::Error + 'static> std::error::Error for Error<E> {
     }
 }
 
-/// The limits apply to a complete replacement, including nested compiled calls.
-/// Rust callbacks themselves must terminate; they cannot yield or poll hardware.
+/// Shared limits for a synchronous callback and its nested compiled calls.
+/// TimeAware suspension instead uses explicit serializable scheduler activations.
 const MAX_ORIGINAL_STEPS: u32 = 1_000_000;
 const MAX_DEPTH: u8 = 32;
 struct Budget {
@@ -93,21 +117,27 @@ impl Budget {
     }
 }
 
-/// An independent driver around an otherwise unchanged shipped engine. An empty
-/// (default) selection delegates directly to the faithful instruction scheduler.
-/// No engine state is copied or retained, so normal snapshot APIs still apply.
+/// Explicit extra-owned state around the independent faithful machine.
 #[derive(Default)]
 pub struct EnhancedMode {
-    profile: Option<EnhancedProfile>,
-    revision: Option<Revision>,
-    entries: Vec<(u32, SelectedEntry)>,
+    driver: Driver,
+    sidecars: Sidecars,
+    inputs: EnhancedInputs,
+    pending: Vec<resumable::Invocation>,
+    interrupts: u64,
     failed: bool,
 }
 
+#[derive(Default)]
+struct Driver {
+    profile: Option<EnhancedProfile>,
+    revision: Option<Revision>,
+    entries: Vec<(u32, SelectedEntry)>,
+    resumable: Vec<(u32, ResumableTranslation)>,
+}
+
 impl EnhancedMode {
-    /// Validate once at profile selection, not in the per-instruction hot path.
-    /// Only bounded ordinary RTS entries are supported. TimeAware callbacks and
-    /// nonlocal/exception exits need a resumable API and are rejected here.
+    /// Validate immutable selection once, outside the instruction hot path.
     pub fn new(profile: EnhancedProfile, revision: Revision) -> tje_game::Result<Self> {
         use tje_game::{execution::ExecutionClass, exits::ExitContract};
         if profile.id.is_empty() || profile.id == "faithful" {
@@ -145,48 +175,86 @@ impl EnhancedMode {
                 "enhanced profile has duplicate entry addresses",
             ));
         }
-        if entries.is_empty() {
+        let mut resumable = Vec::new();
+        for entry in profile.resumable_translations.iter().chain(
+            profile
+                .resumable_sets
+                .iter()
+                .flat_map(|entries| entries.iter()),
+        ) {
+            if tje_game::exits::contract(entry.id) != ExitContract::Rts
+                || tje_game::execution_class(entry.id).is_none()
+            {
+                return Err(context::error(
+                    "resumable overrides require a classified RTS entry",
+                ));
+            }
+            resumable.push((entry.id.metadata().address(revision), *entry));
+        }
+        resumable.sort_unstable_by_key(|entry| entry.0);
+        if resumable.windows(2).any(|pair| pair[0].0 == pair[1].0)
+            || resumable.iter().any(|entry| {
+                entries
+                    .binary_search_by_key(&entry.0, |entry| entry.0)
+                    .is_ok()
+            })
+        {
+            return Err(context::error(
+                "enhanced profile has duplicate entry addresses",
+            ));
+        }
+        if entries.is_empty() && resumable.is_empty() {
             return Err(context::error(
                 "an enhanced profile must select at least one override",
             ));
         }
         Ok(Self {
-            profile: Some(profile),
-            revision: Some(revision),
-            entries,
-            failed: false,
+            driver: Driver {
+                profile: Some(profile),
+                revision: Some(revision),
+                entries,
+                resumable,
+            },
+            ..Self::default()
         })
     }
 
     pub fn profile_id(&self) -> &'static str {
-        self.profile.map_or("faithful", |profile| profile.id)
+        self.driver.profile.map_or("faithful", |profile| profile.id)
     }
 
     pub fn is_failed(&self) -> bool {
         self.failed
     }
 
-    /// Release the failure latch only after a successful, profile-checked engine
-    /// snapshot restore. Restoring does not change the immutable selection.
-    pub fn after_restore(&mut self) {
-        self.failed = false;
+    pub fn sidecars(&self) -> &Sidecars {
+        &self.sidecars
+    }
+
+    pub fn sidecars_mut(&mut self) -> &mut Sidecars {
+        &mut self.sidecars
     }
 
     pub fn reset<B: Backend>(&mut self, engine: &mut Engine<B>) {
         engine.reset();
         self.failed = false;
+        self.pending.clear();
+        self.interrupts = 0;
+        self.inputs = EnhancedInputs::default();
+        self.sidecars.reset();
     }
 
     pub fn play_frame<'a, B: Backend>(
         &mut self,
         engine: &'a mut Engine<B>,
-        inputs: GenesisInputs,
+        inputs: impl Into<EnhancedInputs>,
     ) -> Result<&'a [[f64; 2]], Error<B::Error>>
     where
         B::Error: fmt::Display,
     {
-        if self.profile.is_none() {
-            return engine.play_frame(inputs).map_err(Error::Backend);
+        let inputs = inputs.into();
+        if self.driver.profile.is_none() {
+            return engine.play_frame(inputs.original()).map_err(Error::Backend);
         }
         engine.devices_mut().clear_audio();
         loop {
@@ -199,30 +267,34 @@ impl EnhancedMode {
     pub fn step<B: Backend>(
         &mut self,
         engine: &mut Engine<B>,
-        inputs: GenesisInputs,
+        inputs: impl Into<EnhancedInputs>,
     ) -> Result<RuntimeStep, Error<B::Error>>
     where
         B::Error: fmt::Display,
     {
-        if self.profile.is_none() {
-            return engine.step(inputs).map_err(Error::Backend);
+        let inputs = inputs.into();
+        if self.driver.profile.is_none() {
+            return engine.step(inputs.original()).map_err(Error::Backend);
         }
         if self.failed {
             return Err(Error::Failed);
         }
-        if Some(engine.devices().memory().revision()) != self.revision {
+        if Some(engine.devices().memory().revision()) != self.driver.revision {
             self.failed = true;
             return Err(Error::Override(context::error(
                 "enhanced profile belongs to a different cartridge revision",
             )));
         }
-        let result = self.step_inner(engine, inputs, &mut Budget::default());
+        self.inputs = inputs;
+        let result = self.scheduled_step(engine);
         if result.is_err() {
             self.failed = true;
         }
         result
     }
+}
 
+impl Driver {
     fn step_inner<B: Backend>(
         &self,
         engine: &mut Engine<B>,
@@ -233,6 +305,15 @@ impl EnhancedMode {
         B::Error: fmt::Display,
     {
         let selected = if ready(engine) {
+            if self
+                .resumable
+                .binary_search_by_key(&engine.cpu().pc, |entry| entry.0)
+                .is_ok()
+            {
+                return Err(Error::Override(context::error(
+                    "a synchronous callback cannot enter a resumable override; use CallOriginal",
+                )));
+            }
             self.entries
                 .binary_search_by_key(&engine.cpu().pc, |entry| entry.0)
                 .ok()

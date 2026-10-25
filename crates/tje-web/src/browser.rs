@@ -169,23 +169,18 @@ impl CompiledCartridge {
 
     fn snapshot_state(&self) -> Result<MachineSnapshot, JsValue> {
         #[cfg(feature = "enhanced-mode")]
-        if self.enhanced.is_failed() {
-            return Err(js_error(
-                "reset or restore a valid save before capturing failed enhanced execution",
-            ));
-        }
-        self.engine
-            .snapshot_with_profile(self.profile_id())
-            .map_err(js_error)
+        return self.enhanced.snapshot(&self.engine).map_err(js_error);
+        #[cfg(not(feature = "enhanced-mode"))]
+        self.engine.snapshot().map_err(js_error)
     }
 
     fn restore_state(&mut self, image: &MachineSnapshot) -> Result<(), JsValue> {
-        let profile = self.profile_id();
-        self.engine
-            .restore_with_profile(image, profile)
-            .map_err(js_error)?;
         #[cfg(feature = "enhanced-mode")]
-        self.enhanced.after_restore();
+        self.enhanced
+            .restore(&mut self.engine, image)
+            .map_err(js_error)?;
+        #[cfg(not(feature = "enhanced-mode"))]
+        self.engine.restore(image).map_err(js_error)?;
         Ok(())
     }
 }

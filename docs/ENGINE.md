@@ -71,9 +71,9 @@ Images contain copyrighted runtime state, unlike public controller sessions.
 Keep them only in private local storage, never in reports, source control or
 distributed caches. `RewindBuffer` evicts oldest images against an allocation
 budget and removes the abandoned future branch when rewinding. Capture and the
-ROM fingerprint are lazy: default faithful playback does neither. Future
-enhanced modes with host-owned state must add an atomic profile/config/sidecar
-envelope, not silently restore base-machine RAM into another profile.
+ROM fingerprint are lazy: default faithful playback does neither. The opt-in
+`EnhancedMode` adds a format-3 atomic profile/config/sidecar envelope while
+faithful format-2 bytes remain unchanged; see [ENHANCED_MODE.md](ENHANCED_MODE.md).
 
 Both frontends expose five private local save slots, rewind and 4x muted
 fast-forward as independent default-off settings. Desktop controls live under
@@ -654,13 +654,14 @@ and both frontend features and runtime selection default off.
 separate slices of `tje_game::Translation` and `FramedTranslation`. Only those
 explicit entries participate: `Dispatcher::hybrid_with_frames` does **not**
 include the proven subsystem tables. `EnhancedMode::new(profile, revision)`
-rejects ambiguous/duplicate entries, empty selections, TimeAware functions and
-non-RTS exits before execution. Its `step(&mut Engine<B>, inputs)` and
-`play_frame(&mut Engine<B>, inputs)` keep the original engine and backend intact.
+rejects ambiguous/duplicate entries, empty selections and non-RTS roots before
+execution. Legacy synchronous entries reject TimeAware functions; explicit
+`with_resumable` / `with_resumable_sets` entries support them. Its `step` and
+`play_frame` methods keep the original engine and backend intact.
 
-At a ready compiled function entry, after owed waits/interrupts have priority,
-the callback borrows the **live** CPU registers, banked stacks, RAM/ROM and
-devices through the existing readable `Context`. Prepared stack slots supply
+For legacy entries, at a ready compiled function entry after owed waits/interrupts
+have priority, the callback borrows the **live** CPU registers, banked stacks,
+RAM/ROM and devices through the existing readable `Context`. Prepared stack slots supply
 arguments; no CPU/device snapshot or second argument/return-address frame is
 manufactured. RAM accesses reuse typed views. Functional MMIO uses the existing
 immediate facade, removing transaction latency but retaining ordered device
@@ -685,20 +686,27 @@ cannot rewrite the failing PC/SP or erase a nested first cause. This marker
 grants no timing/transfer/proven-body authority. Callbacks own their register ABI
 and any normal Rust-side local cleanup; the driver does not restore a saved CPU.
 
-Limits: no blocking/yielding Rust callbacks, no TimeAware callees, nonlocal
-transfers, RTE overrides, or deterministic sidecar state. Nested compiled work
-has a shared million-step/32-depth operational ceiling, not a timing claim;
-arbitrary Rust code must itself be bounded. Compiled child calls are synchronous;
-long bulk work is not suitable for a per-frame callback without a resumable API.
-Callbacks must keep persistent state in borrowed RAM/devices, not hidden mutable
-statics, host clocks or nondeterministic I/O/RNG.
-Profile identity is external to CPU state. Both frontends bind save/restore and
-rewind through `snapshot_with_profile`/`restore_with_profile`; a different profile
-rejects before mutation. State hashes include that profile binding. Direct engine
-snapshot users must supply the selected profile themselves (ordinary `snapshot`
-means faithful). Only a successful checked restore releases the driver failure
-latch. More players, Maker state and resumable logic require additional explicit
-state/scheduling APIs; enhanced netplay is not enabled by this foundation.
+Resumable entries use explicit serializable `Continuation` state, returning
+`Wait` for frame/interrupt/polling suspension, `CallOriginal` for a scheduled
+compiled callee, or `ContinueOriginal` for a before-only observer. Callbacks
+themselves remain bounded; no borrowed Rust stack/future is archived. The
+scheduler advances devices, admits real interrupts and returns each frame while
+a callback or original callee is suspended. RTE/reset/nonlocal roots remain
+unselectable. Legacy synchronous nested calls retain a shared million-step/
+32-depth operational ceiling and cannot enter resumable callbacks.
+
+Typed registered `Sidecar` values hold extra-owned deterministic state outside
+original RAM, including extra seats, course/config data and RNGs. Four complete
+pads reach resumable callbacks; only the unchanged first two reach hardware.
+All state, pending continuations/original calls, initial configuration identities
+and input phase are included in enhanced format-3 snapshots and their whole-image
+hash. Native/browser save/restore and rewind use `EnhancedMode::snapshot` /
+`restore`; ordinary machine restore cannot discard the enhanced envelope.
+Mismatches reject before mutation, and only a successful checked restore releases
+the failure latch. Faithful selected-off snapshots still use exact format 2.
+See [ENHANCED_MODE.md](ENHANCED_MODE.md) for APIs, schema versions and limits.
+Enhanced netplay transport remains disabled; adapters must use the complete
+enhanced image hash when enabling it, not a bare machine snapshot.
 
 The harmless `DEBUG_PROFILE` (`debug-text-background-v1`) calls the readable
 text-background helper and changes that panel's colour to newly chosen magenta.

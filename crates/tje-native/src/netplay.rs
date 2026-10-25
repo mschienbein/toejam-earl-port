@@ -17,16 +17,16 @@ struct Adapter<'a>(&'a mut NativeBackend);
 impl Machine for Adapter<'_> {
     type Snapshot = MachineSnapshot;
     fn capture(&self) -> Result<MachineSnapshot> {
-        Ok(self.0.engine().snapshot()?)
+        self.0.snapshot()
     }
     fn capture_into(&self, state: &mut MachineSnapshot) -> Result<()> {
-        Ok(self.0.engine().snapshot_into(state)?)
+        self.0.snapshot_into(state)
     }
     fn snapshot_hash(state: &MachineSnapshot) -> StateHash {
         state.state_hash()
     }
     fn restore(&mut self, state: &MachineSnapshot) -> Result<()> {
-        Ok(self.0.engine_mut().restore(state)?)
+        self.0.restore(state)
     }
     fn advance(&mut self, pads: [u8; 2]) -> Result<()> {
         self.0.advance(Controllers {
@@ -36,7 +36,7 @@ impl Machine for Adapter<'_> {
         Ok(())
     }
     fn state_hash(&self) -> Result<StateHash> {
-        Ok(self.0.engine().snapshot()?.state_hash())
+        Ok(self.0.snapshot()?.state_hash())
     }
 }
 
@@ -91,7 +91,7 @@ impl Session {
             mode: backend.profile_id().into(),
             sample_rate,
             config,
-            initial_state: backend.engine().snapshot()?.state_hash(),
+            initial_state: backend.snapshot()?.state_hash(),
         };
         let connection = match action {
             Action::Host {

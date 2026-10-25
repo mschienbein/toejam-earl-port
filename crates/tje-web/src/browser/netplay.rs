@@ -8,25 +8,40 @@ use wasm_bindgen::prelude::*;
 impl Machine for CompiledCartridge {
     type Snapshot = MachineSnapshot;
     fn capture(&self) -> anyhow::Result<MachineSnapshot> {
+        #[cfg(feature = "enhanced-mode")]
+        return Ok(self.enhanced.snapshot(&self.engine)?);
+        #[cfg(not(feature = "enhanced-mode"))]
         Ok(self.engine.snapshot()?)
     }
     fn restore(&mut self, snapshot: &MachineSnapshot) -> anyhow::Result<()> {
-        Ok(self.engine.restore(snapshot)?)
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced.restore(&mut self.engine, snapshot)?;
+        #[cfg(not(feature = "enhanced-mode"))]
+        self.engine.restore(snapshot)?;
+        Ok(())
     }
     fn capture_into(&self, state: &mut MachineSnapshot) -> anyhow::Result<()> {
+        #[cfg(feature = "enhanced-mode")]
+        return Ok(self.enhanced.snapshot_into(&self.engine, state)?);
+        #[cfg(not(feature = "enhanced-mode"))]
         Ok(self.engine.snapshot_into(state)?)
     }
     fn snapshot_hash(state: &MachineSnapshot) -> StateHash {
         state.state_hash()
     }
     fn advance(&mut self, pads: [u8; 2]) -> anyhow::Result<()> {
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced
+            .play_frame(&mut self.engine, input::inputs(pads[0], pads[1], true))
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        #[cfg(not(feature = "enhanced-mode"))]
         self.engine
             .play_frame(input::inputs(pads[0], pads[1], true))
             .map_err(|error| anyhow::anyhow!("{error}"))?;
         Ok(())
     }
     fn state_hash(&self) -> anyhow::Result<StateHash> {
-        Ok(self.engine.snapshot()?.state_hash())
+        Ok(self.capture()?.state_hash())
     }
 }
 
@@ -78,7 +93,7 @@ impl WebGame {
             mode: cartridge.profile_id().into(),
             sample_rate: self.sample_rate,
             config,
-            initial_state: cartridge.engine.snapshot().map_err(js_error)?.state_hash(),
+            initial_state: cartridge.capture().map_err(js_error)?.state_hash(),
         };
         self.netplay = Some(Peer::new(identity, token, player, now_ms as u64).map_err(js_error)?);
         Ok(())

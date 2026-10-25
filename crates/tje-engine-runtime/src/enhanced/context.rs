@@ -1,4 +1,4 @@
-use super::{Budget, EnhancedMode, ready};
+use super::{Budget, Driver, EnhancedInputs, Sidecars, ready};
 use crate::{Backend, Bus as EngineBus, Engine, ReadKind, StepKind};
 use genesis_config::GenesisInputs;
 use std::fmt;
@@ -40,17 +40,21 @@ pub(super) fn set_pc<B: Backend>(engine: &mut Engine<B>, pc: u32) {
 }
 
 pub(super) struct Context<'a, B: Backend> {
-    mode: &'a EnhancedMode,
+    mode: &'a Driver,
     engine: &'a mut Engine<B>,
     inputs: GenesisInputs,
     dispatcher: Dispatcher,
     frame: FrameState,
     class: ExecutionClass,
     budget: &'a mut Budget,
+    sidecars: Option<&'a mut Sidecars>,
+    enhanced_inputs: EnhancedInputs,
+    entry_sp: u32,
+    entry_id: Option<FunctionId>,
 }
 impl<'a, B: Backend> Context<'a, B> {
     pub(super) fn new(
-        mode: &'a EnhancedMode,
+        mode: &'a Driver,
         engine: &'a mut Engine<B>,
         inputs: GenesisInputs,
         dispatcher: Dispatcher,
@@ -68,7 +72,24 @@ impl<'a, B: Backend> Context<'a, B> {
             frame: FrameState::new(sp),
             class: ExecutionClass::Functional,
             budget,
+            sidecars: None,
+            enhanced_inputs: inputs.into(),
+            entry_sp: sp,
+            entry_id: None,
         }
+    }
+
+    pub(super) fn with_extra(
+        mut self,
+        sidecars: &'a mut Sidecars,
+        inputs: EnhancedInputs,
+        id: FunctionId,
+    ) -> Self {
+        self.sidecars = Some(sidecars);
+        self.enhanced_inputs = inputs;
+        self.entry_id = Some(id);
+        self.class = ExecutionClass::TimeAware;
+        self
     }
 }
 
@@ -274,9 +295,9 @@ where
         self.class
     }
     fn set_execution_class(&mut self, class: ExecutionClass) -> Result<()> {
-        if class == ExecutionClass::TimeAware {
+        if class == ExecutionClass::TimeAware && self.sidecars.is_none() {
             return Err(error(
-                "enhanced Rust callbacks cannot suspend; TimeAware execution is unavailable",
+                "synchronous callbacks must use a resumable override for TimeAware execution",
             ));
         }
         self.class = class;
@@ -312,5 +333,42 @@ where
     }
     fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
         self.original(id, class)
+    }
+}
+
+impl<B: Backend> super::Context for Context<'_, B>
+where
+    B::Error: fmt::Display,
+{
+    fn sidecars(&self) -> &Sidecars {
+        self.sidecars.as_deref().expect("resumable context")
+    }
+
+    fn sidecars_mut(&mut self) -> &mut Sidecars {
+        self.sidecars.as_deref_mut().expect("resumable context")
+    }
+
+    fn inputs(&self) -> EnhancedInputs {
+        self.enhanced_inputs
+    }
+
+    fn frame_count(&self) -> u64 {
+        self.engine.frame_count()
+    }
+
+    fn entry_arguments(&self) -> Result<Vec<u32>> {
+        let id = self.entry_id.expect("resumable context");
+        let count = u32::from(id.metadata().abi.argument_count);
+        if self.entry_sp.saturating_add(4 * count + 4) > 0x1000000 {
+            return Err(error("enhanced entry arguments exceed work RAM"));
+        }
+        Ok((0..count)
+            .map(|index| {
+                self.engine
+                    .devices()
+                    .memory()
+                    .read_u32(self.entry_sp + 4 + index * 4)
+            })
+            .collect())
     }
 }

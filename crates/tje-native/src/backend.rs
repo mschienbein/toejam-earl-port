@@ -79,6 +79,14 @@ impl NativeBackend {
         #[cfg(not(feature = "enhanced-mode"))]
         "faithful"
     }
+    /// Reuse rollback storage without discarding enhanced scheduler/sidecar state.
+    pub fn snapshot_into(&self, state: &mut MachineSnapshot) -> Result<()> {
+        #[cfg(feature = "enhanced-mode")]
+        return Ok(self.enhanced.snapshot_into(&self.engine, state)?);
+        #[cfg(not(feature = "enhanced-mode"))]
+        Ok(self.engine.snapshot_into(state)?)
+    }
+
     /// Select only at cartridge load/reset, never halfway through an invocation.
     #[cfg(feature = "enhanced-mode")]
     pub fn set_enhanced_debug(&mut self, enabled: bool) -> Result<()> {
@@ -142,20 +150,18 @@ impl GameBackend for NativeBackend {
     }
     fn snapshot(&self) -> Result<MachineSnapshot> {
         #[cfg(feature = "enhanced-mode")]
-        ensure!(
-            !self.enhanced.is_failed(),
-            "reset or restore a valid save before capturing failed enhanced execution"
-        );
-        Ok(self.engine.snapshot_with_profile(self.profile_id())?)
+        return Ok(self.enhanced.snapshot(&self.engine)?);
+        #[cfg(not(feature = "enhanced-mode"))]
+        Ok(self.engine.snapshot()?)
     }
     fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()> {
-        let profile = self.profile_id();
-        self.engine.restore_with_profile(snapshot, profile)?;
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced.restore(&mut self.engine, snapshot)?;
+        #[cfg(not(feature = "enhanced-mode"))]
+        self.engine.restore(snapshot)?;
         if self.engine.devices().audio_sample_rate() != self.sample_rate {
             self.engine.set_audio_sample_rate(self.sample_rate)?;
         }
-        #[cfg(feature = "enhanced-mode")]
-        self.enhanced.after_restore();
         Ok(())
     }
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]> {

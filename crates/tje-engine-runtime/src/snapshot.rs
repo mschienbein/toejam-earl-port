@@ -5,6 +5,8 @@ use sha1::{Digest, Sha1};
 use std::{collections::VecDeque, fmt};
 
 pub const SNAPSHOT_VERSION: u32 = 2;
+/// Enhanced-only envelope; faithful images continue to use format 2 verbatim.
+pub const ENHANCED_SNAPSHOT_VERSION: u32 = 3;
 const MAGIC: &[u8; 8] = b"TJESTATE";
 const CPU_OFFSET: usize = 40;
 const PROFILE_OFFSET: usize = CPU_OFFSET + 25 * 4;
@@ -18,6 +20,7 @@ pub enum SnapshotError {
     UnsupportedVersion(u32),
     RomMismatch,
     ProfileMismatch,
+    EnhancedState(String),
     Corrupt,
     Hardware(String),
 }
@@ -33,6 +36,7 @@ impl fmt::Display for SnapshotError {
             Self::ProfileMismatch => {
                 f.write_str("snapshot belongs to a different execution profile")
             }
+            Self::EnhancedState(error) => write!(f, "invalid enhanced snapshot state: {error}"),
             Self::Corrupt => f.write_str("snapshot is truncated or corrupt"),
             Self::Hardware(error) => write!(f, "invalid snapshot hardware state: {error}"),
         }
@@ -73,6 +77,33 @@ impl MachineSnapshot {
             .and_then(|bytes| bytes.try_into().ok())
             .unwrap_or([0; 20])
     }
+
+    #[cfg(feature = "enhanced-mode")]
+    pub(crate) fn seal_enhanced(&mut self, payload: &[u8]) -> Result<(), SnapshotError> {
+        let end = self.bytes.len() - CHECKSUM_LEN;
+        if end.saturating_add(payload.len() + 4 + CHECKSUM_LEN) > MAX_BYTES {
+            return Err(SnapshotError::Corrupt);
+        }
+        self.bytes.truncate(end);
+        self.bytes.reserve_exact(payload.len() + 4 + CHECKSUM_LEN);
+        self.bytes[8..12].copy_from_slice(&ENHANCED_SNAPSHOT_VERSION.to_le_bytes());
+        self.bytes.extend_from_slice(payload);
+        self.bytes
+            .extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        let checksum = Sha1::digest(&self.bytes);
+        self.bytes.extend_from_slice(&checksum);
+        Ok(())
+    }
+
+    #[cfg(feature = "enhanced-mode")]
+    pub(crate) fn enhanced_payload(&self) -> Result<&[u8], SnapshotError> {
+        validate(&self.bytes)?;
+        if u32::from_le_bytes(self.bytes[8..12].try_into().unwrap()) != ENHANCED_SNAPSHOT_VERSION {
+            return Err(SnapshotError::ProfileMismatch);
+        }
+        let end = self.bytes.len() - CHECKSUM_LEN - 4;
+        Ok(&self.bytes[hardware_end(&self.bytes)?..end])
+    }
 }
 
 fn validate(bytes: &[u8]) -> Result<(), SnapshotError> {
@@ -83,14 +114,31 @@ fn validate(bytes: &[u8]) -> Result<(), SnapshotError> {
         return Err(SnapshotError::InvalidFormat);
     }
     let version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-    if version != SNAPSHOT_VERSION {
+    if version != SNAPSHOT_VERSION && version != ENHANCED_SNAPSHOT_VERSION {
         return Err(SnapshotError::UnsupportedVersion(version));
     }
     let payload_end = bytes.len() - CHECKSUM_LEN;
     if Sha1::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
         return Err(SnapshotError::Corrupt);
     }
+    hardware_end(bytes)?;
     Ok(())
+}
+
+fn hardware_end(bytes: &[u8]) -> Result<usize, SnapshotError> {
+    let end = bytes.len() - CHECKSUM_LEN;
+    if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) == SNAPSHOT_VERSION {
+        return Ok(end);
+    }
+    let length_end = end.checked_sub(4).ok_or(SnapshotError::Corrupt)?;
+    let length = u32::from_le_bytes(bytes[length_end..end].try_into().unwrap()) as usize;
+    let hardware_end = length_end
+        .checked_sub(length)
+        .ok_or(SnapshotError::Corrupt)?;
+    if hardware_end < HARDWARE_OFFSET {
+        return Err(SnapshotError::Corrupt);
+    }
+    Ok(hardware_end)
 }
 
 fn profile_hash(profile: &str) -> [u8; 20] {
@@ -108,9 +156,8 @@ impl<B: Backend> Machine<PlatformDevices, B> {
         self.snapshot_with_profile("faithful")
     }
 
-    /// Bind a stateless enhanced execution profile to the machine image. The
-    /// identifier must include its version/config identity. Host sidecars still
-    /// require an outer atomic envelope; this method cannot capture them.
+    /// Bind a stateless execution profile to the image. Stateful enhanced
+    /// profiles must instead use `EnhancedMode::snapshot` / `restore`.
     pub fn snapshot_with_profile(&self, profile: &str) -> Result<MachineSnapshot, SnapshotError> {
         let mut snapshot = MachineSnapshot::default();
         self.snapshot_into_with_profile(&mut snapshot, profile)?;
@@ -174,8 +221,31 @@ impl<B: Backend> Machine<PlatformDevices, B> {
         snapshot: &MachineSnapshot,
         profile: &str,
     ) -> Result<(), SnapshotError> {
+        self.restore_profile_parts(snapshot, profile, false)
+    }
+
+    #[cfg(feature = "enhanced-mode")]
+    pub(crate) fn restore_enhanced(
+        &mut self,
+        snapshot: &MachineSnapshot,
+        profile: &str,
+    ) -> Result<(), SnapshotError> {
+        self.restore_profile_parts(snapshot, profile, true)
+    }
+
+    fn restore_profile_parts(
+        &mut self,
+        snapshot: &MachineSnapshot,
+        profile: &str,
+        enhanced: bool,
+    ) -> Result<(), SnapshotError> {
         let bytes = &snapshot.bytes;
         validate(bytes)?;
+        let is_enhanced =
+            u32::from_le_bytes(bytes[8..12].try_into().unwrap()) == ENHANCED_SNAPSHOT_VERSION;
+        if is_enhanced != enhanced {
+            return Err(SnapshotError::ProfileMismatch);
+        }
         if bytes[12..32] != self.devices.snapshot_rom_hash() {
             return Err(SnapshotError::RomMismatch);
         }
@@ -202,7 +272,7 @@ impl<B: Backend> Machine<PlatformDevices, B> {
             last_muldiv: words.next().unwrap(),
         };
         self.devices
-            .restore_snapshot(&bytes[HARDWARE_OFFSET..bytes.len() - CHECKSUM_LEN])
+            .restore_snapshot(&bytes[HARDWARE_OFFSET..hardware_end(bytes)?])
             .map_err(SnapshotError::Hardware)?;
         self.cpu = cpu;
         self.frames = snapshot.frame_count();

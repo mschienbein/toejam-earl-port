@@ -20,6 +20,9 @@ use tje_native_platform::DeviceRuntime;
 use tje_rom::{Revision, Rom};
 use tje_session::{CONNECTED, Session, Start};
 
+#[path = "enhanced/state.rs"]
+mod state;
+
 fn synthetic(id: tje_game::FunctionId, nested: bool) -> Engine {
     let revision = Revision::Rev02;
     let target = id.metadata().address(revision);
@@ -118,7 +121,7 @@ fn stateless_override_snapshots_bind_profile_and_resume_identically() {
     )
     .unwrap();
     mode.step(&mut engine, GenesisInputs::default()).unwrap();
-    let checkpoint = engine.snapshot_with_profile(mode.profile_id()).unwrap();
+    let checkpoint = mode.snapshot(&engine).unwrap();
     let before = engine.cpu().clone();
     let clock = engine.devices().clock();
     assert_eq!(
@@ -128,17 +131,11 @@ fn stateless_override_snapshots_bind_profile_and_resume_identically() {
     assert_eq!(engine.cpu(), &before);
     assert_eq!(engine.devices().clock(), clock);
     mode.step(&mut engine, GenesisInputs::default()).unwrap();
-    let expected = engine.snapshot_with_profile(mode.profile_id()).unwrap();
-    engine
-        .restore_with_profile(&checkpoint, mode.profile_id())
-        .unwrap();
-    mode.after_restore();
+    let expected = mode.snapshot(&engine).unwrap();
+    mode.restore(&mut engine, &checkpoint).unwrap();
     mode.step(&mut engine, GenesisInputs::default()).unwrap();
     assert_eq!(
-        engine
-            .snapshot_with_profile(mode.profile_id())
-            .unwrap()
-            .as_bytes(),
+        mode.snapshot(&engine).unwrap().as_bytes(),
         expected.as_bytes()
     );
 }
@@ -282,7 +279,7 @@ fn compiled_callee_failure_keeps_first_cause_and_actual_nested_stack_and_pc() {
             Revision::Rev02,
         )
         .unwrap();
-        let checkpoint = engine.snapshot_with_profile(mode.profile_id()).unwrap();
+        let checkpoint = mode.snapshot(&engine).unwrap();
         mode.step(&mut engine, GenesisInputs::default()).unwrap();
         let failure = mode
             .step(&mut engine, GenesisInputs::default())
@@ -300,10 +297,7 @@ fn compiled_callee_failure_keeps_first_cause_and_actual_nested_stack_and_pc() {
         );
         assert_eq!(engine.cpu().read_address(7), expected_sp);
         assert_eq!(engine.devices().memory().read_u32(expected_sp), 0x106);
-        engine
-            .restore_with_profile(&checkpoint, mode.profile_id())
-            .unwrap();
-        mode.after_restore();
+        mode.restore(&mut engine, &checkpoint).unwrap();
         assert!(!mode.is_failed());
         assert!(mode.step(&mut engine, GenesisInputs::default()).is_ok());
     }

@@ -35,9 +35,12 @@ fn selection_is_separate_from_proven_dispatch_and_default_off() {
     assert_eq!(EnhancedMode::default().profile_id(), "faithful");
     for revision in Revision::ALL {
         let mode = EnhancedMode::new(profile, revision).unwrap();
-        assert_eq!(mode.entries.len(), 1);
-        assert_eq!(mode.entries[0].0, ids::ABS.metadata().address(revision));
-        assert!(!mode.entries[0].1.is_canonical_production());
+        assert_eq!(mode.driver.entries.len(), 1);
+        assert_eq!(
+            mode.driver.entries[0].0,
+            ids::ABS.metadata().address(revision)
+        );
+        assert!(!mode.driver.entries[0].1.is_canonical_production());
     }
 }
 
@@ -79,4 +82,39 @@ fn enhanced_error_keeps_the_owned_game_error_source_chain() {
     let source = std::error::Error::source(&error).unwrap();
     assert!(source.downcast_ref::<tje_game::Error>().is_some());
     assert_eq!(source.source().unwrap().to_string(), "authored first cause");
+}
+
+#[test]
+fn resumable_sets_compose_timeaware_entries_but_never_duplicate_addresses() {
+    fn resume(_: &mut dyn super::Context, _: &mut Continuation) -> Result<OverrideStep> {
+        Ok(OverrideStep::Return(None))
+    }
+    static WAIT: &[ResumableTranslation] = &[ResumableTranslation {
+        id: ids::WAIT_FOR_NEXT_V_BLANK,
+        function: resume,
+    }];
+    static ABS: &[ResumableTranslation] = &[ResumableTranslation {
+        id: ids::ABS,
+        function: resume,
+    }];
+    static SETS: &[&[ResumableTranslation]] = &[WAIT, ABS];
+    let profile = EnhancedProfile::new("composed-resumable-v1", &[], &[]).with_resumable_sets(SETS);
+    for revision in Revision::ALL {
+        assert_eq!(
+            EnhancedMode::new(profile, revision)
+                .unwrap()
+                .driver
+                .resumable
+                .len(),
+            2
+        );
+        assert!(EnhancedMode::new(profile.with_resumable(WAIT), revision).is_err());
+        assert!(
+            EnhancedMode::new(
+                EnhancedProfile::new("legacy-conflict-v1", VALUES, &[]).with_resumable(ABS),
+                revision,
+            )
+            .is_err()
+        );
+    }
 }

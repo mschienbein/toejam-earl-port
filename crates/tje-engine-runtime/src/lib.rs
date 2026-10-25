@@ -19,7 +19,9 @@ mod platform;
 mod snapshot;
 
 #[cfg(feature = "devices")]
-pub use snapshot::{MachineSnapshot, RewindBuffer, SNAPSHOT_VERSION, SnapshotError};
+pub use snapshot::{
+    ENHANCED_SNAPSHOT_VERSION, MachineSnapshot, RewindBuffer, SNAPSHOT_VERSION, SnapshotError,
+};
 
 pub use tje_engine_core::{Bus, CpuState, ExceptionBoundary, ReadKind, StepResult};
 
