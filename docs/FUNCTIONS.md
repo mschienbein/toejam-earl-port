@@ -625,12 +625,12 @@ Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; col
 
 | Name | Kind | Decomp source | REV 02 | REV 00 | Execution class | Rust location | Status / blocker |
 |---|---|---|---|---|---|---|---|
-| `abs` | runtime helper | [`src/asm/runtime.s:16`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L16) | `0x02714A` | `0x0270D2` | Atomic | [`runtime::abs`](../crates/tje-game/src/runtime/mod.rs#L6) | production |
-| `lmodt` | runtime helper | [`src/asm/runtime.s:28`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L28) | `0x027154` | `0x0270DC` | Atomic | [`runtime::lmodt`](../crates/tje-game/src/runtime/mod.rs#L10) | production |
-| `ldivt` | runtime helper | [`src/asm/runtime.s:92`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L92) | `0x0271B2` | `0x02713A` | Atomic | [`runtime::ldivt`](../crates/tje-game/src/runtime/mod.rs#L17) | production |
-| `lmult` | runtime helper | [`src/asm/runtime.s:157`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L157) | `0x027214` | `0x02719C` | Atomic | [`runtime::lmult`](../crates/tje-game/src/runtime/mod.rs#L24) | production |
-| `ulmodt` | runtime helper | [`src/asm/runtime.s:192`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L192) | `0x027240` | `0x0271C8` | Atomic | [`runtime::ulmodt`](../crates/tje-game/src/runtime/mod.rs#L32) | production |
-| `uldivt` | runtime helper | [`src/asm/runtime.s:200`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L200) | `0x027248` | `0x0271D0` | Atomic | [`runtime::uldivt`](../crates/tje-game/src/runtime/mod.rs#L36) | production |
+| `abs` | runtime helper | [`src/asm/runtime.s:16`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L16) | `0x02714A` | `0x0270D2` | Atomic | [`runtime::abs`](../crates/tje-game/src/runtime/mod.rs#L8) | production |
+| `lmodt` | runtime helper | [`src/asm/runtime.s:28`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L28) | `0x027154` | `0x0270DC` | Atomic | [`runtime::lmodt`](../crates/tje-game/src/runtime/mod.rs#L12) | production |
+| `ldivt` | runtime helper | [`src/asm/runtime.s:92`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L92) | `0x0271B2` | `0x02713A` | Atomic | [`runtime::ldivt`](../crates/tje-game/src/runtime/mod.rs#L22) | production |
+| `lmult` | runtime helper | [`src/asm/runtime.s:157`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L157) | `0x027214` | `0x02719C` | Atomic | [`runtime::lmult`](../crates/tje-game/src/runtime/mod.rs#L32) | production |
+| `ulmodt` | runtime helper | [`src/asm/runtime.s:192`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L192) | `0x027240` | `0x0271C8` | Atomic | [`runtime::ulmodt`](../crates/tje-game/src/runtime/mod.rs#L40) | production |
+| `uldivt` | runtime helper | [`src/asm/runtime.s:200`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/runtime.s#L200) | `0x027248` | `0x0271D0` | Atomic | [`runtime::uldivt`](../crates/tje-game/src/runtime/mod.rs#L44) | production |
 
 ### ship
 

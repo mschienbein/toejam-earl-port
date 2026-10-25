@@ -8,6 +8,16 @@ use tje_game::{
 };
 use tje_rom::Revision;
 
+/// A newly entered synchronous trap at its real source instruction. The
+/// exception depth is relative to the actual entry, not handler-PC readiness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ExceptionEntryBoundary {
+    pub vector: u32,
+    pub depth: u32,
+    pub source_pc: u32,
+    pub stack_pointer: u32,
+}
+
 /// A reference instruction boundary, not an invented RTS destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReferenceBoundary {
@@ -16,6 +26,7 @@ pub(crate) struct ReferenceBoundary {
     pub source: Option<(u32, u32)>,
     pub min_instructions: u64,
     pub entry_exception_return: bool,
+    pub exception_entry: Option<ExceptionEntryBoundary>,
 }
 impl ReferenceBoundary {
     pub(crate) fn returned(pc: u32, sp: u32) -> Self {
@@ -25,9 +36,17 @@ impl ReferenceBoundary {
             source: None,
             min_instructions: 0,
             entry_exception_return: false,
+            exception_entry: None,
         }
     }
     pub(crate) fn reached(self, cpu: &M68000, previous_pc: Option<u32>, instructions: u64) -> bool {
+        if let Some(entry) = self.exception_entry {
+            return instructions >= self.min_instructions
+                && previous_pc == Some(entry.source_pc)
+                && cpu.hybrid_exception_depth() == entry.depth
+                && cpu.hybrid_last_exception_vector() == Some(entry.vector)
+                && cpu.stack_pointer() == entry.stack_pointer;
+        }
         instructions >= self.min_instructions
             && cpu.pc() == self.pc
             && self.sp.is_none_or(|sp| cpu.stack_pointer() == sp)
@@ -44,6 +63,7 @@ pub(crate) struct EntryState {
     pub sp: u32,
     pub return_pc: u32,
     pub exception_pc: u32,
+    pub exception_depth: u32,
 }
 impl EntryState {
     pub(crate) fn capture(context: &HookContext<'_>, contract: ExitContract) -> Result<Self> {
@@ -56,6 +76,7 @@ impl EntryState {
         };
         Ok(Self {
             sp,
+            exception_depth: context.exception_depth(),
             return_pc: if contract == ExitContract::Rts {
                 context.read_u32(sp)
             } else {
@@ -97,6 +118,9 @@ pub(crate) fn reference_boundary(
             let start = symbol.address(revision);
             let source = Some((start, start + symbol.size(revision)));
             let (pc, source) = match transfer.exit {
+                Exit::Exception { request } => {
+                    return exception_reference_boundary(request, entry, revision);
+                }
                 Exit::ExceptionReturn => (entry.exception_pc, source),
                 Exit::Tail { target } | Exit::Call { target, .. } => {
                     (target.metadata().address(revision), source)
@@ -121,9 +145,39 @@ pub(crate) fn reference_boundary(
                 source,
                 min_instructions: 1,
                 entry_exception_return: transfer.exit == Exit::ExceptionReturn,
+                exception_entry: None,
             })
         }
     }
+}
+
+fn exception_reference_boundary(
+    request: tje_game::control::ExceptionRequest,
+    entry: EntryState,
+    revision: Revision,
+) -> Result<ReferenceBoundary> {
+    let vector = request
+        .trap
+        .vector()
+        .ok_or_else(|| HostError::Metadata("invalid synchronous exception vector".into()))?;
+    let depth = entry
+        .exception_depth
+        .checked_add(1)
+        .ok_or_else(|| HostError::Metadata("synchronous exception depth overflow".into()))?;
+    Ok(ReferenceBoundary {
+        // Diagnostic saved PC only, NOT a guessed handler address.
+        pc: request.saved_pc,
+        sp: None,
+        source: None,
+        min_instructions: 1,
+        entry_exception_return: false,
+        exception_entry: Some(ExceptionEntryBoundary {
+            vector: u32::from(vector),
+            depth,
+            source_pc: request.site.address(revision),
+            stack_pointer: request.prepared.stack_banks.supervisor.wrapping_sub(6),
+        }),
+    })
 }
 
 /// Apply only the declared transfer. Abandoned caller frames are not unwound by
@@ -164,6 +218,9 @@ pub(crate) fn finish(
     match outcome {
         EntryOutcome::Returned(value) => context.return_to_caller(value)?,
         EntryOutcome::Transfer(transfer) => match transfer.exit {
+            Exit::Exception { request } => {
+                context.enter_source_exception(hook.symbol.id, transfer.entry, request)?
+            }
             Exit::ExceptionReturn => {
                 let restored = exits::restore_exception(context)?;
                 context.transfer_to(restored.program_counter)?;
@@ -213,3 +270,7 @@ pub(crate) fn terminal(outcome: EntryOutcome) -> Option<FunctionId> {
 #[cfg(test)]
 #[path = "exits_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "runtime_trap_tests.rs"]
+mod runtime_trap_tests;

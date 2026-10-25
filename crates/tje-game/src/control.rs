@@ -11,6 +11,11 @@ use crate::{
 };
 use tje_mem::Revision;
 
+mod exception;
+pub use exception::{
+    ExceptionPreparedState, ExceptionRequest, SynchronousTrap, runtime_divide_fault_offset,
+};
+
 const SR_MASK: u16 = 0xa71f;
 const SUPERVISOR: u16 = 0x2000;
 const BUSREQ: u32 = 0xa11100;
@@ -518,6 +523,7 @@ pub enum ControlDataError {
     UnsupportedExit,
     Exit,
     Pop,
+    Exception,
 }
 
 #[cfg(test)]

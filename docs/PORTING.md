@@ -63,8 +63,36 @@ Each translation receives raw four-byte argument slots and returns `Option<u32>`
 for D0 (`None` for a void C result). Narrow parameters at the callee's declared
 width. Do not zero/sign extend a narrow return unless the matching implementation
 does: preserve residual D0 bits when required. Register-runtime entries take
-D0/D1, not invented stack arguments. Division by zero propagates an explicit
-`ArithmeticTrap::DivideByZero` (68000 vector 5), never a fabricated result.
+D0/D1, not invented stack arguments. Low-level arithmetic may report
+`ArithmeticTrap::DivideByZero`, but a reviewed runtime entry must materialize its
+source pre-trap state and propagate `Exit::Exception` with a source-bound
+`control::ExceptionRequest`; an ordinary arithmetic error is not vector delivery.
+No result is fabricated.
+
+The four stock divide/remainder entries retain their ordinary RTS contract on
+nonzero inputs. Their zero paths keep the original D2 save and operand/sign/
+halfword setup, then declare the actual DIVU site and saved next PC. A capable
+host binds the function/revision/opcode and prepared registers/SP/SR before
+realizing the retained CPU's real vector-5 frame, vector fetch, prefetch and
+exception-entry marker. It executes no original opcode and invents no device
+advance or retired-instruction receipt. A real entry/address/double fault retains
+its actual state and fails closed; it is never forced into six-byte success.
+Readable native contexts without this entry capability preserve the materialized
+frame and fail closed, without an interpreter or RTS cleanup.
+A nested Rust value-only call whose caller elided the runtime's actual call
+frame is unsupported on this edge; it must use a source-backed prepared
+`call_at` frame rather than inventing a return word during exception delivery.
+Trace-enabled (`SR.T=1`) helper entry is a different source path: an earlier
+prefix instruction takes vector 9. That entry is unsupported and rejected before
+any prefix effect, not converted to vector 5 by clearing T. Direct retained-CPU
+tests with T set at an already-reached DIVU test only that single fault entry.
+
+Exception-transfer comparisons retain all D/A, full SR and both live stack
+banks, including a suspended user D2 save. Labelled zero-divisor real-state
+fixtures are distinct from natural coverage and prove no universal timing bound.
+Standard trap data must not be used to model an address/bus error's different
+frame format. Ordinary ReplayedEnvironment does not gain trap admission here.
+
 
 Call a value-returning game function with `tje_game::call(context, ids::FUNCTION, arguments)`,
 or an ABI-void function with `tje_game::call_void(context, ids::FUNCTION, arguments)`.
@@ -1290,6 +1318,45 @@ classes. They retain the Reference/Replace VRAM divergence, reject the omitted
 producer and read-before-later-store cases, accept direct/original-callee
 initialization controls, cover CPU write issue → DMA old-value read → RAM commit,
 and assert both sides' endpoint-normalization reads remain in the root audit.
+
+### Explicit original uninitialized-local declarations
+
+Original bugs that consume an uninitialized own-frame local must be named, not
+hidden behind a generic memory read or an address waiver. The shared interface is:
+
+```rust,ignore
+use tje_game::stack_read::LocalWidth;
+let read = frame_state.uninitialized_local(
+    owner,
+    original_entry_sp_offset,
+    LocalWidth::Word,
+    "matching source/listing citation, own-frame offset and read width",
+);
+let value = context.read_uninitialized_local(read)?;
+```
+
+`UninitializedLocalRead` carries the owner, current `FrameState`, signed entry-SP
+offset, typed Byte/Word/Long width and static citation. It is a declaration, not
+authority. An implementing backend must validate the exact current owner/frame
+and allocated lifetime, a negative offset, the entire aligned word/long footprint
+below entry SP, and its actual input witness before exposing residue. Mixed reads
+preserve current own-written lanes and true unchanged entry-residue lanes; no
+store, initialization bit or `ReadPurpose` is manufactured.
+
+The `Context` default returns structured `UnsupportedStackRead` without fetching
+RAM, consulting an original, or supplying a zero/fallback operand. This failure
+is frame-preserving, never an accepted control transfer. Its typed root, raw and
+canonical address, width, reader and reason remain available through
+`Error::unsupported_stack_read`. A failed backend contract remains the first
+error. This shared API neither activates a read permission in an existing
+platform nor registers, promotes or proves any function.
+
+`tje_mem::written_ram::WrittenRam` supplies only shared canonical 64-KiB RAM
+bookkeeping (`get`, `set`, mirror-aware `clear`, `addresses`, touched-word `reset`).
+It grants no read or frame authority. Separate live-allocation and cumulative
+history instances retain their distinct meanings. Unique dirty-word membership
+survives clear/re-mark loops, so reset does not repeatedly clear the full RAM
+bitmap or grow bookkeeping on a hot root.
 
 ### Future private-frame provenance is rejection-only
 

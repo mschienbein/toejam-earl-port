@@ -11,6 +11,7 @@ pub use tje_rom::Revision;
 
 pub mod arithmetic;
 mod generated;
+pub mod written_ram;
 pub use generated::*;
 
 pub const RAM_START: u32 = 0xff0000;

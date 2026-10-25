@@ -930,6 +930,9 @@ impl<'a> HookContext<'a> {
     pub fn cpu(&mut self) -> &mut M68000 {
         self.emulator.hybrid_parts().0
     }
+    pub(crate) fn exception_depth(&self) -> u32 {
+        self.emulator.hybrid_cpu().hybrid_exception_depth()
+    }
 
     /// Execute an untranslated MCC68K function, bypassing the Rust registry.
     /// Push arguments right-to-left, run to an unexecuted sentinel with matching
@@ -1197,6 +1200,103 @@ impl<'a> HookContext<'a> {
         bus.apply_pending_writes();
         self.flush_audit_accesses();
         Ok(())
+    }
+
+    /// Realize only a source-reviewed synchronous transfer. Request data is not
+    /// authority: bind its canonical site/opcode and the Rust-owned prepared
+    /// state BEFORE the real entry effects. No original opcode is executed.
+    pub(crate) fn enter_source_exception(
+        &mut self,
+        root: FunctionId,
+        entry: FunctionId,
+        request: tje_game::control::ExceptionRequest,
+    ) -> Result<()> {
+        let transfer = tje_game::exits::ControlTransfer {
+            entry,
+            exit: tje_game::exits::Exit::Exception { request },
+        };
+        let result: tje_game::Result<()> = (|| {
+            tje_game::Platform::check_mmio_contract(self)?;
+            request.validate_shape(self.revision).map_err(|error| {
+                tje_game::Error::Platform(format!("invalid source exception data: {error:?}"))
+            })?;
+            if request.site.entry != entry {
+                return Err(tje_game::Error::Platform(
+                    "exception source identity mismatch".into(),
+                ));
+            }
+            let frame = self
+                .frame_state()
+                .ok_or(tje_game::call_frame::FrameError::Unavailable)?;
+            if (root != entry && !frame.is_prepared_for(entry))
+                || request.prepared.stack_pointer != frame.entry_sp.wrapping_sub(4)
+            {
+                return Err(tje_game::Error::Platform(
+                    "synchronous runtime trap requires its actual prepared entry frame".into(),
+                ));
+            }
+            let p = &request.prepared;
+            if [
+                self.data_register(0),
+                self.data_register(1),
+                self.data_register(2),
+            ] != p.data
+                || [self.address_register(0), self.address_register(1)] != p.address
+                || self.stack_pointer()? != p.stack_pointer
+                || self.stack_banks()? != p.stack_banks
+                || self.status_register() != p.status
+            {
+                return Err(tje_game::Error::Platform(
+                    "source exception prepared registers/stack/status changed".into(),
+                ));
+            }
+            let physical_sp = p.stack_pointer & 0xffffff;
+            if !(0xe00000..=0xfffffc).contains(&physical_sp) || physical_sp & 1 != 0 {
+                return Err(tje_game::Error::Platform(
+                    "runtime D2 save is not an aligned RAM long".into(),
+                ));
+            }
+            let fault_pc = request.site.address(self.revision);
+            let (cpu, bus) = self.emulator.hybrid_parts();
+            // Inspection, not a fabricated semantic CPU operand or stack read.
+            let saved_d2 = (u32::from(bus.memory.read_main_ram_word(physical_sp)) << 16)
+                | u32::from(bus.memory.read_main_ram_word(physical_sp.wrapping_add(2)));
+            if saved_d2 != p.saved_d2 {
+                return Err(tje_game::Error::Platform(
+                    "runtime D2 save differs from source store".into(),
+                ));
+            }
+            let cartridge = bus.cartridge.as_mut().ok_or_else(|| {
+                tje_game::Error::Platform("source exception has no cartridge".into())
+            })?;
+            let words = cartridge.debug_rom_view();
+            let index = (fault_pc / 2) as usize;
+            if index >= words.len() || words[index] != 0x82c2 {
+                return Err(tje_game::Error::Platform(
+                    "source exception is not the reviewed DIVU.W D2,D1 opcode".into(),
+                ));
+            }
+            let vector = request.trap.vector().ok_or_else(|| {
+                tje_game::Error::Platform("invalid standard exception vector".into())
+            })?;
+            // This is the faulting instruction's actual next-word prefetch,
+            // not execution of its opcode or an imported reference snapshot.
+            cpu.set_pc(request.saved_pc, bus);
+            let entered = cpu.hybrid_enter_trap(vector, request.saved_pc, 0x82c2, bus);
+            // Commit the REAL partial/complete writes even on entry failure.
+            // The actor remains Rust-owned, never an original-callee exemption.
+            bus.apply_pending_writes();
+            self.flush_audit_accesses();
+            tje_game::Platform::check_mmio_contract(self)?;
+            entered.map_err(|error| {
+                tje_game::Error::Platform(format!(
+                    "real synchronous exception entry failed: {error:?}"
+                ))
+            })
+        })();
+        result
+            .map_err(|error| tje_game::Error::cleanup_after_transfer(transfer, error))
+            .map_err(HostError::Translation)
     }
 
     pub(crate) fn exception_returned(&mut self) {

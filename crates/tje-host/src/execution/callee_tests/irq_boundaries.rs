@@ -161,6 +161,7 @@ fn own_isr_rte_to_capped_interrupted_entry_does_not_meter_the_outside_caller() {
                     source: Some((HANDLER, HANDLER + 2)),
                     min_instructions: 1,
                     entry_exception_return: true,
+                    exception_entry: None,
                 },
                 Vec::new(),
                 true,

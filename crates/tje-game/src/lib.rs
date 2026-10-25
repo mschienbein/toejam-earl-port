@@ -29,6 +29,7 @@ pub mod runtime;
 pub mod ship;
 pub mod speech;
 pub mod sprites;
+pub mod stack_read;
 pub mod timing;
 pub mod ui;
 pub use framed_entry::{FramedTranslation, FramedTranslationFn, SelectedEntry, TranslatedEntry};
@@ -146,6 +147,7 @@ pub enum Error {
     /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
     ControlTransfer(exits::ControlTransfer),
     OpenBus(open_bus::OpenBusError),
+    UnsupportedStackRead(stack_read::Unsupported),
     Platform(String),
 }
 impl fmt::Display for Error {
@@ -213,6 +215,7 @@ impl fmt::Display for Error {
                 transfer.exit,
             ),
             Self::OpenBus(error) => fmt::Display::fmt(error, formatter),
+            Self::UnsupportedStackRead(error) => fmt::Display::fmt(error, formatter),
             Self::Platform(message) => formatter.write_str(message),
         }
     }
@@ -249,13 +252,27 @@ impl From<execution::CallClockError> for Error {
         Self::Clock(value)
     }
 }
+impl From<stack_read::Unsupported> for Error {
+    fn from(value: stack_read::Unsupported) -> Self {
+        Self::UnsupportedStackRead(value)
+    }
+}
 impl Error {
+    pub fn unsupported_stack_read(&self) -> Option<stack_read::Unsupported> {
+        match self {
+            Self::UnsupportedStackRead(error) => Some(*error),
+            Self::CleanupAfterTransfer { error, .. } => error.unsupported_stack_read(),
+            Self::TimingExecutionFailure { cause, .. } => cause.unsupported_stack_read(),
+            _ => None,
+        }
+    }
     /// Already-failed execution keeps its first cause and actual frame.
     pub fn is_failed_execution(&self) -> bool {
         match self {
             Self::ClockAfterTransfer { .. }
             | Self::CleanupAfterTransfer { .. }
-            | Self::TimingExecutionFailure { .. } => true,
+            | Self::TimingExecutionFailure { .. }
+            | Self::UnsupportedStackRead(_) => true,
             #[cfg(feature = "enhanced-mode")]
             Self::EnhancedExecutionFailure { .. } => true,
             _ => false,
@@ -452,6 +469,16 @@ pub trait Context: Bus + Platform {
     }
     fn set_frame_state(&mut self, _state: call_frame::FrameState) -> Result<()> {
         Err(call_frame::FrameError::Unavailable.into())
+    }
+    /// Deliberate source-cited original bug, never a generic stack-read waiver.
+    /// Implementations validate the exact current own-frame occurrence before
+    /// exposing unchanged entry residue. Unsupported platforms never read RAM.
+    fn read_uninitialized_local(
+        &mut self,
+        read: stack_read::UninitializedLocalRead,
+    ) -> Result<u32> {
+        self.check_mmio_contract()?;
+        Err(stack_read::Unsupported::unavailable(read).into())
     }
     /// Run an original callee at an already materialized entry SP, consuming its
     /// actual RTS without synthesizing another argument area.
