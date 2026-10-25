@@ -493,12 +493,12 @@ impl Session {
         }
         for floor in self.world.floors() {
             match &floor.spec {
-                FloorSpec::Expanded(_) if self.config.generator != GeneratorId::ExpandedV1 => {
+                FloorSpec::Imported(spec) => self.config.validate_import(spec)?,
+                spec if spec.generator() != self.config.generator => {
                     return Err(Error::State(
-                        "ExpandedV1 floor cannot satisfy a different generator capability",
+                        "floor cannot satisfy the selected generator capability",
                     ));
                 }
-                FloorSpec::Imported(spec) => self.config.validate_import(spec)?,
                 _ => {}
             }
             if floor.generated.population.earthlings.len()
