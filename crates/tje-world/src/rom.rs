@@ -274,8 +274,8 @@ impl<B: Bus + ?Sized> RomResources<'_, B> {
         self.word(rom::fixed_world_seeds(self.revision).address() + u32::from(level.get()) * 2)
     }
 }
-impl<B: Bus + ?Sized> crate::loading::CellSource for SpecialRomSource<'_, '_, B> {
-    fn cell(&self, index: usize) -> Result<crate::loading::SourceCell> {
+impl<B: Bus + ?Sized> SpecialRomSource<'_, '_, B> {
+    fn raw_word(&self, index: usize) -> Result<u16> {
         use crate::loading::SpecialFloor;
         if index >= crate::Dimensions::ORIGINAL.area() {
             return Err(Error::Bounds("special floor cell"));
@@ -284,7 +284,7 @@ impl<B: Bus + ?Sized> crate::loading::CellSource for SpecialRomSource<'_, '_, B>
         let column = index % 19;
         let resources = self.resources;
         let revision = resources.revision;
-        let word = match self.kind {
+        Ok(match self.kind {
             SpecialFloor::Zero if (12..17).contains(&row) && (9..13).contains(&column) => {
                 u16::from(resources.byte(
                     rom::level0_map_data(revision).address() + ((row - 12) * 4 + column - 9) as u32,
@@ -297,12 +297,117 @@ impl<B: Bus + ?Sized> crate::loading::CellSource for SpecialRomSource<'_, '_, B>
             SpecialFloor::Final => {
                 resources.word(rom::funkatron_map_data(revision).address() + index as u32 * 2)?
             }
-        };
+        })
+    }
+}
+impl<B: Bus + ?Sized> crate::loading::CellSource for SpecialRomSource<'_, '_, B> {
+    fn cell(&self, index: usize) -> Result<crate::loading::SourceCell> {
+        let word = self.raw_word(index)?;
         Ok(crate::loading::SourceCell {
             cell: Cell::from_word(word & 0x1fff)?,
             directions: 0,
             marked: word & 0x4000 != 0,
             alternate: word & 0x8000 != 0,
         })
+    }
+}
+
+impl<B: Bus + ?Sized> crate::original::resources::OriginalResources for RomResources<'_, B> {
+    fn original_revision(&self) -> crate::original::OriginalRevision {
+        self.revision.into()
+    }
+    fn original_shape(&self, bank: crate::original::resources::ShapeBank, index: u8) -> Result<u8> {
+        use crate::original::resources::ShapeBank;
+        let tables = rom::map_generation_lookup_tables(self.revision);
+        let (address, limit) = match bank {
+            ShapeBank::Path => (tables.tiles().address(), 16),
+            ShapeBank::EdgePlain => (tables.edge_plain().address(), 20),
+            ShapeBank::EdgeAlternate => (tables.edge_alternate().address(), 20),
+            ShapeBank::FilledPlain => (tables.filled_plain().address(), 32),
+            ShapeBank::FilledAlternate => (tables.filled_alternate().address(), 32),
+            ShapeBank::BoundaryPlain => {
+                (rom::map_boundary_shapes_plain(self.revision).address(), 20)
+            }
+            ShapeBank::BoundaryAlternate => (
+                rom::map_boundary_shapes_alternate(self.revision).address(),
+                20,
+            ),
+        };
+        if index >= limit {
+            return Err(Error::Resource("OriginalV1 shape table index"));
+        }
+        let value = self.byte(address + u32::from(index))?;
+        if value >= 98 {
+            return Err(Error::Resource("OriginalV1 shape identity"));
+        }
+        Ok(value)
+    }
+    fn original_turn(&self, direction: u8, choice: u8) -> Result<u8> {
+        if ![1, 2, 4, 8].contains(&direction) || !(1..=3).contains(&choice) {
+            return Err(Error::Resource("OriginalV1 turn lookup"));
+        }
+        let value = self.byte(
+            rom::map_path_turn_directions(self.revision).address()
+                + u32::from(direction)
+                + u32::from(choice),
+        )?;
+        if ![1, 2, 4, 8].contains(&value) {
+            return Err(Error::Resource("OriginalV1 turn direction"));
+        }
+        Ok(value)
+    }
+    fn original_transition_contains(&self, shape: u8, descriptor: u8) -> Result<bool> {
+        if !(1..=16).contains(&descriptor) {
+            return Err(Error::Resource("OriginalV1 transition descriptor"));
+        }
+        let address = rom::map_transition_descriptors(self.revision).address()
+            + u32::from(descriptor - 1) * 10;
+        let shapes = self.pointer(address + 2)?;
+        let count = self.byte(shapes)?;
+        if count == 0 || count > 64 {
+            return Err(Error::Resource("OriginalV1 transition shape count"));
+        }
+        self.range(shapes + 1, usize::from(count))?;
+        for index in 0..u32::from(count) {
+            if self.byte(shapes + 1 + index)? == shape {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    fn original_special_word(
+        &self,
+        floor: crate::loading::SpecialFloor,
+        index: usize,
+    ) -> Result<u16> {
+        self.special_source(floor).raw_word(index)
+    }
+    fn original_level1_item(&self, index: u8) -> Result<(i32, i32)> {
+        if index >= 12 {
+            return Err(Error::Resource("OriginalV1 first floor item index"));
+        }
+        let position = rom::level1_present_locations(self.revision).at(i32::from(index));
+        Ok((
+            i32::from(self.word(position.x().address())? as i16),
+            i32::from(self.word(position.y().address())? as i16),
+        ))
+    }
+    fn original_present_weight(&self, index: u8) -> Result<u8> {
+        if index >= 27 {
+            return Err(Error::Resource("OriginalV1 present weight index"));
+        }
+        self.byte(rom::present_weight_table(self.revision).address() + u32::from(index))
+    }
+    fn original_large_excluded(&self, word: u16) -> Result<bool> {
+        for index in 0..23 {
+            if i16::from(
+                self.byte(rom::large_item_excluded_terrain_ids(self.revision).address() + index)?
+                    as i8,
+            ) == (word & 127) as i16
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }

@@ -165,8 +165,8 @@ pub struct SourceCell {
 impl SourceCell {
     pub fn validate(self) -> Result<()> {
         self.cell.validate()?;
-        if self.directions > 15 || (self.directions != 0 && !self.marked) {
-            return Err(Error::State("imported path direction/mark"));
+        if self.directions > 15 {
+            return Err(Error::State("imported path directions"));
         }
         Ok(())
     }

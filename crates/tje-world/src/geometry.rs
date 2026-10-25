@@ -147,8 +147,8 @@ impl Anchors {
     pub fn validate(&self, dimensions: Dimensions) -> Result<()> {
         self.arrival.index(dimensions)?;
         self.exit.index(dimensions)?;
-        if self.arrival == self.exit || self.regions.len() > 8 {
-            return Err(Error::State("anchor separation/count"));
+        if self.regions.len() > 8 {
+            return Err(Error::State("anchor count"));
         }
         if let Some(position) = self.ship_piece {
             position.index(dimensions)?;

@@ -831,3 +831,64 @@ fn simultaneous_disjoint_loading_and_level_qualified_exclusions_keep_floors_inde
     );
     world.validate().unwrap();
 }
+
+#[test]
+fn sparse_original_item_and_actor_ids_do_not_alias_vector_positions() {
+    let dimensions = Dimensions::ORIGINAL;
+    let mut records = population(dimensions);
+    records.items.retain(|item| [3, 31].contains(&item.id));
+    records.budget.items = 2;
+    records.earthlings.retain(|actor| actor.id == 63);
+    records.budget.earthlings = 1;
+    records.collected.insert(31).unwrap();
+    records.removed.insert(63).unwrap();
+    records.validate(dimensions).unwrap();
+    let bytes = bincode::encode_to_vec(&records, codec()).unwrap();
+    let (restored, _): (Population, usize) = bincode::decode_from_slice(&bytes, codec()).unwrap();
+    assert_eq!(restored, records);
+    records.collected.insert(27).unwrap();
+    assert!(records.validate(dimensions).is_err());
+}
+
+#[test]
+fn stock_floor_zero_items_feed_shared_sparse_persistence_without_a_ram_bank() {
+    use tje_world::original::{
+        geometry::{OriginalGeometry, OriginalSpec},
+        items::{OriginalItems, StockSpecialPositions},
+    };
+    let dimensions = Dimensions::ORIGINAL;
+    let geometry = OriginalGeometry {
+        spec: OriginalSpec {
+            revision: tje_world::original::OriginalRevision::Rev02,
+            rom_sha1: [0; 20],
+            level: id(0),
+            seed: 0,
+            ambient_rng: 12345,
+            directional_path_mode: false,
+        },
+        accepted_seed: 0,
+        accepted_attempt: 0,
+        ambient_rng_after: 12345,
+        geometry: geometry(dimensions),
+        anchors: [CellPosition::default(); 8],
+        anchor_count: 0,
+        flags: vec![0; dimensions.area()],
+        walkable_tiles: dimensions.area() as u32 * 128,
+    };
+    let specials = StockSpecialPositions {
+        positions: [None; 2],
+        mail_order: true,
+        failed: 0,
+    };
+    let content = OriginalItems::new(&geometry, true, specials)
+        .unwrap()
+        .finish(&geometry)
+        .unwrap();
+    let mut records = content.population(&geometry, vec![]).unwrap();
+    assert_eq!(
+        records.items.iter().map(|item| item.id).collect::<Vec<_>>(),
+        vec![28, 29, 30]
+    );
+    records.collected.insert(29).unwrap();
+    records.validate(dimensions).unwrap();
+}

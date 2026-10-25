@@ -307,10 +307,14 @@ impl LandState {
         }
         self.marked.validate(self.dimensions.area() as u16)?;
         self.alternate.validate(self.dimensions.area() as u16)?;
-        for (index, directions) in geometry.path_state().iter().enumerate() {
-            if *directions != 0 && !self.marked.contains(index as u16) {
-                return Err(Error::State("unmarked live path directions"));
-            }
+        // Original directional-path mode may retain bank directions without a
+        // live-collapse mark. Marks, not the presence of directions, own work.
+        if geometry
+            .path_state()
+            .iter()
+            .any(|direction| *direction > 15)
+        {
+            return Err(Error::State("land path directions"));
         }
         if let Some(collapse) = &self.collapse {
             collapse.start.index(self.dimensions)?;

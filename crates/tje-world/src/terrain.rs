@@ -346,8 +346,13 @@ impl PlacementSearch {
                     self.start = (row * u32::from(self.dimensions.width()) + column) as u16;
                 }
                 (
-                    ((u32::from(self.start) + u32::from(self.scanned))
-                        % self.dimensions.area() as u32) as u16,
+                    (((self.start / self.dimensions.width()
+                        + self.scanned / self.dimensions.width())
+                        % self.dimensions.height())
+                        * self.dimensions.width()
+                        + (self.start % self.dimensions.width()
+                            + self.scanned % self.dimensions.width())
+                            % self.dimensions.width()),
                     false,
                 )
             };

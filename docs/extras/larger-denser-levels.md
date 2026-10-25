@@ -197,6 +197,48 @@ land traversal and saved phone/doorway continuations. These are service tests,
 not a four-pad native/browser campaign receipt. The aggregate phase bridge,
 player/AI/UI/render integrations and complete admission evidence remain S6's gate.
 
+### OriginalV1 stock source and private semantic evidence
+
+Stock co-op requires `GeneratorId::OriginalV1`, not ExpandedV1 at 19×26.
+`original::geometry::OriginalGeneration` lifts the readable original anchor,
+path-carving, region-growth/merge, connectivity, filled/edge/path shape,
+feature, transition-chain and alternative algorithms over owned scratch and
+shared final level records. Its revision, requested and accepted seed, attempt,
+scoped RNG and explicit DFS continuations are saved. Work advances in bounded
+1–1024-unit slices; the original retry draw order is retained, while exhaustion
+rejects instead of publishing an invalid candidate. Original dimensions are not
+silently stretched. Floors 0, 1 and 26 use the revision-bound authored source.
+
+`OriginalRng` preserves `StackBasedRandom` normalization and the original wrapping
+Park–Miller step. `CampaignSeeds` imports fixed words or performs the original
+26 draws. `original::items::OriginalItems` retains original 12/16-plus-level
+ordinary counts, weighted logical present identities, food/buck choices,
+first-floor restrictions, exact placement order and slots 28–31. Empty slots
+remain holes in the stable-ID domain. Its shared `StockSpecialPositions` owns
+the seeded mailbox/ship prefix and large-item clearance; the AI catalogue wraps
+those positions rather than maintaining another placement algorithm.
+
+The aggregate owns and snapshots these source jobs and their accepted identity,
+then feeds `OriginalGeometry` through the existing `CellSource`/`ImportJob`.
+`OriginalContent::population` preserves original item slots and accepts the real
+AI owner's bounded persistent actor records; it never fabricates actors or
+widens original RAM banks. S3's stock resolver imports item definitions from the
+user's ROM. Source completion is not a profile/admission exception.
+
+The private `proof/original.rs` harness executed the original cartridge
+instructions through `tje-engine-runtime::Engine` with the IR oracle backend.
+Both REV 00 and REV 02 covered floors 0–26: fixed seeds throughout, plus authored
+0/42/65535 seeds for every ordinary floor. All **198 cases** matched **97,812
+raw map words**, **97,812 low path nibbles**, accepted seeds/anchors and **6,336
+item slots** (5,550 active items' kind, level and positions). The original
+engines executed 871,177,992 instructions. Source jobs round-tripped at phase
+boundaries and geometry matched with work quanta 1 and 256. Only metadata/hash
+receipts were written privately; no map, item table, snapshot or image is public.
+The exercised stock baseline is two original players with directional-path mode
+off. This is semantic generation evidence, **not** cycle equivalence, item-record
+padding equality, four-pad gameplay, native/wasm parity or campaign admission.
+
+
 The original design and uncompleted shipping acceptance requirements follow.
 
 

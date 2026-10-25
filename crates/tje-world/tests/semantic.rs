@@ -327,3 +327,26 @@ fn special_rom_sources_read_authored_extents_in_both_revisions_without_ram_banks
         );
     }
 }
+
+#[test]
+fn original_scoped_rng_matches_readable_seed_normalization_and_every_draw() {
+    use tje_world::original::OriginalRng;
+    for revision in Revision::ALL {
+        for seed in [0, 1, 42, 65535, u32::MAX, 0x8000_0000, 0x7fff_ffff] {
+            let mut source = Observation::new(revision);
+            ram::g_rng_state(revision)
+                .write(&mut source, tje_game::map::normalize_seed(seed as i32));
+            let mut generalized = OriginalRng::new(seed);
+            for _ in 0..128 {
+                let observed = tje_game::map::get_random_number(&mut source, &[])
+                    .unwrap()
+                    .unwrap() as u16;
+                assert_eq!(generalized.next_u16(), observed);
+                assert_eq!(
+                    generalized.state(),
+                    ram::g_rng_state(revision).read(&source)
+                );
+            }
+        }
+    }
+}

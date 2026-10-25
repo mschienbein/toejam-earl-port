@@ -3,6 +3,12 @@
 use crate::{Error, LevelId, Result, random::Random16};
 use bincode::{Decode, Encode};
 
+pub mod geometry;
+mod growth;
+pub mod items;
+pub mod resources;
+mod shapes;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum OriginalRevision {
     Rev00,

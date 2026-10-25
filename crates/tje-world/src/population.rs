@@ -188,17 +188,27 @@ impl Population {
         }
         self.collected.validate(MAX_ITEMS as u16)?;
         self.removed.validate(MAX_EARTHLINGS as u16)?;
-        if (self.items.len() as u16..MAX_ITEMS as u16).any(|id| self.collected.contains(id))
-            || (self.earthlings.len() as u16..MAX_EARTHLINGS as u16)
-                .any(|id| self.removed.contains(id))
-        {
+        if (0..MAX_ITEMS as u16).any(|id| {
+            self.collected.contains(id)
+                && self
+                    .items
+                    .binary_search_by_key(&id, |record| record.id)
+                    .is_err()
+        }) || (0..MAX_EARTHLINGS as u16).any(|id| {
+            self.removed.contains(id)
+                && self
+                    .earthlings
+                    .binary_search_by_key(&id, |record| record.id)
+                    .is_err()
+        }) {
             return Err(Error::State(
                 "collection/removal ID has no persistent record",
             ));
         }
         for (actors, list) in [(false, &self.items), (true, &self.earthlings)] {
             for (index, placement) in list.iter().enumerate() {
-                if usize::from(placement.id) != index
+                if usize::from(placement.id) >= if actors { MAX_EARTHLINGS } else { MAX_ITEMS }
+                    || (index > 0 && list[index - 1].id >= placement.id)
                     || dimensions.world_cell(placement.x, placement.y).is_none()
                     || !placement.ai_rng.valid()
                     || actors
@@ -212,7 +222,7 @@ impl Population {
                                 placement.role,
                                 PlacementRole::Service | PlacementRole::ShipPiece
                             ))
-                    || (actors && placement.role == PlacementRole::Mailbox && index != 0)
+                    || (actors && placement.role == PlacementRole::Mailbox && placement.id != 0)
                 {
                     return Err(Error::State("stable placement identity/position/role"));
                 }
