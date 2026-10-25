@@ -359,7 +359,7 @@ fn loading_generation_cancel_failure_and_cohort_commit_are_atomic() {
     let saved = world.clone();
     assert!(journey.commit(&mut world, &Synthetic, &[]).is_err());
     assert_eq!(world, saved);
-    journey.cancel().unwrap();
+    journey.cancel(&mut world).unwrap();
     journey.validate(&world).unwrap();
     world.request_load(id(4), baseline()).unwrap();
     world.advance_loading(&Synthetic, 17).unwrap();
@@ -668,4 +668,166 @@ fn unsafe_landing_failure_leaves_all_four_sources_unchanged() {
     assert_eq!(journey.failure(), Some(TravelFailure::NoLanding));
     assert_eq!(world, before);
     journey.validate(&world).unwrap();
+}
+
+#[test]
+fn every_journey_phase_roundtrips_and_duplicate_ticks_do_not_advance() {
+    let mut world = WorldState::new(config()).unwrap();
+    import(&mut world, id(2), Dimensions::EXPANDED);
+    world.set_active(0, id(2)).unwrap();
+    let mut journey = Journey::new(
+        &world,
+        TravelKind::Elevator,
+        timing(),
+        [
+            Some(Destination {
+                level: id(3),
+                landing: Landing::Arrival,
+            }),
+            None,
+            None,
+            None,
+        ],
+        0,
+    )
+    .unwrap();
+    let mut seen = [false; 8];
+    for tick in 0..100_000 {
+        seen[journey.phase() as usize] = true;
+        let bytes = bincode::encode_to_vec((&world, &journey), codec()).unwrap();
+        let ((restored_world, restored_journey), used): ((WorldState, Journey), usize) =
+            bincode::decode_from_slice(&bytes, codec()).unwrap();
+        assert_eq!(used, bytes.len());
+        restored_world.validate().unwrap();
+        restored_journey.validate(&restored_world).unwrap();
+        world = restored_world;
+        journey = restored_journey;
+        journey
+            .advance(&mut world, &Synthetic, baseline(), tick, 127, &[])
+            .unwrap();
+        let before = (world.clone(), journey.clone());
+        journey
+            .advance(&mut world, &Synthetic, baseline(), tick, 127, &[])
+            .unwrap();
+        assert_eq!((&world, &journey), (&before.0, &before.1));
+        if journey.phase() == TravelPhase::Ready {
+            journey.commit(&mut world, &Synthetic, &[]).unwrap();
+            seen[TravelPhase::Ready as usize] = true;
+        }
+        if journey.phase() == TravelPhase::Complete {
+            seen[TravelPhase::Complete as usize] = true;
+            break;
+        }
+    }
+    assert_eq!(&seen[..7], &[true; 7]);
+    assert!(!seen[TravelPhase::Failed as usize]);
+}
+
+#[test]
+fn cancelled_journey_discards_only_its_unpublished_load_and_remains_restorable() {
+    let mut world = WorldState::new(config()).unwrap();
+    import(&mut world, id(2), Dimensions::EXPANDED);
+    world.set_active(0, id(2)).unwrap();
+    let mut journey = Journey::new(
+        &world,
+        TravelKind::Reenter,
+        timing(),
+        [
+            Some(Destination {
+                level: id(3),
+                landing: Landing::Search,
+            }),
+            None,
+            None,
+            None,
+        ],
+        0,
+    )
+    .unwrap();
+    for tick in 0..3 {
+        journey
+            .advance(&mut world, &Synthetic, baseline(), tick, 1, &[])
+            .unwrap();
+    }
+    assert!(world.pending().is_some());
+    let floors = world.floors().to_vec();
+    let active = *world.active();
+    journey.cancel(&mut world).unwrap();
+    assert!(world.pending().is_none());
+    assert!(world.floor(id(3)).is_none());
+    assert_eq!(world.floors(), floors);
+    assert_eq!(*world.active(), active);
+    journey.validate(&world).unwrap();
+    let bytes = bincode::encode_to_vec(&journey, codec()).unwrap();
+    let (restored, _): (Journey, usize) = bincode::decode_from_slice(&bytes, codec()).unwrap();
+    restored.validate(&world).unwrap();
+    world.request_load(id(4), baseline()).unwrap();
+    let pending = world.pending().unwrap().clone();
+    let mut unrelated = Journey::new(
+        &world,
+        TravelKind::Reenter,
+        timing(),
+        [
+            Some(Destination {
+                level: id(3),
+                landing: Landing::Search,
+            }),
+            None,
+            None,
+            None,
+        ],
+        0,
+    )
+    .unwrap();
+    unrelated.cancel(&mut world).unwrap();
+    assert_eq!(world.pending(), Some(&pending));
+}
+
+#[test]
+fn simultaneous_disjoint_loading_and_level_qualified_exclusions_keep_floors_independent() {
+    use tje_world::terrain::Exclusion;
+    let mut world = WorldState::new(config()).unwrap();
+    for seat in 0..4 {
+        import(&mut world, id(seat as u16 + 2), Dimensions::EXPANDED);
+        world.set_active(seat, id(seat as u16 + 2)).unwrap();
+    }
+    let mut journeys: [Journey; 4] = std::array::from_fn(|seat| {
+        let mut destinations = [None; 4];
+        destinations[seat] = Some(Destination {
+            level: id(seat as u16 + 6),
+            landing: Landing::Arrival,
+        });
+        Journey::new(&world, TravelKind::Reenter, timing(), destinations, 0).unwrap()
+    });
+    // Identical coordinates on a dormant unrelated level must block no arrival.
+    let exclusions = [Exclusion {
+        level: id(2),
+        x: 0,
+        y: 0,
+        half_width: u16::MAX,
+        half_height: u16::MAX,
+    }];
+    for tick in 0..100_000 {
+        for journey in &mut journeys {
+            if journey.committed() {
+                continue;
+            }
+            journey
+                .advance(&mut world, &Synthetic, baseline(), tick, 127, &exclusions)
+                .unwrap();
+            assert_ne!(journey.phase(), TravelPhase::Failed);
+            if journey.phase() == TravelPhase::Ready {
+                journey.commit(&mut world, &Synthetic, &exclusions).unwrap();
+            }
+        }
+        if journeys.iter().all(Journey::committed) {
+            break;
+        }
+    }
+    assert!(journeys.iter().all(Journey::committed));
+    assert_eq!(
+        *world.active(),
+        [Some(id(6)), Some(id(7)), Some(id(8)), Some(id(9))]
+    );
+    world.validate().unwrap();
 }

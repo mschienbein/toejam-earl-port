@@ -110,6 +110,37 @@ impl LandState {
             .index(self.dimensions)
             .is_ok_and(|index| self.marked.contains(index as u16))
     }
+    pub fn alternate(&self, position: CellPosition) -> bool {
+        position
+            .index(self.dimensions)
+            .is_ok_and(|index| self.alternate.contains(index as u16))
+    }
+    pub(crate) fn set_flags(
+        &mut self,
+        position: CellPosition,
+        marked: bool,
+        alternate: bool,
+    ) -> Result<()> {
+        let index = position.index(self.dimensions)? as u16;
+        if marked {
+            self.marked.insert(index)?;
+        } else {
+            self.marked.remove(index)?;
+        }
+        if alternate {
+            self.alternate.insert(index)?;
+        } else {
+            self.alternate.remove(index)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn validate_import(&self, dimensions: Dimensions) -> Result<()> {
+        if self.dimensions != dimensions || self.collapse.is_some() || self.last_change.is_some() {
+            return Err(Error::State("import land extent/continuation"));
+        }
+        self.marked.validate(dimensions.area() as u16)?;
+        self.alternate.validate(dimensions.area() as u16)
+    }
     pub fn busy(&self) -> bool {
         self.collapse.is_some()
     }

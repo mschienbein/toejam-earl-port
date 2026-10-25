@@ -1,5 +1,7 @@
 //! Semantic observations are captured from the readable Rust bodies over an
 //! authored synthetic ROM in each revision. No retail tables or map are fixtures.
+#![cfg(feature = "enhanced-mode")]
+
 use tje_game::{Context, Dispatcher, FunctionId, ids};
 use tje_mem::{AddressSpace, Bus, Revision, ram, rom};
 use tje_world::{

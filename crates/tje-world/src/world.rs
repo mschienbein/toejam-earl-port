@@ -75,9 +75,8 @@ impl StoredFloor {
     pub fn replace_cell(&mut self, position: CellPosition, cell: Cell, path: u8) -> Result<()> {
         let index = position.index(self.generated.geometry.dimensions())?;
         self.generated.geometry.replace_cell(position, cell, path)?;
-        if path != 0 {
-            self.land.mark(position, false)?;
-        }
+        self.land
+            .set_flags(position, path != 0, self.land.alternate(position))?;
         self.dirty_cells.insert(index as u16)?;
         Ok(())
     }
@@ -387,10 +386,10 @@ impl WorldState {
             if (cohort & (1 << seat) != 0) != destination.is_some() {
                 return Err(Error::State("cohort destination mask"));
             }
-            if let Some(level) = destination {
-                if self.active[seat].is_none() || self.floor(*level).is_none() {
-                    return Err(Error::State("cohort source/destination is absent"));
-                }
+            if let Some(level) = destination
+                && (self.active[seat].is_none() || self.floor(*level).is_none())
+            {
+                return Err(Error::State("cohort source/destination is absent"));
             }
         }
         Ok(())

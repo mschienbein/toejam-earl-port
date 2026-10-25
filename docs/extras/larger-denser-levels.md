@@ -111,7 +111,7 @@ reservations; they are not a promise that every maximum fits simultaneously.
 The S1 session reservation accounts for progression props as well: its complete
 four-floor maximum request is 1052 actors and rejects before mutation against
 1024. A negotiated 112-item/floor expanded profile reserves 988 actors; stock
-four-disjoint-floor capacity reserves 592, not the earlier 256 proposal.
+four-disjoint-floor capacity reserves 492, not the earlier 256 proposal.
 The canonical codec is fixed-width little-endian bincode with a 4 MiB decoding
 ceiling. Schema/configuration/extent/work invariants validate before standalone
 restore and in enhanced format 3; the changed standalone world sidecar schema is

@@ -22,9 +22,6 @@ tje-rom = { path = "../tje-rom", optional = true }
 png = { version = "0.18", optional = true }
 sha1 = { version = "0.10", optional = true }
 
-[dev-dependencies]
-tje-game = { path = "../tje-game" }
-
 [[example]]
 name = "world-proof"
 required-features = ["private-proof"]

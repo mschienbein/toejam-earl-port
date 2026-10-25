@@ -4,6 +4,16 @@ use sha2::{Digest, Sha256};
 
 const MODULUS: u32 = 2_147_483_647;
 
+/// The small common draw contract does not conflate stock scoped RNG state with
+/// ExpandedV1's independently derived purpose streams.
+pub trait Random16 {
+    fn next_u16(&mut self) -> u16;
+    fn bounded(&mut self, bound: u32) -> u32 {
+        assert!(bound > 0 && bound <= 65_536);
+        u32::from(self.next_u16()) % bound
+    }
+}
+
 /// Park–Miller/Schrage, with a full 31-bit internal state and the original's
 /// low-sixteen-bit public draw. No faithful RNG/cache is read or written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -51,4 +61,8 @@ impl StageRng {
         assert!(bound > 0 && bound <= 65536);
         u32::from(self.next_u16()) % bound
     }
+}
+
+impl Random16 for StageRng {
+    fn next_u16(&mut self) -> u16 { Self::next_u16(self) }
 }

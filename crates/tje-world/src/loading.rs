@@ -53,6 +53,15 @@ pub enum FloorSpec {
     Imported(ImportedFloorSpec),
 }
 impl FloorSpec {
+    pub fn generator(&self) -> crate::GeneratorId {
+        match self {
+            Self::Expanded(_) => crate::GeneratorId::ExpandedV1,
+            Self::Imported(spec) => match spec.kind {
+                ImportKind::Stock | ImportKind::Special(_) => crate::GeneratorId::OriginalV1,
+                ImportKind::Designed { .. } => crate::GeneratorId::DesignedV1,
+            },
+        }
+    }
     pub fn level(&self) -> LevelId {
         match self {
             Self::Expanded(spec) => spec.level,
@@ -285,7 +294,9 @@ pub struct ImportJob {
     spec: ImportSpec,
     identity: [u8; 32],
     digest: [u8; 32],
-    cells: Vec<SourceCell>,
+    cells: Vec<Cell>,
+    directions: Vec<u8>,
+    land: crate::land::LandState,
     walkable_tiles: u32,
     progress: ImportProgress,
 }
@@ -296,6 +307,8 @@ impl ImportJob {
             identity: spec.identity(),
             digest: initial_digest(spec.dimensions),
             cells: Vec::with_capacity(spec.dimensions.area()),
+            directions: Vec::with_capacity(spec.dimensions.area()),
+            land: crate::land::LandState::new(spec.dimensions)?,
             spec,
             walkable_tiles: 0,
             progress: ImportProgress::Loading,
@@ -340,8 +353,15 @@ impl ImportJob {
                     }
                 }
             }
+            let position = self
+                .spec
+                .dimensions
+                .position(self.cells.len())
+                .expect("bounded import cursor");
+            self.land.set_flags(position, cell.marked, cell.alternate)?;
             self.digest = append_digest(self.digest, cell);
-            self.cells.push(cell);
+            self.cells.push(cell.cell);
+            self.directions.push(cell.directions);
             self.walkable_tiles += walkable;
             if self.cells.len() == self.spec.dimensions.area() {
                 self.progress =
@@ -358,16 +378,33 @@ impl ImportJob {
         self.spec.validate()?;
         if self.identity != self.spec.identity()
             || self.cells.len() > self.spec.dimensions.area()
+            || self.directions.len() != self.cells.len()
             || self.walkable_tiles > self.cells.len() as u32 * 128
             || (self.progress == ImportProgress::Loading)
                 != (self.cells.len() < self.spec.dimensions.area())
         {
             return Err(Error::State("import continuation extent/identity/phase"));
         }
+        self.land.validate_import(self.spec.dimensions)?;
         let mut digest = initial_digest(self.spec.dimensions);
-        for cell in &self.cells {
-            cell.validate()?;
-            digest = append_digest(digest, *cell);
+        for index in 0..self.spec.dimensions.area() {
+            let position = self
+                .spec
+                .dimensions
+                .position(index)
+                .expect("bounded import index");
+            if index < self.cells.len() {
+                let cell = SourceCell {
+                    cell: self.cells[index],
+                    directions: self.directions[index],
+                    marked: self.land.marked(position),
+                    alternate: self.land.alternate(position),
+                };
+                cell.validate()?;
+                digest = append_digest(digest, cell);
+            } else if self.land.marked(position) || self.land.alternate(position) {
+                return Err(Error::State("import flags beyond staged cells"));
+            }
         }
         if digest != self.digest
             || (self.progress == ImportProgress::Ready
@@ -387,20 +424,8 @@ impl ImportJob {
         }
         let dimensions = self.spec.dimensions;
         let provenance = self.spec.provenance();
-        let mut land = crate::land::LandState::new(dimensions)?;
-        let mut cells = Vec::with_capacity(dimensions.area());
-        let mut paths = Vec::with_capacity(dimensions.area());
-        for (index, source) in self.cells.into_iter().enumerate() {
-            cells.push(source.cell);
-            paths.push(source.directions);
-            if source.marked {
-                land.mark(
-                    dimensions.position(index).expect("bounded import"),
-                    source.alternate,
-                )?;
-            }
-        }
-        let geometry = LevelGeometry::new(dimensions, cells, paths, self.spec.anchors)?;
+        let geometry =
+            LevelGeometry::new(dimensions, self.cells, self.directions, self.spec.anchors)?;
         let generated = GeneratedLevel {
             identity: self.identity,
             accepted_attempt: 0,
@@ -409,6 +434,6 @@ impl ImportJob {
             runtime_rng: StageRng::derive(&self.identity, self.spec.level, 0, b"runtime-ai"),
             walkable_tiles: self.walkable_tiles,
         };
-        Ok((FloorSpec::Imported(provenance), generated, land))
+        Ok((FloorSpec::Imported(provenance), generated, self.land))
     }
 }

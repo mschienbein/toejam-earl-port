@@ -130,7 +130,7 @@ impl Journey {
             return Err(Error::State("transition empty cohort"));
         }
         let joining = kind == TravelKind::Elevator && timing.join_ticks != 0;
-        Ok(Self {
+        let journey = Self {
             kind,
             timing,
             cohort,
@@ -151,7 +151,9 @@ impl Journey {
             last_tick: None,
             failure: None,
             committed: false,
-        })
+        };
+        journey.validate(world)?;
+        Ok(journey)
     }
     fn validate_link(
         kind: TravelKind,
@@ -187,6 +189,12 @@ impl Journey {
     }
     pub const fn phase(&self) -> TravelPhase {
         self.phase
+    }
+    pub const fn kind(&self) -> TravelKind {
+        self.kind
+    }
+    pub const fn committed(&self) -> bool {
+        self.committed
     }
     pub const fn cohort(&self) -> u8 {
         self.cohort
@@ -226,9 +234,22 @@ impl Journey {
         self.cohort |= 1 << seat;
         Ok(())
     }
-    pub fn cancel(&mut self) -> Result<()> {
+    pub fn cancel(&mut self, world: &mut WorldState) -> Result<()> {
         if self.committed {
             return Err(Error::State("cannot cancel committed travel"));
+        }
+        self.validate(world)?;
+        let loading = world
+            .pending()
+            .map(|pending| pending.spec().level)
+            .or_else(|| world.importing().map(|importing| importing.spec().level));
+        if loading.is_some_and(|level| {
+            self.destinations
+                .iter()
+                .flatten()
+                .any(|destination| destination.level == level)
+        }) {
+            world.cancel_loading();
         }
         self.phase = TravelPhase::Complete;
         self.remaining = 0;
@@ -447,15 +468,29 @@ impl Journey {
     }
     pub fn validate(&self, world: &WorldState) -> Result<()> {
         self.timing.validate()?;
+        let timed = matches!(
+            self.phase,
+            TravelPhase::Joining | TravelPhase::Departing | TravelPhase::Arriving
+        );
+        let maximum_timer = match self.phase {
+            TravelPhase::Joining => self.timing.join_ticks,
+            TravelPhase::Departing => self.timing.departure_ticks,
+            TravelPhase::Arriving => self.timing.arrival_ticks,
+            _ => 0,
+        };
         if self.cohort == 0
             || self.cohort & !15 != 0
             || (self.phase == TravelPhase::Failed) != self.failure.is_some()
-            || self.remaining > 600
+            || self.remaining > maximum_timer
+            || (timed && self.remaining == 0)
+            || (self.phase == TravelPhase::Joining && self.kind != TravelKind::Elevator)
             || (self.committed
                 && !matches!(self.phase, TravelPhase::Arriving | TravelPhase::Complete))
+            || (!self.committed && self.phase == TravelPhase::Arriving)
         {
             return Err(Error::State("transition cohort/phase/timer/failure"));
         }
+        let leader = self.cohort.trailing_zeros() as usize;
         for seat in 0..4 {
             let included = self.cohort & (1 << seat) != 0;
             if included != self.sources[seat].is_some()
@@ -467,6 +502,12 @@ impl Journey {
             if let (Some(source), Some(destination)) = (self.sources[seat], self.destinations[seat])
             {
                 Self::validate_link(self.kind, source, destination, 0x3ff)?;
+                if matches!(self.kind, TravelKind::Elevator | TravelKind::Ship { .. })
+                    && (self.sources[seat] != self.sources[leader]
+                        || self.destinations[seat] != self.destinations[leader])
+                {
+                    return Err(Error::State("elevator/ship cohort spans unrelated routes"));
+                }
                 if world.active()[seat]
                     != Some(if self.committed {
                         destination.level
@@ -476,8 +517,29 @@ impl Journey {
                 {
                     return Err(Error::State("transition source is no longer current"));
                 }
+                let needs_floor = matches!(
+                    self.phase,
+                    TravelPhase::Placing | TravelPhase::Ready | TravelPhase::Arriving
+                ) || self.committed;
+                if needs_floor && world.floor(destination.level).is_none() {
+                    return Err(Error::State("prepared transition destination is absent"));
+                }
+                if matches!(
+                    self.phase,
+                    TravelPhase::Joining | TravelPhase::Departing | TravelPhase::Loading
+                ) && (self.arrivals[seat].is_some() || self.searches[seat].is_some())
+                {
+                    return Err(Error::State("transition prepared landing before loading"));
+                }
                 if let Some(search) = &self.searches[seat] {
                     search.validate()?;
+                    if destination.landing != Landing::Search
+                        || world.floor(destination.level).is_none_or(|floor| {
+                            floor.generated.geometry.dimensions() != search.dimensions()
+                        })
+                    {
+                        return Err(Error::State("transition search destination/extent"));
+                    }
                 }
                 if let Some(arrival) = self.arrivals[seat] {
                     if arrival.level != destination.level
@@ -489,8 +551,15 @@ impl Journey {
                                 .world_cell(arrival.x, arrival.y)
                                 .is_none()
                         })
+                        || self.arrivals[..seat].iter().flatten().any(|prior| {
+                            prior.level == arrival.level
+                                && (i64::from(prior.x) - i64::from(arrival.x)).abs() < 32
+                                && (i64::from(prior.y) - i64::from(arrival.y)).abs() < 16
+                        })
                     {
-                        return Err(Error::State("transition arrival reference/position"));
+                        return Err(Error::State(
+                            "transition arrival reference/position/overlap",
+                        ));
                     }
                 } else if matches!(self.phase, TravelPhase::Ready | TravelPhase::Arriving)
                     || self.committed
