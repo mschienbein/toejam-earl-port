@@ -2010,3 +2010,36 @@ unreviewed command sequences. A command issued before a join can still abort
 the real transfer; the device model is not changed to protect callers from that
 original behavior.
 
+
+## Control-effect data (not execution or proof)
+
+`tje_game::control` defines emulator-independent, constructible **data**:
+`ControlRequest`, `ControlObservation`/`ControlActual`, `ControlSite`,
+`ControlSpan`, `RetryDelayKind` and `ExitObservation`. It adds no Context method,
+runtime hook, execution class, registration or activation.
+
+Sites keep signed root-relative byte offsets, including preceding retry
+fragments. Spans are half-open indices in one original invocation's successful
+**own** retirement lane and physical CPU-issue lane (including prefetch and
+discarded reads), excluding nested callees/ISRs. `epoch_tag` is diagnostic, not
+trusted root or trajectory identity. Commit indices use a separate raw,
+root-invocation-local chronological physical-COMMIT axis, including nested and
+environment commits, not the owning instruction's CPU-issue index.
+
+Requests describe full SR/USP writes, exact fixed-port Z80 BUSREQ/reset words,
+the mandatory PCM24/PSG124 MOVEQ+DBRA work, and an owned-fill join. Observations
+retain requested versus actual operands and relevant before/after values.
+`ExitObservation` reuses `exits::{Exit,ExitContract}` and records full PC/SP/SR,
+stack banks and ordered RTE word-pop data; no parallel exit enum is introduced.
+
+`validate_shape` returns `Result<(), ControlDataError>` for raw consistency only.
+Success grants **no receipt, admission, capability or source authentication**.
+Self-consistent user-constructed data, matching generations/epoch tags and
+plausible frames cannot authenticate actual instructions, entry/return lineage,
+producer stores or an invocation. Private original collection and pre-fork root
+admission are separate requirements.
+
+Authored negative tests and six audio source-requirement fixtures cover these
+data constraints. References to guard sessions and labelled retry perturbations
+do not convert them into natural coverage, body proofs or control-profile
+approval. No ROM driver/sample payload is stored in these fixtures.

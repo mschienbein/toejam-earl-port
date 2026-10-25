@@ -10,6 +10,7 @@ pub mod audio;
 pub mod call_frame;
 pub mod camera;
 pub mod collision;
+pub mod control;
 pub mod core;
 pub mod cutscenes;
 pub mod earthlings;
