@@ -8,6 +8,8 @@
 mod analysis;
 mod facts;
 #[cfg(test)]
+mod output_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -229,6 +231,21 @@ impl DependencyReport {
     }
 }
 
+/// Entry-state bits needed by selected output bits on the last successfully
+/// bound executed path. This is analysis data, not permission to import values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputDependencies {
+    pub pc: u32,
+    pub opcode: u16,
+    pub binding: PathBinding,
+    /// Includes `control_reads`; path controls are never projected away.
+    pub reads: StateMask,
+    pub control_reads: StateMask,
+    /// A demanded value or path control depends on memory. The caller must
+    /// retain its own memory-causality proof; observed values are not constants.
+    pub memory_values: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencyError {
     Compile(CompileError),
@@ -239,6 +256,7 @@ pub enum DependencyError {
     ReadMismatch(usize),
     UnresolvedExecutedRead(usize),
     ArithmeticDomain,
+    OutputQueryUnavailable,
 }
 impl fmt::Display for DependencyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -271,6 +289,7 @@ pub fn analyze_rom_instruction(
     scratch: &mut DependencyScratch,
     report: &mut DependencyReport,
 ) -> Result<(), DependencyError> {
+    scratch.invalidate_outputs();
     report.instruction = InstructionDependencies::default();
     report.uses.clear();
     let instruction = compile_instruction(rom, pc)?;

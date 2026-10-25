@@ -22,6 +22,15 @@ struct Demand {
     bits: u32,
     control: bool,
 }
+#[derive(Clone, Copy, Debug)]
+struct OutputBinding {
+    state: [Option<Value>; StateField::COUNT],
+    pc: u32,
+    opcode: u16,
+    path: PathBinding,
+    controls: StateMask,
+    memory_controls: bool,
+}
 /// Reusable storage, independent of any game, ROM revision or host context.
 #[derive(Debug, Default)]
 pub struct DependencyScratch {
@@ -33,8 +42,49 @@ pub struct DependencyScratch {
     touched: Vec<usize>,
     work: Vec<Demand>,
     taints: Vec<u32>,
+    outputs: Option<OutputBinding>,
+    reads_memory: bool,
+    memory_controls: bool,
+    path_memory_controls: bool,
 }
 impl DependencyScratch {
+    /// Query the last successful `Executed` analysis using its retained SSA
+    /// bindings and observed path. Every actual path control is retained.
+    /// Conservative/Entry analyses and non-unique exits fail closed. Reusing
+    /// scratch for any analysis invalidates the old binding, including errors.
+    pub fn output_reads(
+        &mut self,
+        field: StateField,
+        bits: u32,
+    ) -> Result<OutputDependencies, DependencyError> {
+        let index = field_index(field)?;
+        let value = self
+            .outputs
+            .as_ref()
+            .ok_or(DependencyError::OutputQueryUnavailable)?
+            .state[index];
+        let (reads, controls, memory) = if let Some(value) = value {
+            let (reads, controls) = self.reads(value, bits, false);
+            (reads, controls, self.reads_memory)
+        } else {
+            (StateMask::single(field, bits), StateMask::EMPTY, false)
+        };
+        let output = self
+            .outputs
+            .as_ref()
+            .expect("read demand retains its successful binding");
+        Ok(OutputDependencies {
+            pc: output.pc,
+            opcode: output.opcode,
+            binding: output.path,
+            reads: reads | output.controls,
+            control_reads: controls | output.controls,
+            memory_values: memory || output.memory_controls,
+        })
+    }
+    pub(super) fn invalidate_outputs(&mut self) {
+        self.outputs = None;
+    }
     fn prepare(&mut self, count: usize) -> Result<(), DependencyError> {
         if u32::try_from(count)
             .ok()
@@ -58,6 +108,7 @@ impl DependencyScratch {
         self.taints.resize(count, 0);
         self.touched.clear();
         self.work.clear();
+        self.path_memory_controls = false;
         self.touched.reserve(count);
         self.work.reserve(count);
         Ok(())
@@ -121,6 +172,8 @@ impl DependencyScratch {
             self.control_demands[index] = 0;
         }
         self.work.clear();
+        self.reads_memory = false;
+        self.memory_controls = false;
         self.mark(value, bits, control);
         let mut data = StateMask::EMPTY;
         let mut controls = StateMask::EMPTY;
@@ -132,7 +185,11 @@ impl DependencyScratch {
         {
             match self.nodes[value.0 as usize] {
                 Node::Empty => unreachable!("validated SSA demand"),
-                Node::Constant | Node::Memory => {}
+                Node::Constant => {}
+                Node::Memory => {
+                    self.reads_memory = true;
+                    self.memory_controls |= control;
+                }
                 Node::Entry(field) => {
                     if control {
                         controls.insert(field, bits)
@@ -246,6 +303,7 @@ impl DependencyScratch {
             return;
         }
         let (reads, control_reads) = self.reads(value, bits, control);
+        self.path_memory_controls |= self.memory_controls;
         report.instruction.reads |= reads;
         report.instruction.effect_reads |= control_reads;
         if !matches!(kind, DependencyUseKind::PreservedState { .. }) {
@@ -402,12 +460,14 @@ pub(super) fn analyze(
     scratch: &mut DependencyScratch,
     report: &mut DependencyReport,
 ) -> Result<(), DependencyError> {
+    scratch.invalidate_outputs();
     report.instruction = InstructionDependencies::default();
     report.uses.clear();
     let result = analyze_inner(instruction, input, scratch, report);
     if result.is_err() {
         report.instruction = InstructionDependencies::default();
         report.uses.clear();
+        scratch.invalidate_outputs();
     }
     result
 }
@@ -438,6 +498,7 @@ fn analyze_inner(
     }
     scratch.prepare(instruction.value_count as usize)?;
     let mut state = [None; StateField::COUNT];
+    let mut output_state = None;
     let mut reads_consumed = 0;
     let mut reachable = true;
     let mut exits = 0;
@@ -698,6 +759,9 @@ fn analyze_inner(
                             exit_masks(&state, scratch, before, report.instruction.physical_writes);
                         definite = definite & here_defined;
                         preserved = preserved & here_preserved;
+                        if observations.is_some() {
+                            output_state = if exits == 0 { Some(state) } else { None };
+                        }
                         exits += 1;
                     }
                     if take.is_some_and(|value| value != 0) {
@@ -725,6 +789,9 @@ fn analyze_inner(
                         exit_masks(&state, scratch, before, report.instruction.physical_writes);
                     definite = definite & here_defined;
                     preserved = preserved & here_preserved;
+                    if observations.is_some() {
+                        output_state = if exits == 0 { Some(state) } else { None };
+                    }
                     exits += 1;
                 }
             }
@@ -753,6 +820,22 @@ fn analyze_inner(
             addresses,
         },
     };
+    if matches!(input, DependencyInput::Executed { .. })
+        && exits == 1
+        && let Some(state) = output_state
+    {
+        scratch.outputs = Some(OutputBinding {
+            state,
+            pc: instruction.pc,
+            opcode: instruction.opcode,
+            path: report.instruction.binding,
+            controls: report
+                .uses
+                .iter()
+                .fold(StateMask::EMPTY, |mask, use_| mask | use_.control_reads),
+            memory_controls: scratch.path_memory_controls,
+        });
+    }
     Ok(())
 }
 fn rhs_value_zero_divisor(op: BinaryOp, rhs: &Fact) -> bool {
