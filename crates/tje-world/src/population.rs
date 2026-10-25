@@ -107,6 +107,17 @@ impl StableBits {
         self.words[usize::from(id / 64)] |= 1 << (id % 64);
         Ok(!old)
     }
+    pub fn remove(&mut self, id: u16) -> Result<bool> {
+        if id >= self.limit {
+            return Err(Error::Bounds("stable entity ID"));
+        }
+        let old = self.contains(id);
+        self.words[usize::from(id / 64)] &= !(1 << (id % 64));
+        Ok(old)
+    }
+    pub fn count(&self) -> u32 {
+        self.words.iter().map(|word| word.count_ones()).sum()
+    }
     pub fn validate(&self, limit: u16) -> Result<()> {
         if limit > 64 * 64 {
             return Err(Error::Bounds("stable bitset extent"));

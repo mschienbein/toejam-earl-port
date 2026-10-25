@@ -1,7 +1,7 @@
 use tje_world::generation::{Generation, GenerationSpec, Phase};
 use tje_world::population::{PopulationBaseline, PopulationBudget, StableBits};
 use tje_world::random::StageRng;
-use tje_world::world::{TransitionKind, WorldState, codec, decode};
+use tje_world::world::{WorldState, codec, decode};
 use tje_world::{
     Cell, Density, Dimensions, Error, LevelId, LevelSize, Resources, Result, Shape, WorldConfig,
 };
@@ -411,21 +411,23 @@ fn leave_elevator_fall_reenter_and_snapshot_preserve_all_floor_deltas() {
     assert!(floor.discovery.visit(x, y, Dimensions::EXPANDED).unwrap());
     assert!(!floor.discovery.visit(x, y, Dimensions::EXPANDED).unwrap());
     let drop_id = world.drop_item(id(2), x, y, 5).unwrap();
-    world
-        .request_transition(0, id(3), TransitionKind::ElevatorUp, baseline())
-        .unwrap();
+    world.request_load(id(3), baseline()).unwrap();
     assert_eq!(world.active()[0], Some(id(2)));
-    assert!(world.commit_transition().is_err());
+    assert!(
+        world
+            .commit_cohort(1, [Some(id(3)), None, None, None])
+            .is_err()
+    );
     while world.pending().is_some() {
         world.advance_loading(&Solid, 1024).unwrap();
     }
-    world.commit_transition().unwrap();
+    world
+        .commit_cohort(1, [Some(id(3)), None, None, None])
+        .unwrap();
     assert_eq!(world.active()[0], Some(id(3)));
     world
-        .request_transition(0, id(2), TransitionKind::Fall, baseline())
+        .commit_cohort(1, [Some(id(2)), None, None, None])
         .unwrap();
-    assert!(world.pending().is_none());
-    world.commit_transition().unwrap();
     for level in 4..=7 {
         assert_eq!(load(&mut world, id(level), &Solid), Phase::Complete);
     }
@@ -433,9 +435,8 @@ fn leave_elevator_fall_reenter_and_snapshot_preserve_all_floor_deltas() {
     let mut restored = decode(&bytes, &configuration).unwrap();
     assert_eq!(restored, world);
     restored
-        .request_transition(0, id(2), TransitionKind::Reenter, baseline())
+        .commit_cohort(1, [Some(id(2)), None, None, None])
         .unwrap();
-    restored.commit_transition().unwrap();
     let floor = restored.floor(id(2)).unwrap();
     assert_eq!(
         floor
@@ -474,9 +475,10 @@ fn failed_load_and_special_transition_leave_playable_floors_and_seats_intact() {
     assert_eq!(*world.active(), active);
     assert_eq!(world.last_failure().unwrap().attempts, 64);
     let before = bincode::encode_to_vec(&world, codec()).unwrap();
-    assert_eq!(
-        world.request_transition(0, id(1), TransitionKind::Fall, baseline()),
-        Err(Error::OwnershipClosure)
+    assert!(
+        world
+            .commit_cohort(1, [Some(id(1)), None, None, None])
+            .is_err()
     );
     assert_eq!(bincode::encode_to_vec(&world, codec()).unwrap(), before);
     let restored = decode(&before, world.config()).unwrap();

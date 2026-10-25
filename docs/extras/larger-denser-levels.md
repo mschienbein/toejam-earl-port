@@ -1,6 +1,6 @@
 # Larger, denser levels
 
-Status: **phase 1 backend, native admission closed**, 2026-10-25. Independent size/density settings, bounded ExpandedV1 generation and persistent sidecar primitives are implemented in `crates/tje-world`; this is **not a playable larger-level mode**. Main explicitly approved this phase boundary until the shared ownership closure exists. Wider view is not itself a larger world or a population-cap increase. Faithful defaults remain unchanged. No HD artwork is involved.
+Status: **backend and S2 mode-owned geometry/transition services, native admission closed**, 2026-10-25. Independent size/density settings, bounded ExpandedV1 generation, persistent LevelId records, terrain/land services and saved transition machines are implemented in `crates/tje-world`; this is **not a playable larger-level mode**. Wider view is not itself a larger world or a population-cap increase. Faithful defaults remain unchanged. No HD artwork is involved.
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -87,11 +87,11 @@ exception merely because another extra can display more pixels.
 
 `WorldState` owns sorted LevelId-keyed floors, mutable cell/path edits, dirty-cell
 bits, shared coarse 320×256 discovery, stable pickup/removal bits, dropped items,
-per-floor runtime RNG and pending generation/transition data. Reentry does not
-regenerate a stored floor. Model elevator/fall/reentry/telephone transactions
-prepare a landing only after publication; committing the model transaction does
-not run an original elevator or mutate hero RAM. Transitions to authored special
-floors are rejected until their mode-owned staging exists.
+per-floor runtime RNG and unpublished loading work. Reentry does not regenerate a
+stored floor. `FloorSpec` distinguishes ExpandedV1, runtime-imported stock/special
+geometry and DesignedV1 provenance without duplicating source populations after
+publication. The aggregate simulation owns transition continuations; it must
+commit hero positions together with `WorldState::commit_cohort` before queries.
 
 Density budgets use **measured reachable walkable tile area**, not map envelope,
 viewport count or width. `Original` retains supplied original counts; `Low`,
@@ -105,14 +105,18 @@ roles, loot composition and actual gameplay behavior belongs to the shared
 mode-owned population cutover. Promotion scaling is recorded as a rational
 area ratio, not applied to original rank RAM in this phase.
 
-Four hero-active floors, 128 global dropped items, 64 effects and 60 companion
-reservations fit the 1024-logical-entity envelope. A maximum 64×64 floor's cells,
-paths and dirty/discovery bits fit the proposed 32 KiB geometry allowance; its
-bounded population fits 16 KiB. The canonical codec is fixed-width little-endian
-bincode with a 4 MiB decoding ceiling. Schema/configuration/extent/work invariants
-are validated before standalone restore and in the enhanced format-3 sidecar.
-Snapshots retain every generation phase and immutable configuration identity.
-Nothing allocates additional Genesis RAM, VRAM, CRAM or hardware sprite entries.
+Four hero-active floors retain independent records. Individual format limits are
+128 items/64 Earthlings per floor, 128 global drops, 64 effects and 60 companion
+reservations; they are not a promise that every maximum fits simultaneously.
+The S1 session reservation accounts for progression props as well: its complete
+four-floor maximum request is 1052 actors and rejects before mutation against
+1024. A negotiated 112-item/floor expanded profile reserves 988 actors; stock
+four-disjoint-floor capacity reserves 592, not the earlier 256 proposal.
+The canonical codec is fixed-width little-endian bincode with a 4 MiB decoding
+ceiling. Schema/configuration/extent/work invariants validate before standalone
+restore and in enhanced format 3; the changed standalone world sidecar schema is
+version 2, with no version-1 shim. Nothing allocates extra Genesis RAM, VRAM,
+CRAM or hardware sprite entries. Native/profile admission remains closed.
 Actual imported sprite-piece residency admission is still part of the closed
 native boundary, not something these placement primitives claim to prove.
 The encoded maximum-dimension regression measured **12,353 bytes** of geometry
@@ -134,6 +138,64 @@ It does not emit a gameplay, campaign, native/wasm parity or balance claim.
 cargo run -p tje-world --features private-proof --example world-proof -- \
   /private/path/to/user-rom.bin /private/output/world-overviews
 ```
+
+## S2 shared geometry, loading and transitions
+
+The source algorithms are the readable `tje-game` map terrain/placement, land
+consumption, elevator geometry/transitions, falling/level relocation and
+telephone/doorway bodies. The original point query's overlay omission and unsafe
+negative indexing are not exported as new-world contracts: shared terrain and
+footprint queries use checked coordinates and actual base/overlay/mirror support.
+`terrain::position_in_cell` preserves TerrainValidation's cyclic row/column
+search, draw order, mirror output and full-metatile anchor rules with validated
+dimensions. `TerrainCache` samples a separate 5×5 neighborhood for any seat.
+Elevator barriers expose collision, rider entry/exit and placement exclusions
+without camera banks. Placement work counts rejected/marked cells, has ten random
+trials followed by a finite exhaustive scan, and never consumes uninitialized
+coordinates on failure.
+
+`land::LandState` keeps path marks/alternates separate from final cell words and
+consumes one cell per authoritative land step in up/right/down/left preference.
+It retains traversal/RNG/dirty state through capture; graphics allocation and
+animation completion cannot gate land mutation. An unsupported path/isolated
+marked edge rejects rather than importing the original stale-register bug.
+Discovery retains the original translated `(x-72,y-8)` bounds and 320×256 bins,
+including their last boundary pixels; a shared bit awards once per level.
+
+`loading::ImportJob` stages at most 1024 cells per advance and authenticates a
+versioned rolling source digest before publication. Cancellation, source-digest
+failure and generation's exact 64-attempt failure leave live floors and seats
+unchanged. `RomResources::special_source` reads floor 0's inset, floor 1 and floor
+26's authored maps directly from the user's ROM at runtime, always at original
+dimensions. These imports retain ordinary population/removal/item/drop deltas
+through the same shared records; they do not invoke an original RAM loader.
+
+`transitions::Journey` is a saved finite cohort machine: join window, departure,
+bounded loading, safe placement, ready-to-commit, arrival and completion/failure.
+Four disjoint journeys may coexist in the aggregate; its owner rejects
+overlapping cohort masks. Destination positions and every cohort member validate
+before a single atomic level-ID commit, and support is rechecked at that boundary.
+Elevator joins name seats explicitly. Falls accept authored links, with the
+campaign adapter explicitly handling 1→0, 26→25 and 0→highest visited floor.
+Doorways relocate within their own level and retain per-seat crossing latches.
+Ship entry 25→26 requires the supplied shared objective mask; no ordinary
+elevator can bypass it. Special destinations must be staged through the explicit
+special import adapter rather than accidentally invoking ExpandedV1.
+
+The original telephone is **not a teleport**. Its saved six-ring/60-tick cadence
+and four-seat answer arbitration emit a seat-local temporary map-reveal request.
+The UI closes that continuation explicitly; it never moves a hero or awards
+exploration score. Transition timers are explicit enhanced simulation ticks,
+not faithful frame/cycle-equivalence claims.
+
+ROM-free semantic tests compare TerrainValidation outputs/RNG and both original
+5×5 terrain caches against observations captured from the readable Rust bodies
+over authored synthetic resources in REV 00 and REV 02. Lifecycle tests cover
+four independent maximum-bound floors, all persistent deltas, copies/swaps,
+cohort atomicity, loading/placement cancellation/failure, special/ship paths,
+land traversal and saved phone/doorway continuations. These are service tests,
+not a four-pad native/browser campaign receipt. The aggregate phase bridge,
+player/AI/UI/render integrations and complete admission evidence remain S6's gate.
 
 The original design and uncompleted shipping acceptance requirements follow.
 

@@ -12,9 +12,13 @@ use std::fmt;
 pub mod enhanced;
 pub mod generation;
 pub mod geometry;
+pub mod land;
+pub mod loading;
 pub mod population;
 pub mod random;
 pub mod rom;
+pub mod terrain;
+pub mod transitions;
 pub mod world;
 pub use geometry::{Anchors, Cell, CellPosition, Dimensions, LevelGeometry, Resources, Shape};
 
