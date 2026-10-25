@@ -36,6 +36,9 @@ mod terrain_motion;
 mod update;
 
 #[cfg(test)]
+mod replay_playerb_access_tests;
+
+#[cfg(test)]
 use crate::core::test_support as producer_test_context;
 
 /// Available Rust entries owned by this subsystem.
@@ -239,6 +242,30 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::SPRITE_CHECKS,
         function: directional::sprite_checks,
     },
+    crate::FramedTranslation {
+        id: ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
+        function: jump::player_apply_phased_jump_input,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
+        function: jump::player_update_phased_jump_motion,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_YOUCH,
+        function: reactions::player_youch,
+    },
+    crate::FramedTranslation {
+        id: ids::HULA_ABILITY,
+        function: reactions::hula_ability,
+    },
+    crate::FramedTranslation {
+        id: ids::HOTTUB_ABILITY,
+        function: hottub::hottub_ability,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
+        function: reactions::player_update_whirlwind_and_recovery,
+    },
 ];
 
 /// Complete bodies not yet admitted to production: both-revision proofs are
@@ -296,36 +323,12 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: falling::player_resolve_descending_terrain,
     },
     crate::Translation {
-        id: ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
-        function: jump::player_apply_phased_jump_input,
-    },
-    crate::Translation {
-        id: ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
-        function: jump::player_update_phased_jump_motion,
-    },
-    crate::Translation {
-        id: ids::PLAYER_YOUCH,
-        function: reactions::player_youch,
-    },
-    crate::Translation {
-        id: ids::HULA_ABILITY,
-        function: reactions::hula_ability,
-    },
-    crate::Translation {
-        id: ids::HOTTUB_ABILITY,
-        function: hottub::hottub_ability,
-    },
-    crate::Translation {
         id: ids::CHICKEN_ABILITY,
         function: reactions::chicken_ability,
     },
     crate::Translation {
         id: ids::AI_BOOGIE_TOUCH,
         function: reactions::ai_boogie_touch,
-    },
-    crate::Translation {
-        id: ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
-        function: reactions::player_update_whirlwind_and_recovery,
     },
     crate::Translation {
         id: ids::LEMONADE_ABILITY,
