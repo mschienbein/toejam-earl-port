@@ -41,6 +41,9 @@ mod replay_playerb_access_tests;
 #[cfg(test)]
 use crate::core::test_support as producer_test_context;
 
+#[cfg(test)]
+mod replay_access_tests;
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {

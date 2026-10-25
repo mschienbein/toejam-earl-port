@@ -4,8 +4,8 @@ use tje_mem::{ram, rom};
 
 /// G/src/player/active_present_falling_and_respawn.c:250 (`CheckPlayerFalling`).
 /// Matching compiler prologue LINK -4, MOVEM D2-D5/A2-A5. The two falling
-/// bytes are A6-4/A6-3; the remaining local bytes are never initialized.
-/// Value-only proven pose/query calls retain their readable-layer contract.
+/// bytes are A6-2/A6-1 (compiler lines477-478), and PEA -2(A6) passes them on;
+/// the other local bytes remain untouched.
 /// MakePlayerFall receives the real local address and true return PC +0x2fa
 /// (same offset in both matched revisions), not a host array or scratch global.
 pub(super) fn check_player_falling(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
@@ -14,7 +14,7 @@ pub(super) fn check_player_falling(context: &mut dyn Context, _: &[u32]) -> Resu
 
 fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
     let revision = context.revision();
-    let falling = stack.local::<[i8; 2]>(-4);
+    let falling = stack.local::<[i8; 2]>(-2);
     falling.at(0).write(context, 0);
     falling.at(1).write(context, 0);
     for number in 0..2 {
@@ -27,8 +27,8 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
         let counter = ram::g_player_jump_counters(revision).at(number);
         if state.read(context) == 1 {
             if player.height().read(context) < -224 {
-                player.velocity_height().write(context, 0);
-                player.acceleration_height().write(context, 0);
+                super::frames::clear_word(context, player.velocity_height().address())?;
+                super::frames::clear_word(context, player.acceleration_height().address())?;
                 falling.at(number).write(context, 1);
                 counter.write(
                     context,
@@ -52,23 +52,30 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
             );
             let direction = player.sprite_state().read(context) & 3;
             if land >= 0x80 {
-                if player.animation_group_mask().read(context) & 0x20 == 0 {
+                if player
+                    .animation_group_mask()
+                    .byte_offset(3)
+                    .cast::<u8>()
+                    .read(context)
+                    & 0x20
+                    == 0
+                {
                     call(
                         context,
                         ids::SET_SPRITE,
                         &[player.address(), (direction + 20) as u32],
                     )?;
-                    player.velocity_height().write(context, 0);
+                    super::frames::clear_word(context, player.velocity_height().address())?;
                     player.acceleration_height().write(context, -128);
                 }
-                state.write(context, 0);
+                super::frames::clear_byte(context, state.address())?;
                 continue;
             }
             if counter.read(context) <= 0 {
-                player.height().write(context, 0);
-                player.velocity_height().write(context, 0);
-                player.acceleration_height().write(context, 0);
-                state.write(context, 0);
+                super::frames::clear_word(context, player.height().address())?;
+                super::frames::clear_word(context, player.velocity_height().address())?;
+                super::frames::clear_word(context, player.acceleration_height().address())?;
+                super::frames::clear_byte(context, state.address())?;
                 let selected =
                     call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])? as i8;
                 call(
@@ -84,9 +91,9 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                     ids::SET_SPRITE,
                     &[player.address(), (direction + 24) as u32],
                 )?;
-                player.height().write(context, 0);
-                player.velocity_height().write(context, 0);
-                player.acceleration_height().write(context, 0);
+                super::frames::clear_word(context, player.height().address())?;
+                super::frames::clear_word(context, player.velocity_height().address())?;
+                super::frames::clear_word(context, player.acceleration_height().address())?;
             } else if player.frame_duration().read(context) == 0 {
                 call(
                     context,
@@ -106,17 +113,22 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                 counter.write(context, counter.read(context).wrapping_sub(1));
             }
             let mut selected = -1_i8;
-            let eligible = matches!(other.sprite_state().read(context), 0 | 4 | 76 | 1)
-                || other.animation_group_mask().read(context) & 0x2040_0000 != 0
+            // Compiler lines638-650 interleave repeated state loads with the mask.
+            let eligible = other.sprite_state().read(context) == 0
+                || other.sprite_state().read(context) == 4
+                || super::frames::read_long(context, other.animation_group_mask().address())
+                    & 0x2040_0000
+                    != 0
+                || other.sprite_state().read(context) == 76
+                || other.sprite_state().read(context) == 1
                 || (other.sprite_state().read(context) == 57
                     && other.velocity_y().read(context) == 0);
             let overlap = if eligible {
-                let args = [
-                    other.address(),
-                    player.x().read(context) as u32,
-                    player.y().read(context) as u32,
-                    player.level().read(context) as u32,
-                ];
+                // Right-to-left argument loads: level, Y, then X (lines654-663).
+                let level = player.level().read(context) as u32;
+                let y = player.y().read(context) as u32;
+                let x = player.x().read(context) as u32;
+                let args = [other.address(), x, y, level];
                 call(context, ids::ENTITY_IS_NEAR_POSITION, &args)? != 0
             } else {
                 false
@@ -133,7 +145,9 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                         &[rom::sfx_squish(revision).address(), 50, 0],
                     )?;
                 } else if other.sprite_state().read(context) != 1
-                    && other.animation_group_mask().read(context) & 0x2000_0000 == 0
+                    && super::frames::read_long(context, other.animation_group_mask().address())
+                        & 0x2000_0000
+                        == 0
                     && player.height().read(context) < 300
                 {
                     selected = 1;
@@ -147,8 +161,8 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                     ids::SET_SPRITE,
                     &[other.address(), selected as u32],
                 )?;
-                other.velocity_x().write(context, 0);
-                other.velocity_y().write(context, 0);
+                super::frames::clear_word(context, other.velocity_x().address())?;
+                super::frames::clear_word(context, other.velocity_y().address())?;
             }
         }
         if player.sprite_state().read(context) == 2 && player.frame_duration().read(context) == 0 {

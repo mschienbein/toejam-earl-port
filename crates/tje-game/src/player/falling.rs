@@ -39,16 +39,20 @@ pub(super) fn player_start_falling(
     }
     player.acceleration_height().write(context, -128);
     call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
-    player.animation_motion_axes().write(context, 0);
+    super::frames::clear_byte(context, player.animation_motion_axes().address())?;
     player
         .tile()
         .write(context, player.tile().read(context) & !0x8000);
     ram::g_terrain_priority_update_player(revision).write(context, number as i16);
     let pending = ram::g_terrain_priority_update_pending(revision);
     pending.write(context, 1);
-    while pending.read(context) != 0 {
-        let previous = pending.read(context) as u16;
-        context.wait_vblank_frame(pending.address(), previous)?;
+    loop {
+        // One TST.W per source poll; never reload merely to construct a wait.
+        let previous = pending.read(context);
+        if previous == 0 {
+            break;
+        }
+        context.wait_vblank_frame(pending.address(), previous as u16)?;
     }
     let text = speech_text(context, "GameText_00F8D6");
     call(context, ids::GENERATE_SPEECH, &[number as u32, text, 0])?;
@@ -74,8 +78,12 @@ pub(super) fn player_update_terrain_sinking(
         .at(number)
         .read(context)
         != 0
-        || player.animation_group_mask().read(context) & 0x20000 != 0
-        || matches!(player.sprite_state().read(context), 79 | 78 | 5 | 6)
+        || super::frames::read_long(context, player.animation_group_mask().address()) & 0x20000 != 0
+        // Matching compiler lines1179-1185 keep all four short-circuit loads.
+        || player.sprite_state().read(context) == 79
+        || player.sprite_state().read(context) == 78
+        || player.sprite_state().read(context) == 5
+        || player.sprite_state().read(context) == 6
     {
         return Ok(None);
     }
@@ -83,7 +91,7 @@ pub(super) fn player_update_terrain_sinking(
     let sinking = ram::g_player_terrain_sinking(revision).at(number);
     if land == 0x20
         && player.height().read(context) <= 0
-        && player.animation_group_mask().read(context) & 0x60 == 0
+        && super::frames::read_long(context, player.animation_group_mask().address()) & 0x60 == 0
         && ram::g_player_elevator_flags(revision)
             .at(number)
             .read(context)
@@ -106,7 +114,7 @@ pub(super) fn player_update_terrain_sinking(
             } else if ram::g_sinking_help_speech_delay(revision).read(context) == 0 {
                 if ram::g_split_screen_enabled(revision).read(context) == 0
                     && ram::g_player_lives(revision).at(number ^ 1).read(context) >= 0
-                    && super::poses::next_random(context) & 1 != 0
+                    && sinking_help_random_bit(context) != 0
                 {
                     let text = speech_text(context, "GameText_010448");
                     call(context, ids::GENERATE_SPEECH, &[number as u32, text, 1])?;
@@ -127,14 +135,14 @@ pub(super) fn player_update_terrain_sinking(
             player.height().write(context, -3);
         }
     } else if sinking.read(context) != 0 {
-        player.height().write(context, 0);
-        sinking.write(context, 0);
+        super::frames::clear_word(context, player.height().address())?;
+        super::frames::clear_byte(context, sinking.address())?;
         player
             .draw_flags()
             .write(context, player.draw_flags().read(context) & !0x40);
     }
     if previous_height != player.height().read(context) {
-        player.sprite_ready().write(context, 0);
+        super::frames::clear_byte(context, player.sprite_ready().address())?;
     }
     Ok(None)
 }
@@ -154,7 +162,7 @@ pub(super) fn player_update_hurt_recovery_and_idle(
         ram::g_player2_nearby_terrain(revision)
     }
     .cast::<u8>();
-    if (player.animation_group_mask().read(context) & 0x2000 != 0
+    if (super::frames::read_long(context, player.animation_group_mask().address()) & 0x2000 != 0
         || player.sprite_state().read(context) == 68)
         && player.frame_duration().read(context) == 0
     {
@@ -162,14 +170,11 @@ pub(super) fn player_update_hurt_recovery_and_idle(
             .draw_flags()
             .write(context, player.draw_flags().read(context) & !0x40);
         let health = ram::g_player_health(revision).at(number);
-        health.write(
-            context,
-            health.read(context).wrapping_sub(
-                ram::g_player_pending_hurt_damage(revision)
-                    .at(number)
-                    .read(context),
-            ),
-        );
+        // Matching compiler lines1343-1345 load damage before the health RMW.
+        let damage = ram::g_player_pending_hurt_damage(revision)
+            .at(number)
+            .read(context);
+        health.write(context, health.read(context).wrapping_sub(damage));
         let mut direction = player.sprite_state().read(context) & 3;
         if ram::g_player_powerups(revision).at(number).read(context) == 5 {
             call(
@@ -179,7 +184,7 @@ pub(super) fn player_update_hurt_recovery_and_idle(
             )?;
         } else if player.height().read(context) > 4 {
             call(context, ids::STOP_PLAYER, &[player.address()])?;
-            player.animation_motion_axes().write(context, 0);
+            super::frames::clear_byte(context, player.animation_motion_axes().address())?;
             player.acceleration_height().write(context, -32);
             ram::g_player_landing_counter_seed(revision)
                 .at(number)
@@ -217,7 +222,7 @@ pub(super) fn player_update_hurt_recovery_and_idle(
                     ids::SET_SPRITE,
                     &[player.address(), (direction + 64) as u32],
                 )?;
-                player.height().write(context, 0);
+                super::frames::clear_word(context, player.height().address())?;
                 call(
                     context,
                     ids::PLAY_SOUND_EFFECT,
@@ -263,7 +268,18 @@ pub(super) fn player_resolve_descending_terrain(
     if ram::g_player_fall_states(revision).at(number).read(context) != 0 {
         return Ok(None);
     }
-    if player.animation_group_mask().read(context) & 0x1000_0020 != 0 {
+    // Matching compiler lines1627-1631: a byte BTST, then a separate long mask
+    // load only when the byte test is clear. Do not combine these accesses.
+    if player
+        .animation_group_mask()
+        .byte_offset(3)
+        .cast::<u8>()
+        .read(context)
+        & 0x20
+        != 0
+        || super::frames::read_long(context, player.animation_group_mask().address()) & 0x1000_0000
+            != 0
+    {
         let mut sprite = -1_i8;
         let mut direction = player.sprite_state().read(context) & 3;
         player.draw_flags().write(
@@ -284,7 +300,7 @@ pub(super) fn player_resolve_descending_terrain(
                     & 0x40
                     == 0
             {
-                player.velocity_height().write(context, 0);
+                super::frames::clear_word(context, player.velocity_height().address())?;
                 player.acceleration_height().write(context, -64);
             }
         } else if player.height().read(context) < 4 {
@@ -296,9 +312,9 @@ pub(super) fn player_resolve_descending_terrain(
                         &[player.address(), number as u32],
                     )?;
                 } else {
-                    player.height().write(context, 0);
-                    player.acceleration_height().write(context, 0);
-                    player.velocity_height().write(context, 0);
+                    super::frames::clear_word(context, player.height().address())?;
+                    super::frames::clear_word(context, player.acceleration_height().address())?;
+                    super::frames::clear_word(context, player.velocity_height().address())?;
                     if direction & 2 != 0 {
                         direction ^= 1;
                     }
@@ -313,9 +329,9 @@ pub(super) fn player_resolve_descending_terrain(
                     )?;
                 }
             } else if ram::g_player_powerups(revision).at(number).read(context) == 7 {
-                player.height().write(context, 0);
-                player.acceleration_height().write(context, 0);
-                player.velocity_height().write(context, 0);
+                super::frames::clear_word(context, player.height().address())?;
+                super::frames::clear_word(context, player.acceleration_height().address())?;
+                super::frames::clear_word(context, player.velocity_height().address())?;
                 sprite = if ram::g_player_processed_input(revision)
                     .at(number)
                     .read(context)
@@ -342,8 +358,8 @@ pub(super) fn player_resolve_descending_terrain(
                     .write(context, 2);
             }
             if i32::from(sprite) & 0xfc != 108 {
-                player.velocity_x().write(context, 0);
-                player.velocity_y().write(context, 0);
+                super::frames::clear_word(context, player.velocity_x().address())?;
+                super::frames::clear_word(context, player.velocity_y().address())?;
             }
         }
         if sprite != -1 {
@@ -351,4 +367,17 @@ pub(super) fn player_resolve_descending_terrain(
         }
     }
     Ok(None)
+}
+
+/// c_active_present_falling_and_respawn.s:1244-1259 in both revisions.
+/// ADDQ.W is followed by a real index reload; BTST reads only the cache low byte.
+pub(super) fn sinking_help_random_bit(context: &mut dyn Context) -> u8 {
+    let revision = context.revision();
+    let selected = super::frames::advance_random_index(context);
+    ram::g_cached_random_values(revision)
+        .at(i32::from(selected))
+        .byte_offset(1)
+        .cast::<u8>()
+        .read(context)
+        & 1
 }

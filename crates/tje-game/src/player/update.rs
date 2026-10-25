@@ -13,7 +13,8 @@ pub(super) fn player_update_death_animation(
     let revision = context.revision();
     let number = i32::from(player.entity_index().read(context));
     let counter = ram::g_player_jump_counters(revision).at(number);
-    if matches!(player.sprite_state().read(context), 5 | 6) {
+    // Matching compiler lines2310-2312 issue two separate CMPI.B loads.
+    if player.sprite_state().read(context) == 5 || player.sprite_state().read(context) == 6 {
         let camera = if ram::g_split_screen_enabled(revision).read(context) == 0 || number == 0 {
             ram::g_camera1_pending_y(revision).read(context)
         } else {
@@ -24,7 +25,7 @@ pub(super) fn player_update_death_animation(
             - i32::from(camera)
             < 0
         {
-            player.velocity_height().write(context, 0);
+            super::frames::clear_word(context, player.velocity_height().address())?;
             if player.behavior_flags().read(context) & 0x80 != 0 {
                 if ram::g_player_inventory_open(revision)
                     .at(number ^ 1)
@@ -39,7 +40,7 @@ pub(super) fn player_update_death_animation(
                 }
                 return Ok(None);
             }
-            player.height().write(context, 0);
+            super::frames::clear_word(context, player.height().address())?;
             player
                 .behavior_flags()
                 .write(context, player.behavior_flags().read(context) | 1);
@@ -66,20 +67,24 @@ pub(super) fn player_update_death_animation(
                 )?;
             }
         } else if player.height().read(context) < 0 {
-            counter.write(context, counter.read(context).wrapping_sub(1));
-            if counter.read(context) == 0 {
+            let remaining = counter.read(context).wrapping_sub(1);
+            counter.write(context, remaining);
+            // BNE consumes SUBQ.B's flags; it does not reload the counter.
+            if remaining == 0 {
                 counter.write(context, 6);
             }
-            player
-                .frame()
-                .write(context, if counter.read(context) > 3 { 0 } else { -1 });
-            player.sprite_ready().write(context, 0);
+            if counter.read(context) > 3 {
+                super::frames::clear_byte(context, player.frame().address())?;
+            } else {
+                player.frame().write(context, -1);
+            }
+            super::frames::clear_byte(context, player.sprite_ready().address())?;
         } else if player.behavior_flags().read(context) & 0x80 != 0
             && player.height().read(context) >= 20
         {
             if player.sprite_state().read(context) == 5 {
                 call(context, ids::SET_SPRITE, &[player.address(), 6])?;
-                player.velocity_height().write(context, 0);
+                super::frames::clear_word(context, player.velocity_height().address())?;
                 counter.write(context, 30);
                 // The two source literals follow the catalogued code extent;
                 // G/build/rev02/asm/c_active_present_falling_and_respawn.s:2466ff.
@@ -106,8 +111,10 @@ pub(super) fn player_update_death_animation(
     }
     let suppression = ram::g_player_respawn_suppression_ticks(revision).at(number);
     if suppression.read(context) != 0 {
-        suppression.write(context, suppression.read(context).wrapping_sub(1));
-        if suppression.read(context) == 0 {
+        let remaining = suppression.read(context).wrapping_sub(1);
+        suppression.write(context, remaining);
+        // Matching compiler lines2457-2458 branch on the RMW result.
+        if remaining == 0 {
             player
                 .behavior_flags()
                 .write(context, player.behavior_flags().read(context) & !0x10);
@@ -132,16 +139,10 @@ pub(super) fn process_players(context: &mut dyn Context, _: &[u32]) -> Result<Op
 
 fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    // The compiler loads player one's terrain once, then reads player two's
+    // terrain at the end of EACH iteration, including the unused final read.
+    let mut terrain = u32::from(ram::g_player1_terrain_underfoot(revision).read(context) & 0xf0);
     for number in 0..2 {
-        let terrain = u32::from(
-            (if number == 0 {
-                ram::g_player1_terrain_underfoot(revision)
-            } else {
-                ram::g_player2_terrain_underfoot(revision)
-            })
-            .read(context)
-                & 0xf0,
-        );
         let player = ram::g_player_info(revision).at(number);
         if ram::g_player_lives(revision).at(number).read(context) < 0 {
             call(context, ids::PLAYER_PROCESS_LIFE_REQUEST, &[number as u32])?;
@@ -151,6 +152,8 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
                 .read(context)
                 != 0
             {
+                terrain =
+                    u32::from(ram::g_player2_terrain_underfoot(revision).read(context) & 0xf0);
                 continue;
             }
             call(context, ids::PLAYER_UPDATE_TEETERING, &[player.address()])?;
@@ -231,7 +234,9 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
                 player
                     .behavior_flags()
                     .write(context, player.behavior_flags().read(context) | 0x20);
-            } else if !matches!(player.sprite_state().read(context), 70 | 120) {
+            } else if player.sprite_state().read(context) != 70
+                && player.sprite_state().read(context) != 120
+            {
                 player
                     .behavior_flags()
                     .write(context, player.behavior_flags().read(context) & !0x20);
@@ -252,6 +257,7 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
             ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
             &[player.address(), terrain],
         )?;
+        terrain = u32::from(ram::g_player2_terrain_underfoot(revision).read(context) & 0xf0);
     }
     super::frames::call_from(
         context,

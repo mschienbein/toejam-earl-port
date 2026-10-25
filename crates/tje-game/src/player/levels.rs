@@ -56,13 +56,12 @@ pub(super) fn player_advance_to_next_level(
     let player = Address::<ObjectState>::new(arguments[0]);
     let number = i32::from(arguments[1] as i16);
     let revision = context.revision();
-    let args = [
-        number as u32,
-        player.x().read(context) as u32,
-        (i32::from(player.y().read(context)) + 1) as u32,
-        (i32::from(player.height().read(context)) + 9) as u32,
-        player.level().read(context) as u32,
-    ];
+    // Compiler lines1765-1778 evaluate the field arguments right to left.
+    let level = player.level().read(context) as u32;
+    let height = (i32::from(player.height().read(context)) + 9) as u32;
+    let y = (i32::from(player.y().read(context)) + 1) as u32;
+    let x = player.x().read(context) as u32;
+    let args = [number as u32, x, y, height, level];
     call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
     let handle = ram::g_player_transient_effect_entities(revision).at(number);
     let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
@@ -127,8 +126,11 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         .at(number)
         .write(context, 0);
     let alone = ram::g_player_lives(revision).at(number ^ 1).read(context) < 0;
-    let advance =
-        alone && player.level().read(context) != ram::g_highest_level(revision).read(context);
+    // Compiler lines1909-1910 load the global before the player's byte.
+    let advance = alone && {
+        let highest = ram::g_highest_level(revision).read(context);
+        player.level().read(context) != highest
+    };
     if advance {
         call(
             context,
@@ -143,7 +145,9 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         };
         player.x().write(context, other.x().read(context));
         player.y().write(context, other.y().read(context));
-        if other.animation_group_mask().read(context) & 0x2000_0000 != 0 {
+        if super::frames::read_long(context, other.animation_group_mask().address()) & 0x2000_0000
+            != 0
+        {
             player
                 .y()
                 .write(context, player.y().read(context).wrapping_add(10));
@@ -160,11 +164,13 @@ pub(super) fn player_relocate_to_partner_or_next_level(
             }
             player.height().write(context, 70);
         } else {
-            player.height().write(context, 0);
+            super::frames::clear_word(context, player.height().address())?;
         }
-        if ram::g_split_screen_enabled(revision).read(context) != 0
-            && player.level().read(context) != other.level().read(context)
-        {
+        if ram::g_split_screen_enabled(revision).read(context) != 0 && {
+            // Compiler lines1947-1948 load the partner before the player.
+            let other_level = other.level().read(context);
+            player.level().read(context) != other_level
+        } {
             let level = player.level().read(context) as u32;
             call(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
             let level = player.level().read(context) as u32;
@@ -209,13 +215,11 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         player
             .draw_flags()
             .write(context, player.draw_flags().read(context) | 0x40);
-        let args = [
-            0,
-            player.x().read(context) as u32,
-            player.y().read(context) as u32,
-        ];
-        let terrain = call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &args)? as u8;
-        if terrain != 0x90 && terrain != 0x80 {
+        // Compiler lines2047-2053 load Y before X for this call.
+        let y = player.y().read(context) as u32;
+        let x = player.x().read(context) as u32;
+        let terrain = call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &[0, x, y])? as u16;
+        if is_respawn_landing_terrain(terrain) {
             ram::g_player_fall_states(revision)
                 .at(number)
                 .write(context, 2);
@@ -227,13 +231,12 @@ pub(super) fn player_relocate_to_partner_or_next_level(
                 .y()
                 .write(context, player.y().read(context).wrapping_add(20));
         }
-        let args = [
-            number as u32,
-            player.x().read(context) as u32,
-            (i32::from(player.y().read(context)) + 1) as u32,
-            player.height().read(context) as u32,
-            player.level().read(context) as u32,
-        ];
+        // Compiler lines2073-2086: level, height, Y, X, then player number.
+        let level = player.level().read(context) as u32;
+        let height = player.height().read(context) as u32;
+        let y = (i32::from(player.y().read(context)) + 1) as u32;
+        let x = player.x().read(context) as u32;
+        let args = [number as u32, x, y, height, level];
         call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
     } else {
         call(context, ids::STOP_PLAYER, &[player.address()])?;
@@ -318,7 +321,7 @@ pub(super) fn make_player_fall(
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     let first = ram::g_player_info(revision).at(0);
     let second = ram::g_player_info(revision).at(1);
-    if first.level().read(context) == second.level().read(context)
+    if players_share_level(context, first, second)
         || ram::g_player_lives(revision).at(0).read(context) < 0
         || ram::g_player2_lives(revision).read(context) < 0
     {
@@ -336,8 +339,11 @@ pub(super) fn make_player_fall(
                 ram::g_player1_terrain_underfoot(revision).read(context)
             };
             if terrain >= 0x80
-                || other.animation_group_mask().read(context) & 0x2000_0000 != 0
-                || matches!(other.sprite_state().read(context), 5 | 6)
+                || super::frames::read_long(context, other.animation_group_mask().address())
+                    & 0x2000_0000
+                    != 0
+                || other.sprite_state().read(context) == 5
+                || other.sprite_state().read(context) == 6
                 || ram::g_player_lives(revision).at(number ^ 1).read(context) < 0
             {
                 call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
@@ -373,4 +379,37 @@ pub(super) fn make_player_fall(
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
     call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     Ok(None)
+}
+
+/// c_active_present_falling_and_respawn.s:2056-2060 compares the complete word.
+/// Keeping only its low byte would misclassify 0x0180 and 0x0190 as water/void.
+fn is_respawn_landing_terrain(terrain: u16) -> bool {
+    terrain != 0x90 && terrain != 0x80
+}
+
+/// Matching compiler lines873-874: partner byte is loaded before CMP.B's player byte.
+pub(super) fn players_share_level(
+    context: &dyn Context,
+    first: Address<ObjectState>,
+    second: Address<ObjectState>,
+) -> bool {
+    let partner_level = second.level().read(context);
+    first.level().read(context) == partner_level
+}
+
+#[cfg(test)]
+mod respawn_word_tests {
+    use super::is_respawn_landing_terrain;
+
+    #[test]
+    fn terrain_comparisons_keep_all_sixteen_return_bits() {
+        for terrain in 0..=u16::MAX {
+            assert_eq!(
+                is_respawn_landing_terrain(terrain),
+                !matches!(terrain, 0x80 | 0x90)
+            );
+        }
+        assert!(is_respawn_landing_terrain(0x0180));
+        assert!(is_respawn_landing_terrain(0x0190));
+    }
 }

@@ -35,6 +35,8 @@ pub(super) fn player_finalize_last_life_exit(
         let partner = number ^ 1;
         context.set_data_register(0, partner as u32);
         context.set_data_register(1, 1);
+        // Matching compiler line2223 leaves this base live through the lookup.
+        context.set_address_register(0, ram::g_player_lives(revision).address());
         if ram::g_player_lives(revision).at(partner).read(context) < 0 {
             call_from(
                 context,
@@ -65,7 +67,7 @@ pub(super) fn player_finalize_last_life_exit(
         )?;
         item_arguments.release(context)?;
         earthling_arguments.release(context)?;
-        ram::g_split_screen_enabled(revision).write(context, 0);
+        super::frames::clear_byte(context, ram::g_split_screen_enabled(revision).address())?;
         call_from(context, caller, ids::SELECT_SPRITE_CHAIN_START, &[0], 0x8c)?;
         player.level().write(context, 99);
         if player.draw_flags().read(context) & 2 != 0 {
@@ -86,7 +88,7 @@ pub(super) fn player_finalize_last_life_exit(
                 0xbc,
             )?;
         }
-        player.draw_flags().write(context, 0);
+        super::frames::clear_byte(context, player.draw_flags().address())?;
         ram::g_player_rank(revision).at(number).write(context, 9);
         let hud_arguments = OutgoingArguments::push(context, &[number as u32])?;
         hud_arguments.call(

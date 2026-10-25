@@ -61,7 +61,7 @@ pub(super) fn kill_the_player(context: &mut dyn Context, arguments: &[u32]) -> R
     let player = super::indexing::player_by_word_index(revision, number);
     call(context, ids::STOP_PLAYER, &[player.address()])?;
     player.velocity_height().write(context, 256);
-    player.animation_motion_axes().write(context, 0);
+    super::frames::clear_byte(context, player.animation_motion_axes().address())?;
     if ram::g_player_powerups(revision).at(number).read(context) == 5 {
         call(context, ids::PLAY_SOUND, &[6, 99])?;
         call(context, ids::PLAY_SOUND, &[0, 98])?;
@@ -77,8 +77,11 @@ pub(super) fn kill_the_player(context: &mut dyn Context, arguments: &[u32]) -> R
     }
     player.height().write(
         context,
-        if matches!(player.sprite_state().read(context), 3 | 7)
-            || player.animation_group_mask().read(context) & 0x800 != 0
+        // c_active_present_falling_and_respawn.s:2163-2165: distinct CMPI.B reads.
+        if player.sprite_state().read(context) == 3
+            || player.sprite_state().read(context) == 7
+            || super::frames::read_long(context, player.animation_group_mask().address()) & 0x800
+                != 0
         {
             -58
         } else {
@@ -97,12 +100,14 @@ pub(super) fn kill_the_player(context: &mut dyn Context, arguments: &[u32]) -> R
             .behavior_flags()
             .write(context, player.behavior_flags().read(context) | 0x80);
     }
-    ram::g_player_jump_counters(revision)
-        .at(number)
-        .write(context, 0);
-    ram::g_player_terrain_sinking(revision)
-        .at(number)
-        .write(context, 0);
+    super::frames::clear_byte(
+        context,
+        ram::g_player_jump_counters(revision).at(number).address(),
+    )?;
+    super::frames::clear_byte(
+        context,
+        ram::g_player_terrain_sinking(revision).at(number).address(),
+    )?;
     player
         .behavior_flags()
         .write(context, player.behavior_flags().read(context) & !1);
