@@ -890,3 +890,236 @@ fn open_present_mixed_word_without_declaration_is_still_rejected() {
         );
     }
 }
+
+const NEAREST_CAPTURE: u32 = 0xff7000;
+
+fn capture_nearest_deltas(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    context.write_u32(NEAREST_CAPTURE, arguments[1]);
+    context.write_u32(NEAREST_CAPTURE + 4, arguments[2]);
+    Ok(Some(0x25))
+}
+
+fn capture_nearest_horizontal(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    capture_nearest_deltas(context, &[arguments[0], arguments[2], arguments[3]])
+}
+
+fn nearest_authored_abs(_: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    Ok(Some((arguments[0] as i32).unsigned_abs()))
+}
+
+fn nearest_authored_status(_: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    Ok(None)
+}
+
+fn nearest_guard_context(revision: Revision, maximum: u16, mode: u8) -> ObservedContext {
+    static CALLEES: &[crate::Translation] = &[
+        crate::Translation {
+            id: crate::ids::ABS,
+            function: nearest_authored_abs,
+        },
+        crate::Translation {
+            id: crate::ids::ENTITY_SET_VELOCITY_TOWARD_DELTA,
+            function: capture_nearest_deltas,
+        },
+        crate::Translation {
+            id: crate::ids::ENTITY_STEER_WITH_VERTICAL_DEAD_ZONE,
+            function: capture_nearest_deltas,
+        },
+        crate::Translation {
+            id: crate::ids::ENTITY_STEER_WITH_HORIZONTAL_DRIFT,
+            function: capture_nearest_horizontal,
+        },
+        crate::Translation {
+            id: crate::ids::ENTITY_TRIGGER_TARGET_STATUS_EVENT_ONCE,
+            function: nearest_authored_status,
+        },
+    ];
+    let mut context = ObservedContext::new(revision);
+    context.dispatcher = Dispatcher::hybrid_with_overrides(CALLEES);
+    let state = ram::g_player_info(revision).at(6);
+    state.level().write(&mut context, 3);
+    for player in 0..2 {
+        ram::g_player_info(revision)
+            .at(player)
+            .level()
+            .write(&mut context, 1);
+    }
+    context.prepare(&[state.address(), u32::from(maximum), 0, u32::from(mode)]);
+    context
+}
+
+#[test]
+fn nearest_declares_unwritten_own_delta_words_without_fabricating_stores() {
+    // Authored callees only capture inputs; this is not a cartridge proof.
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for mode in [1, 7, 12, 14, 18] {
+            for (dx, dy) in [
+                (0_i16, 0_i16),
+                (i16::MIN, i16::MAX),
+                (-19, 23),
+                (0x2468, 0xcdef_u16 as i16),
+            ] {
+                for rejected_other_player in [false, true] {
+                    let mut context = nearest_guard_context(revision, 255, mode);
+                    let entry_sp = context.frame.entry_sp;
+                    context.inner.write_u16(entry_sp - 10, dx as u16);
+                    context.inner.write_u16(entry_sp - 6, dy as u16);
+                    if rejected_other_player {
+                        // Writing/rejecting player0's deltas must not mark
+                        // player1's still-unwritten words as initialized.
+                        ram::g_player_decoy_entities(revision)
+                            .at(0)
+                            .write(&mut context, 8);
+                        let decoy = ram::g_player_info(revision).at(8);
+                        decoy.level().write(&mut context, 3);
+                        decoy.x().write(&mut context, 800);
+                        decoy.y().write(&mut context, 200);
+                    }
+                    let guard = std::sync::Arc::clone(&context.guard);
+                    let result = guard
+                        .run_root(
+                            crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+                            entry_sp,
+                            || super::framed::earthling_steer_toward_nearest_target(&mut context),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(result, Some(0x25));
+                    assert!(guard.failure().is_none());
+                    assert_eq!(context.inner.memory.read_u32(NEAREST_CAPTURE), dx as u32);
+                    assert_eq!(
+                        context.inner.memory.read_u32(NEAREST_CAPTURE + 4),
+                        dy as u32
+                    );
+                    assert_eq!(context.declared_locals.len(), 2);
+                    for ((read, missing, value), offset, expected) in [
+                        (context.declared_locals[0], -6, dy),
+                        (context.declared_locals[1], -10, dx),
+                    ] {
+                        assert_eq!(
+                            read.owner,
+                            crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET
+                        );
+                        assert_eq!(read.frame.entry_sp, entry_sp);
+                        assert_eq!(read.offset, offset);
+                        assert_eq!(read.width, crate::stack_read::LocalWidth::Word);
+                        assert_eq!(missing, 3, "both original word bytes are unwritten");
+                        assert_eq!(value, u32::from(expected as u16));
+                        assert!(read.citation.contains("c_targeting.s"));
+                    }
+                    assert!(context.writes.borrow().iter().all(|write| {
+                        write.address != entry_sp - 10 && write.address != entry_sp - 6
+                    }));
+                    assert_eq!(context.stack_pointer().unwrap(), entry_sp);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn nearest_keeps_ordinary_delta_reads_after_candidate_stores_even_on_rejection() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for mode in [1, 7, 12, 14, 18] {
+            for (player, x, y, expected_dx, expected_dy) in [
+                (0, 80, 32, 20_i16, 8_i16),
+                (1, 80, 32, 20, 8),
+                (1, 800, 200, 200, 50),
+            ] {
+                let mut context = nearest_guard_context(revision, 255, mode);
+                ram::g_player_decoy_entities(revision)
+                    .at(player)
+                    .write(&mut context, 8);
+                let decoy = ram::g_player_info(revision).at(8);
+                decoy.level().write(&mut context, 3);
+                decoy.x().write(&mut context, x);
+                decoy.y().write(&mut context, y);
+                let entry_sp = context.frame.entry_sp;
+                let guard = std::sync::Arc::clone(&context.guard);
+                assert_eq!(
+                    guard
+                        .run_root(
+                            crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+                            entry_sp,
+                            || {
+                                super::framed::earthling_steer_toward_nearest_target(&mut context)
+                            }
+                        )
+                        .unwrap()
+                        .unwrap(),
+                    Some(0x25)
+                );
+                assert!(guard.failure().is_none());
+                assert!(context.declared_locals.is_empty());
+                assert_eq!(
+                    context.inner.memory.read_u32(NEAREST_CAPTURE),
+                    expected_dx as u32
+                );
+                assert_eq!(
+                    context.inner.memory.read_u32(NEAREST_CAPTURE + 4),
+                    expected_dy as u32
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn nearest_early_distance_return_never_reads_or_declares_delta_words() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for mode in [1, 7, 12, 14, 18] {
+            let mut context = nearest_guard_context(revision, 0x7f, mode);
+            let entry_sp = context.frame.entry_sp;
+            let guard = std::sync::Arc::clone(&context.guard);
+            assert_eq!(
+                guard
+                    .run_root(
+                        crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+                        entry_sp,
+                        || { super::framed::earthling_steer_toward_nearest_target(&mut context) }
+                    )
+                    .unwrap()
+                    .unwrap(),
+                Some(u32::MAX)
+            );
+            assert!(guard.failure().is_none());
+            assert!(context.declared_locals.is_empty());
+            assert!(context.reads.borrow().iter().all(|read| {
+                ![entry_sp - 12, entry_sp - 10, entry_sp - 8, entry_sp - 6].contains(&read.address)
+            }));
+        }
+    }
+}
+
+#[test]
+fn nearest_unwritten_delta_without_declaration_is_still_rejected() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = ObservedContext::new(revision);
+        let entry_sp = context.frame.entry_sp;
+        let guard = std::sync::Arc::clone(&context.guard);
+        let failure = guard
+            .run_root(
+                crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+                entry_sp,
+                || {
+                    let frame = crate::call_frame::LocalFrame::enter(
+                        &mut context,
+                        crate::call_frame::FrameLayout::link(12, 0x7c, 0x1c),
+                    )
+                    .unwrap();
+                    let _ = frame.local::<i16>(-2).read(&context);
+                },
+            )
+            .unwrap_err();
+        assert_eq!(
+            failure.root,
+            crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET
+        );
+        assert_eq!(failure.address, entry_sp - 6);
+        assert_eq!(failure.width, 2);
+        assert_eq!(
+            failure.reason,
+            crate::stack_read::UnsupportedReason::Unwritten
+        );
+    }
+}
