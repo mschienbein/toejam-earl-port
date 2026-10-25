@@ -1,6 +1,9 @@
 //! Geometry services generalized from tje-game/map/{terrain,placement}. No
 //! player number, camera bank, renderer residency or cartridge RAM is consulted.
-use crate::{Cell, Dimensions, Error, LevelGeometry, LevelId, Resources, Result, random::{Random16, StageRng}};
+use crate::{
+    Cell, Dimensions, Error, LevelGeometry, LevelId, Resources, Result,
+    random::{Random16, StageRng},
+};
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

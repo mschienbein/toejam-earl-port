@@ -36,12 +36,22 @@ pub const GENERATOR_VERSION: u16 = 1;
 pub const GENERATOR_ID: &str = "ExpandedV1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum GeneratorId { OriginalV1, ExpandedV1, DesignedV1 }
+pub enum GeneratorId {
+    OriginalV1,
+    ExpandedV1,
+    DesignedV1,
+}
 impl GeneratorId {
     pub const fn tag(self) -> u8 {
-        match self { Self::OriginalV1 => 0, Self::ExpandedV1 => 1, Self::DesignedV1 => 2 }
+        match self {
+            Self::OriginalV1 => 0,
+            Self::ExpandedV1 => 1,
+            Self::DesignedV1 => 2,
+        }
     }
-    pub const fn version(self) -> u16 { 1 }
+    pub const fn version(self) -> u16 {
+        1
+    }
 }
 
 /// Shared campaign/Maker identity; unrelated to a physical A/B/C map bank.

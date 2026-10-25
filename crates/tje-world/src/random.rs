@@ -64,5 +64,7 @@ impl StageRng {
 }
 
 impl Random16 for StageRng {
-    fn next_u16(&mut self) -> u16 { Self::next_u16(self) }
+    fn next_u16(&mut self) -> u16 {
+        Self::next_u16(self)
+    }
 }
