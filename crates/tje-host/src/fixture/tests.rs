@@ -56,6 +56,7 @@ pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
         check_failure_policy: crate::CheckFailurePolicy::FailFast,
         disabled_check_roots: Default::default(),
         future_observer: Default::default(),
+        readable_stack: Some(crate::readable_stack::Pool::new()),
         output: HeadlessOutput,
         audio: HeadlessAudio::default(),
         saves: NoCartridgeSaves,
@@ -557,6 +558,7 @@ fn time_aware_pending_cartridge_dma_is_completed_before_rom_returns_to_live() {
                 CheckSide::Original {
                     boundary: crate::exits::ReferenceBoundary::returned(RETURN, sp + 4),
                     outcome: rust.outcome,
+                    explicit_inputs: !rust.audit.explicit_stack_reads.is_empty(),
                 },
                 crate::call_clock::ClockRunPurpose::Baseline,
                 crate::future_frame_watch::ObservationOrigin::CheckFork,
@@ -812,8 +814,17 @@ fn vdp_failure_evidence_and_counts_survive_fixture_restoration_and_host_drop() {
 #[test]
 fn vdp_dependency_probe_reports_the_actual_perturbed_fork_before_it_drops() {
     fn stack_color(context: &mut HookContext<'_>) -> Result<Option<u32>> {
-        let address = context.cpu().stack_pointer() - 1;
-        let value = context.read_u8(address);
+        // A real original-callee read remains audited/exempt; a generic Rust
+        // read would correctly stop before this diagnostic probe can execute.
+        let mut reader = ids::GET_RANDOM_NUMBER.metadata().clone();
+        reader.name = "AuthoredOriginalColorReader";
+        reader.addresses = [0xfff100; 2];
+        reader.abi.argument_count = 0;
+        let value = context.call_original_with_execution_contract(
+            &reader,
+            ExecutionClass::TimeAware,
+            &[],
+        )? as u8;
         tje_mem::Platform::write_vdp_control(context, 0x8700 | u16::from(value));
         Ok(None)
     }
@@ -832,7 +843,10 @@ fn vdp_dependency_probe_reports_the_actual_perturbed_fork_before_it_drops() {
     for (index, word) in [0x33fc, 0x8700, 0x00c0, 4, 0x4e75].into_iter().enumerate() {
         host.context().write_u16(0xfff000 + 2 * index as u32, word);
     }
-    let candidate = host.cpu().stack_pointer() - 5;
+    for (index, word) in [0x7000, 0x102f, 0xfffb, 0x4e75].into_iter().enumerate() {
+        host.context().write_u16(0xfff100 + 2 * index as u32, word);
+    }
+    let candidate = host.cpu().stack_pointer() - 13;
     host.context().write_u8(candidate, 0);
     let error = host.check_fixture(0xfff000, &[]).unwrap_err();
     assert!(

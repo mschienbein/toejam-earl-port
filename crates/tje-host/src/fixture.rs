@@ -247,6 +247,18 @@ impl Host {
         &mut self,
         execute: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
+        if self.mode == crate::Mode::Replace
+            && let Some(pool) = self
+                .readable_stack
+                .as_ref()
+                .filter(|pool| pool.namespace.has_retained_dma())
+        {
+            // Physical snapshots intentionally cannot revive command authority.
+            // Reject this capability before cloning or borrowing any live lease.
+            let pending = pool.finish_proof();
+            self.record_readable_stack_metrics();
+            pending?;
+        }
         let mut saved = self.emulator.partial_clone();
         let terminal_entry = self.terminal_entry;
         let live_authority = self

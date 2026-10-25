@@ -71,6 +71,8 @@ impl WaitClock {
 pub(crate) struct PhysicalObservers<'a> {
     pub provenance: Option<&'a crate::future_frame_watch::BranchProvenance>,
     pub capture: Option<&'a crate::check_capture::RawCheckCapture>,
+    pub readable: Option<&'a crate::readable_stack::Observer>,
+    pub original_root: Option<&'a crate::readable_stack::OriginalRootScope>,
 }
 
 impl PhysicalObservers<'_> {
@@ -98,6 +100,8 @@ impl tje_mem::Bus for WaitRam<'_> {
         let bus = self.0.hybrid_bus_mut();
         bus.memory
             .write_main_ram::<false>(address, u16::from(value));
+        #[cfg(feature = "ram-dma-observer")]
+        bus.observe_external_ram_commit(address, false);
         if let Some(trace) = bus.hybrid_cpu_accesses.as_mut() {
             trace.push(HybridAccess::HostMutation {
                 address,
@@ -113,6 +117,7 @@ pub(crate) struct ClockRun {
     pub ticks: u64,
     pub frames: u64,
     pub accesses: Vec<(u32, HybridAccess)>,
+    pub original_root_reads: Vec<(usize, crate::readable_stack::OriginalRootWitness)>,
     pub logic_trace: LogicTrace,
     exception_base: u32,
     entry_boundary: Option<crate::exits::ReferenceBoundary>,
@@ -667,6 +672,11 @@ pub(crate) fn drain_accesses(
             if matches!(access, HybridAccess::ExceptionBoundary { .. }) {
                 continue;
             }
+            if matches!(access, HybridAccess::Read { .. })
+                && let Some(root) = observers.original_root.and_then(|root| root.witness())
+            {
+                run.original_root_reads.push((run.accesses.len(), root));
+            }
             run.accesses.push((pc, access));
             // DMA and Z80 accesses/boundary markers remain in the chronological
             // audit, never impersonating CPU/ISR operand accesses.
@@ -831,6 +841,9 @@ fn timed_tick(
     let ready =
         bus.cycles.m68k_wait_cpu_cycles == 0 && emulator.hybrid_cpu().hybrid_instruction_ready(bus);
     if ready {
+        if let Some(root) = observers.original_root {
+            root.before_step(emulator.hybrid_cpu(), ready);
+        }
         run.previous_pc = Some(pc);
         run.instructions += 1;
     }
@@ -841,14 +854,29 @@ fn timed_tick(
     if let Some(capture) = observers.capture {
         capture.begin_cpu_step(emulator, clock.frame);
     }
-    let effect = emulator
-        .tick(
+    let original_segment = observers
+        .readable
+        .map(|observer| observer.guard.original_segment());
+    let mut tick = || {
+        emulator.tick(
             &mut HeadlessOutput,
             audio,
             &mut Inputs(clock.inputs),
             &mut NoCartridgeSaves,
         )
-        .map_err(|error| HostError::Emulator(error.to_string()));
+    };
+    let effect = if let Some(observer) = observers.readable {
+        observer
+            .guard
+            .catch_abort(tick)
+            .map_err(|error| HostError::Translation(error.into()))
+            .and_then(|effect| effect.map_err(|error| HostError::Emulator(error.to_string())))
+    } else {
+        tick().map_err(|error| HostError::Emulator(error.to_string()))
+    };
+    if let Some(root) = observers.original_root {
+        root.after_step(emulator.hybrid_cpu());
+    }
     if let Some(capture) = observers.capture {
         capture.finish_reference_cpu_step(emulator, clock.frame);
     }
@@ -894,6 +922,7 @@ fn timed_tick(
         run,
         observers,
     );
+    drop(original_segment);
     let progress = run.reference_progress(emulator).and_then(|instructions| {
         let master_clocks = emulator
             .hybrid_bus()

@@ -1,6 +1,8 @@
 pub mod cartridge;
 pub mod debug;
 pub mod memory;
+#[cfg(feature = "ram-dma-observer")]
+pub mod ram_dma_observer;
 pub(crate) mod svp;
 pub mod vdp;
 pub mod ym2612;

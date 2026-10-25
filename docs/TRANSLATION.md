@@ -800,6 +800,24 @@ low-byte/word argument views and unchecked typed local addresses at original
 offsets. Tail/RTE/nonreturning transfers use their separate typed exit contracts
 and must not be converted to a normal frame cleanup.
 
+Readable check/native roots reject generic reads of below-entry bytes that no
+Rust body or materialized own frame has actually written. The cumulative
+canonical-RAM window follows the **actual outer entry SP**, including prepared
+entries above catalogue `STACK_TOP`. Original-callee saves and snapshot contents
+are not Rust initialization. A deliberately consumed original uninitialized
+own-frame local must use `FrameState::uninitialized_local` plus
+`Context::read_uninitialized_local`, citing its original offset and width; see
+[PORTING.md](PORTING.md), “Explicit original uninitialized-local declarations.”
+This serves the real entry bytes only after backend validation and, in paired
+checks, an exact original occurrence witness. It never zeros memory, changes
+`ReadPurpose`, or grants a later generic read permission.
+
+This is only an **own-written-read guard**. A wrong Rust write followed by a
+read from that same written alias still passes this boundary (including the
+reviewed SC-03 class). It is not proof that a replacement materialized the right
+frame or that a caller consumes the right residual registers; preserve and prove
+those actual source-backed frames and call sites independently.
+
 These are readable logical-memory obligations. Cycle-exact instruction timing,
 prefetch and complete compiler spill images remain the cycle-exact engine's job;
 do not claim that materializing a frame makes a Rust body cycle-equivalent.

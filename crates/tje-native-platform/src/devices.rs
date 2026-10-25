@@ -147,6 +147,8 @@ struct DeviceBus {
     pending_words: Vec<(u32, u16)>,
     trace: Option<DeviceTrace>,
     ram_writes: Option<Vec<RamWrite>>,
+    #[cfg(feature = "game-adapter")]
+    ram_dma_observer: genesis_core::ram_dma_observer::ObserverSlot,
 }
 
 impl DeviceBus {
@@ -264,6 +266,12 @@ impl DeviceBus {
 
     fn read_main<const WORD: bool>(&mut self, address: u32, purpose: BusReadPurpose) -> u16 {
         let address = address & ADDRESS_MASK;
+        #[cfg(feature = "game-adapter")]
+        if address >= 0xe00000 && self.origin == Origin::Main && purpose == BusReadPurpose::Semantic
+        {
+            self.ram_dma_observer
+                .before_semantic_ram_read(address, WORD);
+        }
         let value = match address {
             0..=0x7fffff => {
                 if WORD {
@@ -352,6 +360,16 @@ impl DeviceBus {
                     port: 4,
                     value: word,
                 });
+                #[cfg(feature = "game-adapter")]
+                {
+                    let actor = match self.origin {
+                        Origin::Main => genesis_core::ram_dma_observer::Actor::M68k,
+                        Origin::Z80 => genesis_core::ram_dma_observer::Actor::Z80,
+                    };
+                    self.vdp
+                        .write_control_observed(word, self.ram_dma_observer.command_origin(actor));
+                }
+                #[cfg(not(feature = "game-adapter"))]
                 self.vdp.write_control(word);
             }
             0x10..=0x17 if WORD || address & 1 != 0 => {
@@ -411,6 +429,15 @@ impl DeviceBus {
                 } else {
                     self.memory.write_u8(address, value as u8);
                 }
+                #[cfg(feature = "game-adapter")]
+                self.ram_dma_observer.ram_committed(
+                    address,
+                    WORD,
+                    match self.origin {
+                        Origin::Main => genesis_core::ram_dma_observer::Actor::M68k,
+                        Origin::Z80 => genesis_core::ram_dma_observer::Actor::Z80,
+                    },
+                );
                 if let Some(trace) = &mut self.ram_writes {
                     trace.push(RamWrite::new(address, WORD, value));
                 }
@@ -561,6 +588,8 @@ impl DeviceRuntime {
                 pending_words: Vec::with_capacity(32),
                 trace: None,
                 ram_writes: None,
+                #[cfg(feature = "game-adapter")]
+                ram_dma_observer: Default::default(),
             },
             z80: Z80::new(),
             audio_resampler: GenesisAudioResampler::new(timing_mode, config),
@@ -610,6 +639,8 @@ impl DeviceRuntime {
                 pending_words: Vec::with_capacity(32),
                 trace: None,
                 ram_writes: None,
+                #[cfg(feature = "game-adapter")]
+                ram_dma_observer: Default::default(),
             },
             z80: state.z80,
             audio_resampler: state.audio_resampler,
@@ -653,6 +684,20 @@ impl DeviceRuntime {
     }
     pub fn memory_mut(&mut self) -> &mut AddressSpace {
         &mut self.bus.memory
+    }
+    #[cfg(feature = "game-adapter")]
+    pub(crate) fn replace_ram_dma_observer(
+        &mut self,
+        observer: Option<std::sync::Arc<dyn genesis_core::ram_dma_observer::Observer>>,
+    ) -> genesis_core::ram_dma_observer::ObserverSlot {
+        self.bus.ram_dma_observer.replace(observer)
+    }
+    #[cfg(feature = "game-adapter")]
+    pub(crate) fn restore_ram_dma_observer(
+        &mut self,
+        previous: genesis_core::ram_dma_observer::ObserverSlot,
+    ) {
+        self.bus.ram_dma_observer.restore(previous);
     }
     pub fn vdp(&self) -> &Vdp {
         &self.bus.vdp
@@ -715,6 +760,8 @@ impl DeviceRuntime {
         genesis_components::target_framerate(&self.bus.vdp, self.bus.timing_mode)
     }
     pub fn reset(&mut self) {
+        #[cfg(feature = "game-adapter")]
+        self.bus.vdp.invalidate_readable_dma_on_reset();
         self.bus.memory.ram_mut().fill(0);
         self.bus.audio_ram.fill(0);
         self.bus.vdp = Vdp::new(self.bus.timing_mode, self.config.to_vdp_config(false));

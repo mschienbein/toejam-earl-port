@@ -57,16 +57,46 @@ pub(crate) struct AtomicRun {
     pub writes: Vec<OrderedWrite>,
     pub stack_reads: Option<Vec<crate::dependent_equivalence::journal::JournalRead>>,
     pub strict_control: Option<crate::dependent_equivalence::ControlLog>,
+    pub explicit_stack_reads: Vec<crate::readable_stack::ExplicitRead>,
+    pub read_ordinal: usize,
+    pub unwritten_stack_reads: Vec<crate::dependent_equivalence::journal::JournalRead>,
+    pub admitted_stack_inputs: Vec<crate::readable_stack::AdmittedRead>,
 }
 
 impl AtomicRun {
     pub(crate) fn append(&mut self, other: Self) {
+        let prior_reads = self.stack_reads.as_ref().map_or(0, Vec::len);
+        let prior_ordinal = self.read_ordinal;
+        self.read_ordinal += other.read_ordinal;
+        self.unwritten_stack_reads
+            .extend(other.unwritten_stack_reads.into_iter().map(|mut read| {
+                read.ordinal += prior_ordinal;
+                read
+            }));
+        self.admitted_stack_inputs
+            .extend(other.admitted_stack_inputs.into_iter().map(|mut read| {
+                read.token.ordinal += prior_ordinal;
+                read
+            }));
+        self.explicit_stack_reads
+            .extend(other.explicit_stack_reads.into_iter().map(|mut read| {
+                read.first_read += prior_reads;
+                for ordinal in &mut read.ordinals {
+                    *ordinal += prior_ordinal;
+                }
+                read
+            }));
         self.instructions += other.instructions;
         self.cycles += other.cycles;
         self.uninitialized_reads.extend(other.uninitialized_reads);
         self.writes.extend(other.writes);
         if let Some(reads) = other.stack_reads {
-            self.stack_reads.get_or_insert_with(Vec::new).extend(reads);
+            self.stack_reads
+                .get_or_insert_with(Vec::new)
+                .extend(reads.into_iter().map(|mut read| {
+                    read.ordinal += prior_ordinal;
+                    read
+                }));
         }
         if let Some(control) = other.strict_control {
             self.strict_control
@@ -167,6 +197,8 @@ pub(crate) fn run_original_atomic_scoped(
     let capture_observer = capture
         .as_deref()
         .map(|capture| (capture, capture.entry_frame()));
+    let readable_observer = stack.readable_stack.clone();
+    let original_root = stack.original_root.clone();
     let (cpu, bus) = emulator.hybrid_parts();
     let owns_trace = bus.hybrid_cpu_accesses.is_none();
     if owns_trace {
@@ -194,23 +226,46 @@ pub(crate) fn run_original_atomic_scoped(
     }
     stack.drain(bus, cpu.pc(), &mut observed);
     let mut audit = StackAuditBus { inner: bus };
-    let result = run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
-        let pc = cpu.pc();
-        if let Some(branch) = &stack.provenance {
-            branch.begin_cpu_step(cpu, audit.inner.cycles.m68k_mclk_cycles);
+    let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut execute = || {
+            run_atomic_loop(cpu, &mut audit, boundary, |cpu, audit| {
+                let pc = cpu.pc();
+                if let Some(root) = &original_root {
+                    root.before_step(cpu, cpu.hybrid_instruction_ready(audit));
+                }
+                if let Some(branch) = &stack.provenance {
+                    branch.begin_cpu_step(cpu, audit.inner.cycles.m68k_mclk_cycles);
+                }
+                if let Some((capture, frame)) = capture_observer {
+                    capture.begin_cpu_step_parts(cpu, audit.inner, frame);
+                }
+                let _original_segment = readable_observer
+                    .as_ref()
+                    .map(|observer| observer.guard.original_segment());
+                let cycles = cpu.execute_instruction(audit);
+                audit.inner.apply_pending_writes();
+                if let Some(root) = &original_root {
+                    root.after_step(cpu);
+                }
+                if let Some((capture, frame)) = capture_observer {
+                    capture.finish_reference_cpu_step_parts(cpu, audit.inner, frame);
+                    capture.observe_cpu_batch_parts(cpu, audit.inner, frame);
+                }
+                stack.drain(audit.inner, pc, &mut observed);
+                cycles
+            })
+        };
+        if let Some(observer) = &readable_observer {
+            observer
+                .guard
+                .catch_abort(execute)
+                .map_err(|error| HostError::Translation(error.into()))
+                .and_then(|result| result)
+        } else {
+            execute()
         }
-        if let Some((capture, frame)) = capture_observer {
-            capture.begin_cpu_step_parts(cpu, audit.inner, frame);
-        }
-        let cycles = cpu.execute_instruction(audit);
-        audit.inner.apply_pending_writes();
-        if let Some((capture, frame)) = capture_observer {
-            capture.finish_reference_cpu_step_parts(cpu, audit.inner, frame);
-            capture.observe_cpu_batch_parts(cpu, audit.inner, frame);
-        }
-        stack.drain(audit.inner, pc, &mut observed);
-        cycles
-    });
+    }));
+    stack.drain(audit.inner, cpu.pc(), &mut observed);
     if owns_trace {
         audit.inner.hybrid_cpu_accesses = None;
     }
@@ -221,7 +276,10 @@ pub(crate) fn run_original_atomic_scoped(
         cpu.hybrid_set_instruction_counting(previous.unwrap_or(false));
     }
     stack.capture = capture;
-    let mut result = result?;
+    let mut result = match attempted {
+        Ok(result) => result?,
+        Err(payload) => std::panic::resume_unwind(payload),
+    };
     result.append(observed);
     Ok(result)
 }
@@ -264,6 +322,10 @@ pub(crate) struct StackAuditState {
     capture_reads: bool,
     pub(crate) provenance: Option<crate::future_frame_watch::BranchProvenance>,
     pub(crate) capture: Option<Box<crate::check_capture::RawCheckCapture>>,
+    pub(crate) readable_stack: Option<std::sync::Arc<crate::readable_stack::Observer>>,
+    pub(crate) original_root: Option<std::sync::Arc<crate::readable_stack::OriginalRootScope>>,
+    capture_full_ram: bool,
+    full_written: Option<Box<tje_mem::written_ram::WrittenRam>>,
 }
 
 impl StackAuditState {
@@ -274,13 +336,25 @@ impl StackAuditState {
             capture_reads,
             provenance: None,
             capture: None,
+            readable_stack: None,
+            original_root: None,
+            capture_full_ram: false,
+            full_written: None,
         }
+    }
+
+    pub(crate) fn capture_explicit_inputs(&mut self) {
+        self.capture_reads = true;
+        self.capture_full_ram = true;
+        self.full_written = Some(Box::default());
     }
 
     pub(crate) fn physical_observers(&self) -> crate::execution::PhysicalObservers<'_> {
         crate::execution::PhysicalObservers {
             provenance: self.provenance.as_ref(),
             capture: self.capture.as_deref(),
+            readable: self.readable_stack.as_deref(),
+            original_root: self.original_root.as_deref(),
         }
     }
 
@@ -303,6 +377,14 @@ impl StackAuditState {
     }
 
     fn read_mask(&self, address: u32, word: bool) -> u8 {
+        if let Some(written) = &self.full_written {
+            return (0..if word { 2 } else { 1 }).fold(0, |mask, lane| {
+                let raw = address.wrapping_add(lane);
+                let unwritten = tje_mem::written_ram::canonical_ram_byte(raw)
+                    .is_some_and(|physical| physical < self.entry_sp && !written.get(physical));
+                mask | (u8::from(unwritten) << lane)
+            });
+        }
         let mut mask = 0;
         for offset in 0..if word { 2 } else { 1 } {
             if let Some(index) = self.stack_offset(address.wrapping_add(offset))
@@ -314,7 +396,13 @@ impl StackAuditState {
         mask
     }
 
-    fn read(&self, pc: u32, access: genesis_core::HybridAccess, audit: &mut AtomicRun) {
+    fn read(
+        &self,
+        pc: u32,
+        access: genesis_core::HybridAccess,
+        audit: &mut AtomicRun,
+        original_root: Option<crate::readable_stack::OriginalRootWitness>,
+    ) {
         let (address, word, semantic) = match access {
             genesis_core::HybridAccess::Read {
                 address,
@@ -331,6 +419,16 @@ impl StackAuditState {
             }
         };
         let mask = self.read_mask(address, word);
+        audit.read_ordinal += 1;
+        if semantic
+            && mask != 0
+            && let Some(mut read) =
+                crate::dependent_equivalence::journal::JournalRead::new_work_ram(pc, access, mask)
+        {
+            read.ordinal = audit.read_ordinal;
+            read.original_root = original_root;
+            audit.unwritten_stack_reads.push(read);
+        }
         if semantic {
             for offset in 0..if word { 2 } else { 1 } {
                 if mask & (1 << offset) != 0 {
@@ -341,11 +439,17 @@ impl StackAuditState {
                 }
             }
         }
-        if let Some(reads) = &mut audit.stack_reads
-            && let Some(read) =
+        if let Some(reads) = &mut audit.stack_reads {
+            let read = if self.capture_full_ram {
+                crate::dependent_equivalence::journal::JournalRead::new_work_ram(pc, access, mask)
+            } else {
                 crate::dependent_equivalence::journal::JournalRead::new(pc, access, mask)
-        {
-            reads.push(read);
+            };
+            if let Some(mut read) = read {
+                read.ordinal = audit.read_ordinal;
+                read.original_root = original_root;
+                reads.push(read);
+            }
         }
     }
 
@@ -354,6 +458,16 @@ impl StackAuditState {
         pc: u32,
         access: genesis_core::HybridAccess,
         audit: &mut AtomicRun,
+    ) {
+        let root = self.original_root.as_ref().and_then(|root| root.witness());
+        self.observe_with_root(pc, access, audit, root);
+    }
+    fn observe_with_root(
+        &mut self,
+        pc: u32,
+        access: genesis_core::HybridAccess,
+        audit: &mut AtomicRun,
+        original_root: Option<crate::readable_stack::OriginalRootWitness>,
     ) {
         if let Some(control) = &mut audit.strict_control {
             control.observe(access);
@@ -376,7 +490,7 @@ impl StackAuditState {
             } => (address, word, value),
             genesis_core::HybridAccess::Read { .. }
             | genesis_core::HybridAccess::DmaRead { .. } => {
-                self.read(pc, access, audit);
+                self.read(pc, access, audit, original_root);
                 return;
             }
             genesis_core::HybridAccess::ExceptionBoundary { .. } => return,
@@ -385,6 +499,11 @@ impl StackAuditState {
         if address >= 0xe00000 {
             for offset in 0..if word { 2 } else { 1 } {
                 let address = address.wrapping_add(offset);
+                if let Some(written) = &mut self.full_written
+                    && canonical_ram_address(address) < self.entry_sp
+                {
+                    written.set(address);
+                }
                 if let Some(index) = self.stack_offset(address) {
                     self.written[index / 64] |= 1 << (index % 64);
                 }
@@ -406,6 +525,23 @@ impl StackAuditState {
                     value: value as u8,
                 }
             });
+        }
+    }
+
+    pub(crate) fn merge_timed_accesses(
+        &mut self,
+        accesses: Vec<(u32, genesis_core::HybridAccess)>,
+        roots: Vec<(usize, crate::readable_stack::OriginalRootWitness)>,
+        audit: &mut AtomicRun,
+    ) {
+        let mut roots = roots.into_iter().peekable();
+        for (index, (pc, access)) in accesses.into_iter().enumerate() {
+            let root = if roots.peek().is_some_and(|(at, _)| *at == index) {
+                roots.next().map(|(_, root)| root)
+            } else {
+                None
+            };
+            self.observe_with_root(pc, access, audit, root);
         }
     }
 
@@ -451,6 +587,7 @@ pub struct HookContext<'a> {
     pub time_frames: u64,
     timing_services: Option<&'a mut crate::timing_region::game_bridge::TimingServices>,
     timing_root_started: bool,
+    readable_stack: Option<std::sync::Arc<crate::readable_stack::Observer>>,
 }
 
 impl<'a> HookContext<'a> {
@@ -482,6 +619,7 @@ impl<'a> HookContext<'a> {
             time_frames: 0,
             timing_services: None,
             timing_root_started: false,
+            readable_stack: None,
         }
     }
     pub(crate) fn with_timing_services(
@@ -518,6 +656,13 @@ impl<'a> HookContext<'a> {
 
     pub(crate) fn with_check_route(mut self, route: crate::CheckForkRoute) -> Self {
         self.timed_execution = route.progresses_time();
+        self
+    }
+    pub(crate) fn with_readable_stack(
+        mut self,
+        observer: std::sync::Arc<crate::readable_stack::Observer>,
+    ) -> Self {
+        self.readable_stack = Some(observer);
         self
     }
 
@@ -609,15 +754,14 @@ impl<'a> HookContext<'a> {
         }
         self.logic_trace.get_mut().append(run.logic_trace);
         let stack = self.stack_audit.as_mut().expect("enabled audit");
-        for (pc, access) in run.accesses {
-            stack.observe(pc, access, self.audit.get_mut());
-        }
+        stack.merge_timed_accesses(run.accesses, run.original_root_reads, self.audit.get_mut());
         self.time_audio = run.audio;
         self.time_frames += run.frames;
     }
 
     pub(crate) fn enable_stack_audit(&mut self, stack: StackAuditState, audit: AtomicRun) {
         self.observe_native_provenance = true;
+        self.readable_stack = stack.readable_stack.clone();
         self.stack_audit = Some(stack);
         *self.audit.get_mut() = audit;
     }
@@ -659,6 +803,7 @@ impl<'a> HookContext<'a> {
                     purpose,
                 },
                 &mut self.audit.borrow_mut(),
+                None,
             );
             if let Some(branch) = &stack.provenance {
                 branch.observe_native(
@@ -811,21 +956,39 @@ impl<'a> HookContext<'a> {
         }
     }
     pub fn read_u8(&self, address: u32) -> u8 {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer
+                .guard
+                .read(address, 1, tje_game::stack_read::Reader::RustMemory);
+        }
         let value = self.peek_u8(address);
         self.record_memory_read(address, false, ReadPurpose::Semantic, u16::from(value));
         value
     }
     pub fn read_u16(&self, address: u32) -> u16 {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer
+                .guard
+                .read(address, 2, tje_game::stack_read::Reader::RustMemory);
+        }
         let value =
             u16::from_be_bytes([self.peek_u8(address), self.peek_u8(address.wrapping_add(1))]);
         self.record_memory_read(address, true, ReadPurpose::Semantic, value);
         value
     }
     pub fn read_u32(&self, address: u32) -> u32 {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer
+                .guard
+                .read(address, 4, tje_game::stack_read::Reader::RustMemory);
+        }
         (u32::from(self.read_u16(address)) << 16)
             | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     pub fn write_u8(&mut self, address: u32, value: u8) {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer.guard.assert_no_failure();
+        }
         self.flush_audit_accesses();
         let address = address & 0xFF_FFFF;
         if address >= 0xe00000 {
@@ -840,6 +1003,11 @@ impl<'a> HookContext<'a> {
             0..=0x3F_FFFF => {} // Cartridge ROM is immutable.
             0xE00000..=0xFFFFFF => {
                 bus.memory.write_main_ram_byte(address, value);
+                if let Some(observer) = self.readable_stack.as_deref() {
+                    observer
+                        .guard
+                        .commit(address, 1, self.observe_native_provenance);
+                }
                 if let Some(stack) = &mut self.stack_audit {
                     stack.observe(
                         self.emulator.hybrid_cpu().pc(),
@@ -1036,6 +1204,10 @@ impl<'a> HookContext<'a> {
         let cleanup_sp = sp;
         sp = sp.wrapping_sub(4);
         self.write_u32(sp, CALL_SENTINEL);
+        let readable_observer = self.readable_stack.clone();
+        let _original_segment = readable_observer
+            .as_ref()
+            .map(|observer| observer.guard.original_segment());
         let (cpu, bus) = self.emulator.hybrid_parts();
         set_sp(cpu, sp);
         cpu.set_pc(address, bus);
@@ -1049,7 +1221,10 @@ impl<'a> HookContext<'a> {
                 std::mem::take(&mut self.time_audio),
                 self.stack_audit.is_some(),
                 self.stack_audit.as_ref().map_or_else(
-                    crate::execution::PhysicalObservers::default,
+                    || crate::execution::PhysicalObservers {
+                        readable: self.readable_stack.as_deref(),
+                        ..Default::default()
+                    },
                     StackAuditState::physical_observers,
                 ),
             )?;
@@ -1130,9 +1305,15 @@ impl<'a> HookContext<'a> {
         id: FunctionId,
         want_value: bool,
     ) -> Result<Option<u32>> {
+        self.emulator.hybrid_bus_mut().apply_pending_writes();
+        self.flush_audit_accesses();
         let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
         let return_pc = self.read_u32(entry_sp);
         let return_sp = entry_sp.wrapping_add(4);
+        let readable_observer = self.readable_stack.clone();
+        let _original_segment = readable_observer
+            .as_ref()
+            .map(|observer| observer.guard.original_segment());
         let (cpu, bus) = self.emulator.hybrid_parts();
         bus.apply_pending_writes();
         cpu.set_pc(id.metadata().address(self.revision), bus);
@@ -1146,7 +1327,10 @@ impl<'a> HookContext<'a> {
                 std::mem::take(&mut self.time_audio),
                 self.stack_audit.is_some(),
                 self.stack_audit.as_ref().map_or_else(
-                    crate::execution::PhysicalObservers::default,
+                    || crate::execution::PhysicalObservers {
+                        readable: self.readable_stack.as_deref(),
+                        ..Default::default()
+                    },
                     StackAuditState::physical_observers,
                 ),
             )?;
@@ -1416,6 +1600,13 @@ impl tje_game::Platform for HookContext<'_> {
         if let Some(error) = &self.mmio_contract_error {
             return Err(error.clone());
         }
+        if let Some(error) = self
+            .readable_stack
+            .as_deref()
+            .and_then(|observer| observer.guard.failure())
+        {
+            return Err(error.into());
+        }
         if let Some(address) = self.emulator.hybrid_bus().hybrid_functional_violation {
             return Err(tje_game::Error::Platform(format!(
                 "functional contract observed VDP status/HV at {address:06X}"
@@ -1448,7 +1639,10 @@ impl tje_game::Platform for HookContext<'_> {
             self.wait_clock.call_clock.dispatch_step()?;
             let observe = self.stack_audit.is_some();
             let observers = self.stack_audit.as_ref().map_or_else(
-                crate::execution::PhysicalObservers::default,
+                || crate::execution::PhysicalObservers {
+                    readable: self.readable_stack.as_deref(),
+                    ..Default::default()
+                },
                 StackAuditState::physical_observers,
             );
             let run = run_poll_yield_with_audio(
@@ -1492,7 +1686,10 @@ impl tje_game::Platform for HookContext<'_> {
             }
             let observe = self.stack_audit.is_some();
             let observers = self.stack_audit.as_ref().map_or_else(
-                crate::execution::PhysicalObservers::default,
+                || crate::execution::PhysicalObservers {
+                    readable: self.readable_stack.as_deref(),
+                    ..Default::default()
+                },
                 StackAuditState::physical_observers,
             );
             let result = if observe && self.time_audio.is_empty() && !observers.enabled() {
@@ -1539,6 +1736,9 @@ impl tje_game::Platform for HookContext<'_> {
     }
 
     fn write_device_u8(&mut self, address: u32, value: u8) {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer.guard.assert_no_failure();
+        }
         self.record_logic_access(genesis_core::HybridAccess::Write {
             address: address & 0xffffff,
             word: false,
@@ -1550,6 +1750,9 @@ impl tje_game::Platform for HookContext<'_> {
         self.flush_audit_accesses();
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
+        if let Some(observer) = self.readable_stack.as_deref() {
+            observer.guard.assert_no_failure();
+        }
         self.record_logic_access(genesis_core::HybridAccess::Write {
             address: address & 0xffffff,
             word: true,
@@ -1613,13 +1816,105 @@ impl tje_game::Context for HookContext<'_> {
         self.frame_state = state;
         Ok(())
     }
+    fn read_uninitialized_local(
+        &mut self,
+        read: tje_game::stack_read::UninitializedLocalRead,
+    ) -> tje_game::Result<u32> {
+        tje_game::Platform::check_mmio_contract(self)?;
+        self.emulator.hybrid_bus_mut().apply_pending_writes();
+        self.flush_audit_accesses();
+        let observer = self.readable_stack.clone().ok_or_else(|| {
+            tje_game::Error::from(tje_game::stack_read::Unsupported::unavailable(read))
+        })?;
+        let address = observer.guard.explicit_local(
+            read,
+            self.frame_state,
+            self.emulator.hybrid_cpu().stack_pointer(),
+        )?;
+        let mask = observer.guard.unwritten_mask(address, read.width.bytes());
+        let first_read = if self.mode == crate::Mode::Check {
+            let stack = self.stack_audit.as_mut().expect("explicit checked root");
+            stack.capture_reads = true;
+            stack.capture_full_ram = true;
+            Some(
+                self.audit
+                    .get_mut()
+                    .stack_reads
+                    .get_or_insert_with(Vec::new)
+                    .len(),
+            )
+        } else {
+            None
+        };
+        let mut beats = [0; 2];
+        let mut ordinals = [0; 2];
+        let count = if read.width == tje_game::stack_read::LocalWidth::Long {
+            2
+        } else {
+            1
+        };
+        for beat in 0..count {
+            let raw = address.wrapping_add(2 * beat as u32);
+            let word = read.width != tje_game::stack_read::LocalWidth::Byte;
+            let value = if word {
+                u16::from_be_bytes([self.peek_u8(raw), self.peek_u8(raw.wrapping_add(1))])
+            } else {
+                u16::from(self.peek_u8(raw))
+            };
+            self.record_memory_read(raw, word, ReadPurpose::Semantic, value);
+            ordinals[beat] = self.audit.borrow().read_ordinal;
+            if first_read.is_some() {
+                // Seal this native occurrence from its OWN commit bitmap at
+                // the actual read, not from original-callee initialization.
+                let beat_mask = (mask >> (2 * beat)) & if word { 3 } else { 1 };
+                let audit = self.audit.get_mut();
+                let token = audit
+                    .stack_reads
+                    .as_mut()
+                    .expect("explicit journal")
+                    .last_mut()
+                    .expect("actual RAM read");
+                token.uninitialized_mask = beat_mask;
+                let token = token.clone();
+                if audit
+                    .unwritten_stack_reads
+                    .last()
+                    .is_some_and(|read| read.ordinal == token.ordinal)
+                {
+                    audit.unwritten_stack_reads.pop();
+                }
+                if beat_mask != 0 {
+                    audit.unwritten_stack_reads.push(token);
+                }
+            }
+            beats[beat] = value;
+        }
+        if let Some(first_read) = first_read {
+            self.audit
+                .get_mut()
+                .explicit_stack_reads
+                .push(crate::readable_stack::ExplicitRead {
+                    declaration: read,
+                    mask,
+                    beats,
+                    first_read,
+                    ordinals,
+                    beat_count: count,
+                });
+        }
+        Ok(if count == 2 {
+            (u32::from(beats[0]) << 16) | u32::from(beats[1])
+        } else {
+            u32::from(beats[0])
+        })
+    }
     fn call_original_entry(
         &mut self,
         id: FunctionId,
         class: ExecutionClass,
     ) -> tje_game::Result<u32> {
         self.call_original_prepared(id, class)
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+            .map_err(Self::game_platform_error)
     }
     fn call_original_entry_void(
         &mut self,
@@ -1628,7 +1923,7 @@ impl tje_game::Context for HookContext<'_> {
     ) -> tje_game::Result<()> {
         self.call_original_prepared_result(id, class, false)
             .map(|_| ())
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+            .map_err(Self::game_platform_error)
     }
     fn stack_banks(&self) -> tje_game::Result<tje_game::exits::StackBanks> {
         let cpu = self.emulator.hybrid_cpu();
@@ -1765,7 +2060,10 @@ impl tje_game::Context for HookContext<'_> {
                         audio: std::mem::take(&mut self.time_audio),
                         audit: self.stack_audit.is_some(),
                         observers: self.stack_audit.as_ref().map_or_else(
-                            crate::execution::PhysicalObservers::default,
+                            || crate::execution::PhysicalObservers {
+                                readable: self.readable_stack.as_deref(),
+                                ..Default::default()
+                            },
                             StackAuditState::physical_observers,
                         ),
                     },
@@ -1982,7 +2280,7 @@ impl tje_game::Context for HookContext<'_> {
     }
     fn call_original(&mut self, id: FunctionId, arguments: &[u32]) -> tje_game::Result<u32> {
         HookContext::call_original(self, id.metadata().address(self.revision), arguments)
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+            .map_err(Self::game_platform_error)
     }
     fn call_original_with_execution(
         &mut self,
@@ -1991,7 +2289,7 @@ impl tje_game::Context for HookContext<'_> {
         class: ExecutionClass,
     ) -> tje_game::Result<u32> {
         self.call_original_with_execution_contract(id.metadata(), class, arguments)
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+            .map_err(Self::game_platform_error)
     }
     fn call_original_void_with_execution(
         &mut self,
@@ -2001,7 +2299,7 @@ impl tje_game::Context for HookContext<'_> {
     ) -> tje_game::Result<()> {
         self.call_original_with_execution_contract_result(id.metadata(), class, arguments, false)
             .map(|_| ())
-            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+            .map_err(Self::game_platform_error)
     }
 }
 
@@ -2175,7 +2473,10 @@ impl HookContext<'_> {
                         audio: std::mem::take(&mut self.time_audio),
                         audit: self.stack_audit.is_some(),
                         observers: self.stack_audit.as_ref().map_or_else(
-                            crate::execution::PhysicalObservers::default,
+                            || crate::execution::PhysicalObservers {
+                                readable: self.readable_stack.as_deref(),
+                                ..Default::default()
+                            },
                             StackAuditState::physical_observers,
                         ),
                     },

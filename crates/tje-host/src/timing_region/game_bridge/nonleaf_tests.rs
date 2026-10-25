@@ -395,6 +395,7 @@ fn original_child_pointer_read_retains_chronological_root_local_initialization()
                 frame: 0,
                 parents: &mut [],
                 proof: SourceProof::default(),
+                original_segment: None,
             };
             let mut host =
                 TimingHost::with_audio(&mut emulator, &mut clock, &mut ledger, Vec::new()).unwrap();

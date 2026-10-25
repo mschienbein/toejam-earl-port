@@ -43,13 +43,15 @@ UPSTREAM_URL = "https://github.com/jsgroth/jgenesis"
 UPSTREAM_REVISION = "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb"
 VENDOR_PREFIX = "vendor/jgenesis/"
 VENDOR_MANIFEST = VENDOR_PREFIX + "UPSTREAM.json"
-# Exact project-authored proof-only additions, never upstream/content exemptions.
+# Exact project-authored observer/fixture additions, never content exemptions.
 LOCAL_VENDOR_FILES = frozenset({
     "backend/genesis-core/src/reference_proof.rs",
     "backend/genesis-core/src/reference_proof/tests.rs",
     "backend/genesis-core/src/reference_proof/reset.rs",
     "backend/genesis-core/src/reference_proof/reset_tests.rs",
     "backend/genesis-core/src/reference_proof/read_context.rs",
+    "backend/genesis-core/src/ram_dma_observer.rs",
+    "backend/genesis-components/src/ram_dma_observer.rs",
 })
 MAX_BYTES = 1_000_000
 MAX_DECODED_BYTES = 16 * MAX_BYTES

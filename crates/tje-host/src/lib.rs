@@ -33,6 +33,8 @@ pub mod hooks;
 pub mod input;
 mod open_bus;
 mod play;
+mod readable_stack;
+pub use readable_stack::{DeclaredStackInput, ReadableGuardMetrics, UnsupportedStackRead};
 pub mod session_trace;
 mod sinks;
 mod stack_dependency;
@@ -76,6 +78,11 @@ pub enum HostError {
     Json(#[from] serde_json::Error),
     #[error("emulator: {0}")]
     Emulator(String),
+    #[error("dependency probe did not complete: {cause}")]
+    DependencyProbe {
+        #[source]
+        cause: Box<HostError>,
+    },
     #[error(
         "original call did not return to {return_pc:06X} (PC={pc:06X}); atomic calls must not wait for peripheral time"
     )]
@@ -199,6 +206,8 @@ pub struct CheckReport {
     pub nondependent_stack_reads: BTreeSet<StackReadSite>,
     /// Additional side executions, not checked calls or gameplay wait frames.
     pub stack_dependency_reruns: u64,
+    /// Occurrence-sealed cited original entry inputs, never initialization waivers.
+    pub declared_stack_inputs: Vec<DeclaredStackInput>,
     /// Genuine frame-read sites, never informational. DMA-only proofs retain
     /// bounded source/cardinality summaries in dependent_equivalence instead.
     pub dependent_stack_reads: BTreeSet<StackReadSite>,
@@ -220,6 +229,8 @@ pub struct CheckReport {
     pub failures: Vec<CheckFailure>,
     /// Pending frame-version obligations never constitute approved checks.
     pub future_frame_provenance: future_frame_watch::ProvenanceReport,
+    /// Snapshot published on failures and finalization, not an approval latch.
+    pub readable_stack_guard: ReadableGuardMetrics,
 }
 
 impl CheckReport {
@@ -295,6 +306,7 @@ pub struct Host {
     check_failure_policy: CheckFailurePolicy,
     disabled_check_roots: BTreeSet<u32>,
     future_observer: future_frame_watch::LiveObserverLease,
+    readable_stack: Option<readable_stack::Pool>,
     output: HeadlessOutput,
     audio: HeadlessAudio,
     saves: NoCartridgeSaves,
@@ -377,6 +389,10 @@ impl Host {
             check_failure_policy: CheckFailurePolicy::FailFast,
             disabled_check_roots: BTreeSet::new(),
             future_observer: Default::default(),
+            readable_stack: (mode != Mode::Reference
+                && cfg!(feature = "ram-dma-observer")
+                && cfg!(panic = "unwind"))
+            .then(readable_stack::Pool::new),
             output: HeadlessOutput,
             audio: HeadlessAudio::default(),
             saves,
@@ -433,9 +449,22 @@ impl Host {
     }
 
     fn tick(&mut self, inputs: &mut Inputs) -> Result<TickEffect> {
-        self.emulator
-            .tick(&mut self.output, &mut self.audio, inputs, &mut self.saves)
-            .map_err(|e| HostError::Emulator(e.to_string()))
+        let namespace = self
+            .readable_stack
+            .as_ref()
+            .filter(|pool| self.mode == Mode::Replace && pool.namespace.needs_boundary())
+            .map(|pool| Arc::clone(&pool.namespace));
+        let mut tick = || {
+            self.emulator
+                .tick(&mut self.output, &mut self.audio, inputs, &mut self.saves)
+                .map_err(|error| HostError::Emulator(error.to_string()))
+        };
+        match namespace {
+            Some(namespace) => namespace
+                .catch(tick)
+                .map_err(|error| HostError::Translation(error.into()))?,
+            None => tick(),
+        }
     }
 
     pub fn run_frame(&mut self, inputs: GenesisInputs) -> Result<FrameSnapshot> {
@@ -570,6 +599,9 @@ impl Host {
     }
 
     fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
+        let calls_before = self.checks.calls;
+        let mismatches_before = self.checks.mismatches;
+        let earlier_approvals = self.checks.failures.len();
         if self.checks.actual_capture_enabled {
             self.checks.actual_capture = Some(Box::new(
                 check_capture::CheckCaptureDiagnostic::new(hook.symbol.name),
@@ -577,7 +609,33 @@ impl Host {
         }
         // Do not copy this frame's accumulated event trace into either fork.
         let live_trace = self.emulator.hybrid_bus_mut().hybrid_writes.take();
-        let result = self.check_hook_inner(hook);
+        let attempted =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.check_hook_inner(hook)));
+        self.emulator.hybrid_bus_mut().hybrid_writes = live_trace;
+        let result = match attempted {
+            Ok(result) => result,
+            Err(payload) => {
+                self.record_readable_stack_metrics();
+                std::panic::resume_unwind(payload)
+            }
+        };
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.typed_stack_read().is_some())
+        {
+            if self.checks.calls == calls_before {
+                self.checks.calls += 1;
+                self.checks.record_function(hook, true);
+            }
+            let invalidated_earlier = (self.checks.failures.len() - earlier_approvals) as u64;
+            if self.checks.mismatches - mismatches_before <= invalidated_earlier {
+                self.checks.record_mismatch(hook);
+            }
+        }
+        if result.is_err() {
+            self.record_readable_stack_metrics();
+        }
         if self.checks.actual_capture_enabled
             && let Some(capture) = self.checks.actual_capture.as_deref_mut()
         {
@@ -587,7 +645,6 @@ impl Host {
                 .err()
                 .map(|error| check_failure::bounded_detail(error.to_string()).0);
         }
-        self.emulator.hybrid_bus_mut().hybrid_writes = live_trace;
         result
     }
 
@@ -599,7 +656,7 @@ impl Host {
         let mut translated = self.fork();
         // The Rust outcome declares the finite original boundary, including
         // propagated resets, exception returns and persistent main-loop stages.
-        let translated_run = self.run_check_side(
+        let mut translated_run = self.run_check_side(
             &mut translated,
             hook,
             CheckSide::Rust,
@@ -614,8 +671,9 @@ impl Host {
                 self.revision,
             )?,
             outcome: translated_run.outcome,
+            explicit_inputs: !translated_run.audit.explicit_stack_reads.is_empty(),
         };
-        let original_run = self.run_check_side(
+        let mut original_run = self.run_check_side(
             &mut original,
             hook,
             original_side,
@@ -627,6 +685,15 @@ impl Host {
         self.checks.calls += 1;
         self.checks.record_function(hook, true);
         self.checks.nested_original_calls += translated_run.nested_calls;
+        let inputs = readable_stack::pair(
+            hook,
+            self.revision,
+            entry.sp,
+            &mut original_run.audit,
+            &mut translated_run.audit,
+        )
+        .map_err(|error| HostError::Translation(error.into()))?;
+        self.checks.declared_stack_inputs.extend(inputs);
         if self.checks.actual_capture_enabled
             && let Some(capture) = self.checks.actual_capture.as_deref_mut()
         {
@@ -675,6 +742,11 @@ impl Host {
                     entry_ram,
                     sp,
                 )
+                .map_err(|detail| HostError::Mismatch {
+                    frame: self.frame,
+                    function: hook.symbol.name.to_owned(),
+                    detail,
+                })
             })
         };
         if hook.check_route().uses_logic_projection() {
@@ -696,20 +768,18 @@ impl Host {
                 }
                 Ok(translated_run.outcome)
             }
-            Err(mut detail) => {
-                self.record_vdp_mismatch(
-                    &mut detail,
-                    &original,
-                    &translated,
-                    hook,
-                    diagnostics::VdpMismatchOrigin::Check,
-                );
+            Err(mut error) => {
+                if let HostError::Mismatch { detail, .. } = &mut error {
+                    self.record_vdp_mismatch(
+                        detail,
+                        &original,
+                        &translated,
+                        hook,
+                        diagnostics::VdpMismatchOrigin::Check,
+                    );
+                }
                 self.checks.record_mismatch(hook);
-                Err(HostError::Mismatch {
-                    frame: self.frame,
-                    function: hook.symbol.name.to_owned(),
-                    detail,
-                })
+                Err(error)
             }
         }
     }
@@ -717,6 +787,35 @@ impl Host {
     fn replace_hook(&mut self, hook: &Hook) -> Result<()> {
         self.registry.ensure_replacement_admission()?;
         hook.ensure_replacement_admission()?;
+        let observer = self
+            .readable_stack_for_root(hook.symbol.id, self.emulator.hybrid_cpu().stack_pointer())?;
+        #[cfg(feature = "ram-dma-observer")]
+        let saved_observer = self
+            .emulator
+            .hybrid_bus_mut()
+            .replace_ram_dma_observer(Some(observer.clone()));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.replace_hook_tracked(hook, observer)
+        }));
+        #[cfg(feature = "ram-dma-observer")]
+        self.emulator
+            .hybrid_bus_mut()
+            .restore_ram_dma_observer(saved_observer);
+        if !matches!(result, Ok(Ok(()))) {
+            self.record_readable_stack_metrics();
+        }
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    fn replace_hook_tracked(
+        &mut self,
+        hook: &Hook,
+        observer: Arc<readable_stack::Observer>,
+    ) -> Result<()> {
+        let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
         let progresses_time = hook.execution_class != ExecutionClass::Atomic;
         let entry_usage = self.wait_clock.call_clock.usage();
         let mut context = HookContext::new(
@@ -725,27 +824,37 @@ impl Host {
             self.registry.dispatcher(),
             self.mode,
         )
-        .with_timing_services(self.timing_services.as_mut());
+        .with_timing_services(self.timing_services.as_mut())
+        .with_readable_stack(Arc::clone(&observer));
         if progresses_time {
             context =
                 context.with_execution(hook.execution_class, std::mem::take(&mut self.wait_clock));
             context.time_audio = std::mem::take(&mut self.audio.samples);
         }
-        let mut result = hook.execute(&mut context).and_then(|outcome| {
-            exits::finish(&mut context, hook, outcome)?;
-            Ok(outcome)
-        });
+        let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            observer.guard.track_root(hook.symbol.id, entry_sp, || {
+                hook.execute(&mut context).and_then(|outcome| {
+                    exits::finish(&mut context, hook, outcome)?;
+                    Ok(outcome)
+                })
+            })
+        }));
+        let (mut result, unwind) = match attempted {
+            Ok(Ok(result)) => (Some(result), None),
+            Ok(Err(error)) => (Some(Err(HostError::Translation(error.into()))), None),
+            Err(payload) => (None, Some(payload)),
+        };
         self.checks.nested_original_calls += context.nested_calls;
         if progresses_time {
             let usage = context.wait_clock.call_clock.usage().since(entry_usage);
             if let Err(error) = usage
-                && result.is_ok()
+                && result.as_ref().is_some_and(|result| result.is_ok())
             {
-                result = Err(HostError::Clock(error));
+                result = Some(Err(HostError::Clock(error)));
             }
             // Replacement/play has no per-call success journal. Only a cold
             // failure allocates a diagnostic receipt; ledger enforcement stays.
-            if let (Err(error), Ok(usage)) = (&result, usage) {
+            if let (Some(Err(error)), Ok(usage)) = (&result, usage) {
                 self.checks.call_clocks.push(CallClockRecord::new(
                     hook,
                     "Rust",
@@ -760,7 +869,10 @@ impl Host {
             self.measurements.wait_video_frames += context.time_frames;
             self.audio.samples = context.time_audio;
         }
-        if let Some(entry) = exits::terminal(result?) {
+        if let Some(payload) = unwind {
+            std::panic::resume_unwind(payload);
+        }
+        if let Some(entry) = exits::terminal(result.expect("completed root or resumed unwind")?) {
             self.terminal_entry = Some(entry);
         }
         self.checks.record_function(hook, false);

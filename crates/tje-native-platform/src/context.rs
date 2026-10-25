@@ -5,6 +5,7 @@
 use crate::{ClockedDevices, DeviceRuntime, Registers};
 use genesis_config::GenesisEmulatorConfig;
 use genesis_core::native::PeripheralState;
+use std::sync::Arc;
 use tje_game::call_frame::{CallSite, FrameError, FrameState};
 use tje_game::{
     Context, Dispatcher, Error, FunctionId, Platform, Result,
@@ -12,6 +13,8 @@ use tje_game::{
     exits::{self, EntryOutcome, Exit, StackBanks},
 };
 use tje_mem::{AddressSpace, Bus, Revision};
+mod stack_guard;
+use stack_guard::{Pool, StackObserver};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InterruptHandlers {
@@ -53,9 +56,36 @@ pub struct NativePlatform {
     accepted_interrupts: u64,
     program_counter: u32,
     frame: FrameState,
+    readable_stack: Pool,
+    current_stack: Option<Arc<StackObserver>>,
 }
 
 impl NativePlatform {
+    fn readable_guard(&self) -> Option<&tje_game::stack_read::Guard> {
+        self.current_stack
+            .as_ref()
+            .map(|observer| observer.guard.as_ref())
+    }
+
+    /// Fallible readable scheduler boundary, including a returned root's DMA.
+    pub fn advance_master_clocks(&mut self, clocks: u64) -> Result<bool> {
+        if !self.readable_stack.namespace.needs_boundary() {
+            return Ok(self.devices.advance_master_clocks(clocks));
+        }
+        self.readable_stack
+            .namespace
+            .catch(|| self.devices.advance_master_clocks(clocks))
+            .map_err(Into::into)
+    }
+
+    /// A proof may not discard an unvalidated active or queued DMA owner.
+    pub fn finish_readable_proof(&self) -> Result<()> {
+        self.readable_stack.finish_proof()
+    }
+    pub fn readable_dma_metrics(&self) -> tje_game::stack_read::DmaMetrics {
+        self.readable_stack.namespace.metrics()
+    }
+
     fn dispatcher(
         roots: &[FunctionId],
         handlers: InterruptHandlers,
@@ -97,6 +127,8 @@ impl NativePlatform {
             accepted_interrupts: 0,
             program_counter: pc,
             frame,
+            readable_stack: Pool::new(),
+            current_stack: None,
         })
     }
 
@@ -119,6 +151,8 @@ impl NativePlatform {
             accepted_interrupts: 0,
             program_counter: registers.program_counter,
             frame,
+            readable_stack: Pool::new(),
+            current_stack: None,
         })
     }
 
@@ -141,6 +175,37 @@ impl NativePlatform {
     /// Invoke an already-prepared MCC68K entry from a captured state. No JSR,
     /// invented return PC, emulator fallback, or arbitrary instruction charge.
     pub fn enter(&mut self, root: FunctionId, arguments: &[u32]) -> Result<EntryOutcome> {
+        self.run_readable_root(root, |platform| platform.enter_inner(root, arguments))
+    }
+
+    fn run_readable_root<T>(
+        &mut self,
+        root: FunctionId,
+        operation: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if self.current_stack.is_some() {
+            return operation(self);
+        }
+        let observer = self.readable_stack.acquire(root, self.active_sp())?;
+        self.current_stack = Some(Arc::clone(&observer));
+        let previous = self
+            .devices
+            .replace_ram_dma_observer(Some(observer.clone()));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            observer
+                .guard
+                .run_root(root, self.active_sp(), || operation(self))
+        }));
+        self.devices.restore_ram_dma_observer(previous);
+        self.current_stack = None;
+        match result {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => Err(error.into()),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    fn enter_inner(&mut self, root: FunctionId, arguments: &[u32]) -> Result<EntryOutcome> {
         self.program_counter = root.metadata().address(self.revision());
         self.registers.program_counter = self.program_counter;
         self.devices.set_instruction_pc(self.program_counter);
@@ -196,6 +261,7 @@ impl NativePlatform {
     /// Readable-layer interrupt checkpoint. Exact instruction-boundary admission
     /// is owned by the compiled runtime, which consumes the same device lines.
     pub fn service_interrupt(&mut self) -> Result<bool> {
+        self.check_mmio_contract()?;
         let level = self.devices.pending_interrupt();
         if level == 0 || u16::from(level) <= (self.registers.status >> 8) & 7 {
             return Ok(false);
@@ -282,11 +348,12 @@ impl NativePlatform {
             if !wait && !halted && irq {
                 self.service_interrupt()?;
             } else if wait {
-                self.devices
-                    .take_wait_step(self.program_counter)
+                let namespace = Arc::clone(&self.readable_stack.namespace);
+                namespace
+                    .catch(|| self.devices.take_wait_step(self.program_counter))?
                     .expect("observed actual native wait debt");
             } else {
-                self.devices.advance_master_clocks(15);
+                self.advance_master_clocks(15)?;
             }
             steps += 1;
         }
@@ -348,10 +415,31 @@ impl NativePlatform {
 
 impl Bus for NativePlatform {
     fn read_u8(&self, address: u32) -> u8 {
+        if let Some(guard) = self.readable_guard() {
+            guard.read(address, 1, tje_game::stack_read::Reader::RustMemory);
+        }
         self.devices.memory().read_u8(address)
     }
+    fn read_u16(&self, address: u32) -> u16 {
+        if let Some(guard) = self.readable_guard() {
+            guard.read(address, 2, tje_game::stack_read::Reader::RustMemory);
+        }
+        self.devices.memory().read_u16(address)
+    }
+    fn read_u32(&self, address: u32) -> u32 {
+        if let Some(guard) = self.readable_guard() {
+            guard.read(address, 4, tje_game::stack_read::Reader::RustMemory);
+        }
+        self.devices.memory().read_u32(address)
+    }
     fn write_u8(&mut self, address: u32, value: u8) {
+        if let Some(guard) = self.readable_guard() {
+            guard.assert_no_failure();
+        }
         self.devices.memory_mut().write_u8(address, value);
+        if let Some(guard) = self.readable_guard() {
+            guard.commit(address, 1, true);
+        }
     }
 }
 impl tje_mem::Platform for NativePlatform {
@@ -363,6 +451,12 @@ impl tje_mem::Platform for NativePlatform {
     }
 }
 impl Platform for NativePlatform {
+    fn check_mmio_contract(&self) -> Result<()> {
+        self.readable_stack
+            .namespace
+            .failure()
+            .map_or(Ok(()), |error| Err(error.into()))
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.devices.discard_bus_byte(address);
         Ok(())
@@ -372,18 +466,31 @@ impl Platform for NativePlatform {
         Ok(())
     }
     fn read_device_u8(&mut self, address: u32) -> u8 {
+        if let Some(guard) = self.readable_guard() {
+            guard.assert_no_failure();
+        }
         self.devices.read_bus_byte(address)
     }
     fn read_device_u16(&mut self, address: u32) -> u16 {
+        if let Some(guard) = self.readable_guard() {
+            guard.assert_no_failure();
+        }
         self.devices.read_bus_word(address)
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
+        if let Some(guard) = self.readable_guard() {
+            guard.assert_no_failure();
+        }
         self.devices.write_immediate_byte(address, value);
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
+        if let Some(guard) = self.readable_guard() {
+            guard.assert_no_failure();
+        }
         self.devices.write_immediate_word(address, value);
     }
     fn poll_yield(&mut self) -> Result<()> {
+        self.check_mmio_contract()?;
         if self.class != ExecutionClass::TimeAware {
             return Err(Error::Platform(
                 "scheduler yield requires TimeAware execution".into(),
@@ -392,6 +499,7 @@ impl Platform for NativePlatform {
         self.suspend_ram_or_yield(None)
     }
     fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.check_mmio_contract()?;
         if matches!(request.condition, WaitCondition::Ram { .. }) {
             if self.class != ExecutionClass::TimeAware {
                 return Err(Error::Platform(
@@ -405,7 +513,7 @@ impl Platform for NativePlatform {
             return Ok(());
         }
         for _ in 0..request.max_ticks {
-            self.devices.advance_master_clocks(15);
+            self.advance_master_clocks(15)?;
             self.service_interrupt()?;
             if self.condition(request.condition, interrupts)? {
                 return Ok(());
@@ -462,6 +570,27 @@ impl Context for NativePlatform {
         self.frame = frame;
         Ok(())
     }
+    fn read_uninitialized_local(
+        &mut self,
+        read: tje_game::stack_read::UninitializedLocalRead,
+    ) -> Result<u32> {
+        let guard = self
+            .readable_guard()
+            .ok_or_else(|| Error::from(tje_game::stack_read::Unsupported::unavailable(read)))?;
+        let address = guard.explicit_local(read, self.frame, self.active_sp())?;
+        Ok(match read.width {
+            tje_game::stack_read::LocalWidth::Byte => {
+                u32::from(self.devices.memory().read_u8(address))
+            }
+            tje_game::stack_read::LocalWidth::Word => {
+                u32::from(self.devices.memory().read_u16(address))
+            }
+            tje_game::stack_read::LocalWidth::Long => {
+                (u32::from(self.devices.memory().read_u16(address)) << 16)
+                    | u32::from(self.devices.memory().read_u16(address.wrapping_add(2)))
+            }
+        })
+    }
     fn stack_banks(&self) -> Result<StackBanks> {
         Ok(StackBanks {
             user: self.registers.user_stack_pointer,
@@ -488,6 +617,9 @@ impl Context for NativePlatform {
         Err(Error::Untranslated(function))
     }
 }
+
+#[cfg(all(test, panic = "unwind"))]
+mod stack_guard_tests;
 
 #[cfg(test)]
 mod discard_tests {

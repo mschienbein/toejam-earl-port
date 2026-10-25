@@ -51,7 +51,7 @@
       "upstream_path": "backend/genesis-components/src/debug.rs"
     },
     "backend/genesis-components/src/lib.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "22052686b918c14f8e3498922a4903a7d8ad9237",
       "upstream_path": "backend/genesis-components/src/lib.rs"
     },
@@ -59,6 +59,11 @@
       "modified": true,
       "upstream_blob": "bbbe21c3fa60b90efc502c1a55ef07249f8443ea",
       "upstream_path": "backend/genesis-components/src/memory.rs"
+    },
+    "backend/genesis-components/src/ram_dma_observer.rs": {
+      "modified": true,
+      "upstream_blob": null,
+      "upstream_path": null
     },
     "backend/genesis-components/src/svp.rs": {
       "modified": false,
@@ -194,6 +199,11 @@
       "modified": true,
       "upstream_blob": "33a83d0544989f3a46377068f53bbe3d9f805299",
       "upstream_path": "backend/genesis-core/src/lib.rs"
+    },
+    "backend/genesis-core/src/ram_dma_observer.rs": {
+      "modified": true,
+      "upstream_blob": null,
+      "upstream_path": null
     },
     "backend/genesis-core/src/reference_proof.rs": {
       "modified": true,

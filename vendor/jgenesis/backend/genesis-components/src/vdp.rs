@@ -272,13 +272,17 @@ fn parse_location_bits(bits: u8, mode: DataPortMode) -> DataPortLocation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PendingWrite {
-    Control(u16),
+    Control(u16, #[cfg(feature = "ram-dma-observer")] crate::ram_dma_observer::OriginTag),
     Data(u16),
 }
 
 impl Default for PendingWrite {
     fn default() -> Self {
-        Self::Control(0)
+        Self::Control(
+            0,
+            #[cfg(feature = "ram-dma-observer")]
+            crate::ram_dma_observer::OriginTag::default(),
+        )
     }
 }
 
@@ -573,9 +577,38 @@ pub struct Vdp {
     color_tables: ColorTables,
     vdp_event_times: [VdpEventWithTime; VdpEvent::NUM],
     vdp_event_idx: u8,
+    #[cfg(feature = "ram-dma-observer")]
+    observed_dma_generation: crate::ram_dma_observer::DmaGeneration,
+    #[cfg(feature = "ram-dma-observer")]
+    observed_dma_lease: crate::ram_dma_observer::DmaLease,
+    #[cfg(feature = "ram-dma-observer")]
+    observed_command_origin: crate::ram_dma_observer::CommandOrigin,
+    #[cfg(feature = "ram-dma-observer")]
+    observed_queued_origins: crate::ram_dma_observer::QueuedOrigins,
 }
 
 impl Vdp {
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn observed_dma_generation(&self) -> u64 {
+        self.observed_dma_generation.value()
+    }
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn write_control_observed(
+        &mut self,
+        value: u16,
+        origin: crate::ram_dma_observer::CommandOrigin,
+    ) {
+        self.observed_command_origin = origin;
+        self.write_control(value);
+    }
+
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn invalidate_readable_dma_on_reset(&mut self) {
+        self.observed_dma_lease.retire(crate::ram_dma_observer::TransferEnd::ResetInvalidated);
+        self.observed_queued_origins = Default::default();
+        self.observed_command_origin = Default::default();
+    }
+
     /// TJE conservative control superset for data-only probe checks, by borrow.
     /// Complete cross-language VDP equality remains a separate obligation.
     /// FIFO stale words and InternalState data latches are deliberately retained:
@@ -608,6 +641,14 @@ impl Vdp {
             color_tables,
             vdp_event_times,
             vdp_event_idx,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_dma_generation: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_dma_lease: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_command_origin: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_queued_origins: _,
         } = self;
         (
             fifo,
@@ -656,6 +697,14 @@ impl Vdp {
             color_tables: _,
             vdp_event_times: _,
             vdp_event_idx: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_dma_generation: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_dma_lease: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_command_origin: _,
+            #[cfg(feature = "ram-dma-observer")]
+                observed_queued_origins: _,
         } = self;
         let ControlPort {
             mode: _,
@@ -792,10 +841,20 @@ impl Vdp {
             color_tables: ColorTables::from_config(&config),
             vdp_event_times: Self::vdp_event_times(HorizontalDisplaySize::default()),
             vdp_event_idx: 0,
+            #[cfg(feature = "ram-dma-observer")]
+            observed_dma_generation: Default::default(),
+            #[cfg(feature = "ram-dma-observer")]
+            observed_dma_lease: Default::default(),
+            #[cfg(feature = "ram-dma-observer")]
+            observed_command_origin: Default::default(),
+            #[cfg(feature = "ram-dma-observer")]
+            observed_queued_origins: Default::default(),
         }
     }
 
     pub fn write_control(&mut self, value: u16) {
+        #[cfg(feature = "ram-dma-observer")]
+        let mut origin = std::mem::take(&mut self.observed_command_origin);
         log::trace!(
             "VDP control write on scanline {} / mclk {} / pixel {}: {value:04X} (flag = {:?}, dma_enabled = {})",
             self.state.scanline,
@@ -812,9 +871,16 @@ impl Vdp {
             // VDP is locking the bus; buffer the write until the DMA is done
             // Some games depend on this - they'll do a longword write where the first word starts
             // a DMA and then the second word changes the control port address
+            #[cfg(feature = "ram-dma-observer")]
+            self.state
+                .pending_writes
+                .push(PendingWrite::Control(value, self.observed_queued_origins.put(origin)));
+            #[cfg(not(feature = "ram-dma-observer"))]
             self.state.pending_writes.push(PendingWrite::Control(value));
             return;
         }
+        #[cfg(feature = "ram-dma-observer")]
+        origin.consume_queue();
 
         match self.control_port.write_flag {
             ControlWriteFlag::First => {
@@ -833,11 +899,20 @@ impl Vdp {
             }
             ControlWriteFlag::Second => {
                 // Second word of command write
+                #[cfg(feature = "ram-dma-observer")]
+                self.observed_dma_lease.retire(crate::ram_dma_observer::TransferEnd::Cancelled);
                 self.control_port.write_second_command(value, &self.registers);
                 self.control_port.write_flag = ControlWriteFlag::First;
 
                 if self.control_port.dma_active {
                     // DMA started
+                    #[cfg(feature = "ram-dma-observer")]
+                    self.observed_dma_generation.started();
+                    #[cfg(feature = "ram-dma-observer")]
+                    {
+                        self.observed_dma_lease =
+                            origin.start(self.observed_dma_generation.value());
+                    }
                     self.state.vram_fill_data = None;
                     self.state.vram_copy_odd_slot = false;
 
@@ -1722,6 +1797,10 @@ impl Vdp {
             return;
         }
 
+        #[cfg(feature = "ram-dma-observer")]
+        if self.registers.dma_source_address >= 0xe00000 {
+            self.observed_dma_lease.before_ram_read(self.registers.dma_source_address);
+        }
         let word = memory.read_word_for_dma(self.registers.dma_source_address);
         self.increment_dma_source_address();
 
@@ -1801,6 +1880,8 @@ impl Vdp {
         }
 
         self.control_port.dma_active = false;
+        #[cfg(feature = "ram-dma-observer")]
+        self.observed_dma_lease.retire(crate::ram_dma_observer::TransferEnd::Completed);
 
         // Apply any writes that occurred mid-DMA (e.g. from a MOVE.L instruction where the first
         // word started a DMA)
@@ -2029,6 +2110,13 @@ impl Vdp {
         let pending_writes_len = self.state.pending_writes.len();
         for index in 0..pending_writes_len {
             match self.state.pending_writes[index] {
+                #[cfg(feature = "ram-dma-observer")]
+                PendingWrite::Control(value, tag) => {
+                    let origin =
+                        self.observed_queued_origins.take(tag, &self.observed_command_origin);
+                    self.write_control_observed(value, origin);
+                }
+                #[cfg(not(feature = "ram-dma-observer"))]
                 PendingWrite::Control(value) => {
                     self.write_control(value);
                 }
