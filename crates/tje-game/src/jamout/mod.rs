@@ -6,6 +6,7 @@ use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
 mod audio_callbacks;
 mod entities;
+mod frame_support;
 mod layouts;
 mod lifecycle;
 mod scene_layouts;
@@ -178,10 +179,6 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         function: audio_callbacks::random_sample_vblank,
     },
     Translation {
-        id: ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
-        function: scene_layouts::update_layouts_and_scroll,
-    },
-    Translation {
         id: ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT,
         function: scene_layouts::show_lead_pair_layout,
     },
@@ -193,7 +190,15 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         id: ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT,
         function: scene_layouts::show_nine_pair_layout,
     },
-    Translation {
+];
+
+/// Pending source-framed entries consume only the original word argument reads.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
+        function: scene_layouts::update_layouts_and_scroll,
+    },
+    crate::FramedTranslation {
         id: ids::START_JAM_OUT,
         function: lifecycle::start_jam_out,
     },
@@ -410,3 +415,6 @@ mod tests;
 
 #[cfg(test)]
 mod scene_tests;
+
+#[cfg(test)]
+mod access_tests;
