@@ -83,3 +83,31 @@ and unchanged execution epoch. Unarmed archival clones may execute passive
 analysis, but cannot arm or seal; active mutating clones remain fail-closed.
 The 1,024-original-instruction limit is an operational diagnostic ceiling only,
 not a proved source bound, completion guarantee or extra runtime allowance.
+
+### Passive reset input
+
+The same explicit proof constructor also observes the actual reset window. The
+independent reset lane records the raw line, ordered physical vector and prefetch
+reads (including their purposes and open-bus transitions), immutable before/after
+CPU and bus/clock fields, and the actual returned CPU charge. Constructor and
+soft-reset code continue to ignore that charge: no device/master-clock advance
+is invented. These are baseline emulator observations, not a claim about console
+reset accuracy or work performed by the game's `_start` function.
+
+`reference_reset_observation` exposes archival facts only.
+`take_fresh_reset_input` consumes a separate opaque, nonserializable, one-shot
+input at the immediate genuine entry. It is not root admission, reset/RTE
+execution authority, or production eligibility. The host must consume it in its
+single pre-fork admission; analysis branches may receive only privately scoped
+immutable facts. Progress expires freshness. Public mutable CPU/bus escape,
+non-original execution and imports irreversibly invalidate reset live-instance
+lineage, even for same-value mutations. Clone/Decode cannot copy it, and a real
+reset on an analysis copy cannot revive it.
+
+Genuine soft/hard resets can record new reset inputs only on an independently
+trusted live instance. Hard reset moves only that reset lineage into the actual
+replacement; it does not revive the audio fixture's power-on origin. Archives
+remain untrusted. Bounded capture overflow, incomplete/exceptional reset and
+changed entry fail closed without changing reference execution. Authored
+ROM-free regressions cover physical-state/timing inertness, one-shot freshness,
+stale re-entry, same-value escape, archival copies and reset-on-clone denial.

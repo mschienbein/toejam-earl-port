@@ -772,7 +772,27 @@ impl GenesisBus {
         if let Some(survey) = &mut self.timing_survey {
             survey.reference_proof.cpu_access();
         }
+        #[cfg(feature = "reference-proof-hooks")]
+        let reset_open_bus_before = self
+            .timing_survey
+            .as_ref()
+            .filter(|survey| survey.reference_proof.reset_capture_active())
+            .map(|_| self.open_bus);
         let value = self.m68k_read_inner::<WORD>(address, purpose);
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(open_bus_before) = reset_open_bus_before {
+            self.timing_survey.as_mut().unwrap().reference_proof.reset_access(
+                crate::reference_proof::ResetAccess::Read {
+                    address: address & 0xffffff,
+                    word: WORD,
+                    value,
+                    purpose: purpose.into(),
+                    raw_reset_line: self.m68k_reset,
+                    open_bus_before,
+                    open_bus_after: self.open_bus,
+                },
+            );
+        }
         if let Some(trace) = &mut self.native_cpu_accesses {
             let purpose = match purpose {
                 m68000_emu::ReadPurpose::Semantic => 0,
@@ -1251,6 +1271,15 @@ impl m68000_emu::BusInterface for GenesisBus {
         #[cfg(feature = "reference-proof-hooks")]
         if let Some(survey) = &mut self.timing_survey {
             survey.reference_proof.cpu_access();
+            if survey.reference_proof.reset_capture_active() {
+                survey.reference_proof.reset_access(
+                    crate::reference_proof::ResetAccess::WriteIssued {
+                        address: address & 0xffffff,
+                        word: false,
+                        value: value.into(),
+                    },
+                );
+            }
         }
         if let Some(trace) = &mut self.native_cpu_accesses {
             trace.push(crate::native::CpuAccess::Write {
@@ -1267,6 +1296,15 @@ impl m68000_emu::BusInterface for GenesisBus {
         #[cfg(feature = "reference-proof-hooks")]
         if let Some(survey) = &mut self.timing_survey {
             survey.reference_proof.cpu_access();
+            if survey.reference_proof.reset_capture_active() {
+                survey.reference_proof.reset_access(
+                    crate::reference_proof::ResetAccess::WriteIssued {
+                        address: address & 0xffffff,
+                        word: true,
+                        value,
+                    },
+                );
+            }
         }
         if let Some(trace) = &mut self.native_cpu_accesses {
             trace.push(crate::native::CpuAccess::Write {
@@ -1285,6 +1323,16 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn acknowledge_interrupt(&mut self, interrupt_level: u8) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.timing_survey
+            && survey.reference_proof.reset_capture_active()
+        {
+            survey.reference_proof.reset_access(
+                crate::reference_proof::ResetAccess::AcknowledgeInterrupt {
+                    level: interrupt_level,
+                },
+            );
+        }
         if let Some(trace) = &mut self.native_cpu_accesses {
             trace.push(crate::native::CpuAccess::AcknowledgeInterrupt { level: interrupt_level });
         }

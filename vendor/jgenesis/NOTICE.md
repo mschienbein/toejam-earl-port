@@ -208,6 +208,17 @@ Additional `TJE native` device-only interfaces:
   normal operation. The feature and its optional dependencies are excluded from
   shipping frontend graphs; the package shipping-graph test guards both native
   and actual WebAssembly/browser dependency resolution. See the core README.
+- `backend/genesis-core/src/reference_proof/{reset,reset_tests}.rs` are local
+  additions to the same proof-only observer namespace. The independent passive
+  lane captures actual create/soft/hard-reset raw line, vector/prefetch bus
+  accesses and CPU/bus/clock transitions. It retains the actual reset return
+  charge separately from actual device progress; the existing ignored charge
+  remains ignored. No CPU/device/time change or `_start` source credit occurs.
+  Fresh input is opaque, nonserializable and one-shot, separate from archival
+  facts and audio authority. Progress/escape/import/copy guards prevent stale,
+  same-value, decoded or analysis-reset revival. Hard-reset reconstruction moves
+  only independently trusted reset lineage. Capture overflow/fault fails closed.
+  The existing proof-only feature and shipping-graph guard cover this lane.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

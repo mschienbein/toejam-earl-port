@@ -201,9 +201,11 @@ impl GenesisEmulator {
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
     ) -> Self {
+        let reset_identity = crate::reference_proof::cartridge_identity(cartridge_rom.as_deref());
         let mut emulator = Self::create_unreset(cartridge_rom, config, save_writer);
         let mut survey = crate::timing_survey::TimingSurvey::default();
         survey.reference_proof.observe_power_on();
+        survey.reference_proof.initialize_reset_observer(reset_identity);
         emulator.bus.timing_survey = Some(survey);
         emulator.m68k.hybrid_enable_instruction_counts();
         emulator.reset_initial_cpu();
@@ -252,9 +254,65 @@ impl GenesisEmulator {
     fn reset_initial_cpu(&mut self) {
         // Retain the original constructor's reset execution and ignored return
         // charge. No device/master-clock advance is introduced by proof hooks.
+        #[cfg(feature = "reference-proof-hooks")]
+        self.begin_reference_reset();
         self.bus.m68k_reset = true;
-        self.m68k.execute_instruction(&mut self.bus);
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey.reference_proof.reset_line_at_execute(self.bus.m68k_reset);
+        }
+        let reset_charge = self.m68k.execute_instruction(&mut self.bus);
         self.bus.m68k_reset = false;
+        #[cfg(feature = "reference-proof-hooks")]
+        self.finish_reference_reset(reset_charge);
+        #[cfg(not(feature = "reference-proof-hooks"))]
+        let _ = reset_charge;
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    fn begin_reference_reset(&mut self) {
+        if !self
+            .bus
+            .timing_survey
+            .as_ref()
+            .is_some_and(|survey| survey.reference_proof.observing_resets())
+        {
+            return;
+        }
+        let before = crate::reference_proof::ResetBoundary::capture(&self.m68k, &self.bus);
+        self.bus.timing_survey.as_mut().unwrap().reference_proof.begin_reset(before);
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    fn finish_reference_reset(&mut self, charge: u32) {
+        if !self
+            .bus
+            .timing_survey
+            .as_ref()
+            .is_some_and(|survey| survey.reference_proof.reset_capture_active())
+        {
+            return;
+        }
+        let after = crate::reference_proof::ResetBoundary::capture(&self.m68k, &self.bus);
+        self.bus.timing_survey.as_mut().unwrap().reference_proof.finish_reset(after, charge);
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    fn create_with_continued_reset<S: SaveWriter>(
+        cartridge_rom: Option<Vec<u8>>,
+        config: GenesisEmulatorConfig,
+        save_writer: &mut S,
+        continuation: crate::reference_proof::ResetContinuation,
+    ) -> Self {
+        let identity = crate::reference_proof::cartridge_identity(cartridge_rom.as_deref());
+        let mut emulator = Self::create_unreset(cartridge_rom, config, save_writer);
+        let mut survey = crate::timing_survey::TimingSurvey::default();
+        // This moves only the independent reset lineage. It cannot revive the
+        // authored-audio power-on credential or an analysis clone's live origin.
+        survey.reference_proof.continue_reset_observer(identity, continuation);
+        emulator.bus.timing_survey = Some(survey);
+        emulator.reset_initial_cpu();
+        emulator
     }
 
     #[must_use]
@@ -601,17 +659,23 @@ impl EmulatorTrait for GenesisEmulator {
 
     fn soft_reset(&mut self) {
         #[cfg(feature = "reference-proof-hooks")]
-        self.invalidate_reference_mutation();
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey.reference_proof.prepare_soft_reset(self.bus.cycles.m68k_mclk_cycles);
+        }
         log::info!("Soft resetting console");
 
         self.bus.reset();
 
-        self.bus.m68k_reset = true;
-        self.m68k.execute_instruction(&mut self.bus);
-        self.bus.m68k_reset = false;
+        self.reset_initial_cpu();
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
+        #[cfg(feature = "reference-proof-hooks")]
+        let continuation = self
+            .bus
+            .timing_survey
+            .as_mut()
+            .and_then(|survey| survey.reference_proof.reset_continuation());
         #[cfg(feature = "reference-proof-hooks")]
         if self.reject_reference_import() {
             return;
@@ -619,6 +683,16 @@ impl EmulatorTrait for GenesisEmulator {
         log::info!("Hard resetting console");
 
         let cartridge_rom = self.bus.cartridge_mut().map(Cartridge::take_rom);
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(continuation) = continuation {
+            *self = Self::create_with_continued_reset(
+                cartridge_rom,
+                self.config.clone(),
+                save_writer,
+                continuation,
+            );
+            return;
+        }
 
         *self = GenesisEmulator::create(cartridge_rom, self.config.clone(), save_writer);
     }

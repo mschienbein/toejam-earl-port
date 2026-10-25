@@ -951,6 +951,8 @@ class VendorProvenanceTests(GitAuditCase):
         self.assertEqual(audit.LOCAL_VENDOR_FILES, frozenset({
             "backend/genesis-core/src/reference_proof.rs",
             "backend/genesis-core/src/reference_proof/tests.rs",
+            "backend/genesis-core/src/reference_proof/reset.rs",
+            "backend/genesis-core/src/reference_proof/reset_tests.rs",
         }))
         unknown = "backend/genesis-core/src/reference_proof/unchecked.rs"
         for spec in [

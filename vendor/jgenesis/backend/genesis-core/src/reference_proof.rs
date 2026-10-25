@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use thiserror::Error;
 
+mod reset;
+pub use reset::{
+    FreshResetInput, ResetAccess, ResetBoundary, ResetCaptureFailure, ResetCause, ResetClocks,
+    ResetInputError, ResetObservation, ResetReadPurpose,
+};
+pub(crate) use reset::{ResetContinuation, cartridge_identity};
+
 const BUSREQ: u32 = 0xa11100;
 const LOCK: u16 = 0x41;
 const RELEASED_TICKS: u16 = 112;
@@ -217,6 +224,7 @@ pub(crate) struct ReferenceProof {
     failure: Option<ProofFailure>,
     event_ordinal: u64,
     live_origin: LiveOrigin,
+    reset: reset::ResetLane,
 }
 impl ReferenceProof {
     fn fail(&mut self, kind: FailureKind, clock: u64) -> ProofFailure {
@@ -254,6 +262,7 @@ impl ReferenceProof {
         self.audio.is_some()
     }
     pub(crate) fn begin_original_attempt(&mut self) {
+        self.reset_progress();
         if !self.observed_from_power_on {
             return;
         }
@@ -291,6 +300,7 @@ impl ReferenceProof {
         }
     }
     pub(crate) fn public_mutable_escape(&mut self, clock: u64) {
+        self.invalidate_reset_instance();
         self.invalidate_audio_origin(FailureKind::MutableEscape, clock);
     }
     fn fresh_exit_matches(&self, words: &[u32; 25], ordinal: u64, pc: u32) -> bool {
@@ -364,6 +374,7 @@ impl ReferenceProof {
         }
     }
     pub(crate) fn reject_non_original(&mut self, clock: u64) {
+        self.invalidate_reset_instance();
         if !self.observed_from_power_on {
             return;
         }
