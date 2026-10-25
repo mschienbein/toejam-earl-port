@@ -97,13 +97,15 @@ pub fn animate_title_transition_background(
             offset.write(context, current.wrapping_add(512));
         }
         let count = ram::g_sprite_tile_upload_queue_word_count(revision);
-        let slot = count.read(context);
-        count.write(context, slot.wrapping_add(1));
+        // MCC68K c_title_and_transition.s:63-77 (both revisions) loads the
+        // index, then separately reads the byte again for ADDQ.B memory.
+        let (slot, current) = (count.read(context), count.read(context));
+        count.write(context, current.wrapping_add(1));
         ram::g_sprite_tile_upload_runs(revision)
             .at(i32::from(slot))
             .write(context, 1);
-        let slot = count.read(context);
-        count.write(context, slot.wrapping_add(1));
+        let (slot, current) = (count.read(context), count.read(context));
+        count.write(context, current.wrapping_add(1));
         ram::g_sprite_tile_upload_runs(revision)
             .at(i32::from(slot))
             .write(context, 64);
@@ -339,6 +341,8 @@ pub fn cutscene_step_frame_and_music_cadence(
     let advance_period = arguments[0] as u16;
     let animate_objects = arguments[1] as i16;
     call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
+    // CLR pre-reads are discarded, not software operands (matching asm:639).
+    context.discard_u8(ram::g_sprite_graphics_upload_pending(revision).address())?;
     ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
     call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
     call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
@@ -351,6 +355,7 @@ pub fn cutscene_step_frame_and_music_cadence(
     if event.read(context) == 0 {
         return Ok(Some(1));
     }
+    context.discard_u8(event.address())?;
     event.write(context, 0);
     let counter = ram::g_frame_counter(revision);
     let last = ram::g_scene_last_music_event_time(revision);
@@ -371,6 +376,7 @@ pub fn cutscene_step_frame_and_music_cadence(
         )?;
     }
     if updates.read(context) > 51 {
+        context.discard_u16(updates.address())?;
         updates.write(context, 0);
         return Ok(Some(0));
     }
@@ -381,6 +387,7 @@ pub fn cutscene_step_frame_and_music_cadence(
         if advance_period > advance.read(context) {
             return Ok(Some(1));
         }
+        context.discard_u16(advance.address())?;
         advance.write(context, 0);
         let pair = ram::g_scene_background_pair_index(revision);
         let current = pair.read(context);
@@ -420,10 +427,13 @@ pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option
         &[rom::palette_title_screen_bank3(revision).address(), 3],
     )?;
     context.write_vdp_control(0x8c81);
+    // Both compiler revisions use CLR.W for these global resets.
+    context.discard_u16(ram::g_camera_tile_attributes(revision).address())?;
     ram::g_camera_tile_attributes(revision).write(context, 0);
     call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
     call(context, ids::TITLE_DRAW_SELECTED_LOGO, &[])?;
     ram::g_music_animation_channel(revision).write(context, 2);
+    context.discard_u16(ram::g_scene_background_advance_counter(revision).address())?;
     ram::g_scene_background_advance_counter(revision).write(context, 0);
     let mut start_pressed = 0_u16;
     let current = mode.read(context);
@@ -433,7 +443,10 @@ pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option
     let last_event = ram::g_scene_last_music_event_time(revision);
     let start_time = match revision {
         tje_mem::Revision::Rev02 => {
+            // REV02 alone clears these words with their discarded pre-reads.
+            context.discard_u16(counter.address())?;
             counter.write(context, 0);
+            context.discard_u16(last_event.address())?;
             last_event.write(context, 0);
             0
         }
@@ -491,7 +504,9 @@ pub fn sega_and_intro_video_routine(context: &mut dyn Context, _: &[u32]) -> Res
         if call(context, ids::TITLE_SCREEN_VIDEO, &[])? as u16 != 0 {
             break;
         }
-        if call(context, ids::INTRO_VIDEO, &[])? as i16 != 0 {
+        // Both matching listings use TST.L for IntroVideo's int result here,
+        // unlike the preceding MOVE.W normalization of TitleScreenVideo.
+        if call(context, ids::INTRO_VIDEO, &[])? != 0 {
             show_intro = false;
             break;
         }
@@ -519,6 +534,7 @@ pub fn sega_and_intro_video_routine(context: &mut dyn Context, _: &[u32]) -> Res
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line4(revision).address(), 3],
     )?;
+    context.discard_u8(service.address())?;
     service.write(context, 0);
     context.write_vdp_control(0x8c89);
     Ok(None)
@@ -539,6 +555,397 @@ mod timer_tests {
                 (stored as i8, expired),
                 "SUBQ.B/BGT input {old:#04x}",
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::*;
+    use crate::{Dispatcher, Error, FunctionId, execution};
+    use std::{cell::RefCell, collections::VecDeque};
+    use tje_mem::{AddressSpace, Bus, Revision};
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum QueueAccess {
+        Read(u8),
+        Write(u8),
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RamAccess {
+        Write8(u32, u8),
+        Write16(u32, u16),
+        Discard8(u32, u8),
+        Discard16(u32, u16),
+    }
+
+    struct TestContext {
+        memory: AddressSpace,
+        data: [u32; 8],
+        address: [u32; 8],
+        status: u16,
+        queue_reads: RefCell<VecDeque<u8>>,
+        queue_accesses: RefCell<Vec<QueueAccess>>,
+        ram_accesses: RefCell<Vec<RamAccess>>,
+        calls: Vec<FunctionId>,
+        title_results: VecDeque<u32>,
+        intro_results: VecDeque<u32>,
+    }
+
+    impl TestContext {
+        fn new(revision: Revision) -> Self {
+            let table = rom::spr_transition_background(revision).address() as usize;
+            let mut synthetic_rom = vec![0; (table + 4).max(0x200)];
+            synthetic_rom[table..table + 4].copy_from_slice(&0x100_u32.to_be_bytes());
+            synthetic_rom[0x100] = 4;
+            synthetic_rom[0x109] = 0x80;
+            Self {
+                memory: AddressSpace::new(synthetic_rom, revision),
+                data: [0; 8],
+                address: [0; 8],
+                status: 0x2300,
+                queue_reads: RefCell::new(VecDeque::new()),
+                queue_accesses: RefCell::new(Vec::new()),
+                ram_accesses: RefCell::new(Vec::new()),
+                calls: Vec::new(),
+                title_results: VecDeque::new(),
+                intro_results: VecDeque::new(),
+            }
+        }
+    }
+
+    impl Bus for TestContext {
+        fn read_u8(&self, address: u32) -> u8 {
+            if address == ram::g_sprite_tile_upload_queue_word_count(self.revision()).address() {
+                let value = self
+                    .queue_reads
+                    .borrow_mut()
+                    .pop_front()
+                    .unwrap_or_else(|| self.memory.read_u8(address));
+                self.queue_accesses
+                    .borrow_mut()
+                    .push(QueueAccess::Read(value));
+                value
+            } else {
+                self.memory.read_u8(address)
+            }
+        }
+        fn write_u8(&mut self, address: u32, value: u8) {
+            if address == ram::g_sprite_tile_upload_queue_word_count(self.revision()).address() {
+                self.queue_accesses
+                    .borrow_mut()
+                    .push(QueueAccess::Write(value));
+            }
+            self.ram_accesses
+                .borrow_mut()
+                .push(RamAccess::Write8(address, value));
+            self.memory.write_u8(address, value);
+        }
+        fn write_u16(&mut self, address: u32, value: u16) {
+            self.ram_accesses
+                .borrow_mut()
+                .push(RamAccess::Write16(address, value));
+            self.memory.write_u16(address, value);
+        }
+    }
+
+    impl tje_mem::Platform for TestContext {
+        fn write_vdp_control(&mut self, _: u16) {}
+        fn write_vdp_data(&mut self, _: u16) {}
+    }
+
+    impl crate::Platform for TestContext {
+        fn discard_u8(&mut self, address: u32) -> Result<()> {
+            let value = self.memory.read_u8(address);
+            self.ram_accesses
+                .borrow_mut()
+                .push(RamAccess::Discard8(address, value));
+            Ok(())
+        }
+        fn discard_u16(&mut self, address: u32) -> Result<()> {
+            let value = self.memory.read_u16(address);
+            self.ram_accesses
+                .borrow_mut()
+                .push(RamAccess::Discard16(address, value));
+            Ok(())
+        }
+        fn read_device_u8(&mut self, _: u32) -> u8 {
+            panic!("unexpected device read in title regression")
+        }
+        fn read_device_u16(&mut self, _: u32) -> u16 {
+            panic!("unexpected device read in title regression")
+        }
+        fn write_device_u8(&mut self, _: u32, _: u8) {
+            panic!("unexpected byte device write in title regression")
+        }
+        fn write_device_u16(&mut self, _: u32, _: u16) {}
+    }
+
+    impl Context for TestContext {
+        fn revision(&self) -> Revision {
+            self.memory.revision()
+        }
+        fn data_register(&self, index: usize) -> u32 {
+            self.data[index]
+        }
+        fn set_data_register(&mut self, index: usize, value: u32) {
+            self.data[index] = value;
+        }
+        fn address_register(&self, index: usize) -> u32 {
+            self.address[index]
+        }
+        fn set_address_register(&mut self, index: usize, value: u32) {
+            self.address[index] = value;
+        }
+        fn status_register(&self) -> u16 {
+            self.status
+        }
+        fn set_status_register(&mut self, value: u16) {
+            self.status = value;
+        }
+        fn dispatcher(&self) -> Dispatcher {
+            Dispatcher::hybrid_with(&[])
+        }
+        fn execution_class(&self) -> execution::ExecutionClass {
+            execution::ExecutionClass::TimeAware
+        }
+        fn enter_call_ceiling(&mut self, _: FunctionId) -> Result<execution::CallCeilingScope> {
+            Ok(execution::CallCeilingScope::not_required())
+        }
+        fn leave_call_ceiling(&mut self, _: execution::CallCeilingScope) -> Result<()> {
+            Ok(())
+        }
+        fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
+            self.calls.push(id);
+            let value = match id {
+                ids::TITLE_SCREEN_VIDEO => self.title_results.pop_front(),
+                ids::INTRO_VIDEO => self.intro_results.pop_front(),
+                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE => {
+                    let counter = ram::g_frame_counter(self.revision());
+                    let next = counter.read(&self.memory).wrapping_add(1200);
+                    counter.write(&mut self.memory, next);
+                    Some(1)
+                }
+                ids::SEGA_VIDEO
+                | ids::COPY_PALETTE_TO_CRAM_SLOT
+                | ids::SPRITE_UNPACK_INTERLEAVED_RLE
+                | ids::SPRITE_UNPACK_RLE
+                | ids::WAIT_FOR_NEXT_V_BLANK
+                | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
+                | ids::ANIMATE_TITLE_TRANSITION_BACKGROUND
+                | ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
+                | ids::SELECT_VIEWPORT_SPRITE_CHAIN
+                | ids::INITIALIZE_TITLE_TRANSITION_TILEMAP
+                | ids::TITLE_DRAW_SELECTED_LOGO
+                | ids::GET_RANDOM_NUMBER
+                | ids::GET_CTRL1_INPUT
+                | ids::GET_CTRL2_INPUT => Some(0),
+                _ => None,
+            }
+            .ok_or(Error::Untranslated(id))?;
+            self.data[0] = value;
+            Ok(value)
+        }
+        fn call_original_with_execution(
+            &mut self,
+            id: FunctionId,
+            arguments: &[u32],
+            _: execution::ExecutionClass,
+        ) -> Result<u32> {
+            self.call_original(id, arguments)
+        }
+    }
+
+    #[test]
+    fn transition_queue_increment_rereads_memory_without_changing_the_saved_index() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            // Synthetic intervening clears distinguish the saved array index
+            // from each ADDQ.B memory operand in both matching listings:63-77.
+            context.queue_reads.get_mut().extend([5, 0, 1, 0]);
+            animate_title_transition_background(&mut context, &[1]).unwrap();
+            assert!(context.queue_reads.borrow().is_empty());
+            assert_eq!(
+                *context.queue_accesses.borrow(),
+                [
+                    QueueAccess::Read(5),
+                    QueueAccess::Read(0),
+                    QueueAccess::Write(1),
+                    QueueAccess::Read(1),
+                    QueueAccess::Read(0),
+                    QueueAccess::Write(1),
+                ]
+            );
+            let runs = ram::g_sprite_tile_upload_runs(revision);
+            assert_eq!(runs.at(5).read(&context.memory), 1);
+            assert_eq!(runs.at(1).read(&context.memory), 64);
+            assert_eq!(
+                ram::g_sprite_tile_upload_queue_word_count(revision).read(&context.memory),
+                1
+            );
+            assert_eq!(
+                context.calls,
+                [
+                    ids::SPRITE_UNPACK_INTERLEAVED_RLE,
+                    ids::SPRITE_UNPACK_RLE,
+                    ids::SPRITE_UNPACK_RLE,
+                    ids::SPRITE_UNPACK_RLE,
+                    ids::WAIT_FOR_NEXT_V_BLANK,
+                    ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn attract_dispatch_tests_the_entire_intro_int_result() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            context.title_results.push_back(0);
+            context.intro_results.push_back(0x0001_0000);
+            sega_and_intro_video_routine(&mut context, &[]).unwrap();
+            assert_eq!(
+                context.calls,
+                [
+                    ids::SEGA_VIDEO,
+                    ids::TITLE_SCREEN_VIDEO,
+                    ids::INTRO_VIDEO,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn attract_dispatch_still_narrows_the_title_unsigned_short_result() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            context.title_results.extend([0x0001_0000, 1]);
+            context.intro_results.extend([0, 0]);
+            sega_and_intro_video_routine(&mut context, &[]).unwrap();
+            assert_eq!(
+                context.calls,
+                [
+                    ids::SEGA_VIDEO,
+                    ids::TITLE_SCREEN_VIDEO,
+                    ids::INTRO_VIDEO,
+                    ids::SEGA_VIDEO,
+                    ids::TITLE_SCREEN_VIDEO,
+                    ids::INTRO_VIDEO,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                    ids::COPY_PALETTE_TO_CRAM_SLOT,
+                ]
+            );
+        }
+    }
+
+    fn discards(context: &TestContext) -> Vec<RamAccess> {
+        context
+            .ram_accesses
+            .borrow()
+            .iter()
+            .filter(|access| matches!(access, RamAccess::Discard8(..) | RamAccess::Discard16(..)))
+            .copied()
+            .collect()
+    }
+
+    #[test]
+    fn attract_service_clr_reads_discarded_byte_before_zero_store() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            context.title_results.push_back(1);
+            context.intro_results.push_back(0);
+            sega_and_intro_video_routine(&mut context, &[]).unwrap();
+            let service = ram::g_v_blank_audio_input_override(revision).address();
+            let trace: Vec<_> = context
+                .ram_accesses
+                .borrow()
+                .iter()
+                .filter(|access| match access {
+                    RamAccess::Write8(address, _) | RamAccess::Discard8(address, _) => {
+                        *address == service
+                    }
+                    _ => false,
+                })
+                .copied()
+                .collect();
+            assert_eq!(
+                trace,
+                [
+                    RamAccess::Write8(service, 1),
+                    RamAccess::Discard8(service, 1),
+                    RamAccess::Write8(service, 0),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn cadence_global_clr_reads_keep_byte_word_width_and_discarded_purpose() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            for (updates, period) in [(51_i16, 0_u32), (0, 1)] {
+                let mut context = TestContext::new(revision);
+                ram::g_sprite_graphics_upload_pending(revision).write(&mut context.memory, 9);
+                ram::g_music_animation_event(revision).write(&mut context.memory, 1);
+                ram::g_scene_update_counter(revision).write(&mut context.memory, updates);
+                ram::g_frame_counter(revision).write(&mut context.memory, 100);
+                ram::g_scene_background_pair_index(revision).write(&mut context.memory, 23);
+                cutscene_step_frame_and_music_cadence(&mut context, &[period, 0]).unwrap();
+                let reset = if period == 0 {
+                    RamAccess::Discard16(ram::g_scene_update_counter(revision).address(), 52)
+                } else {
+                    RamAccess::Discard16(
+                        ram::g_scene_background_advance_counter(revision).address(),
+                        1,
+                    )
+                };
+                assert_eq!(
+                    discards(&context),
+                    [
+                        RamAccess::Discard8(
+                            ram::g_sprite_graphics_upload_pending(revision).address(),
+                            9,
+                        ),
+                        RamAccess::Discard8(ram::g_music_animation_event(revision).address(), 1),
+                        reset,
+                    ]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn title_clr_reads_follow_revision_specific_word_resets() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut context = TestContext::new(revision);
+            ram::g_camera_tile_attributes(revision).write(&mut context.memory, 0x1234);
+            ram::g_scene_background_advance_counter(revision).write(&mut context.memory, 0x4567);
+            ram::g_frame_counter(revision).write(&mut context.memory, 42);
+            ram::g_scene_last_music_event_time(revision).write(&mut context.memory, 17);
+            assert_eq!(title_screen_video(&mut context, &[]).unwrap(), Some(0));
+            let mut expected = vec![
+                RamAccess::Discard16(ram::g_camera_tile_attributes(revision).address(), 0x1234),
+                RamAccess::Discard16(
+                    ram::g_scene_background_advance_counter(revision).address(),
+                    0x4567,
+                ),
+            ];
+            if revision == Revision::Rev02 {
+                expected.extend([
+                    RamAccess::Discard16(ram::g_frame_counter(revision).address(), 42),
+                    RamAccess::Discard16(
+                        ram::g_scene_last_music_event_time(revision).address(),
+                        17,
+                    ),
+                ]);
+            }
+            assert_eq!(discards(&context), expected);
         }
     }
 }
