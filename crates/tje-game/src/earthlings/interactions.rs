@@ -177,7 +177,7 @@ pub fn player_create_interaction_choice_display(
 }
 
 /// G/src/earthlings/nice_earthling_touch.c:425 (`PlayerProcessLifeRequest`).
-/// TimeAware: the upload-byte spin resumes only through real completed IRQs;
+/// TimeAware: the exact-width upload-byte RAM predicate can await ISR writes;
 /// speech and relocation retain their own reviewed time-progressing contracts.
 /// Both inline literals follow the inventoried executable extent (RTS).
 pub fn player_process_life_request(context: &mut dyn Context) -> Result<Option<u32>> {
@@ -307,10 +307,13 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
         context.discard_u16(handle.address())?;
         handle.write(context, 0);
         if response.read(context) == 2 {
-            // c_nice_earthling_touch.s:1317-1318: TST.B / BNE.
-            while ram::g_sprite_graphics_upload_pending(revision).read(context) != 0 {
-                context.wait_until(crate::execution::WaitRequest::interrupt())?;
-            }
+            // c_nice_earthling_touch.s:1317-1318: TST.B / BNE. The
+            // predicate owns every byte poll, including the satisfying zero.
+            context.wait_until(crate::execution::WaitRequest::ram_byte_equal(
+                ram::g_sprite_graphics_upload_pending(revision).address(),
+                u8::MAX,
+                0,
+            ))?;
             invoke(
                 context,
                 caller,

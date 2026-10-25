@@ -15,6 +15,7 @@ pub(super) struct ObservedContext {
     inner: TestContext,
     reads: RefCell<Vec<Read>>,
     changing_byte: Option<(u32, RefCell<VecDeque<u8>>)>,
+    waits: Vec<crate::execution::WaitRequest>,
     frame: crate::call_frame::FrameState,
     dispatcher: Dispatcher,
     class: crate::execution::ExecutionClass,
@@ -31,6 +32,7 @@ impl ObservedContext {
             inner,
             reads: RefCell::new(Vec::new()),
             changing_byte: None,
+            waits: Vec::new(),
             frame: crate::call_frame::FrameState::new(0xff7e00),
             dispatcher: Dispatcher::hybrid(),
             class: crate::execution::ExecutionClass::Atomic,
@@ -119,6 +121,24 @@ impl crate::Platform for ObservedContext {
     fn discard_u16(&mut self, address: u32) -> Result<()> {
         self.record(address, 2, true);
         let _ = self.inner.memory.read_u16(address);
+        Ok(())
+    }
+    fn wait_until(&mut self, request: crate::execution::WaitRequest) -> Result<()> {
+        use crate::execution::{RamWidth, WaitCondition};
+        self.waits.push(request);
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            panic!("authored upload fixture requires an actual byte RAM predicate");
+        };
+        // Authored successive samples model the wait's reads, not live time.
+        // Pop exhaustion deliberately rejects an extra poll after the final zero.
+        while !comparison.satisfied(u32::from(self.read_u8(address)), mask, value) {}
         Ok(())
     }
 }
@@ -246,6 +266,87 @@ fn life_request_compiled_comparisons_do_not_reuse_an_earlier_state_byte() {
                     .filter(|read| read.address == player.sprite_state().address())
                     .count(),
                 states.len()
+            );
+            assert!(
+                context
+                    .changing_byte
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .borrow()
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[test]
+fn life_request_upload_predicate_owns_all_byte_polls_including_final_zero() {
+    fn free_display(_: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+        Ok(None)
+    }
+    fn stop_after_upload(_: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+        Err(crate::Error::Platform(
+            "authored post-upload boundary".into(),
+        ))
+    }
+    static CALLEES: &[crate::Translation] = &[
+        crate::Translation {
+            id: crate::ids::FREE_ENTITY,
+            function: free_display,
+        },
+        crate::Translation {
+            id: crate::ids::DISABLE_BLANKING_GRAPHICS,
+            function: stop_after_upload,
+        },
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        // Cover all possible initial TST.B values, plus changing busy values.
+        let sequences = (0..=u8::MAX)
+            .map(|busy| if busy == 0 { vec![0] } else { vec![busy, 0] })
+            .chain([vec![0x80, 1, 0xff, 0]]);
+        for samples in sequences {
+            let mut context = ObservedContext::new(revision);
+            context.dispatcher = Dispatcher::hybrid_with_overrides(CALLEES);
+            context.class = crate::execution::ExecutionClass::TimeAware;
+            ram::g_life_request_display_entity(revision).write(&mut context, 6);
+            ram::g_life_request_pending(revision).write(&mut context, 1);
+            ram::g_player_interaction_responses(revision)
+                .at(0)
+                .write(&mut context, 2);
+            let address = ram::g_sprite_graphics_upload_pending(revision).address();
+            context.changing_byte = Some((address, RefCell::new(samples.clone().into())));
+            context.prepare(&[1]);
+            assert_eq!(
+                interactions::player_process_life_request(&mut context),
+                Err(crate::Error::Platform(
+                    "authored post-upload boundary".into()
+                ))
+            );
+            assert_eq!(
+                context.waits,
+                [crate::execution::WaitRequest::ram_byte_equal(
+                    address,
+                    u8::MAX,
+                    0
+                )]
+            );
+            assert_eq!(
+                context
+                    .reads
+                    .borrow()
+                    .iter()
+                    .filter(|read| read.address == address)
+                    .copied()
+                    .collect::<Vec<_>>(),
+                vec![
+                    Read {
+                        address,
+                        width: 1,
+                        discarded: false,
+                    };
+                    samples.len()
+                ]
             );
             assert!(
                 context
