@@ -307,6 +307,8 @@ pub fn map_assign_transition_chain(c: &mut dyn Context, _: &[u32]) -> Result<Opt
     for _pass in 0..2 {
         for row in 0..26 {
             for column in 0..19 {
+                // G c_transition_paths.s:707, CLR.W pre-read.
+                c.discard_u16(ram::g_transition_path_visit_count(r).address())?;
                 ram::g_transition_path_visit_count(r).write(c, 0);
                 let cell = map.at(row).at(column);
                 let value = u32::from(cell.read(c));

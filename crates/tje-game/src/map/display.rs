@@ -264,6 +264,8 @@ pub fn map_initialize_screen_sprites(c: &mut dyn Context, args: &[u32]) -> Resul
         let sprite = sprites.offset(slot);
         if slot < i32::from(ram::g_map_screen_next_sprite_index(r).read(c)) {
             sprite.tile().write(c, first.wrapping_add(slot as u16));
+            // G c_map_drawing_and_controller.s:1023, CLR.B pre-read.
+            c.discard_u8(sprite.size().address())?;
             sprite.size().write(c, 0);
         } else if slot & 1 != 0 {
             sprite.tile().write(c, 0xe122);
@@ -275,6 +277,8 @@ pub fn map_initialize_screen_sprites(c: &mut dyn Context, args: &[u32]) -> Resul
         sprite.link().write(c, (slot + 1) as u8);
         sprite.y().write(c, 1);
     }
+    // Same listing:1083, CLR.B of the terminating link.
+    c.discard_u8(sprites.offset(79).link().address())?;
     sprites.offset(79).link().write(c, 0);
     Ok(None)
 }

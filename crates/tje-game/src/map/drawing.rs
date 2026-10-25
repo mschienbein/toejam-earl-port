@@ -168,7 +168,9 @@ pub fn map_upload_cover_animation_frame(c: &mut dyn Context, args: &[u32]) -> Re
     for i in 0..2 {
         let piece = frame.piece(i);
         let flags = piece.tile_format().read(c);
-        let count = (u32::from(piece.width().read(c)) * u32::from(piece.height().read(c))) as i16;
+        // Both matching listings load height (+1) before width (+0).
+        let height = u32::from(piece.height().read(c));
+        let count = (height * u32::from(piece.width().read(c))) as i16;
         call(
             c,
             if flags < 0 {

@@ -500,3 +500,6 @@ fn original_classes_are_complete_and_pending_entries_never_register() {
 
 #[path = "tests_indexing.rs"]
 mod index_and_register_lowering;
+
+#[path = "tests_replay_prep.rs"]
+mod replay_preparation;

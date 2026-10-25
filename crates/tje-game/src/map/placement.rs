@@ -1,6 +1,6 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
 use crate::{Context, Result, call_at, ids};
-use tje_mem::ram;
+use tje_mem::{Address, ram};
 
 fn placement_site(c: &dyn Context, offset: u32) -> CallSite {
     CallSite::relative(ids::SET_POSITION_ON_NEW_LEVEL, c.revision(), offset)
@@ -25,14 +25,11 @@ fn try_position(
     let x = frame.local::<i16>(-16);
     let y = frame.local::<i16>(-14);
     let validation = placement_site(c, if exhaustive { 0x28a } else { 0x136 });
-    let arguments = [
-        u32::from(frame.local::<u16>(-2).read(c)),
-        i32::from(frame.local::<i16>(-6).read(c)) as u32,
-        i32::from(frame.local::<i16>(-8).read(c)) as u32,
-        x.address(),
-        y.address(),
-        3,
-    ];
+    // MCC68K evaluates these argument loads in reverse push order.
+    let height = i32::from(frame.local::<i16>(-8).read(c)) as u32;
+    let width = i32::from(frame.local::<i16>(-6).read(c)) as u32;
+    let metatile = u32::from(frame.local::<u16>(-2).read(c));
+    let arguments = [metatile, width, height, x.address(), y.address(), 3];
     if call_at(c, ids::TERRAIN_VALIDATION, &arguments, validation)? == 0 {
         return Ok(false);
     }
@@ -53,11 +50,9 @@ fn try_position(
     };
     if player == 2 {
         for (delta, offset) in [(-32, query_offsets[0]), (32, query_offsets[1])] {
-            let arguments = [
-                (i32::from(x.read(c)) + delta) as u32,
-                i32::from(y.read(c)) as u32,
-                i32::from(level) as u32,
-            ];
+            let world_y = i32::from(y.read(c)) as u32;
+            let world_x = (i32::from(x.read(c)) + delta) as u32;
+            let arguments = [world_x, world_y, i32::from(level) as u32];
             let site = placement_site(c, offset);
             if call_at(c, ids::ELEVATOR_CONTAINS_POSITION, &arguments, site)? != 0 {
                 return Ok(false);
@@ -65,11 +60,9 @@ fn try_position(
         }
         Ok(true)
     } else {
-        let arguments = [
-            i32::from(x.read(c)) as u32,
-            i32::from(y.read(c)) as u32,
-            i32::from(level) as u32,
-        ];
+        let world_y = i32::from(y.read(c)) as u32;
+        let world_x = i32::from(x.read(c)) as u32;
+        let arguments = [world_x, world_y, i32::from(level) as u32];
         let site = placement_site(c, query_offsets[2]);
         Ok(call_at(c, ids::ELEVATOR_CONTAINS_POSITION, &arguments, site)? == 0)
     }
@@ -132,10 +125,11 @@ pub fn set_position_on_new_level(c: &mut dyn Context, args: &[u32]) -> Result<Op
             3,
             (c.data_register(3) & 0xffff_0000) | u32::from(column as u16),
         );
-        c.set_address_register(5, map.address());
-        let metatile = map.at(i32::from(row)).at(i32::from(column)).read(c);
-        frame.local::<u16>(-2).write(c, metatile);
-        if metatile & 0x4000 != 0 {
+        let current_map = Address::<u16>::new(frame.local::<u32>(-12).read(c));
+        c.set_address_register(5, current_map.address());
+        let metatile = current_map.offset(i32::from(row) * 19 + i32::from(column));
+        frame.local::<u16>(-2).write(c, metatile.read(c));
+        if frame.local::<u16>(-2).read(c) & 0x4000 != 0 {
             // The decrement and loop increment cancel, so marked cells do not
             // consume any of the ten attempts, including on an all-marked map.
             continue;
@@ -152,17 +146,18 @@ pub fn set_position_on_new_level(c: &mut dyn Context, args: &[u32]) -> Result<Op
         frame.local::<i16>(-4).write(c, first_column);
         let mut row = first_row;
         'rows: loop {
-            let mut column = first_column;
+            let mut column = frame.local::<i16>(-4).read(c);
             loop {
-                let metatile = map.at(i32::from(row)).at(i32::from(column)).read(c);
-                frame.local::<u16>(-2).write(c, metatile);
-                if metatile & 0x4000 == 0
+                let current_map = Address::<u16>::new(frame.local::<u32>(-12).read(c));
+                let metatile = current_map.offset(i32::from(row) * 19 + i32::from(column));
+                frame.local::<u16>(-2).write(c, metatile.read(c));
+                if frame.local::<u16>(-2).read(c) & 0x4000 == 0
                     && try_position(c, &frame, player, level, (row, column), true)?
                 {
                     break 'rows;
                 }
                 column = ((i32::from(column) + 1) % 19) as i16;
-                if column == first_column {
+                if column == frame.local::<i16>(-4).read(c) {
                     break;
                 }
             }

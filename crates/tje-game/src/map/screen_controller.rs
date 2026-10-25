@@ -63,6 +63,8 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     c.set_address_register(3, ram::g_mode2_reg_softcopy(r).address());
     c.set_address_register(4, ids::COPY_PALETTE_TO_CRAM_SLOT.metadata().address(r));
     if r == Revision::Rev02 {
+        // G REV02 c_map_drawing_and_controller.s:1575, CLR.W pre-read.
+        c.discard_u16(ram::g_player_idle_ticks(r).at(player).address())?;
         ram::g_player_idle_ticks(r).at(player).write(c, 0);
     }
     let pending = ram::g_sprite_graphics_upload_pending(r);
@@ -160,8 +162,9 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         0x89b4,
     )?;
     mode.write(c, mode.read(c) | 0x40);
+    let display_mode = mode.read(c);
     release_arguments(c, 21)?;
-    c.write_vdp_control(0x8104 | u16::from(mode.read(c)));
+    c.write_vdp_control(0x8104 | u16::from(display_mode));
     if ram::g_map_reveal_mode(r).read(c) != 0 {
         for animation in 1..12 {
             retain_call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[4], 0x89de)?;
