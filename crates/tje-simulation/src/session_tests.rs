@@ -1,0 +1,424 @@
+use crate::bridge::{self, Operation, PhaseServices};
+use crate::session::{Roles, Session, SessionConfig, SetupRoot, SetupTransaction};
+use crate::{Admission, Error, LevelId, Phase, PublicationStamp, Result, SeatMask};
+use tje_four_player::{
+    CoopState, SeatId,
+    input::InputFrame,
+    state::{Arrival, Config, Position},
+};
+use tje_world::{Cell, Density, LevelSize, Resources, Shape, WorldConfig, world::WorldState};
+
+// Authored solid/void terrain only: no ROM map or recovered lookup table.
+struct Solid;
+impl Resources for Solid {
+    fn parameter(&self, _: LevelId, parameter: u8) -> tje_world::Result<(u8, u8)> {
+        Ok(if parameter == 6 { (3, 6) } else { (55, 70) })
+    }
+    fn shape(&self, _: Shape, _: u8, alternate: bool) -> tje_world::Result<u8> {
+        Ok(if alternate { 2 } else { 1 })
+    }
+    fn alternative(&self, shape: u8, _: u32) -> tje_world::Result<Cell> {
+        Cell::new(shape, 0)
+    }
+    fn transition(&self, _: u8, _: u8, _: u32) -> tje_world::Result<Option<Cell>> {
+        Ok(None)
+    }
+    fn base_tile(&self, base: u8, _: u8, _: u8) -> tje_world::Result<u16> {
+        Ok(u16::from(base & 127 != 0))
+    }
+    fn overlay_tile(&self, _: u8, _: u8, _: u8) -> tje_world::Result<u16> {
+        Ok(0)
+    }
+    fn property(&self, tile: u16) -> tje_world::Result<u8> {
+        Ok(if tile == 1 { 0x10 } else { 0x90 })
+    }
+}
+
+pub(crate) fn session(seed: u64) -> Session {
+    session_for_roles(seed, Roles::coop(SeatMask::ALL))
+}
+
+fn session_for_roles(seed: u64, roles: Roles) -> Session {
+    use tje_world::generation::Phase as Loading;
+    let world_config = WorldConfig {
+        root_seed: seed,
+        rom_sha1: [0; 20],
+        size: LevelSize::Original,
+        density: Density::Original,
+    };
+    let mut coop_config = Config::four_seats(seed);
+    coop_config.participants = roles.heroes;
+    let mut config = SessionConfig::new(
+        world_config.clone(),
+        coop_config.clone(),
+        tje_world::GeneratorId::ExpandedV1,
+        None,
+        &[],
+    )
+    .unwrap();
+    config.roles = roles;
+    let mut world = WorldState::new(world_config).unwrap();
+    let level = LevelId::new(2).unwrap();
+    world
+        .request_load(
+            level,
+            tje_world::population::PopulationBaseline {
+                walkable_tiles: 19 * 26 * 64,
+                ordinary_items: 12,
+                earthlings: 10,
+                reserved_items: 2,
+                ship_piece: true,
+                mailbox: true,
+            },
+        )
+        .unwrap();
+    let mut loaded = false;
+    for _ in 0..100_000 {
+        match world.advance_loading(&Solid, 1024).unwrap() {
+            Loading::Complete => {
+                loaded = true;
+                break;
+            }
+            Loading::Rejected => panic!("synthetic aggregate floor rejected"),
+            _ => {}
+        }
+    }
+    assert!(loaded);
+    let (x, y) = world
+        .floor(level)
+        .unwrap()
+        .generated
+        .geometry
+        .anchors()
+        .arrival
+        .center();
+    let mut players = CoopState::new(coop_config).unwrap();
+    let arrivals: Vec<_> = roles
+        .heroes
+        .iter()
+        .map(|seat| Arrival {
+            seat,
+            level,
+            position: Position {
+                x: x * 256,
+                y: y * 256,
+                elevation: 0,
+            },
+        })
+        .collect();
+    players.record_arrivals(&arrivals).unwrap();
+    for seat in roles.heroes.iter() {
+        world.set_active(seat.get(), level).unwrap();
+    }
+    SetupTransaction::prepare(config, world, players, vec![])
+        .unwrap()
+        .finish_setup()
+        .unwrap()
+}
+
+#[test]
+fn aggregate_rejects_cross_service_references_and_config_tampering() {
+    let initial = session(123);
+    initial.validate().unwrap();
+    let mut bad = initial.clone();
+    bad.players.players[3].level = Some(LevelId::new(31).unwrap());
+    assert!(bad.validate().is_err());
+    assert_eq!(initial.hero_actor(SeatId::ALL[3]).unwrap().slot(), 3);
+    let mut altered = initial.config().clone();
+    altered.world.root_seed += 1;
+    assert!(altered.validate().is_err());
+    let encoded = bincode::encode_to_vec(&bad, bincode::config::standard()).unwrap();
+    let (decoded, _): (Session, _) =
+        bincode::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+    assert!(decoded.validate().is_err());
+    assert!(initial.admit().is_err());
+    assert_eq!(initial, session(123));
+}
+
+#[test]
+fn original_and_expanded_generator_capabilities_cannot_alias() {
+    let expanded = session(123);
+    assert_eq!(
+        expanded.config().generator,
+        tje_world::GeneratorId::ExpandedV1
+    );
+    let original = SessionConfig::stock(
+        expanded.world.config().clone(),
+        expanded.players.config().clone(),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(original.generator, tje_world::GeneratorId::OriginalV1);
+    assert_ne!(original.identity(), expanded.config().identity());
+    assert!(
+        SetupTransaction::prepare(
+            original,
+            expanded.world.clone(),
+            expanded.players.clone(),
+            vec![]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn pending_designed_imports_authenticate_course_and_definition_provenance() {
+    use crate::session::{CourseManifest, SourceBinding};
+    use tje_world::loading::{ImportKind, ImportSpec};
+    let template = session(123);
+    let floor = template.world.floor(LevelId::new(2).unwrap()).unwrap();
+    let geometry = &floor.generated.geometry;
+    let spec = ImportSpec {
+        config: template.world.config().clone(),
+        level: LevelId::new(2).unwrap(),
+        kind: ImportKind::Designed {
+            course_identity: [3; 32],
+        },
+        dimensions: geometry.dimensions(),
+        anchors: geometry.anchors().clone(),
+        population: floor.generated.population.clone(),
+        source_digest: ImportSpec::content_digest(geometry.dimensions(), geometry).unwrap(),
+    };
+    let provenance = spec.provenance();
+    let config = SessionConfig::new(
+        template.world.config().clone(),
+        template.players.config().clone(),
+        tje_world::GeneratorId::DesignedV1,
+        Some(CourseManifest {
+            identity: [3; 32],
+            sources: vec![SourceBinding {
+                level: spec.level,
+                source_digest: spec.source_digest,
+                definitions_digest: provenance.definitions_digest,
+            }],
+        }),
+        &[],
+    )
+    .unwrap();
+    let prepare = |candidate: ImportSpec| {
+        let mut world = WorldState::new(candidate.config.clone()).unwrap();
+        world.request_import(candidate).unwrap();
+        let players = CoopState::new(template.players.config().clone()).unwrap();
+        SetupTransaction::prepare(config.clone(), world, players, vec![])
+    };
+    assert!(prepare(spec.clone()).is_ok());
+    let mut wrong_course = spec.clone();
+    wrong_course.kind = ImportKind::Designed {
+        course_identity: [4; 32],
+    };
+    assert!(prepare(wrong_course).is_err());
+    let mut wrong_definitions = spec;
+    wrong_definitions.population.items[0].x += 8;
+    assert!(prepare(wrong_definitions).is_err());
+}
+
+#[test]
+fn hero_input_latching_follows_players_phase_not_boot_relative_codec_frames() {
+    let mut state = session(123);
+    for (index, phase) in [
+        Phase::PresentationA,
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+    ]
+    .into_iter()
+    .cycle()
+    .take(8)
+    .enumerate()
+    {
+        let input = InputFrame::neutral(500 + index as u64);
+        state.clock.admit(phase, input).unwrap();
+        if phase == Phase::Players {
+            assert!(state.latch_phase_inputs().unwrap());
+            assert!(!state.latch_phase_inputs().unwrap());
+        } else {
+            assert!(state.latch_phase_inputs().is_err());
+        }
+    }
+    assert_eq!(state.players.inputs.unwrap().frame, 507);
+}
+
+#[test]
+fn input_and_publication_crossrefs_are_validated_together() {
+    let mut state = session(123);
+    let phase_input = InputFrame::neutral(0);
+    let Admission::Step(stamp) = state
+        .clock
+        .admit(Phase::PresentationA, phase_input)
+        .unwrap()
+    else {
+        panic!("first phase was not admitted");
+    };
+    state.publish(stamp).unwrap();
+    state
+        .players
+        .latch_inputs(InputFrame::new(0, [0x101, 0, 0, 0], [0; 4]).unwrap())
+        .unwrap();
+    assert!(state.validate().is_err());
+    state.players.inputs = Some(phase_input);
+    state.validate().unwrap();
+    for (frame, phase) in [
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+        Phase::PresentationA,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .clock
+            .admit(phase, InputFrame::neutral(frame as u64 + 1))
+            .unwrap();
+    }
+    assert!(state.validate().is_err());
+}
+
+#[test]
+fn roles_never_turn_the_director_into_a_fourth_hero() {
+    let roles = Roles {
+        inputs: SeatMask::ALL,
+        heroes: SeatMask::new(7).unwrap(),
+        local_owners: SeatMask::ALL,
+        director: Some(SeatId::ALL[3]),
+    };
+    roles.validate().unwrap();
+    let mut state = session_for_roles(123, roles);
+    for (frame, phase) in [
+        Phase::PresentationA,
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .clock
+            .admit(phase, InputFrame::neutral(frame as u64))
+            .unwrap();
+    }
+    state.validate().unwrap();
+    let before = state.clone();
+    assert!(state.latch_phase_inputs().is_err());
+    assert_eq!(state, before);
+    assert!(state.hero_actor(SeatId::ALL[3]).is_none());
+    assert!(
+        Roles {
+            heroes: SeatMask::ALL,
+            ..roles
+        }
+        .validate()
+        .is_err()
+    );
+    assert!(
+        Roles {
+            director: None,
+            ..roles
+        }
+        .validate()
+        .is_err()
+    );
+    assert_ne!(roles.inputs, roles.heroes);
+}
+
+#[derive(Default)]
+struct Recorder {
+    calls: Vec<Operation>,
+    reject: bool,
+    fail: bool,
+}
+impl PhaseServices for Recorder {
+    fn supports(&self, _: Operation) -> bool {
+        !self.reject
+    }
+    fn execute(
+        &mut self,
+        operation: Operation,
+        _: &mut Session,
+        _: PublicationStamp,
+    ) -> Result<()> {
+        if self.fail {
+            return Err(Error::State("authored service failure"));
+        }
+        self.calls.push(operation);
+        Ok(())
+    }
+}
+
+#[test]
+fn bounded_bridge_preserves_setup_and_never_replays_a_phase() {
+    let mut session = session(123);
+    let unchanged = session.clone();
+    for root in [
+        SetupRoot::Player,
+        SetupRoot::MainGame,
+        SetupRoot::Inventory,
+        SetupRoot::Earthlings,
+        SetupRoot::Elevator,
+        SetupRoot::Seeds,
+    ] {
+        assert!(session.acknowledge_setup(root).unwrap());
+        assert!(!session.acknowledge_setup(root).unwrap());
+    }
+    assert_eq!(session.world, unchanged.world);
+    assert_eq!(session.players, unchanged.players);
+    let mut recorder = Recorder::default();
+    for (frame, phase) in [
+        Phase::PresentationA,
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+    ]
+    .into_iter()
+    .cycle()
+    .take(16)
+    .enumerate()
+    {
+        let input =
+            InputFrame::new(frame as u64, [0x101, 0x102, 0x104, 0x108], [1, 2, 4, 8]).unwrap();
+        assert!(matches!(
+            bridge::run_phase(&mut session, &mut recorder, phase, input).unwrap(),
+            Admission::Step(_)
+        ));
+        let calls = recorder.calls.len();
+        let checkpoint = session.clone();
+        assert_eq!(
+            bridge::run_phase(&mut session, &mut recorder, phase, input).unwrap(),
+            Admission::Repeated
+        );
+        assert_eq!(recorder.calls.len(), calls);
+        assert_eq!(session, checkpoint);
+        session.validate().unwrap();
+    }
+    assert_eq!(recorder.calls.len(), 96);
+}
+
+#[test]
+fn missing_operation_rejects_before_mutation_and_execution_errors_latch() {
+    let mut session = session(123);
+    let before = session.clone();
+    let input = InputFrame::neutral(0);
+    let mut recorder = Recorder {
+        reject: true,
+        ..Recorder::default()
+    };
+    assert!(bridge::run_phase(&mut session, &mut recorder, Phase::PresentationA, input).is_err());
+    assert_eq!(session, before);
+    recorder.reject = false;
+    recorder.fail = true;
+    assert!(bridge::run_phase(&mut session, &mut recorder, Phase::PresentationA, input).is_err());
+    assert!(session.failed());
+    let failed = session.clone();
+    recorder.fail = false;
+    assert!(
+        bridge::run_phase(
+            &mut session,
+            &mut recorder,
+            Phase::Population,
+            InputFrame::neutral(1)
+        )
+        .is_err()
+    );
+    assert_eq!(session, failed);
+}

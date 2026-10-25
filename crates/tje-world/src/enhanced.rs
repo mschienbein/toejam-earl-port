@@ -8,7 +8,7 @@ use tje_engine_runtime::enhanced::{
 
 impl Sidecar for WorldState {
     const KEY: &'static str = "tje/world/expanded-v1";
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
     fn validate(&self) -> tje_game::Result<()> {
         WorldState::validate(self).map_err(game_error)
     }

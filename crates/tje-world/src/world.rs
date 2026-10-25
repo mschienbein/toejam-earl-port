@@ -1,4 +1,6 @@
 use crate::generation::{GeneratedLevel, Generation, GenerationSpec, Phase, Rejection};
+use crate::land::LandState;
+use crate::loading::{CellSource, FloorSpec, ImportJob, ImportProgress, ImportSpec};
 use crate::population::{PopulationBaseline, StableBits};
 use crate::{
     Cell, CellPosition, Error, LevelId, MAX_ACTIVE_FLOORS, MAX_DROPPED_ITEMS, MAX_EFFECTS,
@@ -15,9 +17,10 @@ pub struct Discovery {
 }
 impl Discovery {
     pub fn new(dimensions: crate::Dimensions) -> Result<Self> {
+        dimensions.validate()?;
         let (width, height) = dimensions.world_envelope();
-        let columns = ((width - 128 - 72) as u32).div_ceil(320) as u16;
-        let rows = ((height - 8) as u32).div_ceil(256) as u16;
+        let columns = ((width - 128) as u32).div_ceil(320) as u16;
+        let rows = (height as u32).div_ceil(256) as u16;
         Ok(Self {
             columns,
             rows,
@@ -27,7 +30,11 @@ impl Discovery {
     }
     pub fn visit(&mut self, x: i32, y: i32, dimensions: crate::Dimensions) -> Result<bool> {
         let (width, height) = dimensions.world_envelope();
-        if x < 72 || y < 8 || x >= width - 128 || y >= height {
+        if x < 72
+            || y < 8
+            || i64::from(x) - 72 >= i64::from(width - 128)
+            || i64::from(y) - 8 >= i64::from(height)
+        {
             return Ok(false);
         }
         let column = ((x - 72) / 320) as u16;
@@ -48,7 +55,7 @@ impl Discovery {
         let expected = Self::new(dimensions)?;
         if self.columns != expected.columns
             || self.rows != expected.rows
-            || self.awards > u32::from(self.columns * self.rows)
+            || self.awards != self.visited.count()
         {
             return Err(Error::State("discovery grid/award extent"));
         }
@@ -58,51 +65,50 @@ impl Discovery {
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct StoredFloor {
-    pub spec: GenerationSpec,
+    pub spec: FloorSpec,
     pub generated: GeneratedLevel,
     pub discovery: Discovery,
     pub dirty_cells: StableBits,
+    pub land: LandState,
 }
 impl StoredFloor {
     pub fn replace_cell(&mut self, position: CellPosition, cell: Cell, path: u8) -> Result<()> {
         let index = position.index(self.generated.geometry.dimensions())?;
         self.generated.geometry.replace_cell(position, cell, path)?;
+        self.land
+            .set_flags(position, path != 0, self.land.alternate(position))?;
         self.dirty_cells.insert(index as u16)?;
         Ok(())
+    }
+    pub fn step_land(
+        &mut self,
+        resources: &impl crate::land::PathResources,
+    ) -> Result<Option<crate::land::LandChange>> {
+        self.land.step(
+            &mut self.generated.geometry,
+            &mut self.dirty_cells,
+            &mut self.generated.runtime_rng,
+            resources,
+        )
     }
     pub fn validate(&self, config: &WorldConfig) -> Result<()> {
         self.spec.validate()?;
         self.generated.validate()?;
         let dimensions = self.generated.geometry.dimensions();
-        if &self.spec.config != config
+        if self.spec.config() != config
             || self.spec.identity() != self.generated.identity
-            || dimensions != config.dimensions_for(self.spec.level)
+            || dimensions != self.spec.dimensions()
         {
             return Err(Error::State(
                 "stored floor configuration/identity/dimensions",
             ));
         }
+        self.land.validate(&self.generated.geometry)?;
         self.discovery.validate(dimensions)?;
         self.dirty_cells.validate(dimensions.area() as u16)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum TransitionKind {
-    ElevatorUp,
-    Fall,
-    Reenter,
-    Telephone,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct Transition {
-    pub seat: u8,
-    pub source: LevelId,
-    pub destination: LevelId,
-    pub kind: TransitionKind,
-    /// Becomes present only after the new floor has been validated/published.
-    pub landing: Option<(i32, i32)>,
-}
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct LoadFailure {
     pub spec: GenerationSpec,
@@ -127,7 +133,7 @@ pub struct WorldState {
     floors: Vec<StoredFloor>,
     active: [Option<LevelId>; 4],
     pending: Option<Generation>,
-    transition: Option<Transition>,
+    importing: Option<ImportJob>,
     last_failure: Option<LoadFailure>,
     dropped: Vec<DroppedItem>,
     next_drop_id: u32,
@@ -143,7 +149,7 @@ impl WorldState {
             floors: Vec::with_capacity(MAX_FLOORS),
             active: [None; 4],
             pending: None,
-            transition: None,
+            importing: None,
             last_failure: None,
             dropped: Vec::with_capacity(MAX_DROPPED_ITEMS),
             next_drop_id: 0,
@@ -162,21 +168,18 @@ impl WorldState {
     }
     pub fn floor(&self, level: LevelId) -> Option<&StoredFloor> {
         self.floors
-            .binary_search_by_key(&level, |floor| floor.spec.level)
+            .binary_search_by_key(&level, |floor| floor.spec.level())
             .ok()
             .map(|index| &self.floors[index])
     }
     pub fn floor_mut(&mut self, level: LevelId) -> Option<&mut StoredFloor> {
         self.floors
-            .binary_search_by_key(&level, |floor| floor.spec.level)
+            .binary_search_by_key(&level, |floor| floor.spec.level())
             .ok()
             .map(|index| &mut self.floors[index])
     }
     pub fn pending(&self) -> Option<&Generation> {
         self.pending.as_ref()
-    }
-    pub fn transition(&self) -> Option<&Transition> {
-        self.transition.as_ref()
     }
     pub fn last_failure(&self) -> Option<&LoadFailure> {
         self.last_failure.as_ref()
@@ -187,8 +190,70 @@ impl WorldState {
     pub fn dropped(&self) -> &[DroppedItem] {
         &self.dropped
     }
+    pub fn importing(&self) -> Option<&ImportJob> {
+        self.importing.as_ref()
+    }
+    pub fn request_import(&mut self, spec: ImportSpec) -> Result<()> {
+        if self.pending.is_some() || self.importing.is_some() {
+            return Err(Error::State("a world loading operation is already pending"));
+        }
+        if spec.config != self.config || self.floor(spec.level).is_some() {
+            return Err(Error::State("import configuration/already stored floor"));
+        }
+        if self.floors.len() == MAX_FLOORS {
+            return Err(Error::Capacity("persistent floors"));
+        }
+        self.importing = Some(ImportJob::new(spec)?);
+        Ok(())
+    }
+    pub fn advance_import(
+        &mut self,
+        source: &impl CellSource,
+        resources: &impl crate::Resources,
+        work: u32,
+    ) -> Result<ImportProgress> {
+        let job = self
+            .importing
+            .as_mut()
+            .ok_or(Error::State("no pending import"))?;
+        let phase = job.advance(source, resources, work)?;
+        if phase == ImportProgress::Ready {
+            let (spec, generated, land) = self.importing.take().expect("ready import").finish()?;
+            self.publish_floor(spec, generated, land)?;
+        }
+        Ok(phase)
+    }
+    /// Discard only unpublished work. Stored deltas and committed seat levels
+    /// remain untouched, including when a generation/import has failed.
+    pub fn cancel_loading(&mut self) {
+        self.pending = None;
+        self.importing = None;
+    }
+    fn publish_floor(
+        &mut self,
+        spec: FloorSpec,
+        generated: GeneratedLevel,
+        land: LandState,
+    ) -> Result<()> {
+        let dimensions = generated.geometry.dimensions();
+        let floor = StoredFloor {
+            spec,
+            generated,
+            land,
+            discovery: Discovery::new(dimensions)?,
+            dirty_cells: StableBits::new(dimensions.area() as u16)?,
+        };
+        floor.validate(&self.config)?;
+        let index = self
+            .floors
+            .binary_search_by_key(&floor.spec.level(), |value| value.spec.level())
+            .err()
+            .ok_or(Error::State("loading would overwrite a stored floor"))?;
+        self.floors.insert(index, floor);
+        Ok(())
+    }
     pub fn request_load(&mut self, level: LevelId, baseline: PopulationBaseline) -> Result<()> {
-        if self.pending.is_some() || self.transition.is_some() {
+        if self.pending.is_some() || self.importing.is_some() {
             return Err(Error::State(
                 "a world loading/transition operation is already pending",
             ));
@@ -239,28 +304,13 @@ impl WorldState {
                     .ok_or(Error::State("missing generation rejection"))?,
             });
             self.pending = None;
-            self.transition = None;
         } else if phase == Phase::Complete {
             let spec = pending.spec().clone();
             // finish validates everything before publication; removing the
             // temporary job cannot alter a live floor or its mutable deltas.
             let generated = self.pending.take().expect("pending generation").finish()?;
-            let dimensions = generated.geometry.dimensions();
-            let floor = StoredFloor {
-                spec,
-                generated,
-                discovery: Discovery::new(dimensions)?,
-                dirty_cells: StableBits::new(dimensions.area() as u16)?,
-            };
-            floor.validate(&self.config)?;
-            let index = self
-                .floors
-                .binary_search_by_key(&floor.spec.level, |value| value.spec.level)
-                .err()
-                .ok_or(Error::State("generation would overwrite a stored floor"))?;
-            self.floors.insert(index, floor);
-            self.last_failure = None;
-            self.prepare_landing()?;
+            let land = LandState::from_geometry(&generated.geometry)?;
+            self.publish_floor(FloorSpec::Expanded(spec), generated, land)?;
         }
         Ok(phase)
     }
@@ -270,83 +320,6 @@ impl WorldState {
         }
         self.active[usize::from(seat)] = Some(level);
         Ok(())
-    }
-    pub fn request_transition(
-        &mut self,
-        seat: u8,
-        destination: LevelId,
-        kind: TransitionKind,
-        baseline: PopulationBaseline,
-    ) -> Result<()> {
-        destination.validate()?;
-        if seat >= 4 || self.pending.is_some() || self.transition.is_some() {
-            return Err(Error::State("transition seat/busy state"));
-        }
-        let source = self.active[usize::from(seat)]
-            .ok_or(Error::State("transition seat has no source floor"))?;
-        if !destination.ordinary() {
-            return Err(Error::OwnershipClosure);
-        }
-        match kind {
-            TransitionKind::ElevatorUp if destination.get() != source.get() + 1 => {
-                return Err(Error::Bounds("elevator destination"));
-            }
-            TransitionKind::Fall if source.get() == 0 || destination.get() + 1 != source.get() => {
-                return Err(Error::Bounds("fall destination"));
-            }
-            _ => (),
-        }
-        let pending = if self.floor(destination).is_none() {
-            Some(Generation::new(GenerationSpec {
-                config: self.config.clone(),
-                level: destination,
-                baseline,
-            })?)
-        } else {
-            None
-        };
-        self.transition = Some(Transition {
-            seat,
-            source,
-            destination,
-            kind,
-            landing: None,
-        });
-        self.pending = pending;
-        self.prepare_landing()
-    }
-    fn prepare_landing(&mut self) -> Result<()> {
-        let Some(transition) = &self.transition else {
-            return Ok(());
-        };
-        let Some(floor) = self.floor(transition.destination) else {
-            return Ok(());
-        };
-        let position = if transition.kind == TransitionKind::Fall {
-            floor.generated.geometry.anchors().exit
-        } else {
-            floor.generated.geometry.anchors().arrival
-        };
-        let landing = position.center();
-        self.transition.as_mut().expect("transition").landing = Some(landing);
-        Ok(())
-    }
-    /// Model-only transition publication. Does not write hero RAM, run an
-    /// original elevator, or authorize native admission into this world model.
-    pub fn commit_transition(&mut self) -> Result<(i32, i32)> {
-        let transition = self
-            .transition
-            .as_ref()
-            .ok_or(Error::State("no pending transition"))?;
-        let landing = transition
-            .landing
-            .ok_or(Error::State("transition floor is still loading"))?;
-        if self.pending.is_some() {
-            return Err(Error::State("transition generation is still pending"));
-        }
-        self.active[usize::from(transition.seat)] = Some(transition.destination);
-        self.transition = None;
-        Ok(landing)
     }
     pub fn drop_item(&mut self, level: LevelId, x: i32, y: i32, item_kind: u16) -> Result<u32> {
         let floor = self
@@ -379,6 +352,57 @@ impl WorldState {
         self.next_drop_id = next;
         Ok(id)
     }
+    pub fn take_drop(&mut self, id: u32) -> Result<DroppedItem> {
+        let index = self
+            .dropped
+            .binary_search_by_key(&id, |item| item.id)
+            .map_err(|_| Error::Bounds("dropped item identity"))?;
+        Ok(self.dropped.remove(index))
+    }
+    /// Identity references replace original map copies/swaps: both heroes borrow
+    /// the same record and every edit follows LevelId, not an active slot.
+    pub fn copy_active_level(&mut self, source: u8, target: u8) -> Result<()> {
+        if source >= 4 || target >= 4 {
+            return Err(Error::Bounds("copy active seat"));
+        }
+        let level =
+            self.active[usize::from(source)].ok_or(Error::State("source seat is inactive"))?;
+        self.set_active(target, level)
+    }
+    pub fn swap_active_levels(&mut self, first: u8, second: u8) -> Result<()> {
+        if first >= 4 || second >= 4 {
+            return Err(Error::Bounds("swap active seat"));
+        }
+        self.active.swap(usize::from(first), usize::from(second));
+        Ok(())
+    }
+    /// Validate a whole cohort before changing any seat. Player services apply
+    /// the returned arrival positions in the same aggregate session transaction.
+    pub fn validate_cohort(&self, cohort: u8, destinations: &[Option<LevelId>; 4]) -> Result<()> {
+        if cohort == 0 || cohort & !15 != 0 {
+            return Err(Error::State("cohort mask"));
+        }
+        for (seat, destination) in destinations.iter().enumerate() {
+            if (cohort & (1 << seat) != 0) != destination.is_some() {
+                return Err(Error::State("cohort destination mask"));
+            }
+            if let Some(level) = destination
+                && (self.active[seat].is_none() || self.floor(*level).is_none())
+            {
+                return Err(Error::State("cohort source/destination is absent"));
+            }
+        }
+        Ok(())
+    }
+    pub fn commit_cohort(&mut self, cohort: u8, destinations: [Option<LevelId>; 4]) -> Result<()> {
+        self.validate_cohort(cohort, &destinations)?;
+        for (seat, destination) in destinations.into_iter().enumerate() {
+            if destination.is_some() {
+                self.active[seat] = destination;
+            }
+        }
+        Ok(())
+    }
     pub fn logical_entities_reserved(&self) -> usize {
         let mut total = self.active.iter().flatten().count()
             + self.dropped.len()
@@ -399,50 +423,6 @@ impl WorldState {
         }
         total
     }
-    fn validate_transition(&self, transition: &Transition) -> Result<()> {
-        transition.source.validate()?;
-        transition.destination.validate()?;
-        let valid_link = match transition.kind {
-            TransitionKind::ElevatorUp => {
-                transition.destination.get() == transition.source.get() + 1
-            }
-            TransitionKind::Fall => transition.destination.get() + 1 == transition.source.get(),
-            TransitionKind::Reenter | TransitionKind::Telephone => true,
-        };
-        if transition.seat >= 4
-            || !transition.destination.ordinary()
-            || !valid_link
-            || self.active[usize::from(transition.seat)] != Some(transition.source)
-        {
-            return Err(Error::State("transition source/destination/seat"));
-        }
-        match transition.landing {
-            Some(landing) => {
-                let floor = self
-                    .floor(transition.destination)
-                    .ok_or(Error::State("ready transition floor is absent"))?;
-                let expected = if transition.kind == TransitionKind::Fall {
-                    floor.generated.geometry.anchors().exit
-                } else {
-                    floor.generated.geometry.anchors().arrival
-                }
-                .center();
-                if landing != expected || self.pending.is_some() {
-                    return Err(Error::State("transition landing/loading phase"));
-                }
-            }
-            None => {
-                if self
-                    .pending
-                    .as_ref()
-                    .is_none_or(|pending| pending.spec().level != transition.destination)
-                {
-                    return Err(Error::State("transition destination is not loading"));
-                }
-            }
-        }
-        Ok(())
-    }
     pub fn validate(&self) -> Result<()> {
         self.config.validate()?;
         if self.configuration != self.config.identity()
@@ -457,10 +437,10 @@ impl WorldState {
         let mut previous = None;
         for floor in &self.floors {
             floor.validate(&self.config)?;
-            if previous.is_some_and(|prior| prior >= floor.spec.level) {
+            if previous.is_some_and(|prior| prior >= floor.spec.level()) {
                 return Err(Error::State("floor order/duplicates"));
             }
-            previous = Some(floor.spec.level);
+            previous = Some(floor.spec.level());
         }
         for level in self.active.iter().flatten() {
             if self.floor(*level).is_none() {
@@ -473,8 +453,14 @@ impl WorldState {
                 return Err(Error::State("pending generation configuration/floor"));
             }
         }
-        if let Some(transition) = &self.transition {
-            self.validate_transition(transition)?;
+        if let Some(importing) = &self.importing {
+            importing.validate()?;
+            if self.pending.is_some()
+                || importing.spec().config != self.config
+                || self.floor(importing.spec().level).is_some()
+            {
+                return Err(Error::State("pending import configuration/floor/ownership"));
+            }
         }
         if let Some(failure) = &self.last_failure {
             failure.spec.validate()?;

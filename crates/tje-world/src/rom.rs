@@ -216,3 +216,93 @@ impl<B: Bus + ?Sized> Resources for RomResources<'_, B> {
         )
     }
 }
+
+impl<B: Bus + ?Sized> crate::land::PathResources for RomResources<'_, B> {
+    fn path_shape(&self, metatile: u8) -> Result<Option<u8>> {
+        for shape in 0..16 {
+            let base = self.shape(Shape::Path, shape, false)?;
+            let pointer = self.pointer(
+                rom::tile_alternative_pointers(self.revision).address() + u32::from(base) * 4,
+            )?;
+            let count = self.byte(pointer)?;
+            if count == 0 || count > 64 {
+                return Err(Error::Resource("path alternative count"));
+            }
+            self.range(pointer + 1, usize::from(count))?;
+            for index in 0..u32::from(count) {
+                if self.byte(pointer + 1 + index)? == metatile {
+                    return Ok(Some(shape));
+                }
+            }
+        }
+        Ok(None)
+    }
+    fn edge_boundary(&self, boundary: u8, alternate: bool) -> Result<u8> {
+        if !(16..=19).contains(&boundary) {
+            return Err(Error::Resource("path edge boundary"));
+        }
+        let value = self.byte(
+            rom::map_generation_lookup_tables(self.revision).address()
+                + if alternate { 36 } else { 16 }
+                + u32::from(boundary),
+        )?;
+        if value >= 98 {
+            return Err(Error::Resource("path edge shape"));
+        }
+        Ok(value)
+    }
+}
+
+pub struct SpecialRomSource<'r, 'a, B: Bus + ?Sized> {
+    resources: &'r RomResources<'a, B>,
+    kind: crate::loading::SpecialFloor,
+}
+impl<B: Bus + ?Sized> RomResources<'_, B> {
+    pub fn special_source(
+        &self,
+        kind: crate::loading::SpecialFloor,
+    ) -> SpecialRomSource<'_, '_, B> {
+        SpecialRomSource {
+            resources: self,
+            kind,
+        }
+    }
+    pub fn fixed_seed(&self, level: LevelId) -> Result<u16> {
+        if level.get() >= 26 {
+            return Err(Error::Bounds("fixed campaign seed floor"));
+        }
+        self.word(rom::fixed_world_seeds(self.revision).address() + u32::from(level.get()) * 2)
+    }
+}
+impl<B: Bus + ?Sized> crate::loading::CellSource for SpecialRomSource<'_, '_, B> {
+    fn cell(&self, index: usize) -> Result<crate::loading::SourceCell> {
+        use crate::loading::SpecialFloor;
+        if index >= crate::Dimensions::ORIGINAL.area() {
+            return Err(Error::Bounds("special floor cell"));
+        }
+        let row = index / 19;
+        let column = index % 19;
+        let resources = self.resources;
+        let revision = resources.revision;
+        let word = match self.kind {
+            SpecialFloor::Zero if (12..17).contains(&row) && (9..13).contains(&column) => {
+                u16::from(resources.byte(
+                    rom::level0_map_data(revision).address() + ((row - 12) * 4 + column - 9) as u32,
+                )?)
+            }
+            SpecialFloor::Zero => 34,
+            SpecialFloor::One => {
+                u16::from(resources.byte(rom::level1_map_data(revision).address() + index as u32)?)
+            }
+            SpecialFloor::Final => {
+                resources.word(rom::funkatron_map_data(revision).address() + index as u32 * 2)?
+            }
+        };
+        Ok(crate::loading::SourceCell {
+            cell: Cell::from_word(word & 0x1fff)?,
+            directions: 0,
+            marked: word & 0x4000 != 0,
+            alternate: word & 0x8000 != 0,
+        })
+    }
+}
