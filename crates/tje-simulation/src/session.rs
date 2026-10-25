@@ -8,7 +8,12 @@ use tje_four_player::{
     CoopState,
     state::{Config as CoopConfig, LifeState},
 };
-use tje_world::{WorldConfig, random::StageRng, world::WorldState};
+use tje_world::{
+    GeneratorId, LevelSize, WorldConfig,
+    loading::{FloorSpec, ImportKind, ImportedFloorSpec},
+    random::StageRng,
+    world::WorldState,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct Roles {
@@ -55,25 +60,70 @@ impl Roles {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct SourceBinding {
+    pub level: LevelId,
+    pub source_digest: [u8; 32],
+    pub definitions_digest: [u8; 32],
+}
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct CourseManifest {
+    pub identity: [u8; 32],
+    pub sources: Vec<SourceBinding>,
+}
+impl CourseManifest {
+    fn validate(&self) -> Result<()> {
+        if self.sources.is_empty()
+            || self.sources.len() > tje_world::MAX_FLOORS
+            || self
+                .sources
+                .windows(2)
+                .any(|pair| pair[0].level >= pair[1].level)
+        {
+            return Err(Error::State(
+                "course source manifest is not bounded/sorted/unique",
+            ));
+        }
+        for source in &self.sources {
+            source
+                .level
+                .validate()
+                .map_err(|_| Error::State("course source LevelId"))?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct SessionConfig {
     pub version: u16,
     pub body_manifest: [u8; 32],
     pub world: WorldConfig,
+    pub generator: GeneratorId,
     pub coop: CoopConfig,
     pub roles: Roles,
     pub capacities: CapacityPlan,
-    pub course_identity: Option<[u8; 32]>,
+    pub course: Option<CourseManifest>,
     pub resources_identity: [u8; 32],
 }
 impl SessionConfig {
+    /// Stock gameplay requires OriginalV1; a 19x26 ExpandedV1 fixture is not stock.
     pub fn stock(
         world: WorldConfig,
         coop: CoopConfig,
         callbacks: &[TypedCallback],
     ) -> Result<Self> {
+        Self::new(world, coop, GeneratorId::OriginalV1, None, callbacks)
+    }
+    pub fn new(
+        world: WorldConfig,
+        coop: CoopConfig,
+        generator: GeneratorId,
+        course: Option<CourseManifest>,
+        callbacks: &[TypedCallback],
+    ) -> Result<Self> {
         let heroes = coop.participants.iter().count() as u16;
         let config = Self {
-            version: 1,
+            version: 2,
             body_manifest: ownership::IDENTITY,
             resources_identity: ownership::resource_identity(world.rom_sha1, callbacks)?,
             roles: Roles::coop(coop.participants),
@@ -82,8 +132,9 @@ impl SessionConfig {
                 ..CapacityPlan::STOCK_COOP
             },
             world,
+            generator,
             coop,
-            course_identity: None,
+            course,
         };
         config.validate()?;
         Ok(config)
@@ -96,24 +147,31 @@ impl SessionConfig {
             .validate()
             .map_err(|_| Error::State("invalid hero configuration"))?;
         self.roles.validate()?;
-        if self.version != 1
+        if self.version != 2
             || self.body_manifest != ownership::IDENTITY
             || self.world.root_seed != self.coop.world_seed
             || self.coop.participants != self.roles.heroes
+            || (self.generator == GeneratorId::OriginalV1 && self.world.size != LevelSize::Original)
+            || (self.generator == GeneratorId::DesignedV1) != self.course.is_some()
         {
             return Err(Error::State(
-                "session version/manifest/seed/role identity mismatch",
+                "session version/manifest/generator/seed/role identity mismatch",
             ));
+        }
+        if let Some(course) = &self.course {
+            course.validate()?;
         }
         self.capacities
             .reserve(self.roles.heroes.iter().count() as u16)
     }
     pub fn identity(&self) -> [u8; 32] {
         let mut hash = Sha256::new();
-        hash.update(b"tje-simulation/config/1\0");
+        hash.update(b"tje-simulation/config/2\0");
         hash.update(self.version.to_be_bytes());
         hash.update(self.body_manifest);
         hash.update(self.world.identity());
+        hash.update([self.generator.tag()]);
+        hash.update(self.generator.version().to_be_bytes());
         hash.update(self.coop.identity());
         hash.update([
             self.roles.inputs.bits(),
@@ -136,12 +194,56 @@ impl SessionConfig {
             hash.update(value.to_be_bytes());
         }
         hash.update(caps.presentation_bytes.to_be_bytes());
-        hash.update([u8::from(self.course_identity.is_some())]);
-        if let Some(course) = self.course_identity {
-            hash.update(course);
+        hash.update([u8::from(self.course.is_some())]);
+        if let Some(course) = &self.course {
+            hash.update(course.identity);
+            hash.update((course.sources.len() as u16).to_be_bytes());
+            for source in &course.sources {
+                hash.update(source.level.get().to_be_bytes());
+                hash.update(source.source_digest);
+                hash.update(source.definitions_digest);
+            }
         }
         hash.update(self.resources_identity);
         hash.finalize().into()
+    }
+    fn validate_import(&self, spec: &ImportedFloorSpec) -> Result<()> {
+        match &spec.kind {
+            ImportKind::Designed { course_identity } => {
+                let course = self.course.as_ref().ok_or(Error::State(
+                    "DesignedV1 floor has no immutable course manifest",
+                ))?;
+                let binding = course
+                    .sources
+                    .binary_search_by_key(&spec.level, |source| source.level)
+                    .ok()
+                    .map(|index| &course.sources[index])
+                    .ok_or(Error::State(
+                        "DesignedV1 floor is absent from the immutable source manifest",
+                    ))?;
+                if self.generator != GeneratorId::DesignedV1
+                    || course_identity != &course.identity
+                    || binding.source_digest != spec.source_digest
+                    || binding.definitions_digest != spec.definitions_digest
+                {
+                    return Err(Error::State(
+                        "DesignedV1 floor/course/definition provenance mismatch",
+                    ));
+                }
+            }
+            ImportKind::Stock if self.generator != GeneratorId::OriginalV1 => {
+                return Err(Error::State(
+                    "stock floor cannot substitute for the selected generator",
+                ));
+            }
+            ImportKind::Special(_) if self.generator == GeneratorId::DesignedV1 => {
+                return Err(Error::State(
+                    "campaign special floor cannot substitute for DesignedV1",
+                ));
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -259,6 +361,44 @@ impl Session {
     pub fn fail(&mut self) {
         self.failed = true;
     }
+    pub fn validate_inputs(&self, input: &tje_four_player::input::InputFrame) -> Result<()> {
+        input
+            .validate()
+            .map_err(|_| Error::State("invalid phase input words"))?;
+        for seat in SeatId::ALL {
+            if !self.config.roles.inputs.contains(seat) && input.pads[seat.index()].connected() {
+                return Err(Error::State("phase input supplied for a disabled role"));
+            }
+        }
+        Ok(())
+    }
+    /// Input processing runs only in the Players phase. Its first hardware
+    /// frame may follow boot/intro, and subsequent latches are four phases apart;
+    /// do not reuse the primitive codec's consecutive-from-zero bookkeeping API.
+    pub fn latch_phase_inputs(&mut self) -> Result<bool> {
+        let input = *self
+            .clock
+            .input()
+            .ok_or(Error::State("no phase input latch"))?;
+        self.validate_inputs(&input)?;
+        if self.clock.last_admission(crate::Phase::Players) != Some(input.frame) {
+            return Err(Error::State(
+                "hero input processing entered outside the Players phase",
+            ));
+        }
+        if let Some(previous) = self.players.inputs {
+            if previous == input {
+                return Ok(false);
+            }
+            if previous.frame >= input.frame {
+                return Err(Error::State(
+                    "hero input processing moved backwards or changed an admitted latch",
+                ));
+            }
+        }
+        self.players.inputs = Some(input);
+        Ok(true)
+    }
     pub fn publish(&mut self, stamp: PublicationStamp) -> Result<()> {
         if !stamp.phase.publishes()
             || stamp.epoch != self.clock.epoch()
@@ -347,6 +487,15 @@ impl Session {
             return Err(Error::Capacity("hero-active floor reservation"));
         }
         for floor in self.world.floors() {
+            match &floor.spec {
+                FloorSpec::Expanded(_) if self.config.generator != GeneratorId::ExpandedV1 => {
+                    return Err(Error::State(
+                        "ExpandedV1 floor cannot satisfy a different generator capability",
+                    ));
+                }
+                FloorSpec::Imported(spec) => self.config.validate_import(spec)?,
+                _ => {}
+            }
             if floor.generated.population.earthlings.len()
                 > usize::from(self.config.capacities.earthlings_per_floor)
                 || floor.generated.population.items.len()
@@ -357,10 +506,23 @@ impl Session {
                 ));
             }
         }
+        if self.world.pending().is_some() && self.config.generator != GeneratorId::ExpandedV1 {
+            return Err(Error::State(
+                "pending ExpandedV1 generation cannot satisfy the selected generator",
+            ));
+        }
+        if let Some(importing) = self.world.importing() {
+            self.config
+                .validate_import(&importing.spec().provenance())?;
+        }
         if self.world.dropped().len() > usize::from(self.config.capacities.drops) {
             return Err(Error::Capacity("persistent global drop reservation"));
         }
+        if let Some(phase_input) = self.clock.input() {
+            self.validate_inputs(phase_input)?;
+        }
         if let Some(player_input) = self.players.inputs {
+            self.validate_inputs(&player_input)?;
             let phase_input = self.clock.input().ok_or(Error::State(
                 "hero input exists before any admitted hardware phase",
             ))?;
@@ -458,7 +620,7 @@ fn encoded_size(value: &impl Encode) -> Result<u32> {
 #[cfg(feature = "enhanced-mode")]
 impl tje_engine_runtime::enhanced::Sidecar for Session {
     const KEY: &'static str = "tje/simulation/session";
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
     fn validate(&self) -> tje_game::Result<()> {
         Session::validate(self).map_err(|error| tje_game::Error::Platform(error.to_string()))
     }

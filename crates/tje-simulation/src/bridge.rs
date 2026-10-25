@@ -89,6 +89,7 @@ pub fn run_phase(
             "phase has an unimplemented service operation",
         ));
     }
+    session.validate_inputs(&input)?;
     let admission = session.clock.admit(phase, input)?;
     let Admission::Step(stamp) = admission else {
         return Ok(admission);

@@ -43,7 +43,14 @@ pub(crate) fn session(seed: u64) -> Session {
         density: Density::Original,
     };
     let coop_config = Config::four_seats(seed);
-    let config = SessionConfig::stock(world_config.clone(), coop_config.clone(), &[]).unwrap();
+    let config = SessionConfig::new(
+        world_config.clone(),
+        coop_config.clone(),
+        tje_world::GeneratorId::ExpandedV1,
+        None,
+        &[],
+    )
+    .unwrap();
     let mut world = WorldState::new(world_config).unwrap();
     let level = LevelId::new(2).unwrap();
     world
@@ -116,6 +123,109 @@ fn aggregate_rejects_cross_service_references_and_config_tampering() {
     assert!(decoded.validate().is_err());
     assert!(initial.admit().is_err());
     assert_eq!(initial, session(123));
+}
+
+#[test]
+fn original_and_expanded_generator_capabilities_cannot_alias() {
+    let expanded = session(123);
+    assert_eq!(
+        expanded.config().generator,
+        tje_world::GeneratorId::ExpandedV1
+    );
+    let original = SessionConfig::stock(
+        expanded.world.config().clone(),
+        expanded.players.config().clone(),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(original.generator, tje_world::GeneratorId::OriginalV1);
+    assert_ne!(original.identity(), expanded.config().identity());
+    assert!(
+        SetupTransaction::prepare(
+            original,
+            expanded.world.clone(),
+            expanded.players.clone(),
+            vec![]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn pending_designed_imports_authenticate_course_and_definition_provenance() {
+    use crate::session::{CourseManifest, SourceBinding};
+    use tje_world::loading::{ImportKind, ImportSpec};
+    let template = session(123);
+    let floor = template.world.floor(LevelId::new(2).unwrap()).unwrap();
+    let geometry = &floor.generated.geometry;
+    let spec = ImportSpec {
+        config: template.world.config().clone(),
+        level: LevelId::new(2).unwrap(),
+        kind: ImportKind::Designed {
+            course_identity: [3; 32],
+        },
+        dimensions: geometry.dimensions(),
+        anchors: geometry.anchors().clone(),
+        population: floor.generated.population.clone(),
+        source_digest: ImportSpec::content_digest(geometry.dimensions(), geometry).unwrap(),
+    };
+    let provenance = spec.provenance();
+    let config = SessionConfig::new(
+        template.world.config().clone(),
+        template.players.config().clone(),
+        tje_world::GeneratorId::DesignedV1,
+        Some(CourseManifest {
+            identity: [3; 32],
+            sources: vec![SourceBinding {
+                level: spec.level,
+                source_digest: spec.source_digest,
+                definitions_digest: provenance.definitions_digest,
+            }],
+        }),
+        &[],
+    )
+    .unwrap();
+    let prepare = |candidate: ImportSpec| {
+        let mut world = WorldState::new(candidate.config.clone()).unwrap();
+        world.request_import(candidate).unwrap();
+        let players = CoopState::new(template.players.config().clone()).unwrap();
+        SetupTransaction::prepare(config.clone(), world, players, vec![])
+    };
+    assert!(prepare(spec.clone()).is_ok());
+    let mut wrong_course = spec.clone();
+    wrong_course.kind = ImportKind::Designed {
+        course_identity: [4; 32],
+    };
+    assert!(prepare(wrong_course).is_err());
+    let mut wrong_definitions = spec;
+    wrong_definitions.population.items[0].x += 8;
+    assert!(prepare(wrong_definitions).is_err());
+}
+
+#[test]
+fn hero_input_latching_follows_players_phase_not_boot_relative_codec_frames() {
+    let mut state = session(123);
+    for (index, phase) in [
+        Phase::PresentationA,
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+    ]
+    .into_iter()
+    .cycle()
+    .take(8)
+    .enumerate()
+    {
+        let input = InputFrame::neutral(500 + index as u64);
+        state.clock.admit(phase, input).unwrap();
+        if phase == Phase::Players {
+            assert!(state.latch_phase_inputs().unwrap());
+            assert!(!state.latch_phase_inputs().unwrap());
+        } else {
+            assert!(state.latch_phase_inputs().is_err());
+        }
+    }
+    assert_eq!(state.players.inputs.unwrap().frame, 507);
 }
 
 #[test]

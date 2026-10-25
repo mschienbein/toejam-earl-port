@@ -11,13 +11,14 @@ mod enhanced_tests;
 pub mod ids;
 pub mod ownership;
 pub mod phase;
+pub mod recording;
 pub mod session;
 #[cfg(test)]
 mod session_tests;
 pub use ids::{ActorId, AnimationId, BehaviorId, DefinitionId, EffectId, FrameId};
 pub use phase::{Admission, Phase, PhaseClock, PublicationStamp};
 pub use tje_four_player::{SeatId, SeatMask};
-pub use tje_world::LevelId;
+pub use tje_world::{GeneratorId, LevelId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
