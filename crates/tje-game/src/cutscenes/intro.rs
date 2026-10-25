@@ -1,23 +1,34 @@
-use crate::{Context, Result, call, call_void, ids};
+use crate::call_frame::CallSite;
+use crate::{Context, Result, call, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, ram, rom};
 
 /// G/src/cutscenes/intro.c:85 (`IntroBeginLargePlayerScene`).
 /// TimeAware: the background animation advances through a real VBlank wait.
-pub fn intro_begin_large_player_scene(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn intro_begin_large_player_scene(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let background = arguments[0] as i16;
+    let entry = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
     let saved_d2 = context.data_register(2);
+    // MOVE.W 10(SP),D2 after the private D2 save: entry SP+6, not the
+    // complete four-byte argument slot, and before the first allocation call.
+    let background = entry.argument_word(0).read(context);
+    context.set_data_register(2, (saved_d2 & 0xffff_0000) | u32::from(background as u16));
     call_void(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
     ram::g_scene_background_pair_index(revision).write(context, background as i8);
     call_void(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
-    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    framed_intro_call(
+        context,
+        ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        0x22,
+        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        &[1],
+    )?;
     let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
     ram::g_mode2_reg_softcopy(revision).write(context, mode);
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
     context.write_device_u16(0xc00004, u16::from(mode) | 0x8104);
+    context.set_data_register(2, saved_d2);
     // Final MOVE.L (SP)+,D2 restores the entry register and defines N/Z/V/C.
     let flags = if saved_d2 == 0 {
         0x04
@@ -29,6 +40,36 @@ pub fn intro_begin_large_player_scene(
     let status = context.status_register();
     context.set_status_register((status & !0x000f) | flags);
     Ok(None)
+}
+
+/// Matching c_intro.o return PCs are function-relative and equal in both ROM
+/// revisions. Prepared calls supply a real argument area to lazy framed entries.
+fn framed_intro_call(
+    context: &mut dyn Context,
+    caller: crate::FunctionId,
+    offset: u32,
+    callee: crate::FunctionId,
+    arguments: &[u32],
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), offset);
+    call_at_void(context, callee, arguments, site)
+}
+
+fn framed_intro_cadence(
+    context: &mut dyn Context,
+    caller: crate::FunctionId,
+    offset: u32,
+    arguments: &[u32],
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), offset);
+    // Cadence declares an int result even though intro.c does not use it.
+    call_at(
+        context,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        arguments,
+        site,
+    )?;
+    Ok(())
 }
 
 /// G/src/cutscenes/intro.c:549 and corresponding loop guards. The matching
@@ -131,13 +172,17 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
     call_void(context, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
     call_void(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
-    call_void(
+    framed_intro_call(
         context,
+        ids::INTRO_PART5,
+        0x46,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[11, 7, 30, 20],
     )?;
-    call_void(
+    framed_intro_call(
         context,
+        ids::INTRO_PART5,
+        0x5c,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[12, 8, 29, 19],
     )?;
@@ -163,7 +208,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+        framed_intro_cadence(context, ids::INTRO_PART5, 0xf8, &[0, 0])?;
         call_void(
             context,
             ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
@@ -306,7 +351,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     scroll_position = 0;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART5, 0x2b8, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -324,7 +369,13 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data((scroll_position / 4) as u16);
     ram::g_scene_background_pair_index(revision).write(context, 9);
-    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    framed_intro_call(
+        context,
+        ids::INTRO_PART6,
+        0x5c,
+        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        &[1],
+    )?;
     call_void(
         context,
         ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
@@ -339,7 +390,7 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             &[pose_changed as i32 as u32, driving_pose as i32 as u32],
         )?;
         pose_changed = 0;
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+        framed_intro_cadence(context, ids::INTRO_PART6, 0x94, &[0, 0])?;
         context.write_vdp_command(0x7c02_0003);
         context.write_vdp_data((scroll_position / 4) as u16);
         scroll_position = scroll_position.wrapping_add(1);
@@ -429,7 +480,7 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     scroll_position = 0;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART6, 0x212, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -457,11 +508,23 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_data((scroll_position / 4) as u16);
     let mut scroll_direction = 0_i16;
     ram::g_scene_background_pair_index(revision).write(context, 10);
-    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    framed_intro_call(
+        context,
+        ids::INTRO_PART7,
+        0x76,
+        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        &[1],
+    )?;
     call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[0, 104, 151])?;
     call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[1, 104, 151])?;
     while state.read(context) != -1 && !start_pressed(context)? {
-        call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
+        framed_intro_call(
+            context,
+            ids::INTRO_PART7,
+            0xa8,
+            ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+            &[0],
+        )?;
         if shake_phase == 1 {
             let value = camera_x.read(context).wrapping_add(5);
             camera_x.write(context, value);
@@ -488,7 +551,13 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             context.write_vdp_data(camera_x.read(context).wrapping_neg() as u16);
         }
         call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-        call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+        framed_intro_call(
+            context,
+            ids::INTRO_PART7,
+            0x11c,
+            ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+            &[0],
+        )?;
         call_void(
             context,
             ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
@@ -576,7 +645,7 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_data(camera_x.read(context) as u16);
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(camera_x.read(context) as u16);
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART7, 0x2de, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -624,7 +693,7 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+        framed_intro_cadence(context, ids::INTRO_PART8, 0xd8, &[0, 0])?;
         if decrement(context, countdown) == 0 {
             match increment_and_reload(context, state) {
                 1 => {
@@ -655,7 +724,7 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     set_display(context, false);
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART8, 0x160, &[0, 0])?;
     clear_word(context, ram::g_shared_tile_sprite_copies_enabled(revision))?;
     call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
     call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
@@ -669,14 +738,24 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
     ram::g_scene_background_pair_index(revision).write(context, 12);
-    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
-    call_void(
+    framed_intro_call(
         context,
+        ids::INTRO_PART9,
+        0x28,
+        ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        &[1],
+    )?;
+    framed_intro_call(
+        context,
+        ids::INTRO_PART9,
+        0x3e,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[11, 7, 30, 20],
     )?;
-    call_void(
+    framed_intro_call(
         context,
+        ids::INTRO_PART9,
+        0x54,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[12, 8, 29, 19],
     )?;
@@ -693,7 +772,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+        framed_intro_cadence(context, ids::INTRO_PART9, 0xb2, &[0, 0])?;
         context.write_vdp_command(0x4002_0010);
         context.write_vdp_data(scroll_position as u16);
         scroll_position = scroll_position.wrapping_add(1);
@@ -710,7 +789,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     scroll_position = 0;
     context.write_vdp_command(0x4002_0010);
     context.write_vdp_data(scroll_position as u16);
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART9, 0x13a, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -763,27 +842,25 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let actor = ram::g_cutscene_music_actor_animation_enabled(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART1;
-    call_void(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
+    framed_intro_call(
+        context,
+        owner,
+        0x1e,
+        ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        &[7],
+    )?;
     let mut advance_scene = false;
     clear_word(context, state)?;
     countdown.write(context, 51);
     actor.write(context, 1);
     while start_pressed(context)? {
         let enabled = actor.read(context) as i32 as u32;
-        call(
-            context,
-            ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-            &[0, enabled],
-        )?;
+        framed_intro_cadence(context, owner, 0x48, &[0, enabled])?;
     }
     while state.read(context) != -1 && !start_pressed(context)? {
         loop {
             let enabled = actor.read(context) as i32 as u32;
-            call(
-                context,
-                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-                &[0, enabled],
-            )?;
+            framed_intro_cadence(context, owner, 0x76, &[0, enabled])?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
             if mask != 0 {
@@ -1218,13 +1295,15 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call_void(
+    framed_intro_call(
         context,
+        owner,
+        0x53e,
         ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         &[],
     )?;
     call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, owner, 0x54e, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -1235,7 +1314,13 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     let revision = context.revision();
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    framed_intro_call(
+        context,
+        ids::INTRO_PART10,
+        0x20,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[1],
+    )?;
     call_void(context, ids::INTRO_CREATE_FALLING_ROCKETSHIP, &[])?;
     countdown.write(context, 42);
     let mut scene_y = 20_i16;
@@ -1249,7 +1334,7 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     set_display(context, true);
     state.write(context, 1);
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+        framed_intro_cadence(context, ids::INTRO_PART10, 0x80, &[0, 0])?;
         let next = state.read(context);
         read_switch_entry(context, ids::INTRO_PART10, 0x9e, 6, next);
         match next {
@@ -1292,7 +1377,7 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_PLANET_ENTITY, &[])?;
     call_void(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, ids::INTRO_PART10, 0x17a, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -1317,11 +1402,7 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let mut advance_period = 0_i16;
     while state.read(context) != -1 && !start_pressed(context)? {
         loop {
-            call(
-                context,
-                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-                &[advance_period as i32 as u32, 0],
-            )?;
+            framed_intro_cadence(context, owner, 0x46, &[advance_period as i32 as u32, 0])?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
             if mask != 0 {
@@ -1381,8 +1462,14 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call_void(context, ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_call(
+        context,
+        owner,
+        0x196,
+        ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+        &[],
+    )?;
+    framed_intro_cadence(context, owner, 0x1a0, &[0, 0])?;
     call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -1401,7 +1488,13 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let actor = ram::g_cutscene_music_actor_animation_enabled(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART3;
-    call_void(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
+    framed_intro_call(
+        context,
+        owner,
+        0x1e,
+        ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        &[7],
+    )?;
     clear_byte(
         context,
         ram::g_requested_music_selection(revision).address(),
@@ -1413,11 +1506,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     while state.read(context) != -1 && !start_pressed(context)? {
         loop {
             let enabled = actor.read(context) as i32 as u32;
-            call(
-                context,
-                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-                &[0, enabled],
-            )?;
+            framed_intro_cadence(context, owner, 0x4c, &[0, enabled])?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
             if mask != 0 {
@@ -1542,13 +1631,15 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     }
     set_display(context, false);
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call_void(
+    framed_intro_call(
         context,
+        owner,
+        0x208,
         ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         &[],
     )?;
     call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, owner, 0x218, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -1565,7 +1656,13 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::CUTSCENE_CREATE_DRIFTING_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
     call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    framed_intro_call(
+        context,
+        owner,
+        0x32,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[1],
+    )?;
     call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -1593,7 +1690,13 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             context.write_vdp_command(0x7c02_0003);
             context.write_vdp_data((scroll_position / 4) as u16);
             call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-            call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+            framed_intro_call(
+                context,
+                owner,
+                0xd0,
+                ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+                &[0],
+            )?;
             call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
             call_void(
                 context,
@@ -1650,7 +1753,7 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_intro_cadence(context, owner, 0x21e, &[0, 0])?;
     scene_result(context, state)
 }
 
@@ -1716,24 +1819,31 @@ pub fn intro_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         &[rom::palette_title_screen_bank3(revision).address(), 3],
     )?;
     call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[0])?;
+    framed_intro_call(
+        context,
+        ids::INTRO_VIDEO,
+        0x102,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[0],
+    )?;
     call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     let mut interrupted = false;
-    for part in [
-        ids::INTRO_PART1,
-        ids::INTRO_PART2,
-        ids::INTRO_PART3,
-        ids::INTRO_PART4,
-        ids::INTRO_PART5,
-        ids::INTRO_PART6,
-        ids::INTRO_PART7,
-        ids::INTRO_PART8,
-        ids::INTRO_PART9,
-        ids::INTRO_PART10,
-        ids::INTRO_PART11,
+    for (part, offset) in [
+        (ids::INTRO_PART1, 0x128),
+        (ids::INTRO_PART2, 0x134),
+        (ids::INTRO_PART3, 0x13e),
+        (ids::INTRO_PART4, 0x148),
+        (ids::INTRO_PART5, 0x152),
+        (ids::INTRO_PART6, 0x15c),
+        (ids::INTRO_PART7, 0x166),
+        (ids::INTRO_PART8, 0x170),
+        (ids::INTRO_PART9, 0x17a),
+        (ids::INTRO_PART10, 0x184),
+        (ids::INTRO_PART11, 0x190),
     ] {
-        if call(context, part, &[])? as i16 != 0 {
+        let site = CallSite::relative(ids::INTRO_VIDEO, revision, offset);
+        if call_at(context, part, &[], site)? as i16 != 0 {
             interrupted = true;
             break;
         }

@@ -1,7 +1,7 @@
 //! ROM-free access regressions. Callees are explicit test doubles: these tests
 //! exercise the owning intro instructions, not emulator or replay-tier proofs.
 use super::*;
-use crate::{Dispatcher, FunctionId, execution::ExecutionClass};
+use crate::{Dispatcher, FunctionId, call_frame::FrameState, execution::ExecutionClass};
 use std::cell::RefCell;
 use tje_mem::{AddressSpace, Bus, Revision};
 
@@ -25,6 +25,12 @@ struct AuditContext {
     pad_reads: usize,
     action_held: bool,
     fail_discard: bool,
+    frame: Option<FrameState>,
+    sp: u32,
+    prepared_calls: Vec<(FunctionId, Vec<u32>, u32)>,
+    replace_background_on_allocate: Option<i16>,
+    observed_allocation_d2: Option<u32>,
+    start_samples: usize,
 }
 
 impl AuditContext {
@@ -42,6 +48,12 @@ impl AuditContext {
             action_held,
             pad_reads: 0,
             fail_discard: false,
+            frame: Some(FrameState::new(0xfff000)),
+            sp: 0xfff000,
+            prepared_calls: Vec::new(),
+            replace_background_on_allocate: None,
+            observed_allocation_d2: None,
+            start_samples: 0,
         }
     }
 
@@ -59,6 +71,17 @@ impl AuditContext {
     }
     fn original_effects(&mut self, function: FunctionId, _: &[u32]) -> Result<()> {
         self.calls.push(function);
+        if function == ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS {
+            self.observed_allocation_d2 = Some(self.data[2]);
+        }
+        if function == ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS
+            && let Some(value) = self.replace_background_on_allocate
+        {
+            self.frame
+                .unwrap()
+                .argument_word(0)
+                .write(&mut self.memory, value);
+        }
         if self.interrupted_part == Some(function) {
             return {
                 let value = 1;
@@ -80,7 +103,10 @@ impl AuditContext {
             self.pad_reads += 1;
         }
         {
-            let value = if function == ids::GET_CTRL2_INPUT
+            let value = if function == ids::GET_CTRL2_INPUT && self.start_samples != 0 {
+                self.start_samples -= 1;
+                0x80
+            } else if function == ids::GET_CTRL2_INPUT
                 && self.action_held
                 && self.pad_reads % 3 == 2
             {
@@ -185,6 +211,20 @@ impl Context for AuditContext {
         assert_eq!(value & !0x001f, self.status & !0x001f);
         self.status = value;
     }
+    fn stack_pointer(&self) -> Result<u32> {
+        Ok(self.sp)
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
+        self.sp = value;
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<FrameState> {
+        self.frame
+    }
+    fn set_frame_state(&mut self, frame: FrameState) -> Result<()> {
+        self.frame = Some(frame);
+        Ok(())
+    }
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid_with_frames(&[], &[])
     }
@@ -223,6 +263,22 @@ impl Context for AuditContext {
         _class: crate::execution::ExecutionClass,
     ) -> Result<()> {
         self.original_effects(function, arguments)
+    }
+    fn call_original_entry_void(&mut self, function: FunctionId, _: ExecutionClass) -> Result<()> {
+        let entry = self.frame.unwrap();
+        let arguments: Vec<_> = (0..function.metadata().abi.argument_count)
+            .map(|index| entry.argument_slot(i32::from(index)).read(&self.memory))
+            .collect();
+        let return_pc = self.memory.read_u32(entry.entry_sp);
+        self.prepared_calls
+            .push((function, arguments.clone(), return_pc));
+        self.original_effects(function, &arguments)?;
+        self.sp = self.sp.wrapping_add(4);
+        Ok(())
+    }
+    fn call_original_entry(&mut self, function: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.call_original_entry_void(function, class)?;
+        Ok(self.data_register(0))
     }
 }
 
@@ -378,7 +434,12 @@ fn begin_scene_final_move_uses_the_restored_full_d2_and_preserves_x() {
             for ccr in 0..32 {
                 context.data[2] = d2;
                 context.status = 0x2700 | ccr;
-                intro_begin_large_player_scene(&mut context, &[0x1234_0080]).unwrap();
+                context
+                    .frame
+                    .unwrap()
+                    .argument_slot(0)
+                    .write(&mut context.memory, 0x1234_0080);
+                intro_begin_large_player_scene(&mut context).unwrap();
                 let flags = if d2 == 0 {
                     4
                 } else if d2 & 0x8000_0000 != 0 {
@@ -412,6 +473,9 @@ fn intro_dispatcher_final_ext_preserves_x_and_reports_short_circuit_result() {
         ids::INTRO_PART10,
         ids::INTRO_PART11,
     ];
+    let sites: [u32; 11] = [
+        0x128, 0x134, 0x13e, 0x148, 0x152, 0x15c, 0x166, 0x170, 0x17a, 0x184, 0x190,
+    ];
     for revision in [Revision::Rev02, Revision::Rev00] {
         for abort in [None, Some(ids::INTRO_PART1), Some(ids::INTRO_PART10)] {
             for ccr in 0..32 {
@@ -432,6 +496,26 @@ fn intro_dispatcher_final_ext_preserves_x_and_reports_short_circuit_result() {
                     .filter(|id| parts.contains(id))
                     .collect();
                 assert_eq!(calls, parts[..count]);
+                let prepared: Vec<_> = context
+                    .prepared_calls
+                    .iter()
+                    .filter(|call| parts.contains(&call.0))
+                    .map(|(id, arguments, pc)| {
+                        assert!(arguments.is_empty());
+                        (*id, *pc - ids::INTRO_VIDEO.metadata().address(revision))
+                    })
+                    .collect();
+                assert_eq!(
+                    prepared,
+                    parts
+                        .iter()
+                        .copied()
+                        .zip(sites)
+                        .take(count)
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(context.sp, 0xfff000);
+                assert_eq!(context.frame, Some(FrameState::new(0xfff000)));
                 assert_eq!(
                     context.status,
                     0x2700 | (ccr & 0x10) | if abort.is_some() { 0 } else { 4 }
@@ -482,8 +566,7 @@ fn clear_pre_reads_keep_discarded_purpose_width_order_and_failure() {
 fn all_intro_bodies_retain_their_own_nonframe_clear_instructions() {
     // Counts on the completed, unheld-controller path with test-only countdown
     // acceleration. Every tagged pre-read must immediately precede its zero store.
-    let bodies: [(crate::TranslationFn, usize, usize); 12] = [
-        (intro_begin_large_player_scene, 0, 0),
+    let bodies: [(crate::TranslationFn, usize, usize); 11] = [
         (intro_video, 2, 4),
         (intro_part1, 0, 4),
         (intro_part2, 0, 1),
@@ -509,6 +592,304 @@ fn all_intro_bodies_retain_their_own_nonframe_clear_instructions() {
                 }
             }
             assert_eq!(counts, [byte_reads, word_reads]);
+        }
+    }
+}
+
+#[test]
+fn begin_scene_reads_only_the_live_background_word_before_allocating() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for argument in [0x1234_0080, 0xdead_ffff, 0xbeef_8000, 0xaaaa_7fff] {
+            let mut context = AuditContext::new(revision, false);
+            let entry = context.frame.unwrap();
+            context.data[2] = 0xface_babe;
+            entry.argument_slot(0).write(&mut context.memory, argument);
+            context.replace_background_on_allocate = Some(1);
+            intro_begin_large_player_scene(&mut context).unwrap();
+            assert_eq!(
+                context.observed_allocation_d2,
+                Some(0xface_0000 | (argument & 0xffff))
+            );
+            assert_eq!(context.data[2], 0xface_babe);
+            let read = Access::Read(entry.entry_sp + 6, 2, argument & 0xffff);
+            assert_eq!(context.accesses.borrow()[0], read);
+            for offset in 4..8 {
+                let accesses = context.at(entry.entry_sp + offset);
+                assert_eq!(accesses, if offset == 6 { vec![read] } else { vec![] });
+            }
+            assert_eq!(
+                ram::g_scene_background_pair_index(revision).read(&context.memory),
+                argument as i8
+            );
+            // The allocator changed the live slot after the source's MOVE.W;
+            // the background must still be the value loaded before that call.
+            assert_eq!(entry.argument_word(0).read(&context.memory), 1);
+        }
+    }
+}
+
+#[test]
+fn begin_scene_is_pending_framed_and_rejects_the_value_adapter() {
+    assert!(
+        !super::super::PENDING_TRANSLATIONS
+            .iter()
+            .any(|entry| entry.id == ids::INTRO_BEGIN_LARGE_PLAYER_SCENE)
+    );
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let dispatcher =
+            Dispatcher::hybrid_with_frames(&[], super::super::PENDING_FRAMED_TRANSLATIONS);
+        let mut context = AuditContext::new(revision, false);
+        assert!(matches!(
+            dispatcher.call_void(&mut context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7]),
+            Err(crate::Error::Frame(crate::call_frame::FrameError::PreparedEntryRequired(id)))
+                if id == ids::INTRO_BEGIN_LARGE_PLAYER_SCENE
+        ));
+        assert!(context.accesses.borrow().is_empty());
+        let entry = context.frame.unwrap();
+        dispatcher
+            .call_at_void(
+                &mut context,
+                ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+                &[0x1234_0080],
+                CallSite::new(0x100),
+            )
+            .unwrap();
+        assert_eq!(context.frame, Some(entry));
+        assert_eq!(context.sp, entry.entry_sp);
+        assert_eq!(
+            ram::g_scene_background_pair_index(revision).read(&context.memory),
+            -128
+        );
+    }
+}
+
+#[test]
+fn intro_begin_callers_supply_prepared_slots_and_real_return_sites() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (caller, function) in [
+            (ids::INTRO_PART1, intro_part1 as crate::TranslationFn),
+            (ids::INTRO_PART3, intro_part3 as crate::TranslationFn),
+        ] {
+            let mut context = AuditContext::new(revision, false);
+            let entry = context.frame.unwrap();
+            function(&mut context, &[]).unwrap();
+            context
+                .prepared_calls
+                .retain(|call| call.0 == ids::INTRO_BEGIN_LARGE_PLAYER_SCENE);
+            assert_eq!(
+                context.prepared_calls,
+                vec![(
+                    ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+                    vec![7],
+                    caller.metadata().address(revision) + 0x1e,
+                )]
+            );
+            assert_eq!(context.frame, Some(entry));
+            assert_eq!(context.sp, entry.entry_sp);
+        }
+    }
+}
+
+#[test]
+fn begin_scene_requires_an_available_lazy_frame_before_any_access() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = AuditContext::new(revision, false);
+        context.frame = None;
+        assert!(matches!(
+            intro_begin_large_player_scene(&mut context),
+            Err(crate::Error::Frame(
+                crate::call_frame::FrameError::Unavailable
+            ))
+        ));
+        assert!(context.accesses.borrow().is_empty());
+        assert!(context.calls.is_empty());
+    }
+}
+
+#[test]
+fn every_intro_title_callee_has_prepared_arguments_and_its_compiled_return_site() {
+    use std::collections::BTreeSet;
+    const ANIMATE: FunctionId = ids::ANIMATE_TITLE_TRANSITION_BACKGROUND;
+    const SCREEN: FunctionId = ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER;
+    const RECTANGLE: FunctionId = ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER;
+    const CADENCE: FunctionId = ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE;
+    // Return PCs from both accepted c_intro.o objects; no ROM instructions/data.
+    let expected = [
+        (ids::INTRO_VIDEO, SCREEN, 0x102),
+        (ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, ANIMATE, 0x22),
+        (ids::INTRO_PART1, CADENCE, 0x48),
+        (ids::INTRO_PART1, CADENCE, 0x76),
+        (ids::INTRO_PART1, CADENCE, 0x54e),
+        (ids::INTRO_PART2, CADENCE, 0x46),
+        (ids::INTRO_PART2, CADENCE, 0x1a0),
+        (ids::INTRO_PART3, CADENCE, 0x4c),
+        (ids::INTRO_PART3, CADENCE, 0x218),
+        (ids::INTRO_PART4, SCREEN, 0x32),
+        (ids::INTRO_PART4, CADENCE, 0x21e),
+        (ids::INTRO_PART5, RECTANGLE, 0x46),
+        (ids::INTRO_PART5, RECTANGLE, 0x5c),
+        (ids::INTRO_PART5, CADENCE, 0xf8),
+        (ids::INTRO_PART5, CADENCE, 0x2b8),
+        (ids::INTRO_PART6, ANIMATE, 0x5c),
+        (ids::INTRO_PART6, CADENCE, 0x94),
+        (ids::INTRO_PART6, CADENCE, 0x212),
+        (ids::INTRO_PART7, ANIMATE, 0x76),
+        (ids::INTRO_PART7, ANIMATE, 0xa8),
+        (ids::INTRO_PART7, CADENCE, 0x2de),
+        (ids::INTRO_PART8, CADENCE, 0xd8),
+        (ids::INTRO_PART8, CADENCE, 0x160),
+        (ids::INTRO_PART9, ANIMATE, 0x28),
+        (ids::INTRO_PART9, RECTANGLE, 0x3e),
+        (ids::INTRO_PART9, RECTANGLE, 0x54),
+        (ids::INTRO_PART9, CADENCE, 0xb2),
+        (ids::INTRO_PART9, CADENCE, 0x13a),
+        (ids::INTRO_PART10, SCREEN, 0x20),
+        (ids::INTRO_PART10, CADENCE, 0x80),
+        (ids::INTRO_PART10, CADENCE, 0x17a),
+    ];
+    let bodies: [(FunctionId, crate::TranslationFn); 11] = [
+        (ids::INTRO_VIDEO, intro_video),
+        (ids::INTRO_PART1, intro_part1),
+        (ids::INTRO_PART2, intro_part2),
+        (ids::INTRO_PART3, intro_part3),
+        (ids::INTRO_PART4, intro_part4),
+        (ids::INTRO_PART5, intro_part5),
+        (ids::INTRO_PART6, intro_part6),
+        (ids::INTRO_PART7, intro_part7),
+        (ids::INTRO_PART8, intro_part8),
+        (ids::INTRO_PART9, intro_part9),
+        (ids::INTRO_PART10, intro_part10),
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut observed = BTreeSet::new();
+        let mut contexts = Vec::with_capacity(12);
+        let mut begin = AuditContext::new(revision, false);
+        begin
+            .frame
+            .unwrap()
+            .argument_slot(0)
+            .write(&mut begin.memory, 7);
+        intro_begin_large_player_scene(&mut begin).unwrap();
+        contexts.push((ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, begin));
+        for (owner, function) in bodies {
+            let mut context = AuditContext::new(revision, false);
+            if owner == ids::INTRO_PART1 {
+                context.start_samples = 1; // Exercise the initial Start-release loop.
+            }
+            function(&mut context, &[]).unwrap();
+            contexts.push((owner, context));
+        }
+        for (owner, context) in contexts {
+            assert_eq!(context.sp, 0xfff000);
+            assert_eq!(context.frame, Some(FrameState::new(0xfff000)));
+            for (callee, arguments, return_pc) in context.prepared_calls {
+                if ![ANIMATE, SCREEN, RECTANGLE, CADENCE].contains(&callee) {
+                    continue;
+                }
+                let offset = return_pc - owner.metadata().address(revision);
+                assert!(expected.contains(&(owner, callee, offset)));
+                observed.insert((owner, callee, offset));
+                if callee == ANIMATE {
+                    assert_eq!(
+                        arguments,
+                        [u32::from(owner != ids::INTRO_PART7 || offset != 0xa8)]
+                    );
+                } else if callee == SCREEN {
+                    assert_eq!(arguments, [u32::from(owner != ids::INTRO_VIDEO)]);
+                } else if callee == RECTANGLE {
+                    let first = (owner == ids::INTRO_PART5 && offset == 0x46)
+                        || (owner == ids::INTRO_PART9 && offset == 0x3e);
+                    assert_eq!(
+                        arguments,
+                        if first {
+                            [11, 7, 30, 20]
+                        } else {
+                            [12, 8, 29, 19]
+                        }
+                    );
+                } else {
+                    assert_eq!(arguments.len(), 2);
+                    assert!(arguments[0] <= u32::from(owner == ids::INTRO_PART2));
+                    assert!(
+                        arguments[1]
+                            <= u32::from([ids::INTRO_PART1, ids::INTRO_PART3].contains(&owner))
+                    );
+                }
+            }
+        }
+        assert_eq!(observed, expected.into_iter().collect());
+    }
+}
+
+#[test]
+fn intro_refresh_callers_prepare_the_zero_argument_callee_frame() {
+    let cases: [(FunctionId, crate::TranslationFn, FunctionId, u32); 3] = [
+        (
+            ids::INTRO_PART1,
+            intro_part1,
+            ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+            0x53e,
+        ),
+        (
+            ids::INTRO_PART2,
+            intro_part2,
+            ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+            0x196,
+        ),
+        (
+            ids::INTRO_PART3,
+            intro_part3,
+            ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+            0x208,
+        ),
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (owner, function, callee, offset) in cases {
+            let mut context = AuditContext::new(revision, false);
+            function(&mut context, &[]).unwrap();
+            let calls: Vec<_> = context
+                .prepared_calls
+                .into_iter()
+                .filter(|call| call.0 == callee)
+                .collect();
+            assert_eq!(
+                calls,
+                vec![(callee, vec![], owner.metadata().address(revision) + offset)]
+            );
+            assert_eq!(context.sp, 0xfff000);
+            assert_eq!(context.frame, Some(FrameState::new(0xfff000)));
+        }
+    }
+}
+
+#[test]
+fn intro_selector_callers_supply_the_real_prepared_zero_player_slot() {
+    let cases: [(FunctionId, crate::TranslationFn, u32); 2] = [
+        (ids::INTRO_PART4, intro_part4, 0xd0),
+        (ids::INTRO_PART7, intro_part7, 0x11c),
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (owner, function, offset) in cases {
+            let mut context = AuditContext::new(revision, false);
+            function(&mut context, &[]).unwrap();
+            let calls: Vec<_> = context
+                .prepared_calls
+                .into_iter()
+                .filter(|call| call.0 == ids::SELECT_VIEWPORT_SPRITE_CHAIN)
+                .collect();
+            assert!(!calls.is_empty());
+            for call in calls {
+                assert_eq!(
+                    call,
+                    (
+                        ids::SELECT_VIEWPORT_SPRITE_CHAIN,
+                        vec![0],
+                        owner.metadata().address(revision) + offset,
+                    )
+                );
+            }
+            assert_eq!(context.sp, 0xfff000);
+            assert_eq!(context.frame, Some(FrameState::new(0xfff000)));
         }
     }
 }

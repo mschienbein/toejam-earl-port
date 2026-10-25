@@ -16,6 +16,7 @@ use tje_mem::{ObjectState, Target, ram};
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
 static PROOF_ROOTS: OnceLock<Vec<tje_game::Translation>> = OnceLock::new();
+static FRAMED_PROOF_ROOTS: OnceLock<Vec<tje_game::FramedTranslation>> = OnceLock::new();
 
 const OWNED_SOURCES: &[&str] = &[
     "src/cutscenes/sega_logo.c",
@@ -35,18 +36,28 @@ fn entries() -> impl Iterator<Item = &'static tje_game::Translation> {
     tje_game::translations().chain(pending)
 }
 
+fn framed_entries() -> impl Iterator<Item = &'static tje_game::FramedTranslation> {
+    tje_game::framed_translations().chain(tje_game::cutscenes::PENDING_FRAMED_TRANSLATIONS)
+}
+
 fn registry(revision: tje_mem::Revision, selected: &[FunctionId]) -> Result<HookRegistry> {
     let mut roots = Vec::with_capacity(selected.len());
+    let mut framed = Vec::with_capacity(selected.len());
     for &id in selected {
-        let translation = entries()
-            .find(|translation| translation.id == id)
-            .ok_or_else(|| format!("untranslated selection: {}", id.metadata().name))?;
-        roots.push(*translation);
+        if let Some(translation) = entries().find(|translation| translation.id == id) {
+            roots.push(*translation);
+        } else if let Some(translation) = framed_entries().find(|translation| translation.id == id)
+        {
+            framed.push(*translation);
+        } else {
+            return Err(format!("untranslated selection: {}", id.metadata().name).into());
+        }
     }
     // The proof API requires static entry pointers. This command-line process
     // creates one bounded root table, shared by its two hosts, never per call.
     let roots = PROOF_ROOTS.get_or_init(|| roots);
-    Ok(HookRegistry::proof(revision, roots)?)
+    let framed = FRAMED_PROOF_ROOTS.get_or_init(|| framed);
+    Ok(HookRegistry::proof_with_frames(revision, roots, framed)?)
 }
 
 fn check(
@@ -667,20 +678,19 @@ fn main() -> Result {
     let frames: u64 = arguments[4].parse()?;
     let names = arguments.get(5).map(String::as_str).unwrap_or("");
     let selected: Vec<_> = entries()
-        .filter(|translation| {
-            let metadata = translation.id.metadata();
+        .map(|translation| translation.id)
+        .chain(framed_entries().map(|translation| translation.id))
+        .filter(|id| {
+            let metadata = id.metadata();
             OWNED_SOURCES.contains(&metadata.source)
                 && metadata.wave > 0
                 && (names.is_empty()
-                    || (names == "atomic" && tje_game::is_atomic_capable(translation.id))
+                    || (names == "atomic" && tje_game::is_atomic_capable(*id))
                     || (names == "time-aware"
-                        && tje_game::execution_class(translation.id)
+                        && tje_game::execution_class(*id)
                             == Some(tje_game::execution::ExecutionClass::TimeAware))
-                    || names
-                        .split(',')
-                        .any(|name| name == translation.id.metadata().name))
+                    || names.split(',').any(|name| name == id.metadata().name))
         })
-        .map(|translation| translation.id)
         .collect();
     let registry = registry(revision, &selected)?;
     let mut natural = Host::new(&bytes, Mode::Check, registry.clone())?;

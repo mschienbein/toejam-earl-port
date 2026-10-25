@@ -147,7 +147,7 @@ fn registry(revision: Revision) -> tje_host::Result<HookRegistry> {
     HookRegistry::proof_replayed_environment(
         revision,
         tje_game::cutscenes::PENDING_TRANSLATIONS,
-        &[],
+        tje_game::cutscenes::PENDING_FRAMED_TRANSLATIONS,
         ROOTS,
     )
 }

@@ -91,10 +91,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: large_player_parts::intro_release_large_player_sprites_and_refresh,
     },
     crate::Translation {
-        id: ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
-        function: intro::intro_begin_large_player_scene,
-    },
-    crate::Translation {
         id: ids::INTRO_PART5,
         function: intro::intro_part5,
     },
@@ -155,24 +151,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: title_and_transition::clear_upper_vram_tilemap,
     },
     crate::Translation {
-        id: ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
-        function: title_and_transition::animate_title_transition_background,
-    },
-    crate::Translation {
-        id: ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
-        function: title_and_transition::cutscene_draw_randomized_rectangle_border,
-    },
-    crate::Translation {
-        id: ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
-        function: title_and_transition::cutscene_draw_randomized_screen_border,
-    },
-    crate::Translation {
         id: ids::TITLE_DRAW_SELECTED_LOGO,
         function: title_and_transition::title_draw_selected_logo,
-    },
-    crate::Translation {
-        id: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
-        function: title_and_transition::cutscene_step_frame_and_music_cadence,
     },
     crate::Translation {
         id: ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
@@ -221,6 +201,30 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PLAY_ENDING_SEQUENCE,
         function: ending::play_ending_sequence,
+    },
+];
+
+/// Pending lazy-argument entries; never available to the production dispatcher.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::ANIMATE_TITLE_TRANSITION_BACKGROUND,
+        function: title_and_transition::animate_title_transition_background,
+    },
+    crate::FramedTranslation {
+        id: ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
+        function: title_and_transition::cutscene_draw_randomized_rectangle_border,
+    },
+    crate::FramedTranslation {
+        id: ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        function: title_and_transition::cutscene_draw_randomized_screen_border,
+    },
+    crate::FramedTranslation {
+        id: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        function: title_and_transition::cutscene_step_frame_and_music_cadence,
+    },
+    crate::FramedTranslation {
+        id: ids::INTRO_BEGIN_LARGE_PLAYER_SCENE,
+        function: intro::intro_begin_large_player_scene,
     },
 ];
 mod collision_scene_entities;

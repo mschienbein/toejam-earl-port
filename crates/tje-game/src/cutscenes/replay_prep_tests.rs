@@ -1,6 +1,7 @@
 //! Root-level access regressions. Callee spies and scripted counter reads are
 //! unit-test inputs, not ROM differential proofs or a shipping execution mode.
 use super::*;
+use crate::call_frame::{FrameError, FrameState};
 use crate::{Dispatcher, FunctionId, execution};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -16,13 +17,76 @@ enum Event {
     Yield,
 }
 
+const ENTRY_SP: u32 = 0xff7000;
+
+#[derive(Debug, PartialEq, Eq)]
+struct PreparedCall {
+    function: FunctionId,
+    entry_sp: u32,
+    return_pc: u32,
+    slots: Vec<u32>,
+    following_slot: u32,
+}
+
+fn framed_wait_probe(context: &mut dyn Context) -> Result<Option<u32>> {
+    framed_word_void_probe(context, ids::WAIT_FOR_NEXT_V_BLANK)
+}
+
+fn framed_border_probe(context: &mut dyn Context) -> Result<Option<u32>> {
+    framed_word_void_probe(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER)
+}
+
+fn framed_word_void_probe(context: &mut dyn Context, function: FunctionId) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
+    assert!(frame.is_prepared_for(function));
+    let word = frame.argument_word(0).read(context);
+    context.call_original_void_with_execution(
+        function,
+        &[word as i32 as u32],
+        execution::ExecutionClass::TimeAware,
+    )?;
+    Ok(None)
+}
+
+fn framed_cadence_probe(context: &mut dyn Context) -> Result<Option<u32>> {
+    let function = ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE;
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
+    assert!(frame.is_prepared_for(function));
+    let advance = frame.argument_word(0).read(context) as u16;
+    let animate = frame.argument_word(1).read(context);
+    let value = context.call_original(function, &[u32::from(advance), animate as i32 as u32])?;
+    Ok(Some(value))
+}
+
+const FRAMED_PROBES: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::WAIT_FOR_NEXT_V_BLANK,
+        function: framed_wait_probe,
+    },
+    crate::FramedTranslation {
+        id: ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        function: framed_border_probe,
+    },
+    crate::FramedTranslation {
+        id: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        function: framed_cadence_probe,
+    },
+];
+
 struct ScriptedContext {
     memory: AddressSpace,
     events: RefCell<Vec<Event>>,
+    stack_events: RefCell<Vec<Event>>,
+    prepared_calls: Vec<PreparedCall>,
+    call_stack_pointers: Vec<(FunctionId, u32, i16)>,
+    frame: FrameState,
+    sp: u32,
+    address: [u32; 8],
     counter_reads: Option<RefCell<VecDeque<u16>>>,
     controller1_reads: VecDeque<u32>,
     data: [u32; 8],
     status: u16,
+    fail_on: Option<FunctionId>,
 }
 
 impl ScriptedContext {
@@ -30,11 +94,59 @@ impl ScriptedContext {
         Self {
             memory: AddressSpace::new(Vec::new(), revision),
             events: RefCell::new(Vec::new()),
+            stack_events: RefCell::new(Vec::new()),
+            prepared_calls: Vec::new(),
+            call_stack_pointers: Vec::new(),
+            frame: FrameState::new(ENTRY_SP),
+            sp: ENTRY_SP,
+            address: [0; 8],
             counter_reads: None,
             controller1_reads: VecDeque::new(),
             data: [0; 8],
             status: 0x271f,
+            fail_on: None,
         }
+    }
+
+    fn record(&self, event: Event) {
+        let address = match event {
+            Event::Read(address, _) | Event::Discard(address, _) | Event::Write(address, _, _) => {
+                Some(address)
+            }
+            _ => None,
+        };
+        if address.is_some_and(|address| (ENTRY_SP - 0x800..ENTRY_SP + 0x100).contains(&address)) {
+            self.stack_events.borrow_mut().push(event);
+        } else {
+            self.events.borrow_mut().push(event);
+        }
+    }
+
+    fn record_prepared(&mut self, function: FunctionId) {
+        let count = i32::from(function.metadata().abi.argument_count);
+        let slots = (0..count)
+            .map(|index| self.frame.argument_slot(index).read(&self.memory))
+            .collect();
+        self.prepared_calls.push(PreparedCall {
+            function,
+            entry_sp: self.frame.entry_sp,
+            return_pc: self.memory.read_u32(self.frame.entry_sp),
+            slots,
+            following_slot: self.frame.argument_slot(count).read(&self.memory),
+        });
+    }
+
+    fn original_prepared_effects(&mut self, function: FunctionId) -> Result<()> {
+        assert_eq!(self.sp, self.frame.entry_sp);
+        let arguments: Vec<_> = (0..i32::from(function.metadata().abi.argument_count))
+            .map(|index| self.frame.argument_slot(index).read(&self.memory))
+            .collect();
+        self.record_prepared(function);
+        self.original_effects(function, &arguments)?;
+        // The original-entry API consumes its own real RTS; the caller only
+        // releases its outgoing argument area afterward.
+        self.sp = self.sp.wrapping_add(4);
+        Ok(())
     }
 
     fn calls(&self, function: FunctionId) -> Vec<(Vec<u32>, i16)> {
@@ -65,9 +177,18 @@ impl ScriptedContext {
     }
     fn original_effects(&mut self, function: FunctionId, arguments: &[u32]) -> Result<()> {
         let state = ram::g_cutscene_script_state(self.revision()).read(&self.memory);
+        if self.frame.is_prepared_for(function) {
+            self.record_prepared(function);
+        }
+        if function == ids::GET_CTRL1_INPUT || function == ids::GET_CTRL2_INPUT {
+            self.call_stack_pointers.push((function, self.sp, state));
+        }
         self.events
             .borrow_mut()
             .push(Event::Call(function, arguments.to_vec(), state));
+        if self.fail_on == Some(function) {
+            return Err(crate::Error::Untranslated(function));
+        }
         {
             let value = if function == ids::GET_CTRL1_INPUT {
                 self.controller1_reads.pop_front().unwrap_or(0)
@@ -84,12 +205,12 @@ impl ScriptedContext {
 
 impl Bus for ScriptedContext {
     fn read_u8(&self, address: u32) -> u8 {
-        self.events.borrow_mut().push(Event::Read(address, 1));
+        self.record(Event::Read(address, 1));
         self.memory.read_u8(address)
     }
 
     fn read_u16(&self, address: u32) -> u16 {
-        self.events.borrow_mut().push(Event::Read(address, 2));
+        self.record(Event::Read(address, 2));
         if address == ram::g_frame_counter(self.memory.revision()).address()
             && let Some(values) = &self.counter_reads
         {
@@ -99,28 +220,22 @@ impl Bus for ScriptedContext {
     }
 
     fn read_u32(&self, address: u32) -> u32 {
-        self.events.borrow_mut().push(Event::Read(address, 4));
+        self.record(Event::Read(address, 4));
         self.memory.read_u32(address)
     }
 
     fn write_u8(&mut self, address: u32, value: u8) {
-        self.events
-            .borrow_mut()
-            .push(Event::Write(address, 1, u32::from(value)));
+        self.record(Event::Write(address, 1, u32::from(value)));
         self.memory.write_u8(address, value);
     }
 
     fn write_u16(&mut self, address: u32, value: u16) {
-        self.events
-            .borrow_mut()
-            .push(Event::Write(address, 2, u32::from(value)));
+        self.record(Event::Write(address, 2, u32::from(value)));
         self.memory.write_u16(address, value);
     }
 
     fn write_u32(&mut self, address: u32, value: u32) {
-        self.events
-            .borrow_mut()
-            .push(Event::Write(address, 4, value));
+        self.record(Event::Write(address, 4, value));
         self.memory.write_u32(address, value);
     }
 }
@@ -155,12 +270,12 @@ impl crate::Platform for ScriptedContext {
     }
 
     fn discard_u8(&mut self, address: u32) -> Result<()> {
-        self.events.borrow_mut().push(Event::Discard(address, 1));
+        self.record(Event::Discard(address, 1));
         Ok(())
     }
 
     fn discard_u16(&mut self, address: u32) -> Result<()> {
-        self.events.borrow_mut().push(Event::Discard(address, 2));
+        self.record(Event::Discard(address, 2));
         Ok(())
     }
 
@@ -201,12 +316,20 @@ impl Context for ScriptedContext {
         self.data[index] = value;
     }
 
-    fn address_register(&self, _: usize) -> u32 {
-        panic!("unexpected root residual address register");
+    fn address_register(&self, index: usize) -> u32 {
+        if index == 7 {
+            self.sp
+        } else {
+            self.address[index]
+        }
     }
 
-    fn set_address_register(&mut self, _: usize, _: u32) {
-        panic!("unexpected root residual address register write");
+    fn set_address_register(&mut self, index: usize, value: u32) {
+        if index == 7 {
+            self.sp = value;
+        } else {
+            self.address[index] = value;
+        }
     }
 
     fn status_register(&self) -> u16 {
@@ -217,8 +340,43 @@ impl Context for ScriptedContext {
         self.status = value;
     }
 
+    fn stack_pointer(&self) -> Result<u32> {
+        Ok(self.sp)
+    }
+
+    fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
+        self.sp = value;
+        Ok(())
+    }
+
+    fn frame_state(&self) -> Option<FrameState> {
+        Some(self.frame)
+    }
+
+    fn set_frame_state(&mut self, frame: FrameState) -> Result<()> {
+        self.frame = frame;
+        Ok(())
+    }
+
+    fn call_original_entry(
+        &mut self,
+        function: FunctionId,
+        _: execution::ExecutionClass,
+    ) -> Result<u32> {
+        self.original_prepared_effects(function)?;
+        Ok(self.data[0])
+    }
+
+    fn call_original_entry_void(
+        &mut self,
+        function: FunctionId,
+        _: execution::ExecutionClass,
+    ) -> Result<()> {
+        self.original_prepared_effects(function)
+    }
+
     fn dispatcher(&self) -> Dispatcher {
-        Dispatcher::hybrid_with(&[])
+        Dispatcher::hybrid_with_frames(&[], FRAMED_PROBES)
     }
 
     fn execution_class(&self) -> execution::ExecutionClass {
@@ -691,6 +849,206 @@ fn logo_counter_addq_flags_match_every_word_input() {
                 0x2700 | flags,
                 "{revision:?} {old}"
             );
+        }
+    }
+}
+
+#[test]
+fn final_intro_prepares_real_callee_frames_and_retains_cadence_arguments() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = ScriptedContext::new(revision);
+        context.data[2] = 0x1234_abcd;
+        context.data[3] = 0x5678_dcba;
+        context.address[2] = 0x1100_2200;
+        context.address[3] = 0x3300_4400;
+        context.address[4] = 0x5500_6600;
+        let saved_data = context.data;
+        let saved_address = context.address;
+        context.controller1_reads = VecDeque::from([0, 0x10, 0, 0x80]);
+        assert_eq!(
+            super::super::intro_part11::intro_part11(&mut context, &[]).unwrap(),
+            Some(1)
+        );
+        assert_eq!(context.sp, ENTRY_SP);
+        assert_eq!(context.frame, FrameState::new(ENTRY_SP));
+        assert_eq!(&context.data[2..], &saved_data[2..]);
+        assert_eq!(&context.address[2..7], &saved_address[2..7]);
+        let base = ids::INTRO_PART11.metadata().address(revision);
+        let calls: Vec<_> = context
+            .prepared_calls
+            .iter()
+            .map(|call| {
+                (
+                    call.function,
+                    call.entry_sp,
+                    call.return_pc,
+                    call.slots.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                (
+                    ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
+                    ENTRY_SP - 24,
+                    base + 0x4e,
+                    vec![]
+                ),
+                (
+                    ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+                    ENTRY_SP - 28,
+                    base + 0x56,
+                    vec![0]
+                ),
+                (
+                    ids::WAIT_FOR_NEXT_V_BLANK,
+                    ENTRY_SP - 32,
+                    base + 0x66,
+                    vec![1]
+                ),
+                (
+                    ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+                    ENTRY_SP - 32,
+                    base + 0xae,
+                    vec![0, 1]
+                ),
+                (
+                    ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+                    ENTRY_SP - 32,
+                    base + 0xae,
+                    vec![0, 1]
+                ),
+                (
+                    ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+                    ENTRY_SP - 24,
+                    base + 0x528,
+                    vec![]
+                ),
+                (
+                    ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+                    ENTRY_SP - 32,
+                    base + 0x538,
+                    vec![0, 0]
+                ),
+            ]
+        );
+        assert_eq!(context.prepared_calls[2].following_slot, 0);
+        let first_controller_stack: Vec<_> = context
+            .call_stack_pointers
+            .iter()
+            .filter_map(|&(id, sp, _)| (id == ids::GET_CTRL1_INPUT).then_some(sp))
+            .collect();
+        assert_eq!(
+            first_controller_stack,
+            [ENTRY_SP - 20, ENTRY_SP - 28, ENTRY_SP - 28, ENTRY_SP - 20]
+        );
+        let stack = context.stack_events.borrow();
+        assert!(stack.contains(&Event::Read(ENTRY_SP - 26, 2)));
+        assert!(stack.contains(&Event::Read(ENTRY_SP - 22, 2)));
+    }
+}
+
+#[test]
+fn refresh_callers_keep_the_wait_slot_below_upload_arguments() {
+    let roots: [(FunctionId, crate::TranslationFn, u32, u32); 2] = [
+        (
+            ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH,
+            super::super::intro_frame_release::intro_release_frame_entities_and_refresh,
+            0x4e,
+            0x58,
+        ),
+        (
+            ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
+            super::super::large_player_parts::intro_release_large_player_sprites_and_refresh,
+            0x4a,
+            0x54,
+        ),
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (root, function, wait_offset, upload_offset) in roots {
+            let mut context = ScriptedContext::new(revision);
+            let saved = 0x1234_abcd;
+            context.data[2] = saved;
+            context.address[2] = saved;
+            assert_eq!(function(&mut context, &[]).unwrap(), None);
+            assert_eq!(context.sp, ENTRY_SP);
+            assert_eq!(context.data[2], saved);
+            assert_eq!(context.address[2], saved);
+            let base = root.metadata().address(revision);
+            let wait = context
+                .prepared_calls
+                .iter()
+                .find(|call| call.function == ids::WAIT_FOR_NEXT_V_BLANK)
+                .unwrap();
+            assert_eq!(wait.entry_sp, ENTRY_SP - 12);
+            assert_eq!(wait.return_pc, base + wait_offset);
+            assert_eq!(wait.slots, [1]);
+            assert_eq!(wait.following_slot, saved);
+            let upload = context.prepared_calls.last().unwrap();
+            assert_eq!(upload.function, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS);
+            assert_eq!(upload.entry_sp, ENTRY_SP - 20);
+            assert_eq!(upload.return_pc, base + upload_offset);
+            assert_eq!(upload.slots, [0, 0]);
+            assert_eq!(upload.following_slot, 1);
+            let stack = context.stack_events.borrow();
+            assert_eq!(
+                &stack[..2],
+                [
+                    Event::Write(ENTRY_SP - 2, 2, saved & 0xffff),
+                    Event::Write(ENTRY_SP - 4, 2, saved >> 16),
+                ]
+            );
+            assert!(stack.contains(&Event::Read(ENTRY_SP - 6, 2)));
+            if root == ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH {
+                let selectors = [0, 4, 1, 2, 5, 6, 7];
+                let offsets = [0x0c, 0x12, 0x18, 0x1e, 0x24, 0x2a, 0x30];
+                for (index, (&selector, &offset)) in selectors.iter().zip(&offsets).enumerate() {
+                    let call = &context.prepared_calls[index];
+                    assert_eq!(call.function, ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES);
+                    assert_eq!(call.entry_sp, ENTRY_SP - 12 - 4 * index as u32);
+                    assert_eq!(call.return_pc, base + offset);
+                    assert_eq!(call.slots, [selector]);
+                    assert_eq!(
+                        call.following_slot,
+                        if index == 0 {
+                            saved
+                        } else {
+                            selectors[index - 1]
+                        }
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn prepared_caller_diagnostic_errors_restore_the_owned_save_frame() {
+    let roots: &[crate::TranslationFn] = &[
+        super::super::intro_part11::intro_part11,
+        super::super::intro_frame_release::intro_release_frame_entities_and_refresh,
+        super::super::large_player_parts::intro_release_large_player_sprites_and_refresh,
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for function in roots {
+            let mut context = ScriptedContext::new(revision);
+            context.data[2] = 0x1234_abcd;
+            context.data[3] = 0x5678_dcba;
+            context.address[2] = 0x1100_2200;
+            context.address[3] = 0x3300_4400;
+            context.address[4] = 0x5500_6600;
+            let saved_data = context.data;
+            let saved_address = context.address;
+            context.fail_on = Some(ids::WAIT_FOR_NEXT_V_BLANK);
+            let error = function(&mut context, &[]).unwrap_err();
+            assert!(
+                matches!(error, crate::Error::Untranslated(id) if id == ids::WAIT_FOR_NEXT_V_BLANK)
+            );
+            assert_eq!(context.sp, ENTRY_SP);
+            assert_eq!(context.frame, FrameState::new(ENTRY_SP));
+            assert_eq!(&context.data[2..], &saved_data[2..]);
+            assert_eq!(&context.address[2..7], &saved_address[2..7]);
         }
     }
 }

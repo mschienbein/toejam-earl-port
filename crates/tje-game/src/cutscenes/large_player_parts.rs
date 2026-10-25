@@ -1,4 +1,5 @@
-use crate::{Context, Result, call, call_void, ids};
+use crate::call_frame::{CallSite, OutgoingArguments};
+use crate::{Context, Result, call, call_at_void, call_void, ids};
 use tje_mem::{Address, ObjectState, Ptr, RenderFrame, RenderFramePieceView, ram, rom};
 
 /// G/src/cutscenes/large_player_parts.c:27, lowered with ASL.W #7 / ADDA.W.
@@ -337,18 +338,84 @@ pub fn intro_release_large_player_sprites_and_refresh(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
-    for index in [0, 4, 1, 2, 5, 6, 7] {
-        call_void(
+    // c_large_player_parts.s:228,253: MOVE.L A2,-(SP) / MOVEA.L (SP)+,A2.
+    let entry_sp = context.stack_pointer()?;
+    let save_sp = entry_sp.wrapping_sub(4);
+    let saved = context.address_register(2);
+    context.write_u16(save_sp.wrapping_add(2), saved as u16);
+    context.write_u16(save_sp, (saved >> 16) as u16);
+    context.set_stack_pointer(save_sp)?;
+    let result = release_large_player_sprites_body(context)
+        .map_err(|error| context.protect_timing_failure(error));
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    if result.is_err() {
+        context.set_stack_pointer(save_sp)?;
+    }
+    let restore_sp = context.stack_pointer()?;
+    let restored = context.read_u32(restore_sp);
+    context.set_address_register(2, restored);
+    context.set_stack_pointer(restore_sp.wrapping_add(4))?;
+    result
+}
+
+fn release_large_player_sprites_body(context: &mut dyn Context) -> Result<Option<u32>> {
+    let revision = context.revision();
+    let owner = ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH;
+    let dispatcher = context.dispatcher();
+    context.set_address_register(
+        2,
+        ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES
+            .metadata()
+            .address(revision),
+    );
+    // Seven source argument slots accumulate until the single LEA 28(SP),SP.
+    for (index, offset) in [
+        (0, 0x0c),
+        (4, 0x12),
+        (1, 0x18),
+        (2, 0x1e),
+        (5, 0x24),
+        (6, 0x2a),
+        (7, 0x30),
+    ] {
+        let argument = OutgoingArguments::push(context, &[index])?;
+        argument.call_void(
             context,
+            dispatcher,
             ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES,
-            &[index],
+            CallSite::relative(owner, revision, offset),
         )?;
     }
-    context.discard_u8(ram::g_sprite_graphics_upload_pending(context.revision()).address())?;
-    ram::g_sprite_graphics_upload_pending(context.revision()).write(context, 0);
-    call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-    call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+    OutgoingArguments::existing(context, 7)?.release(context)?;
+    context.discard_u8(ram::g_sprite_graphics_upload_pending(revision).address())?;
+    ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
+    call_at_void(
+        context,
+        ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+        &[],
+        CallSite::relative(owner, revision, 0x40),
+    )?;
+    let wait = OutgoingArguments::push(context, &[1])?;
+    wait.call_void(
+        context,
+        dispatcher,
+        ids::WAIT_FOR_NEXT_V_BLANK,
+        CallSite::relative(owner, revision, 0x4a),
+    )?;
+    let upload = OutgoingArguments::push(context, &[0, 0])?;
+    upload.call_void(
+        context,
+        dispatcher,
+        ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
+        CallSite::relative(owner, revision, 0x54),
+    )?;
+    upload.release(context)?;
+    wait.release(context)?;
     Ok(None)
 }
 

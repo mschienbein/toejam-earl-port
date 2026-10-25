@@ -21,10 +21,19 @@ pub fn ending_play_descending_rocketship_scene(
 
 fn descending_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    let caller = ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE;
     context.set_address_register(2, ram::g_cutscene_script_state(revision).address());
     context.set_address_register(3, ram::g_mode2_reg_softcopy(revision).address());
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    // c_ending.o:c64 returns at c6a; its argument remains through c6a's call.
+    let border = retained_ending_call(
+        context,
+        caller,
+        0xc6a - 0xc50,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[1],
+    )?;
     call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+    border.release(context)?;
     ram::g_cutscene_script_countdown(revision).write(context, 42);
     let mut character_y = 132_i16;
     let mut character_x = 280_i16;
@@ -53,8 +62,16 @@ fn descending_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let state = ram::g_cutscene_script_state(revision);
     clear_word_instruction(context, state.address())?;
     while state.read(context) != -1 {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-        match state.read(context) {
+        let cadence = retained_ending_call(
+            context,
+            caller,
+            0xcea - 0xc50,
+            ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+            &[0, 0],
+        )?;
+        let phase = state.read(context);
+        cadence.release(context)?;
+        match phase {
             0 => {
                 character_x = character_x.wrapping_sub(1);
                 if character_x == 182 {
@@ -116,7 +133,13 @@ fn descending_body(context: &mut dyn Context) -> Result<Option<u32>> {
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
     call_void(context, ids::ENDING_RELEASE_STATIONARY_COMPOSITE, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_ending_call(
+        context,
+        caller,
+        0xdcc - 0xc50,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        &[0, 0],
+    )?;
     Ok(Some(0))
 }
 
@@ -128,12 +151,37 @@ pub fn ending_play_upward_rocketship_departure(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
+    // Source MOVEM D2-D5/A2-A3 positions the prepared outgoing arguments.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x0c))?;
+    let result = upward_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn upward_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    let caller = ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE;
     let literal_base = ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE
         .metadata()
         .address(revision);
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    let border = retained_ending_call(
+        context,
+        caller,
+        0x5ac - 0x592,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[1],
+    )?;
     call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+    border.release(context)?;
     clear_byte_instruction(
         context,
         ram::g_requested_music_selection(revision).address(),
@@ -168,8 +216,16 @@ pub fn ending_play_upward_rocketship_departure(
     clear_word_instruction(context, state.address())?;
     countdown.write(context, 17);
     while state.read(context) != -1 {
-        call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-        match state.read(context) {
+        let cadence = retained_ending_call(
+            context,
+            caller,
+            0x640 - 0x592,
+            ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+            &[0, 0],
+        )?;
+        let phase = state.read(context);
+        cadence.release(context)?;
+        match phase {
             0 => {
                 let next = countdown.read(context).wrapping_sub(1);
                 countdown.write(context, next);
@@ -245,7 +301,13 @@ pub fn ending_play_upward_rocketship_departure(
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_PLANET_ENTITY, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_ending_call(
+        context,
+        caller,
+        0x770 - 0x592,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        &[0, 0],
+    )?;
     Ok(Some(0))
 }
 
@@ -254,14 +316,38 @@ pub fn ending_play_upward_rocketship_departure(
 /// Literal addresses are label metadata only: _L141.._L155 offsets relative to
 /// EndingPlayScrollingCredits in the matching REV 02 and REV 00 c_ending.o.
 pub fn ending_play_scrolling_credits(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    // Source MOVEM D2-D3/A2-A4 positions the border/cadence entry slots.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x0c, 0x1c))?;
+    let result = credits_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn credits_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    let caller = ids::ENDING_PLAY_SCROLLING_CREDITS;
     let base = ids::ENDING_PLAY_SCROLLING_CREDITS
         .metadata()
         .address(revision);
     call_void(context, ids::CUTSCENE_CREATE_DRIFTING_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
     call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
-    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    let border = retained_ending_call(
+        context,
+        caller,
+        0x7c2 - 0x790,
+        ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER,
+        &[1],
+    )?;
     call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -281,7 +367,9 @@ pub fn ending_play_scrolling_credits(context: &mut dyn Context, _: &[u32]) -> Re
     let mode = ram::g_mode2_reg_softcopy(revision);
     let current = mode.read(context);
     mode.write(context, current | 64);
-    context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
+    let control = u16::from(mode.read(context)) | 0x8104;
+    border.release(context)?;
+    context.write_vdp_control(control);
     let countdown = ram::g_cutscene_script_countdown(revision);
     let state = ram::g_cutscene_script_state(revision);
     countdown.write(context, 85);
@@ -343,7 +431,13 @@ pub fn ending_play_scrolling_credits(context: &mut dyn Context, _: &[u32]) -> Re
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
+    framed_ending_call(
+        context,
+        caller,
+        0xa8a - 0x790,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        &[0, 0],
+    )?;
     Ok(Some(0))
 }
 
@@ -365,7 +459,25 @@ pub fn ending_play_dialogue_and_departure(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
+    // Source MOVEM D2-D6/A2-A4 positions the retained final cadence area.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x7c, 0x1c))?;
+    let result = dialogue_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
+    if result.is_err() {
+        context.set_stack_pointer(frame.save_base())?;
+    }
+    frame.leave(context)?;
+    result
+}
+
+fn dialogue_body(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    let caller = ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE;
     let base = ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE
         .metadata()
         .address(revision);
@@ -614,8 +726,21 @@ pub fn ending_play_dialogue_and_departure(
     call_void(context, ids::ENDING_RELEASE_POSE_COMPOSITE, &[])?;
     call_void(context, ids::ENDING_RELEASE_SIX_PIECE_COMPOSITE, &[])?;
     call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    call_void(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
+    let cadence = retained_ending_call(
+        context,
+        caller,
+        0x522 - 0x158,
+        ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        &[0, 0],
+    )?;
+    framed_ending_call_void(
+        context,
+        caller,
+        0x528 - 0x158,
+        ids::CLEAR_LOWER_VRAM_TILEMAP,
+        &[],
+    )?;
+    cadence.release(context)?;
     speed = 0;
     context.write_vdp_command(0x4000_0010);
     context.write_vdp_data(speed as u16);
@@ -1175,3 +1300,7 @@ fn retained_ending_call(
 #[cfg(test)]
 #[path = "ending_access_tests.rs"]
 mod access_tests;
+
+#[cfg(test)]
+#[path = "ending_call_tests.rs"]
+mod call_tests;
