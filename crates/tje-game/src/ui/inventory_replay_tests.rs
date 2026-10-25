@@ -714,6 +714,10 @@ fn clear_viewport_retains_head_across_build_and_never_repairs_a6() {
                 &[viewport],
             )
             .unwrap();
+            assert_eq!(
+                c.byte_reads(ram::g_sprite_graphics_upload_pending(revision).address()),
+                [0]
+            );
             let position = c.calls(ids::POSITION_ENTITY_SPRITES)[0];
             let build = c.calls(ids::BUILD_VIEWPORT_SPRITE_LINKS)[0];
             assert_eq!(position.sp, ENTRY_SP - 24);

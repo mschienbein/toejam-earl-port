@@ -32,6 +32,9 @@ struct Fixture {
     record_poll_reads: bool,
     poll_reads: RefCell<Vec<u32>>,
     upload_waits: usize,
+    poll_requests: Vec<crate::execution::WaitRequest>,
+    poll_values: RefCell<Vec<u8>>,
+    poll_script: VecDeque<u8>,
 }
 impl Fixture {
     fn new(revision: Revision) -> Self {
@@ -59,6 +62,9 @@ impl Fixture {
             record_poll_reads: false,
             poll_reads: RefCell::new(Vec::new()),
             upload_waits: 0,
+            poll_requests: Vec::new(),
+            poll_values: RefCell::new(Vec::new()),
+            poll_script: VecDeque::new(),
         }
     }
 }
@@ -115,13 +121,22 @@ impl crate::Platform for Fixture {
     }
     fn wait_until(&mut self, request: crate::execution::WaitRequest) -> Result<()> {
         assert!(self.record_poll_reads, "unexpected wait in isolated test");
-        assert_eq!(
-            request.condition,
-            crate::execution::WaitCondition::Interrupt
-        );
-        self.upload_waits += 1;
         let pending = ram::g_sprite_graphics_upload_pending(self.revision()).address();
-        self.memory.write_u8(pending, 0);
+        assert_eq!(
+            request,
+            crate::execution::WaitRequest::ram_byte_equal(pending, u8::MAX, 0)
+        );
+        self.poll_requests.push(request);
+        loop {
+            let value = self.read_u8(pending);
+            self.poll_values.borrow_mut().push(value);
+            if value == 0 {
+                break;
+            }
+            self.upload_waits += 1;
+            let next = self.poll_script.pop_front().unwrap_or(0);
+            self.memory.write_u8(pending, next);
+        }
         Ok(())
     }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
@@ -322,18 +337,35 @@ fn hud_call_arguments_preserve_move_pea_and_clear_bus_beats() {
 }
 
 #[test]
-fn upload_wait_reads_only_the_source_pending_byte() {
+fn upload_wait_owns_exact_byte_poll_sequence_and_final_read() {
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut context = Fixture::new(revision);
-        let pending = ram::g_sprite_graphics_upload_pending(revision);
-        pending.write(&mut context, 1);
-        context.record_poll_reads = true;
-        crate::ui::animations::wait_upload(&mut context).unwrap();
-        assert_eq!(context.upload_waits, 1);
-        assert_eq!(
-            *context.poll_reads.borrow(),
-            [pending.address(), pending.address()]
-        );
+        for (initial, script, expected_values) in [
+            (0, vec![], vec![0]),
+            (1, vec![], vec![1, 0]),
+            (0x80, vec![], vec![0x80, 0]),
+            (0xff, vec![0x80, 1, 0], vec![0xff, 0x80, 1, 0]),
+        ] {
+            let mut context = Fixture::new(revision);
+            let pending = ram::g_sprite_graphics_upload_pending(revision);
+            pending.write(&mut context, initial);
+            context.poll_script = script.into();
+            context.record_poll_reads = true;
+            crate::ui::animations::wait_upload(&mut context).unwrap();
+            assert_eq!(
+                context.poll_requests,
+                [crate::execution::WaitRequest::ram_byte_equal(
+                    pending.address(),
+                    u8::MAX,
+                    0
+                ),]
+            );
+            assert_eq!(context.upload_waits, expected_values.len() - 1);
+            assert_eq!(*context.poll_values.borrow(), expected_values);
+            assert_eq!(
+                *context.poll_reads.borrow(),
+                vec![pending.address(); expected_values.len()]
+            );
+        }
     }
 }
 
