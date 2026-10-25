@@ -343,23 +343,28 @@ fn retained_dma(host: &mut Host, source: u32) {
         .replace_ram_dma_observer(Some(observer.clone()));
     observer
         .guard
-        .run_root(ids::DMA_COPY_WORDS_TO_VRAM, sp, || {
-            for value in [
-                0x8114,
-                0x8f02,
-                0x9301,
-                0x9400,
-                0x9500 | ((source >> 1) & 255) as u16,
-                0x9600 | ((source >> 9) & 255) as u16,
-                0x9700 | ((source >> 17) & 127) as u16,
-                0x4000,
-                0x0080,
-            ] {
-                let bus = host.emulator.hybrid_bus_mut();
-                bus.write_word(0xc00004, value);
-                bus.apply_pending_writes();
-            }
-        })
+        .run_root(
+            ids::DMA_COPY_WORDS_TO_VRAM,
+            sp,
+            host.emulator.hybrid_cpu().status_register() & 0x2000 != 0,
+            || {
+                for value in [
+                    0x8114,
+                    0x8f02,
+                    0x9301,
+                    0x9400,
+                    0x9500 | ((source >> 1) & 255) as u16,
+                    0x9600 | ((source >> 9) & 255) as u16,
+                    0x9700 | ((source >> 17) & 127) as u16,
+                    0x4000,
+                    0x0080,
+                ] {
+                    let bus = host.emulator.hybrid_bus_mut();
+                    bus.write_word(0xc00004, value);
+                    bus.apply_pending_writes();
+                }
+            },
+        )
         .unwrap();
     host.emulator
         .hybrid_bus_mut()
@@ -599,27 +604,32 @@ fn m68k_forwarded_z80_window_dma_keeps_the_actual_issuing_root() {
         .replace_ram_dma_observer(Some(observer.clone()));
     observer
         .guard
-        .run_root(ids::DMA_COPY_WORDS_TO_VRAM, sp, || {
-            let bus = host.emulator.hybrid_bus_mut();
-            for value in [
-                0x8114,
-                0x8f02,
-                0x9301,
-                0x9400,
-                0x9500 | ((source >> 1) & 255) as u16,
-                0x9600 | ((source >> 9) & 255) as u16,
-                0x9700 | ((source >> 17) & 127) as u16,
-                0x4000,
-            ] {
-                bus.write_word(0xc00004, value);
+        .run_root(
+            ids::DMA_COPY_WORDS_TO_VRAM,
+            sp,
+            host.emulator.hybrid_cpu().status_register() & 0x2000 != 0,
+            || {
+                let bus = host.emulator.hybrid_bus_mut();
+                for value in [
+                    0x8114,
+                    0x8f02,
+                    0x9301,
+                    0x9400,
+                    0x9500 | ((source >> 1) & 255) as u16,
+                    0x9600 | ((source >> 9) & 255) as u16,
+                    0x9700 | ((source >> 17) & 127) as u16,
+                    0x4000,
+                ] {
+                    bus.write_word(0xc00004, value);
+                    bus.apply_pending_writes();
+                }
+                bus.write_word(0xa11200, 0x0100);
+                bus.write_word(0xa11100, 0x0100);
                 bus.apply_pending_writes();
-            }
-            bus.write_word(0xa11200, 0x0100);
-            bus.write_word(0xa11100, 0x0100);
-            bus.apply_pending_writes();
-            bus.write_byte(0xa07f04, 0x80);
-            bus.apply_pending_writes();
-        })
+                bus.write_byte(0xa07f04, 0x80);
+                bus.apply_pending_writes();
+            },
+        )
         .unwrap();
     host.emulator
         .hybrid_bus_mut()

@@ -104,6 +104,7 @@ impl Host {
             };
             let entry_sp = emulator.hybrid_cpu().stack_pointer();
             let entry_pc = emulator.hybrid_cpu().pc();
+            let entry_supervisor = emulator.hybrid_cpu().status_register() & 0x2000 != 0;
             let mut stack =
                 crate::abi::StackAuditState::new(entry_sp, dependent || route.is_strict());
             stack.provenance = provenance;
@@ -116,12 +117,24 @@ impl Host {
                 }
             ) {
                 stack.capture_explicit_inputs();
+            }
+            if matches!(
+                side,
+                CheckSide::Rust
+                    | CheckSide::Original {
+                        explicit_inputs: true,
+                        ..
+                    }
+            ) {
                 stack.original_root = Some(std::sync::Arc::new(
                     crate::readable_stack::OriginalRootScope::new(
                         emulator.hybrid_cpu(),
+                        emulator.hybrid_bus(),
+                        revision,
                         hook.symbol.id,
                         hook.symbol.address(revision),
                         entry_sp,
+                        matches!(side, CheckSide::Rust),
                     ),
                 ));
             }
@@ -170,7 +183,10 @@ impl Host {
                 .replace(Vec::new());
             let saved_boundaries = std::mem::replace(
                 &mut emulator.hybrid_bus_mut().hybrid_exception_boundaries,
-                (stack.provenance.is_some() || stack.capture.is_some()).then(Vec::new),
+                (stack.provenance.is_some()
+                    || stack.capture.is_some()
+                    || stack.original_root.is_some())
+                .then(Vec::new),
             );
             let saved_all_dma = emulator.hybrid_bus().hybrid_dma_all_sources;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = route.is_strict()
@@ -280,12 +296,17 @@ impl Host {
                             let observer = readable.as_ref().expect("Rust side readable guard");
                             let attempted =
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    observer.guard.run_root(hook.symbol.id, entry_sp, || {
-                                        hook.execute(&mut context).and_then(|outcome| {
-                                            exits::finish(&mut context, hook, outcome)?;
-                                            Ok(outcome)
-                                        })
-                                    })
+                                    observer.guard.run_root(
+                                        hook.symbol.id,
+                                        entry_sp,
+                                        entry_supervisor,
+                                        || {
+                                            hook.execute(&mut context).and_then(|outcome| {
+                                                exits::finish(&mut context, hook, outcome)?;
+                                                Ok(outcome)
+                                            })
+                                        },
+                                    )
                                 }));
                             clock = context.wait_clock;
                             stack_slot = context.stack_audit.take();

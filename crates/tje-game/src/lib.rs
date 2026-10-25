@@ -453,6 +453,9 @@ pub trait Context: Bus + Platform {
     fn set_frame_state(&mut self, _state: call_frame::FrameState) -> Result<()> {
         Err(call_frame::FrameError::Unavailable.into())
     }
+    /// Optional, sealed framework metadata. Absence creates no invocation witness.
+    /// Observing a boundary never supplies an operand, advances time or executes a call.
+    fn observe_call_boundary(&mut self, _event: call_frame::CallBoundaryEvent) {}
     /// Deliberate source-cited original bug, never a generic stack-read waiver.
     /// Implementations validate the exact current own-frame occurrence before
     /// exposing unchanged entry residue. Unsupported platforms never read RAM.
@@ -871,6 +874,11 @@ impl Dispatcher {
                 });
             }
             let ceiling = context.enter_call_ceiling(id)?;
+            let boundary_parent = context.frame_state();
+            context.observe_call_boundary(call_frame::CallBoundaryEvent::elided_enter(
+                id,
+                boundary_parent,
+            ));
             let result = match result_use {
                 CallReturn::Value => context
                     .call_original_with_execution(id, arguments, class)
@@ -891,7 +899,15 @@ impl Dispatcher {
                 Err(error) => Err(error),
                 Ok(value) => cleanup.map(|()| value),
             };
-            result.map_err(|error| context.protect_timing_failure(error))
+            let result = result.map_err(|error| context.protect_timing_failure(error));
+            context.observe_call_boundary(call_frame::CallBoundaryEvent::ended(
+                id,
+                boundary_parent,
+                None,
+                None,
+                result.is_ok(),
+            ));
+            result
         } else {
             Err(Error::Untranslated(id))
         }
@@ -934,6 +950,13 @@ impl Dispatcher {
             let _ = context.leave_call_ceiling(ceiling);
             return Err(error);
         }
+        let boundary_parent = arguments.map(|_| context.frame_state());
+        if let Some(parent) = boundary_parent {
+            context.observe_call_boundary(call_frame::CallBoundaryEvent::elided_enter(
+                entry.id(),
+                parent,
+            ));
+        }
         let result = match arguments {
             Some(arguments) => entry.invoke_values(context, arguments),
             None => entry.invoke_prepared(context),
@@ -962,7 +985,17 @@ impl Dispatcher {
             Err(error) => mmio.and(Err(error)),
             Ok(value) => mmio.and(restore).and(ceiling).map(|()| value),
         };
-        result.map_err(|error| context.protect_timing_failure(error))
+        let result = result.map_err(|error| context.protect_timing_failure(error));
+        if let Some(parent) = boundary_parent {
+            context.observe_call_boundary(call_frame::CallBoundaryEvent::ended(
+                entry.id(),
+                parent,
+                None,
+                None,
+                result.is_ok(),
+            ));
+        }
+        result
     }
 
     pub(crate) fn allows_original_fallback(self) -> bool {

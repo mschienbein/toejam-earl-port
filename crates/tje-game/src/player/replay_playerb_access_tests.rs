@@ -1,5 +1,8 @@
 //! Source-access regressions. Callee bodies are isolated; entry arguments and
 //! selected returns are explicit test inputs, not claims of a replay proof.
+//! This arithmetic/annotation/dataflow model deliberately keeps the default
+//! no-op call observer, which mints no child token. It provides no Host/Native/
+//! Replace invocation, lifetime, witness, admission or proof coverage.
 use super::{frames, hottub, jump, reactions};
 use crate::call_frame::FrameState;
 use crate::execution::ExecutionClass;
@@ -253,7 +256,9 @@ impl Context for AccessContext {
         Ok(())
     }
     fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
-        let address = self.guard.explicit_local(read, self.frame, self.sp)?;
+        let address =
+            self.guard
+                .explicit_local(read, self.frame, self.sp, self.status & 0x2000 != 0)?;
         let mask = self.guard.unwritten_mask(address, read.width.bytes());
         let value = match read.width {
             LocalWidth::Byte => u32::from(self.memory.read_u8(address)),
@@ -798,9 +803,12 @@ fn chooser_declares_only_the_original_mixed_mode_word_without_initializing_its_h
                 let saved_data = c.data;
                 let saved_address = c.address;
                 let result = guard
-                    .run_root(ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, entry_sp, || {
-                        super::directional::player_choose_directional_movement(&mut c)
-                    })
+                    .run_root(
+                        ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+                        entry_sp,
+                        c.status & 0x2000 != 0,
+                        || super::directional::player_choose_directional_movement(&mut c),
+                    )
                     .unwrap()
                     .unwrap();
                 assert_eq!(result, None);
@@ -842,15 +850,20 @@ fn chooser_mode_word_without_an_explicit_declaration_still_trips_the_guard() {
         let guard = Arc::clone(&c.guard);
         let entry_sp = c.sp;
         let failure = guard
-            .run_root(ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, entry_sp, || {
-                let frame = crate::call_frame::LocalFrame::enter(
-                    &mut c,
-                    crate::call_frame::FrameLayout::link(8, 0x7c, 0),
-                )
-                .unwrap();
-                frame.local::<i8>(-5).write(&mut c, 3);
-                let _ = frame.local::<i16>(-6).read(&c);
-            })
+            .run_root(
+                ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+                entry_sp,
+                c.status & 0x2000 != 0,
+                || {
+                    let frame = crate::call_frame::LocalFrame::enter(
+                        &mut c,
+                        crate::call_frame::FrameLayout::link(8, 0x7c, 0),
+                    )
+                    .unwrap();
+                    frame.local::<i8>(-5).write(&mut c, 3);
+                    let _ = frame.local::<i16>(-6).read(&c);
+                },
+            )
             .unwrap_err();
         assert_eq!(failure.root, ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT);
         assert_eq!(failure.address, entry_sp - 10);

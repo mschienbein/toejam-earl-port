@@ -1,5 +1,8 @@
 //! Source-order regressions use authored memory and explicit callee doubles.
 //! They are unit tests, not differential or replay-environment proof evidence.
+//! This arithmetic/annotation/dataflow model deliberately keeps the default
+//! no-op call observer, which mints no child token. It provides no Host/Native/
+//! Replace invocation, lifetime, witness, admission or proof coverage.
 use super::*;
 use crate::call_frame::FrameState;
 use crate::execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest};
@@ -312,9 +315,12 @@ impl Context for RootMachine {
         Ok(())
     }
     fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
-        let address = self
-            .guard
-            .explicit_local(read, self.frame, self.stack_pointer()?)?;
+        let address = self.guard.explicit_local(
+            read,
+            self.frame,
+            self.inner.address[7],
+            self.inner.status & 0x2000 != 0,
+        )?;
         let missing = self.guard.unwritten_mask(address, read.width.bytes());
         let value = match read.width {
             LocalWidth::Byte => u32::from(self.inner.memory.read_u8(address)),
@@ -1027,9 +1033,12 @@ fn missing_first_transition_choices_declare_each_word_until_a_real_store() {
             c.inner.memory.write_u16(entry_sp - 8, residue);
             let guard = Arc::clone(&c.guard);
             guard
-                .run_root(ids::MAP_CHOOSE_METATILE_ALTERNATIVES, entry_sp, || {
-                    map_choose_metatile_alternatives(&mut c, &[])
-                })
+                .run_root(
+                    ids::MAP_CHOOSE_METATILE_ALTERNATIVES,
+                    entry_sp,
+                    c.inner.status & 0x2000 != 0,
+                    || map_choose_metatile_alternatives(&mut c, &[]),
+                )
                 .unwrap()
                 .unwrap();
             assert!(guard.failure().is_none());
@@ -1077,14 +1086,19 @@ fn undeclared_first_transition_choice_still_trips_the_guard() {
         c.inner.memory.write_u16(entry_sp - 8, 0x55aa);
         let guard = Arc::clone(&c.guard);
         let failure = guard
-            .run_root(ids::MAP_CHOOSE_METATILE_ALTERNATIVES, entry_sp, || {
-                let frame = crate::call_frame::LocalFrame::enter(
-                    &mut c,
-                    crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
-                )
-                .unwrap();
-                frame.local::<i16>(-4).read(&c)
-            })
+            .run_root(
+                ids::MAP_CHOOSE_METATILE_ALTERNATIVES,
+                entry_sp,
+                c.inner.status & 0x2000 != 0,
+                || {
+                    let frame = crate::call_frame::LocalFrame::enter(
+                        &mut c,
+                        crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
+                    )
+                    .unwrap();
+                    frame.local::<i16>(-4).read(&c)
+                },
+            )
             .unwrap_err();
         assert_eq!(failure.root, ids::MAP_CHOOSE_METATILE_ALTERNATIVES);
         assert_eq!((failure.address, failure.width), (entry_sp - 8, 2));
@@ -1111,9 +1125,12 @@ fn unsupported_growth_kind_declares_only_the_unwritten_probability_word() {
             c.inner.memory.write_u16(entry_sp - 18, 17);
             let guard = Arc::clone(&c.guard);
             guard
-                .run_root(ids::MAP_GROW_TERRAIN_REGION, entry_sp, || {
-                    map_grow_terrain_region(&mut c, &arguments)
-                })
+                .run_root(
+                    ids::MAP_GROW_TERRAIN_REGION,
+                    entry_sp,
+                    c.inner.status & 0x2000 != 0,
+                    || map_grow_terrain_region(&mut c, &arguments),
+                )
                 .unwrap()
                 .unwrap();
             assert!(guard.failure().is_none());

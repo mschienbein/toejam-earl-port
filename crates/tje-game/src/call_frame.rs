@@ -102,6 +102,93 @@ impl CallSite {
         }
     }
 }
+/// Read-only kind of an observed framework call boundary, not call authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallBoundaryKind {
+    PreparedEnter,
+    ElidedEnter,
+    Returned,
+    Abandoned,
+}
+
+/// A boundary emitted by the real dispatcher/prepared-frame lifecycle.
+/// Its DTO getters do not let a caller manufacture another boundary.
+///
+/// ```compile_fail
+/// use tje_game::{call_frame::{CallBoundaryEvent, FrameState, CallSite}, ids};
+/// let frame = FrameState::new(0xff7f00);
+/// let _ = CallBoundaryEvent::prepared_enter(ids::ABS, frame, frame, CallSite::new(0x100));
+/// ```
+/// ```compile_fail
+/// use tje_game::call_frame::CallBoundaryEvent;
+/// fn duplicate(event: &CallBoundaryEvent) -> CallBoundaryEvent { event.clone() }
+/// ```
+pub struct CallBoundaryEvent {
+    kind: CallBoundaryKind,
+    owner: FunctionId,
+    parent: Option<FrameState>,
+    entry: Option<FrameState>,
+    site: Option<CallSite>,
+}
+impl CallBoundaryEvent {
+    pub fn kind(&self) -> CallBoundaryKind {
+        self.kind
+    }
+    pub fn owner(&self) -> FunctionId {
+        self.owner
+    }
+    pub fn parent(&self) -> Option<FrameState> {
+        self.parent
+    }
+    pub fn entry(&self) -> Option<FrameState> {
+        self.entry
+    }
+    pub fn site(&self) -> Option<CallSite> {
+        self.site
+    }
+    pub(crate) fn prepared_enter(
+        owner: FunctionId,
+        parent: FrameState,
+        entry: FrameState,
+        site: CallSite,
+    ) -> Self {
+        Self {
+            kind: CallBoundaryKind::PreparedEnter,
+            owner,
+            parent: Some(parent),
+            entry: Some(entry),
+            site: Some(site),
+        }
+    }
+    pub(crate) fn elided_enter(owner: FunctionId, parent: Option<FrameState>) -> Self {
+        Self {
+            kind: CallBoundaryKind::ElidedEnter,
+            owner,
+            parent,
+            entry: None,
+            site: None,
+        }
+    }
+    pub(crate) fn ended(
+        owner: FunctionId,
+        parent: Option<FrameState>,
+        entry: Option<FrameState>,
+        site: Option<CallSite>,
+        returned: bool,
+    ) -> Self {
+        Self {
+            kind: if returned {
+                CallBoundaryKind::Returned
+            } else {
+                CallBoundaryKind::Abandoned
+            },
+            owner,
+            parent,
+            entry,
+            site,
+        }
+    }
+}
 
 /// Exact prologue shape, cited by the translation, not inferred from a C type.
 /// Masks are D0-D7/A0-A6 bitsets in ordinary register order, not opcode bit order.
@@ -351,73 +438,91 @@ impl OutgoingArguments {
         context.write_u32(entry.entry_sp, site.return_pc);
         context.set_stack_pointer(entry.entry_sp)?;
         context.set_frame_state(entry)?;
-        let result = if translation.is_some() {
-            dispatcher.call_prepared(context, id, result_use)
-        } else {
-            match result_use {
-                crate::CallReturn::Value => context.call_original_entry(id, class).map(Some),
-                crate::CallReturn::Discard => {
-                    context.call_original_entry_void(id, class).map(|()| None)
+        context.observe_call_boundary(CallBoundaryEvent::prepared_enter(id, parent, entry, site));
+        let mut restore_parent = false;
+        let result = (|| {
+            let result = if translation.is_some() {
+                dispatcher.call_prepared(context, id, result_use)
+            } else {
+                match result_use {
+                    crate::CallReturn::Value => context.call_original_entry(id, class).map(Some),
+                    crate::CallReturn::Discard => {
+                        context.call_original_entry_void(id, class).map(|()| None)
+                    }
                 }
+            };
+            let result = crate::exits::validate_call(id, result, context.revision());
+            let result = Error::after_contract_check(context, result);
+            if result
+                .as_ref()
+                .is_err_and(|error| error.preserves_call_frame())
+            {
+                return result;
             }
-        };
-        let result = crate::exits::validate_call(id, result, context.revision());
-        let result = Error::after_contract_check(context, result);
-        if result
-            .as_ref()
-            .is_err_and(|error| error.preserves_call_frame())
-        {
-            return result;
-        }
-        let result = match result {
-            Ok(value) if translation.is_some() => {
-                let completed =
-                    context.consume_timing_completion(crate::timing::CompletionRequest {
-                        entry: id,
-                        entry_sp: entry.entry_sp,
-                        kind: crate::timing::CompletionKind::Rts,
-                        expected_pc: Some(site.return_pc),
-                        value: if id.metadata().abi.returns_value {
-                            value
-                        } else {
-                            None
-                        },
-                    });
-                match completed {
-                    Err(error) => return Err(Error::timing_execution_failure(id, error)),
-                    Ok(crate::timing::Completion::Consumed) => Ok(value),
-                    Ok(crate::timing::Completion::Absent) => {
-                        let sp = context.stack_pointer()?;
-                        if sp != entry.entry_sp {
-                            Err(FrameError::UnexpectedStack {
-                                expected: entry.entry_sp,
-                                actual: sp,
-                            }
-                            .into())
-                        } else {
-                            let actual = context.read_u32(sp);
-                            context.set_stack_pointer(sp.wrapping_add(4))?;
-                            if actual != site.return_pc {
-                                Err(FrameError::UnexpectedReturn {
-                                    expected: site.return_pc,
-                                    actual,
+            let result = match result {
+                Ok(value) if translation.is_some() => {
+                    let completed =
+                        context.consume_timing_completion(crate::timing::CompletionRequest {
+                            entry: id,
+                            entry_sp: entry.entry_sp,
+                            kind: crate::timing::CompletionKind::Rts,
+                            expected_pc: Some(site.return_pc),
+                            value: if id.metadata().abi.returns_value {
+                                value
+                            } else {
+                                None
+                            },
+                        });
+                    match completed {
+                        Err(error) => {
+                            return Err(Error::timing_execution_failure(id, error));
+                        }
+                        Ok(crate::timing::Completion::Consumed) => Ok(value),
+                        Ok(crate::timing::Completion::Absent) => {
+                            let sp = context.stack_pointer()?;
+                            if sp != entry.entry_sp {
+                                Err(FrameError::UnexpectedStack {
+                                    expected: entry.entry_sp,
+                                    actual: sp,
                                 }
                                 .into())
                             } else {
-                                Ok(value)
+                                let actual = context.read_u32(sp);
+                                context.set_stack_pointer(sp.wrapping_add(4))?;
+                                if actual != site.return_pc {
+                                    Err(FrameError::UnexpectedReturn {
+                                        expected: site.return_pc,
+                                        actual,
+                                    }
+                                    .into())
+                                } else {
+                                    Ok(value)
+                                }
                             }
                         }
                     }
                 }
-            }
-            other => other,
-        };
-        // Errors are returned, never hidden; restore the suspended caller's
-        // frame bookkeeping so a checked diagnostic can report them safely.
-        context.set_stack_pointer(self.base)?;
-        context.set_frame_state(parent)?;
-        context.check_mmio_contract()?;
-        result
+                other => other,
+            };
+            restore_parent = true;
+            result
+        })();
+        context.observe_call_boundary(CallBoundaryEvent::ended(
+            id,
+            Some(parent),
+            Some(entry),
+            Some(site),
+            result.is_ok(),
+        ));
+        if restore_parent {
+            // Retain the existing cleanup, after observing the actual return
+            // while the callee's entry frame is still installed.
+            context.set_stack_pointer(self.base)?;
+            context.set_frame_state(parent)?;
+            context.check_mmio_contract().and(result)
+        } else {
+            result
+        }
     }
     pub fn release(self, context: &mut dyn Context) -> Result<()> {
         let actual = context.stack_pointer()?;

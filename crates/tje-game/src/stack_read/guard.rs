@@ -1,6 +1,9 @@
 //! Backend-owned readable root state and retained actual-transfer leases.
 use super::{Reader, UninitializedLocalRead, Unsupported, UnsupportedReason};
-use crate::{FunctionId, call_frame::FrameState};
+use crate::{
+    FunctionId,
+    call_frame::{CallBoundaryEvent, CallBoundaryKind, FrameState},
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -9,6 +12,20 @@ use tje_mem::written_ram::{WrittenRam, canonical_ram_byte};
 
 /// Reviewed controller resource ceiling, NOT a hardware/deferred-queue bound.
 pub const GUARD_CAPACITY: usize = 12;
+static NEXT_GUARD: AtomicU64 = AtomicU64::new(1);
+
+/// Backend allocation evidence, minted only from an actual sealed framework
+/// entry. It is neither an operand nor permission to read a returned frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterializedFrame {
+    guard: u64,
+    epoch: u64,
+    serial: u64,
+    parent_serial: u64,
+    owner: FunctionId,
+    frame: FrameState,
+    supervisor: bool,
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct DmaMetrics {
@@ -141,6 +158,7 @@ impl Namespace {
 
 struct ScopeSeal {
     namespace: Arc<Namespace>,
+    identity: u64,
     epoch: AtomicU64,
     failed_epoch: AtomicU64,
     unknown_debt_epoch: AtomicU64,
@@ -155,6 +173,16 @@ struct Abort {
 struct State {
     root: Option<FunctionId>,
     entry_sp: u32,
+    raw_entry_sp: u32,
+    root_supervisor: bool,
+    root_read_permitted: bool,
+    root_materialized: bool,
+    allocation: Option<MaterializedFrame>,
+    allocation_read_permitted: bool,
+    next_allocation: u64,
+    expected_restore: Option<u64>,
+    elided_depth: usize,
+    elided_parent: Option<u64>,
     written: WrittenRam,
     non_own: WrittenRam,
     original_depth: usize,
@@ -182,6 +210,9 @@ impl Guard {
             state: Mutex::new(State::default()),
             scope: Arc::new(ScopeSeal {
                 namespace,
+                identity: NEXT_GUARD
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                    .unwrap_or(0),
                 epoch: AtomicU64::new(0),
                 failed_epoch: AtomicU64::new(0),
                 unknown_debt_epoch: AtomicU64::new(0),
@@ -252,22 +283,25 @@ impl Guard {
         &self,
         root: FunctionId,
         entry_sp: u32,
+        supervisor: bool,
         operation: impl FnOnce() -> T,
     ) -> Result<T, Unsupported> {
-        self.run_policy(root, entry_sp, true, operation)
+        self.run_policy(root, entry_sp, supervisor, true, operation)
     }
     pub fn track_root<T>(
         &self,
         root: FunctionId,
         entry_sp: u32,
+        supervisor: bool,
         operation: impl FnOnce() -> T,
     ) -> Result<T, Unsupported> {
-        self.run_policy(root, entry_sp, false, operation)
+        self.run_policy(root, entry_sp, supervisor, false, operation)
     }
     fn run_policy<T>(
         &self,
         root: FunctionId,
         entry_sp: u32,
+        supervisor: bool,
         enforce: bool,
         operation: impl FnOnce() -> T,
     ) -> Result<T, Unsupported> {
@@ -291,7 +325,11 @@ impl Guard {
                 UnsupportedReason::InvalidRootStack,
             ));
         };
-        let Some(epoch) = self.epoch().checked_add(1) else {
+        let Some(epoch) = self
+            .epoch()
+            .checked_add(1)
+            .filter(|_| self.scope.identity != 0)
+        else {
             return Err(Unsupported::capability(
                 root,
                 entry_sp,
@@ -312,6 +350,16 @@ impl Guard {
             state.non_own.reset();
             state.root = Some(root);
             state.entry_sp = high;
+            state.raw_entry_sp = entry_sp;
+            state.root_supervisor = supervisor;
+            state.root_read_permitted = true;
+            state.root_materialized = true;
+            state.allocation = None;
+            state.allocation_read_permitted = false;
+            state.next_allocation = 0;
+            state.expected_restore = None;
+            state.elided_depth = 0;
+            state.elided_parent = None;
             state.original_depth = 0;
             state.uncertain_dma = false;
         }
@@ -407,10 +455,11 @@ impl Guard {
         }
     }
     pub fn original_segment(&self) -> OriginalSegment<'_> {
-        self.state
-            .lock()
-            .expect("readable stack lock poisoned")
-            .original_depth += 1;
+        let mut state = self.state.lock().expect("readable stack lock poisoned");
+        state.original_depth += 1;
+        state.root_read_permitted = false;
+        state.allocation_read_permitted = false;
+        drop(state);
         OriginalSegment { guard: self }
     }
     /// True only at an actual issuing Rust command, never at eventual DMA time.
@@ -612,11 +661,202 @@ impl Guard {
             mask | (u8::from(missing) << lane)
         })
     }
+    /// Preserve allocation metadata while irrevocably revoking the current
+    /// frame's read permission, including accepted IRQs and stack-bank changes.
+    pub fn revoke_read_permissions(&self) {
+        let mut state = self.state.lock().expect("readable stack lock poisoned");
+        state.root_read_permitted = false;
+        state.allocation_read_permitted = false;
+    }
+    /// Observe real framework materialization without maintaining another call
+    /// stack. Parent restoration requires the shared recorder's opaque token.
+    pub fn observe_call_boundary(
+        &self,
+        event: &CallBoundaryEvent,
+        current: FrameState,
+        actual_sp: u32,
+        supervisor: bool,
+    ) -> Option<MaterializedFrame> {
+        if !self.active() {
+            return None;
+        }
+        let mut state = self.state.lock().expect("readable stack lock poisoned");
+        let root_frame = |frame: FrameState| {
+            frame.entry_sp == state.raw_entry_sp
+                && state.root_supervisor == supervisor
+                && state.root_materialized
+                && state.allocation.is_none()
+                && (frame == FrameState::new(state.raw_entry_sp)
+                    || state.root.is_some_and(|root| frame.is_prepared_for(root)))
+        };
+        let parent_serial = event.parent().and_then(|parent| {
+            if root_frame(parent) {
+                Some(0)
+            } else {
+                state
+                    .allocation
+                    .as_ref()
+                    .filter(|allocation| {
+                        allocation.frame == parent && allocation.supervisor == supervisor
+                    })
+                    .map(|allocation| allocation.serial)
+            }
+        });
+        match event.kind() {
+            CallBoundaryKind::PreparedEnter => {
+                let valid = state.original_depth == 0
+                    && state.elided_depth == 0
+                    && parent_serial.is_some()
+                    && event.entry().is_some_and(|entry| {
+                        entry == current
+                            && entry.is_prepared_for(event.owner())
+                            && entry.entry_sp == actual_sp
+                            && entry.entry_sp & 1 == 0
+                            && canonical_ram_byte(entry.entry_sp)
+                                .is_some_and(|sp| sp < state.entry_sp)
+                    });
+                state.root_read_permitted = false;
+                state.root_materialized = false;
+                state.allocation_read_permitted = false;
+                state.expected_restore = None;
+                if !valid {
+                    state.allocation = None;
+                    return None;
+                }
+                let Some(serial) = state.next_allocation.checked_add(1) else {
+                    state.allocation = None;
+                    drop(state);
+                    self.latch(self.error(
+                        actual_sp,
+                        0,
+                        Reader::RootEntry,
+                        UnsupportedReason::ScopeExhausted,
+                    ));
+                    return None;
+                };
+                let token = MaterializedFrame {
+                    guard: self.scope.identity,
+                    epoch: self.epoch(),
+                    serial,
+                    parent_serial: parent_serial.expect("validated parent"),
+                    owner: event.owner(),
+                    frame: current,
+                    supervisor,
+                };
+                state.next_allocation = serial;
+                state.allocation = Some(token);
+                state.allocation_read_permitted = true;
+                Some(token)
+            }
+            CallBoundaryKind::ElidedEnter => {
+                state.root_materialized = false;
+                if state.elided_depth == 0 {
+                    state.elided_parent = parent_serial
+                }
+                let Some(depth) = state.elided_depth.checked_add(1) else {
+                    state.allocation = None;
+                    state.allocation_read_permitted = false;
+                    state.root_read_permitted = false;
+                    drop(state);
+                    self.latch(self.error(
+                        actual_sp,
+                        0,
+                        Reader::RootEntry,
+                        UnsupportedReason::ScopeExhausted,
+                    ));
+                    return None;
+                };
+                state.elided_depth = depth;
+                state.root_read_permitted = false;
+                state.allocation = None;
+                state.allocation_read_permitted = false;
+                state.expected_restore = None;
+                None
+            }
+            CallBoundaryKind::Returned => {
+                state.expected_restore = if event.entry().is_none() {
+                    state.elided_depth = state.elided_depth.saturating_sub(1);
+                    if state.elided_depth == 0 {
+                        state.elided_parent.take()
+                    } else {
+                        None
+                    }
+                } else {
+                    state
+                        .allocation
+                        .as_ref()
+                        .filter(|allocation| {
+                            allocation.owner == event.owner()
+                                && Some(allocation.frame) == event.entry()
+                                && allocation.frame == current
+                                && allocation.supervisor == supervisor
+                                && actual_sp == allocation.frame.entry_sp.wrapping_add(4)
+                        })
+                        .map(|allocation| allocation.parent_serial)
+                };
+                state.root_materialized = state.expected_restore == Some(0);
+                state.allocation = None;
+                state.allocation_read_permitted = false;
+                None
+            }
+            CallBoundaryKind::Abandoned => {
+                state.allocation = None;
+                state.allocation_read_permitted = false;
+                state.root_read_permitted = false;
+                state.root_materialized = false;
+                state.expected_restore = None;
+                None
+            }
+        }
+    }
+    /// Restore only the recorded parent's materialization, never its revoked
+    /// read permission. A token from another guard, epoch or sibling cannot do so.
+    pub fn restore_materialization(
+        &self,
+        token: MaterializedFrame,
+        current: FrameState,
+        actual_sp: u32,
+        supervisor: bool,
+    ) -> bool {
+        if !self.active() {
+            return false;
+        }
+        let mut state = self.state.lock().expect("readable stack lock poisoned");
+        let valid = token.guard == self.scope.identity
+            && token.epoch == self.epoch()
+            && state.expected_restore == Some(token.serial)
+            && state.original_depth == 0
+            && state.elided_depth == 0
+            && token.frame == current
+            && token.supervisor == supervisor
+            && canonical_ram_byte(actual_sp)
+                .zip(canonical_ram_byte(token.frame.entry_sp))
+                .is_some_and(|(sp, entry)| sp <= entry && entry < state.entry_sp);
+        if valid {
+            state.expected_restore = None;
+            state.allocation = Some(token);
+            state.allocation_read_permitted = false;
+        }
+        valid
+    }
+    pub fn reject_explicit_local(
+        &self,
+        read: UninitializedLocalRead,
+        reason: UnsupportedReason,
+    ) -> Unsupported {
+        self.latch(self.error(
+            read.address(),
+            read.width.bytes(),
+            Reader::ExplicitLocal,
+            reason,
+        ))
+    }
     pub fn explicit_local(
         &self,
         read: UninitializedLocalRead,
         current: FrameState,
         current_sp: u32,
+        supervisor: bool,
     ) -> Result<u32, Unsupported> {
         if let Some(error) = self.failure() {
             return Err(error);
@@ -628,8 +868,16 @@ impl Guard {
         let address = canonical_ram_byte(raw);
         let entry = canonical_ram_byte(read.frame.entry_sp);
         let low = canonical_ram_byte(current_sp);
-        let owner = current.is_prepared_for(read.owner)
-            || (read.owner == root && entry == Some(state.entry_sp));
+        let owner = (read.owner == root
+            && read.frame.entry_sp == state.raw_entry_sp
+            && state.root_supervisor == supervisor
+            && state.root_read_permitted)
+            || (state.allocation_read_permitted
+                && state.allocation.as_ref().is_some_and(|allocation| {
+                    allocation.owner == read.owner
+                        && allocation.frame == current
+                        && allocation.supervisor == supervisor
+                }));
         let valid = self.active()
             && state.original_depth == 0
             && current == read.frame
@@ -685,6 +933,9 @@ impl Drop for OriginalSegment<'_> {
 }
 
 #[cfg(all(test, panic = "unwind"))]
+mod frame_tests;
+
+#[cfg(all(test, panic = "unwind"))]
 mod tests {
     use super::*;
     use crate::{ids, stack_read::LocalWidth};
@@ -707,7 +958,7 @@ mod tests {
         let guard = guard();
         let mut returned = false;
         let error = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 guard.read(S - 4, 4, Reader::RustMemory);
                 returned = true;
             })
@@ -723,11 +974,11 @@ mod tests {
     fn written_aliases_and_above_entry_arguments_are_allowed_across_nested_entries() {
         let guard = guard();
         guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 guard.read(S, 4, Reader::RustMemory);
                 guard.commit((S - 8) & 0xefffff, 4, true);
                 guard
-                    .run_root(ids::NO_OP, S - 16, || {
+                    .run_root(ids::NO_OP, S - 16, false, || {
                         guard.read(S - 8, 4, Reader::HardwareRam)
                     })
                     .unwrap();
@@ -739,7 +990,7 @@ mod tests {
     fn catching_the_private_abort_cannot_clear_the_first_failure() {
         let guard = guard();
         let error = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     guard.read(S - 1, 1, Reader::RustMemory)
                 }));
@@ -754,7 +1005,7 @@ mod tests {
     fn unrelated_panics_keep_their_original_payload_and_release_the_scope() {
         let guard = guard();
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = guard.run_root(ids::GET_RANDOM_NUMBER, S, || {
+            let _ = guard.run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 std::panic::resume_unwind(Box::new(37_u32))
             });
         }))
@@ -767,7 +1018,7 @@ mod tests {
     fn original_spills_are_not_imported_as_own_writes() {
         let guard = guard();
         let error = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 {
                     let _original = guard.original_segment();
                     guard.commit(S - 8, 4, true);
@@ -783,10 +1034,12 @@ mod tests {
         let guard = guard();
         let read = declaration(-8, LocalWidth::Long);
         let error = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 guard.commit(S - 8, 1, true);
                 assert_eq!(
-                    guard.explicit_local(read, read.frame, S - 32).unwrap(),
+                    guard
+                        .explicit_local(read, read.frame, S - 32, false)
+                        .unwrap(),
                     S - 8
                 );
                 guard.read(S - 8, 4, Reader::RustMemory);
@@ -801,9 +1054,9 @@ mod tests {
         let guard = guard();
         let read = declaration(-8, LocalWidth::Word);
         let error = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 guard.commit(S - 8, 1, false);
-                let caught = guard.explicit_local(read, read.frame, S - 32);
+                let caught = guard.explicit_local(read, read.frame, S - 32, false);
                 assert!(caught.is_err());
                 0
             })
@@ -824,8 +1077,8 @@ mod tests {
                 _ => read.offset = -36,
             }
             let error = guard
-                .run_root(ids::GET_RANDOM_NUMBER, S, || {
-                    guard.explicit_local(read, read.frame, S - 32)
+                .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
+                    guard.explicit_local(read, read.frame, S - 32, false)
                 })
                 .unwrap_err();
             assert_eq!(error.reason, UnsupportedReason::InvalidExplicitLocal);
@@ -851,7 +1104,7 @@ mod tests {
             for (generation, uncertain) in [(1, true), (u64::MAX, false)] {
                 let guard = guard();
                 let error = guard
-                    .run_root(ids::GET_RANDOM_NUMBER, S, || {
+                    .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                         let epoch = guard.epoch();
                         guard.dma_started(epoch, generation, uncertain);
                         // Models a real no-RAM fill/copy retirement callback. Start
@@ -875,7 +1128,7 @@ mod tests {
         let namespace = Arc::new(Namespace::default());
         let guard = Guard::with_namespace(Arc::clone(&namespace));
         let first = guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 let _caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     guard.read(S - 1, 1, Reader::RustMemory);
                 }));
@@ -896,7 +1149,7 @@ mod tests {
         // failure latch must not clear previously recorded accounting.
         namespace.reset_failure();
         guard
-            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+            .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                 let epoch = guard.epoch();
                 guard.dma_started(epoch, 2, true);
                 guard.dma_retired(epoch, 2, DmaRetirement::Cancelled);
@@ -916,7 +1169,7 @@ mod tests {
         for (index, guard) in slots.iter().enumerate() {
             namespace.reset_failure();
             let error = guard
-                .run_root(ids::GET_RANDOM_NUMBER, S, || {
+                .run_root(ids::GET_RANDOM_NUMBER, S, false, || {
                     let epoch = guard.epoch();
                     guard.dma_started(epoch, 1, true);
                     guard.dma_retired(epoch, 1, DmaRetirement::Discarded);
@@ -939,9 +1192,9 @@ mod tests {
         let origin = Guard::with_namespace(Arc::clone(&namespace));
         let caller = Guard::with_namespace(Arc::clone(&namespace));
         let error = caller
-            .run_root(ids::NO_OP, S, || {
+            .run_root(ids::NO_OP, S, false, || {
                 origin
-                    .run_root(ids::GET_RANDOM_NUMBER, S - 16, || {
+                    .run_root(ids::GET_RANDOM_NUMBER, S - 16, false, || {
                         origin.dma_started(origin.epoch(), 1, true);
                         origin.dma_retired(origin.epoch(), 1, DmaRetirement::Completed);
                     })

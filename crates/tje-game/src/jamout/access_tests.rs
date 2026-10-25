@@ -1,4 +1,7 @@
 //! Synthetic source-access regressions, not ROM/replay proof receipts.
+//! This arithmetic/annotation/dataflow model deliberately keeps the default
+//! no-op call observer, which mints no child token. It provides no Host/Native/
+//! Replace invocation, lifetime, witness, admission or proof coverage.
 use super::{audio_callbacks, frame_support, lifecycle, scene_layouts};
 use crate::{
     Context, Dispatcher, FramedTranslationFn, FunctionId, Result, TranslationFn,
@@ -242,7 +245,9 @@ impl Context for Machine {
         Ok(())
     }
     fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
-        let address = self.guard.explicit_local(read, self.frame, self.sp)?;
+        let address =
+            self.guard
+                .explicit_local(read, self.frame, self.sp, self.sr & 0x2000 != 0)?;
         let missing = self.guard.unwritten_mask(address, read.width.bytes());
         let value = match read.width {
             LocalWidth::Byte => u32::from(self.memory.read_u8(address)),
@@ -723,9 +728,14 @@ fn missing_jam_leads_declare_each_tile_read_only_until_a_lead_stores_it() {
             c.allocations = allocations.into_iter().collect();
             let guard = Arc::clone(&c.guard);
             guard
-                .run_root(ids::JAM_OUT_CREATE_CHARACTER_COPIES, entry_sp, || {
-                    c.run(super::entities::create_character_copies, &[]);
-                })
+                .run_root(
+                    ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+                    entry_sp,
+                    c.sr & 0x2000 != 0,
+                    || {
+                        c.run(super::entities::create_character_copies, &[]);
+                    },
+                )
                 .unwrap();
             assert!(guard.failure().is_none());
             assert!(c.allocations.is_empty());
@@ -778,14 +788,19 @@ fn undeclared_jam_lead_tile_still_trips_the_guard() {
         c.memory.write_u16(entry_sp - 6, 0x55aa);
         let guard = Arc::clone(&c.guard);
         let failure = guard
-            .run_root(ids::JAM_OUT_CREATE_CHARACTER_COPIES, entry_sp, || {
-                let frame = crate::call_frame::LocalFrame::enter(
-                    &mut c,
-                    crate::call_frame::FrameLayout::link(4, 0x7c, 0x1c),
-                )
-                .unwrap();
-                frame.local::<u16>(-2).read(&c)
-            })
+            .run_root(
+                ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+                entry_sp,
+                c.sr & 0x2000 != 0,
+                || {
+                    let frame = crate::call_frame::LocalFrame::enter(
+                        &mut c,
+                        crate::call_frame::FrameLayout::link(4, 0x7c, 0x1c),
+                    )
+                    .unwrap();
+                    frame.local::<u16>(-2).read(&c)
+                },
+            )
             .unwrap_err();
         assert_eq!(failure.root, ids::JAM_OUT_CREATE_CHARACTER_COPIES);
         assert_eq!((failure.address, failure.width), (entry_sp - 6, 2));

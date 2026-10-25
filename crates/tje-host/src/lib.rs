@@ -34,7 +34,10 @@ pub mod input;
 mod open_bus;
 mod play;
 mod readable_stack;
-pub use readable_stack::{DeclaredStackInput, ReadableGuardMetrics, UnsupportedStackRead};
+pub use readable_stack::{
+    DeclaredStackInput, ExceptionFrameEvidence, InvocationFrameEvidence, ReadableGuardMetrics,
+    UnsupportedStackRead,
+};
 pub mod session_trace;
 mod sinks;
 mod stack_dependency;
@@ -816,6 +819,7 @@ impl Host {
         observer: Arc<readable_stack::Observer>,
     ) -> Result<()> {
         let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
+        let entry_supervisor = self.emulator.hybrid_cpu().status_register() & 0x2000 != 0;
         let progresses_time = hook.execution_class != ExecutionClass::Atomic;
         let entry_usage = self.wait_clock.call_clock.usage();
         let mut context = HookContext::new(
@@ -832,12 +836,14 @@ impl Host {
             context.time_audio = std::mem::take(&mut self.audio.samples);
         }
         let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            observer.guard.track_root(hook.symbol.id, entry_sp, || {
-                hook.execute(&mut context).and_then(|outcome| {
-                    exits::finish(&mut context, hook, outcome)?;
-                    Ok(outcome)
+            observer
+                .guard
+                .track_root(hook.symbol.id, entry_sp, entry_supervisor, || {
+                    hook.execute(&mut context).and_then(|outcome| {
+                        exits::finish(&mut context, hook, outcome)?;
+                        Ok(outcome)
+                    })
                 })
-            })
         }));
         let (mut result, unwind) = match attempted {
             Ok(Ok(result)) => (Some(result), None),

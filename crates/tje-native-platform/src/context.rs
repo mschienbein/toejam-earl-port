@@ -192,9 +192,12 @@ impl NativePlatform {
             .devices
             .replace_ram_dma_observer(Some(observer.clone()));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            observer
-                .guard
-                .run_root(root, self.active_sp(), || operation(self))
+            observer.guard.run_root(
+                root,
+                self.active_sp(),
+                self.registers.status & 0x2000 != 0,
+                || operation(self),
+            )
         }));
         self.devices.restore_ram_dma_observer(previous);
         self.current_stack = None;
@@ -274,6 +277,11 @@ impl NativePlatform {
         .ok_or_else(|| Error::Platform(format!("no native translated handler for IRQ{level}")))?;
         let parent_frame = self.frame;
         let status = self.registers.status;
+        if status & 0x2000 != 0
+            && let Some(guard) = self.readable_guard()
+        {
+            guard.revoke_read_permissions();
+        }
         let pc = self.program_counter;
         let sp = self.registers.supervisor_stack_pointer.wrapping_sub(6);
         self.registers.supervisor_stack_pointer = sp;
@@ -553,6 +561,11 @@ impl Context for NativePlatform {
         self.registers.status
     }
     fn set_status_register(&mut self, value: u16) {
+        if (self.registers.status ^ value) & 0x2000 != 0
+            && let Some(guard) = self.readable_guard()
+        {
+            guard.revoke_read_permissions();
+        }
         self.registers.status = value & 0xa71f;
         self.registers.address[7] = self.active_sp();
     }
@@ -570,6 +583,16 @@ impl Context for NativePlatform {
         self.frame = frame;
         Ok(())
     }
+    fn observe_call_boundary(&mut self, event: tje_game::call_frame::CallBoundaryEvent) {
+        if let Some(guard) = self.readable_guard() {
+            guard.observe_call_boundary(
+                &event,
+                self.frame,
+                self.active_sp(),
+                self.registers.status & 0x2000 != 0,
+            );
+        }
+    }
     fn read_uninitialized_local(
         &mut self,
         read: tje_game::stack_read::UninitializedLocalRead,
@@ -577,7 +600,12 @@ impl Context for NativePlatform {
         let guard = self
             .readable_guard()
             .ok_or_else(|| Error::from(tje_game::stack_read::Unsupported::unavailable(read)))?;
-        let address = guard.explicit_local(read, self.frame, self.active_sp())?;
+        let address = guard.explicit_local(
+            read,
+            self.frame,
+            self.active_sp(),
+            self.registers.status & 0x2000 != 0,
+        )?;
         Ok(match read.width {
             tje_game::stack_read::LocalWidth::Byte => {
                 u32::from(self.devices.memory().read_u8(address))

@@ -63,15 +63,20 @@ fn observer_changes_neither_original_machine_bytes_nor_completion() {
     }
     assert_eq!(observed.take_call_observations().len(), 1);
 }
+fn point(pc: u32, sp: u32, exception_depth: u32) -> InvocationPoint {
+    InvocationPoint {
+        pc,
+        sp,
+        exception_depth,
+        status: 0x2700,
+        usp: 0,
+        ssp: sp,
+    }
+}
+
 #[test]
 fn frame_measurement_deltas_handle_nested_calls_without_double_including_callers() {
-    let mut observer = CallObserver {
-        coverage: vec![CallEntryCoverage {
-            entry_pc: 0x120,
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+    let mut observer = CallObserver::new(tje_rom::Revision::Rev02, &[0x120]);
     let mut counts = HybridInstructionCounts::default();
     let mut step = |pc, sp, opcode, return_word, ticks: u64| {
         counts.main_thread += 1;
@@ -85,9 +90,7 @@ fn frame_measurement_deltas_handle_nested_calls_without_double_including_callers
             .after_tick(
                 &counts,
                 CallBoundary {
-                    pc,
-                    sp,
-                    depth: 0,
+                    point: point(pc, sp, 0),
                     clock: ticks * 7,
                     frame: ticks / 10,
                 },
@@ -107,13 +110,7 @@ fn frame_measurement_deltas_handle_nested_calls_without_double_including_callers
 
 #[test]
 fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls() {
-    let mut observer = CallObserver {
-        coverage: vec![CallEntryCoverage {
-            entry_pc: 0x120,
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
+    let mut observer = CallObserver::new(tje_rom::Revision::Rev02, &[0x120]);
     let mut counts = HybridInstructionCounts::default();
     counts.main_thread = 1;
     counts.last_instruction = Some(m68000_emu::HybridExecutedInstruction {
@@ -126,9 +123,7 @@ fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls
         .after_tick(
             &counts,
             CallBoundary {
-                pc: 0x120,
-                sp: 0xff7ffc,
-                depth: 0,
+                point: point(0x120, 0xff7ffc, 0),
                 clock: 7,
                 frame: 0,
             },
@@ -146,9 +141,7 @@ fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls
         .after_tick(
             &counts,
             CallBoundary {
-                pc: 0x120,
-                sp: 0xff7ffc,
-                depth: 0,
+                point: point(0x120, 0xff7ffc, 0),
                 clock: 14,
                 frame: 0,
             },
@@ -159,9 +152,7 @@ fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls
         .after_tick(
             &counts,
             CallBoundary {
-                pc: 0x120,
-                sp: 0xff7ffc,
-                depth: 0,
+                point: point(0x120, 0xff7ffc, 0),
                 clock: 15,
                 frame: 0,
             },
@@ -180,9 +171,7 @@ fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls
         .after_tick(
             &counts,
             CallBoundary {
-                pc: 0x106,
-                sp: 0xff8000,
-                depth: 0,
+                point: point(0x106, 0xff8000, 0),
                 clock: 21,
                 frame: 0,
             },
@@ -196,9 +185,7 @@ fn faulted_call_or_return_is_not_a_boundary_and_duplicate_ticks_do_not_add_calls
             .after_tick(
                 &counts,
                 CallBoundary {
-                    pc: 0x106,
-                    sp: 0xff8000,
-                    depth: 0,
+                    point: point(0x106, 0xff8000, 0),
                     clock: 28,
                     frame: 0
                 },
@@ -265,4 +252,82 @@ fn actual_hblank_handler_instructions_are_separate_inside_the_real_call() {
         ),
         (1, 1, 1)
     );
+}
+
+#[test]
+fn completed_selected_and_unselected_measurements_reuse_only_active_depth_storage() {
+    let mut observer = CallObserver::new(tje_rom::Revision::Rev02, &[0x120]);
+    let mut counts = HybridInstructionCounts::default();
+    let mut ticks = 0;
+    let mut warmed_capacity = None;
+    for _ in 0..4000 {
+        let mut step = |caller_pc, opcode, pc, sp, return_word| {
+            counts.main_thread += 1;
+            counts.last_instruction = Some(HybridExecutedInstruction {
+                pc: caller_pc,
+                opcode,
+                exception_depth: 0,
+                completed_successfully: true,
+            });
+            ticks += 1;
+            observer
+                .after_tick(
+                    &counts,
+                    CallBoundary {
+                        point: point(pc, sp, 0),
+                        clock: ticks * 7,
+                        frame: 0,
+                    },
+                    return_word,
+                )
+                .unwrap();
+            assert!(observer.invocations.measurement_storage().0 <= 3);
+            assert!(observer.invocations.current_witness().is_none());
+        };
+        step(0x100, 0x4eb9, 0x140, 0xff7ffc, Some(0x106));
+        step(0x140, 0x4eb9, 0x120, 0xff7ff8, Some(0x146));
+        step(0x120, 0x4eb9, 0x160, 0xff7ff4, Some(0x126));
+        step(0x160, 0x4e75, 0x126, 0xff7ff8, None);
+        step(0x126, 0x4e75, 0x146, 0xff7ffc, None);
+        step(0x146, 0x4e75, 0x106, 0xff8000, None);
+        assert!(observer.active.is_empty());
+        let (retained, capacity) = observer.invocations.measurement_storage();
+        assert_eq!(
+            retained, 0,
+            "completed unselected calls cannot accumulate history"
+        );
+        assert_eq!(*warmed_capacity.get_or_insert(capacity), capacity);
+        assert_eq!(observer.completed.len(), 1);
+        let call = observer.completed.pop().unwrap();
+        assert_eq!(
+            (
+                call.caller_pc,
+                call.entry_pc,
+                call.entry_sp,
+                call.return_pc,
+                call.return_sp,
+                call.rts_pc
+            ),
+            (0x140, 0x120, 0xff7ff8, 0x146, 0xff7ffc, 0x126)
+        );
+        assert_eq!(
+            (
+                call.usage.main_thread_instructions,
+                call.usage.ticks,
+                call.usage.master_clocks
+            ),
+            (3, 3, 21)
+        );
+    }
+    assert_eq!(ticks, 24_000);
+    let coverage = observer.coverage[0];
+    assert_eq!(
+        (
+            coverage.executed_entry_opcodes,
+            coverage.recognized_calls,
+            coverage.completed_calls
+        ),
+        (4000, 4000, 4000)
+    );
+    assert_eq!(coverage.faulted_entry_opcodes, 0);
 }

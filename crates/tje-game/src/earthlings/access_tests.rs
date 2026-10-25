@@ -1,4 +1,7 @@
 //! Authored memory observations, not a cartridge, oracle or implementation fallback.
+//! This arithmetic/annotation/dataflow model deliberately keeps the default
+//! no-op call observer, which mints no child token. It provides no Host/Native/
+//! Replace invocation, lifetime, witness, admission or proof coverage.
 use super::{dispatch, friendly, generic, interactions};
 use crate::{Context, Dispatcher, FunctionId, Result, core::test_support::TestContext};
 use std::{cell::RefCell, collections::VecDeque};
@@ -221,9 +224,12 @@ impl Context for ObservedContext {
         read: crate::stack_read::UninitializedLocalRead,
     ) -> Result<u32> {
         use crate::stack_read::LocalWidth;
-        let address =
-            self.guard
-                .explicit_local(read, self.frame, self.inner.address_register(7))?;
+        let address = self.guard.explicit_local(
+            read,
+            self.frame,
+            self.inner.address_register(7),
+            self.inner.status_register() & 0x2000 != 0,
+        )?;
         let missing = self.guard.unwritten_mask(address, read.width.bytes());
         let value = match read.width {
             LocalWidth::Byte => u32::from(self.inner.memory.read_u8(address)),
@@ -793,12 +799,17 @@ fn open_present_declares_only_the_original_mixed_player_word() {
                     .write_u16(entry_sp - 10, (u16::from(high) << 8) | 0x5a);
                 let guard = std::sync::Arc::clone(&context.guard);
                 let result = guard
-                    .run_root(crate::ids::OPEN_EARTHLING_PRESENT, entry_sp, || {
-                        super::open_present::open_earthling_present(
-                            &mut context,
-                            &[player.address(), 0x10],
-                        )
-                    })
+                    .run_root(
+                        crate::ids::OPEN_EARTHLING_PRESENT,
+                        entry_sp,
+                        context.inner.status_register() & 0x2000 != 0,
+                        || {
+                            super::open_present::open_earthling_present(
+                                &mut context,
+                                &[player.address(), 0x10],
+                            )
+                        },
+                    )
                     .unwrap();
                 assert_eq!(
                     result,
@@ -871,15 +882,20 @@ fn open_present_mixed_word_without_declaration_is_still_rejected() {
         let guard = std::sync::Arc::clone(&context.guard);
         let entry_sp = context.frame.entry_sp;
         let failure = guard
-            .run_root(crate::ids::OPEN_EARTHLING_PRESENT, entry_sp, || {
-                let frame = crate::call_frame::LocalFrame::enter(
-                    &mut context,
-                    crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
-                )
-                .unwrap();
-                frame.local::<i8>(-5).write(&mut context, 1);
-                let _ = frame.local::<i16>(-6).read(&context);
-            })
+            .run_root(
+                crate::ids::OPEN_EARTHLING_PRESENT,
+                entry_sp,
+                context.inner.status_register() & 0x2000 != 0,
+                || {
+                    let frame = crate::call_frame::LocalFrame::enter(
+                        &mut context,
+                        crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
+                    )
+                    .unwrap();
+                    frame.local::<i8>(-5).write(&mut context, 1);
+                    let _ = frame.local::<i16>(-6).read(&context);
+                },
+            )
             .unwrap_err();
         assert_eq!(failure.root, crate::ids::OPEN_EARTHLING_PRESENT);
         assert_eq!(failure.address, entry_sp - 10);
@@ -980,6 +996,7 @@ fn nearest_declares_unwritten_own_delta_words_without_fabricating_stores() {
                         .run_root(
                             crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
                             entry_sp,
+                            context.inner.status_register() & 0x2000 != 0,
                             || super::framed::earthling_steer_toward_nearest_target(&mut context),
                         )
                         .unwrap()
@@ -1041,6 +1058,7 @@ fn nearest_keeps_ordinary_delta_reads_after_candidate_stores_even_on_rejection()
                         .run_root(
                             crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
                             entry_sp,
+                            context.inner.status_register() & 0x2000 != 0,
                             || {
                                 super::framed::earthling_steer_toward_nearest_target(&mut context)
                             }
@@ -1076,6 +1094,7 @@ fn nearest_early_distance_return_never_reads_or_declares_delta_words() {
                     .run_root(
                         crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
                         entry_sp,
+                        context.inner.status_register() & 0x2000 != 0,
                         || { super::framed::earthling_steer_toward_nearest_target(&mut context) }
                     )
                     .unwrap()
@@ -1101,6 +1120,7 @@ fn nearest_unwritten_delta_without_declaration_is_still_rejected() {
             .run_root(
                 crate::ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
                 entry_sp,
+                context.inner.status_register() & 0x2000 != 0,
                 || {
                     let frame = crate::call_frame::LocalFrame::enter(
                         &mut context,

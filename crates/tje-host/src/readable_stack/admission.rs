@@ -14,6 +14,96 @@ pub(crate) struct AdmittedRead {
     pub token: JournalRead,
     pub declaration: UninitializedLocalRead,
 }
+/// A later actual exception is diagnostic history, not the read's owner.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ExceptionFrameEvidence {
+    pub vector: u32,
+    pub handler: u32,
+    pub depth: u32,
+    pub occurrence: u64,
+    pub parent_occurrence: Option<u64>,
+    pub call_parent_owner: Option<&'static str>,
+    pub call_parent_entry_sp: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct InvocationFrameEvidence {
+    pub owner: &'static str,
+    pub owner_id: &'static str,
+    pub entry_pc: u32,
+    pub entry_sp: u32,
+    pub observed_cpu_pc: u32,
+    pub observed_active_sp: u32,
+    pub entry_status: u16,
+    pub entry_usp: u32,
+    pub entry_ssp: u32,
+    pub supervisor: bool,
+    pub exception_depth: u32,
+    pub invocation_depth: u32,
+    pub occurrence: u64,
+    pub return_pc: Option<u32>,
+    pub return_site: Option<u32>,
+    pub caller_pc: Option<u32>,
+    pub call_opcode: Option<u16>,
+    pub parent_owner: Option<&'static str>,
+    pub parent_entry_sp: Option<u32>,
+    pub parent_occurrence: Option<u64>,
+    pub first_later_exception: Option<ExceptionFrameEvidence>,
+}
+
+fn frame_evidence(
+    scope: &super::OriginalRootScope,
+    witness: super::OriginalRootWitness,
+) -> Option<InvocationFrameEvidence> {
+    let frame = scope.record(witness)?;
+    let parent = scope.parent(witness);
+    let point = frame.entry_point();
+    let owner = frame.owner()?;
+    Some(InvocationFrameEvidence {
+        owner: owner.metadata().name,
+        owner_id: owner.metadata().inventory_id,
+        entry_pc: frame.entry_pc(),
+        entry_sp: frame.entry_sp()?,
+        observed_cpu_pc: point.pc,
+        observed_active_sp: point.sp,
+        entry_status: point.status,
+        entry_usp: point.usp,
+        entry_ssp: point.ssp,
+        supervisor: frame.supervisor(),
+        exception_depth: frame.exception_depth(),
+        invocation_depth: frame.invocation_depth(),
+        occurrence: frame.occurrence(),
+        return_pc: frame.return_pc(),
+        return_site: frame.return_site(),
+        caller_pc: frame.caller_pc(),
+        call_opcode: frame.opcode(),
+        parent_owner: parent
+            .as_ref()
+            .and_then(|parent| parent.owner())
+            .map(|owner| owner.metadata().name),
+        parent_entry_sp: parent.as_ref().and_then(|parent| parent.entry_sp()),
+        parent_occurrence: parent.as_ref().map(|parent| parent.occurrence()),
+        first_later_exception: scope.first_later_exception(),
+    })
+}
+
+fn matching_witnesses(
+    audit: &AtomicRun,
+    witness: Option<super::OriginalRootWitness>,
+    other: &AtomicRun,
+    other_witness: Option<super::OriginalRootWitness>,
+) -> bool {
+    match (witness, other_witness) {
+        (None, None) => true,
+        (Some(witness), Some(other_witness)) => audit
+            .invocation_scope
+            .as_deref()
+            .zip(other.invocation_scope.as_deref())
+            .is_some_and(|(a, b)| a.matches(witness, b, other_witness)),
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DeclaredStackInput {
     pub root: &'static str,
@@ -30,6 +120,9 @@ pub struct DeclaredStackInput {
     pub unwritten_mask: u8,
     pub value: u16,
     pub citation: &'static str,
+    pub owner: &'static str,
+    pub original_frame: InvocationFrameEvidence,
+    pub rust_frame: InvocationFrameEvidence,
 }
 
 fn fail(
@@ -125,16 +218,27 @@ pub(crate) fn pair(
     let mut cursor = 0;
     for occurrence in &rust.explicit_stack_reads {
         let read = occurrence.declaration;
-        // Root entry is actual. A child standalone proof is NOT its caller's
-        // entry/frame witness. Missing nested metadata stays explicitly held.
-        if read.owner != hook.symbol.id || read.frame.entry_sp != entry_sp {
+        let Some((rust_scope, rust_witness)) =
+            rust.invocation_scope.as_deref().zip(occurrence.invocation)
+        else {
             return Err(fail(
                 hook,
                 entry_sp,
                 read,
                 UnsupportedReason::MissingOriginalFrameWitness,
             ));
-        }
+        };
+        let Some(rust_frame) = frame_evidence(rust_scope, rust_witness).filter(|frame| {
+            frame.owner_id == read.owner.metadata().inventory_id
+                && frame.entry_sp == read.frame.entry_sp
+        }) else {
+            return Err(fail(
+                hook,
+                entry_sp,
+                read,
+                UnsupportedReason::MissingOriginalFrameWitness,
+            ));
+        };
         if read.citation.trim().is_empty() || occurrence.mask == 0 {
             return Err(fail(
                 hook,
@@ -197,14 +301,19 @@ pub(crate) fn pair(
                     UnsupportedReason::PairedInputMismatch,
                 ));
             };
-            let start = hook.symbol.address(revision);
-            if original_token.original_root
-                != Some(super::OriginalRootWitness {
-                    function: hook.symbol.id,
-                    entry_pc: start,
+            let Some((original_scope, original_witness)) = original
+                .invocation_scope
+                .as_deref()
+                .zip(original_token.original_root)
+            else {
+                return Err(fail(
+                    hook,
                     entry_sp,
-                })
-            {
+                    read,
+                    UnsupportedReason::MissingOriginalFrameWitness,
+                ));
+            };
+            if !original_scope.matches(original_witness, rust_scope, rust_witness) {
                 return Err(fail(
                     hook,
                     entry_sp,
@@ -212,7 +321,21 @@ pub(crate) fn pair(
                     UnsupportedReason::MissingOriginalFrameWitness,
                 ));
             }
-            let end = start.saturating_add(hook.symbol.size(revision));
+            let Some(original_frame) = frame_evidence(original_scope, original_witness) else {
+                return Err(fail(
+                    hook,
+                    entry_sp,
+                    read,
+                    UnsupportedReason::MissingOriginalFrameWitness,
+                ));
+            };
+            let start = original_frame.entry_pc;
+            let size = if read.owner == hook.symbol.id && start == hook.symbol.address(revision) {
+                hook.symbol.size(revision)
+            } else {
+                read.owner.metadata().size(revision)
+            };
+            let end = start.saturating_add(size);
             if !(start..end).contains(&original_token.pc)
                 || original_token.uninitialized_mask != mask
                 || original_token.read.value != rust_token.read.value
@@ -248,6 +371,9 @@ pub(crate) fn pair(
                 unwritten_mask: mask,
                 value: original_token.read.value,
                 citation: read.citation,
+                owner: read.owner.metadata().name,
+                original_frame,
+                rust_frame,
             });
         }
     }
@@ -277,6 +403,7 @@ pub(crate) fn revalidate(
         return Ok(());
     }
     let reads = probe.stack_reads.as_deref().unwrap_or_default();
+    let mut admitted = Vec::with_capacity(baseline.admitted_stack_inputs.len());
     for expected in &baseline.admitted_stack_inputs {
         let actual = reads
             .iter()
@@ -285,7 +412,12 @@ pub(crate) fn revalidate(
             actual.pc == expected.token.pc
                 && actual.read == expected.token.read
                 && actual.uninitialized_mask == expected.token.uninitialized_mask
-                && actual.original_root == expected.token.original_root
+                && matching_witnesses(
+                    baseline,
+                    expected.token.original_root,
+                    probe,
+                    actual.original_root,
+                )
         }) {
             return Err(fail(
                 hook,
@@ -294,6 +426,10 @@ pub(crate) fn revalidate(
                 UnsupportedReason::PairedInputMismatch,
             ));
         }
+        admitted.push(AdmittedRead {
+            token: actual.expect("validated replay occurrence").clone(),
+            declaration: expected.declaration,
+        });
     }
     if !baseline.explicit_stack_reads.is_empty()
         && (baseline.explicit_stack_reads.len() != probe.explicit_stack_reads.len()
@@ -307,6 +443,7 @@ pub(crate) fn revalidate(
                         || a.beats != b.beats
                         || a.ordinals != b.ordinals
                         || a.beat_count != b.beat_count
+                        || !matching_witnesses(baseline, a.invocation, probe, b.invocation)
                 }))
     {
         let first = &baseline.admitted_stack_inputs[0];
@@ -318,9 +455,7 @@ pub(crate) fn revalidate(
         ));
     }
     reject_uncited(hook, entry_sp, probe, &baseline.admitted_stack_inputs)?;
-    probe
-        .admitted_stack_inputs
-        .clone_from(&baseline.admitted_stack_inputs);
+    probe.admitted_stack_inputs = admitted;
     remove_admitted_candidates(probe);
     Ok(())
 }
