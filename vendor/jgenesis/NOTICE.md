@@ -106,8 +106,11 @@ Local changes are marked `TJE hybrid`, `TJE standalone cutover`, `TJE timing sur
   prefetch/marker and original entry-fault handling. It executes no opcode,
   advances no device clock, invents no retirement receipt and never repairs an
   original snapshot. The caller binds source fault context; real partial or
-  double-fault state is retained on failure. Authored tests compare full25-word
-  CPU state and physical bus ordering against an original DIVU-zero instruction.
+  double-fault state is retained on failure. Explicit fault site and saved PC
+  differ for DIVU (next PC) and first-opcode SR privilege failure (opcode PC).
+  Authored tests compare full 25-word CPU state and physical bus ordering against
+  original DIVU-zero and ORI/ANDI-to-SR privilege faults, including unconsumed
+  immediates and real entry faults. True CCR forms remain unprivileged.
   Ordinary CPU execution is unchanged; see the CPU README.
 
 Additional `TJE hybrid` check-contract extensions (disabled by default):

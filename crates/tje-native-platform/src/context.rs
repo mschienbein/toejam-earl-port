@@ -716,4 +716,49 @@ mod synchronous_trap_tests {
             }
         }
     }
+
+    #[test]
+    fn unsupported_privilege_entry_never_changes_sr_or_invents_a_prefix_save() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            for entry in [ids::DISABLE_ALL_INTERRUPTS, ids::ENABLE_ALL_INTERRUPTS] {
+                for status in [0x071f, 0x871f] {
+                    let mut rom = vec![0; 256];
+                    rom[..4].copy_from_slice(&0xff7000u32.to_be_bytes());
+                    rom[4..8].copy_from_slice(&0x40u32.to_be_bytes());
+                    let mut platform = NativePlatform::new(
+                        AddressSpace::new(rom, revision),
+                        &[entry],
+                        InterruptHandlers::default(),
+                        &GenesisEmulatorConfig::default(),
+                    )
+                    .unwrap();
+                    platform.set_status_register(status);
+                    platform
+                        .set_stack_banks(StackBanks {
+                            user: 0xff6000,
+                            supervisor: 0xff7000,
+                        })
+                        .unwrap();
+                    let data = std::array::from_fn::<_, 8, _>(|i| platform.data_register(i));
+                    let address = std::array::from_fn::<_, 8, _>(|i| platform.address_register(i));
+                    let banks = platform.stack_banks().unwrap();
+                    let clock = platform.devices.clock();
+                    let error = platform.enter(entry, &[]).unwrap_err();
+                    assert!(error.preserves_call_frame());
+                    assert_eq!(platform.status_register(), status);
+                    assert_eq!(platform.stack_banks().unwrap(), banks);
+                    assert_eq!(platform.active_sp(), 0xff6000);
+                    assert_eq!(platform.read_u32(0xff5ffc), 0);
+                    assert_eq!(platform.read_u32(0xff6ffc), 0);
+                    for i in 0..8 {
+                        assert_eq!(platform.data_register(i), data[i]);
+                        assert_eq!(platform.address_register(i), address[i]);
+                    }
+                    assert_eq!(platform.program_counter, entry.metadata().address(revision));
+                    assert_eq!(platform.devices.clock(), clock);
+                    assert_eq!(platform.accepted_interrupts, 0);
+                }
+            }
+        }
+    }
 }

@@ -93,6 +93,33 @@ fixtures are distinct from natural coverage and prove no universal timing bound.
 Standard trap data must not be used to model an address/bus error's different
 frame format. Ordinary ReplayedEnvironment does not gain trap admission here.
 
+`DisableAllInterrupts` and `EnableAllInterrupts` use privileged **SR**, not CCR,
+instructions (`G/src/asm/interrupts.s:33-43`). The game's supervisor/T=0 inputs
+retain ordinary IPL-only/RTS behavior; no supervisor/T=1 RTS proof is claimed.
+A user input declares vector 8 before any prefix,
+RAM save, register or SR change. The opcode fetch still prefetches `site + 2`,
+but the saved privilege PC is **the opcode site**, unlike DIVU's saved next PC.
+The raw preparation requires no D2 save; it cannot borrow the runtime shape.
+User T=1 is valid on this fault path because privilege failure precedes a
+successful instruction's trace edge. Unsupported native/replay delivery never
+silently modifies SR, invents a frame, or finishes an RTS.
+
+**Conditional supervisor reachability invariant.** A genuine MC68000 reset sets
+S=1 and T=0 (`vendor/jgenesis/cpu/m68000-emu/src/core.rs`, `M68000::reset`). The
+cartridge's only decoded direct SR writers in both complete 648-entry reachable
+surveys are `_start`'s `$2700` write (`G/src/asm/startup.s:17,95`), OR `$0700` and
+AND `$F8FF` (`G/src/asm/interrupts.s:6-7,34,42`): each preserves S=1 and never
+sets T from zero. Hardware IRQ entry saves the prior SR and forces S=1. The two
+RTE sites follow balanced saves/calls/restores (`G/src/asm/interrupts.s:49-63`;
+retained `handle_auto_vectored_interrupt` and `rte`), but this opcode scan and
+wrapper balance do NOT alone prove that RAM writes/callees left saved SR intact.
+S=0 is excluded by induction only under authenticated hardware-frame AND actual
+restored-SR lineage retaining S=1/T=0. The stronger profile must validate current
+S=1 at each privileged boundary and the actual frame's saved S/T domain before
+approving/consuming an RTE. A real user/trace transition must be explicitly
+handled or rejected Unsupported, never normalized or repaired. Arbitrary
+corrupted/injected frame words and unauthenticated restored SR are not certified.
+
 
 Call a value-returning game function with `tje_game::call(context, ids::FUNCTION, arguments)`,
 or an ABI-void function with `tje_game::call_void(context, ids::FUNCTION, arguments)`.

@@ -422,6 +422,15 @@ entries:
   the later divide fault. A value-only elided nested call is likewise rejected
   unless its source call frame was actually materialized with `call_at`.
 
+`ORI/ANDI` to **SR** are different from their unprivileged CCR forms.
+`DisableAllInterrupts`/`EnableAllInterrupts` (`G/src/asm/interrupts.s:34,42`) fault
+with vector 8 on S=0 before consuming the immediate and without changing
+registers, stacks or SR. One opcode-fetch prefetch at `site + 2` is nevertheless
+real. Their saved exception PC is `site`, not DIVU's `site + 2`; no D2 save is
+present. S=0/T=1 still takes this privilege fault first. Never lower it to an SR
+write or borrow the runtime's prefix/next-PC shape. Source-bound preparation
+distinguishes absence of that save from a saved zero.
+
 The default dynamic `unsigned long a / b` and `%` compiler probes instead select
 native `DIVU` when **`b <= 0x7fff || b >= 0xffff8000`**. The instruction consumes
 only **`b & 0xffff`**. If its quotient fits in 16 unsigned bits, that native

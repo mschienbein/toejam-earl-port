@@ -1228,11 +1228,16 @@ impl<'a> HookContext<'a> {
             let frame = self
                 .frame_state()
                 .ok_or(tje_game::call_frame::FrameError::Unavailable)?;
+            let saved_bytes = if request.prepared.saved_d2.is_some() {
+                4
+            } else {
+                0
+            };
             if (root != entry && !frame.is_prepared_for(entry))
-                || request.prepared.stack_pointer != frame.entry_sp.wrapping_sub(4)
+                || request.prepared.stack_pointer != frame.entry_sp.wrapping_sub(saved_bytes)
             {
                 return Err(tje_game::Error::Platform(
-                    "synchronous runtime trap requires its actual prepared entry frame".into(),
+                    "synchronous trap requires its actual prepared entry frame".into(),
                 ));
             }
             let p = &request.prepared;
@@ -1251,29 +1256,41 @@ impl<'a> HookContext<'a> {
                 ));
             }
             let physical_sp = p.stack_pointer & 0xffffff;
-            if !(0xe00000..=0xfffffc).contains(&physical_sp) || physical_sp & 1 != 0 {
+            if p.saved_d2.is_some()
+                && (!(0xe00000..=0xfffffc).contains(&physical_sp) || physical_sp & 1 != 0)
+            {
                 return Err(tje_game::Error::Platform(
                     "runtime D2 save is not an aligned RAM long".into(),
                 ));
             }
             let fault_pc = request.site.address(self.revision);
+            let opcode = match request.trap {
+                tje_game::control::SynchronousTrap::DivideByZero => 0x82c2,
+                tje_game::control::SynchronousTrap::PrivilegeViolation => {
+                    tje_game::control::privileged_status_opcode(entry)
+                        .ok_or(tje_game::Error::Untranslated(entry))?
+                }
+                _ => return Err(tje_game::Error::Untranslated(entry)),
+            };
             let (cpu, bus) = self.emulator.hybrid_parts();
-            // Inspection, not a fabricated semantic CPU operand or stack read.
-            let saved_d2 = (u32::from(bus.memory.read_main_ram_word(physical_sp)) << 16)
-                | u32::from(bus.memory.read_main_ram_word(physical_sp.wrapping_add(2)));
-            if saved_d2 != p.saved_d2 {
-                return Err(tje_game::Error::Platform(
-                    "runtime D2 save differs from source store".into(),
-                ));
+            if let Some(expected) = p.saved_d2 {
+                // Inspection, not a fabricated semantic CPU operand/stack read.
+                let saved = (u32::from(bus.memory.read_main_ram_word(physical_sp)) << 16)
+                    | u32::from(bus.memory.read_main_ram_word(physical_sp.wrapping_add(2)));
+                if saved != expected {
+                    return Err(tje_game::Error::Platform(
+                        "runtime D2 save differs from source store".into(),
+                    ));
+                }
             }
             let cartridge = bus.cartridge.as_mut().ok_or_else(|| {
                 tje_game::Error::Platform("source exception has no cartridge".into())
             })?;
             let words = cartridge.debug_rom_view();
             let index = (fault_pc / 2) as usize;
-            if index >= words.len() || words[index] != 0x82c2 {
+            if index >= words.len() || words[index] != opcode {
                 return Err(tje_game::Error::Platform(
-                    "source exception is not the reviewed DIVU.W D2,D1 opcode".into(),
+                    "source exception is not the reviewed fault opcode".into(),
                 ));
             }
             let vector = request.trap.vector().ok_or_else(|| {
@@ -1281,8 +1298,8 @@ impl<'a> HookContext<'a> {
             })?;
             // This is the faulting instruction's actual next-word prefetch,
             // not execution of its opcode or an imported reference snapshot.
-            cpu.set_pc(request.saved_pc, bus);
-            let entered = cpu.hybrid_enter_trap(vector, request.saved_pc, 0x82c2, bus);
+            cpu.set_pc(fault_pc.wrapping_add(2), bus);
+            let entered = cpu.hybrid_enter_trap(vector, fault_pc, request.saved_pc, opcode, bus);
             // Commit the REAL partial/complete writes even on entry failure.
             // The actor remains Rust-owned, never an original-callee exemption.
             bus.apply_pending_writes();
