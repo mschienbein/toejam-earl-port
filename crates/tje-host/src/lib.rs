@@ -528,9 +528,18 @@ impl Host {
     }
 
     /// Move, don't copy, the read-only ROM into a sequentially executed fork.
-    /// Always return it to the live machine, including when the closure errors.
+    /// Return the same asset on Result errors or unwind, preserving the exact
+    /// unwind payload. CPU/SP/device state is never copied or restored here.
     fn execute_fork<T>(
         &mut self,
+        fork: &mut GenesisEmulator,
+        execute: impl FnOnce(&mut GenesisEmulator) -> Result<T>,
+    ) -> Result<T> {
+        Self::execute_rom_fork(&mut self.emulator, fork, execute)
+    }
+
+    fn execute_rom_fork<T>(
+        origin: &mut GenesisEmulator,
         fork: &mut GenesisEmulator,
         execute: impl FnOnce(&mut GenesisEmulator) -> Result<T>,
     ) -> Result<T> {
@@ -539,20 +548,25 @@ impl Host {
             .as_mut()
             .expect("standalone cartridge")
             .take_rom_from(
-                self.emulator
+                origin
                     .hybrid_bus_mut()
                     .cartridge
                     .as_mut()
                     .expect("cartridge"),
             );
-        let result = execute(fork);
-        self.emulator
+        // The fork stays owned by the caller outside the catch, so unwinding
+        // cannot drop the leased cartridge before ownership is returned.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(fork)));
+        origin
             .hybrid_bus_mut()
             .cartridge
             .as_mut()
             .expect("cartridge")
             .take_rom_from(fork.hybrid_bus_mut().cartridge.as_mut().expect("cartridge"));
-        result
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
@@ -1211,3 +1225,6 @@ mod checker_regressions {
         );
     }
 }
+
+#[cfg(test)]
+mod rom_lease_tests;
