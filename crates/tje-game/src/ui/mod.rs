@@ -234,92 +234,88 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
-/// Opt-in inventory candidates; not registered until both-revision proof.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
+/// Canonical pending UI frames; no execution class, production or approval change.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     // Candidate corpus (tree 1cf3458, base 3fe6d27): REV 00 content-map-restoration
     // frame 30380 leaves the frame counter FF800F different, in both revisions; the
     // original spans an interrupt that the zero-time body does not. Await timing.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_SERVICE_REDRAW_PHASE,
         function: control::inventory_service_redraw_phase,
     },
     // Cooperation REV00 frame39908 has an extra original VBlank/HBlank pair
     // and unequal frame-counter RAM; source-clocked interleaving is unproved.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::ENTITY_CLEAR_VIEWPORT_SPRITES,
         function: inventory_animations::entity_clear_viewport_sprites,
     },
     // Cooperation REV02 frame15370 enters HBlank before a purchase RAM store;
     // await a proved ISR commutation or source-clocked timing contract.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
         function: control::inventory_buy_selected_mail_order_present,
     },
     // Committed cooperation session REV00 frame21751 interleaves VBlank before
     // a present-effect RAM store; await a proved ISR/timing schedule contract.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::OPEN_PRESENT,
         function: control::open_present,
     },
     // Committed cooperation session REV02 frame4903 has unequal VDP state;
     // withdrawn from production until the IRQ redraw interaction is proved.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
         function: inventory_refresh_contents_and_wait,
     },
     // The longer parent check differs in the global chip write stream at
     // REV02 frame4808/REV00 frame4810; autonomous origin is [INFERENCE].
     // Direct OpenPresent hooks pass separately; no parent mismatch is waived.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::CHECK_IF_OPEN_FOR_BOTH,
         function: control::check_if_open_for_both,
     },
     // Both revisions' direct live-state redraw fixtures differ in device writes.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
         function: control::inventory_redraw_synchronously,
     },
     // Both revisions frame2103 observe different semantic YM2612 BUSY operands.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::DRAW_INVENTORY,
         function: control::draw_inventory,
     },
     // Both revisions frame2103 observe different semantic YM2612 BUSY operands.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::TOGGLE_INVENTORY,
         function: control::toggle_inventory,
     },
     // Real cooperation inputs reach this root; the original long animation
     // exceeds the timed-call ceiling before the Rust fork can be approved.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::RANDOMIZE_PRESENTS,
         function: input::randomize_presents,
     },
     // Semantic YM2612 status differs at frame1901 REV02/frame2100 REV00.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::PROCESS_INVENTORY,
         function: input::process_inventory,
     },
     // Incoming D2.low residue is retained; long modal/input timed receipt needed.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::CHECK_B_BUTTON,
         function: input::check_b_button,
     },
     // Real mailbox entries at frame19615 REV02/frame13949 REV00 differ on a
     // semantic YM2612 BUSY read; controller-only recordings are retained.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_OPEN_MAIL_ORDER_MENU,
         function: input::inventory_open_mail_order_menu,
     },
     // DrawInventory plus modal CheckBButton input/wait closure still pending.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::INVENTORY_OPEN_IDENTIFICATION_MENU,
         function: input::inventory_open_identification_menu,
     },
-];
-
-/// Canonical pending UI frames; no execution class, production or approval change.
-pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::CHECK_PROMOTION_SCORE,
         function: menus::check_promotion_score,
@@ -387,6 +383,8 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         function: menus::game_paused,
     },
 ];
+
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
 
 /// Readable bodies are written; exact-clock/IRQ projection and source-backed
 /// call-frame composition are still proof prerequisites, never assumed passed.

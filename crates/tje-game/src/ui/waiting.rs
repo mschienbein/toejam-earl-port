@@ -2,25 +2,25 @@ use crate::{Context, Result, call, ids};
 use tje_mem::{Address, ram};
 
 /// G/src/ui/inventory.c:278 (`InventoryRefreshContentsAndWait`).
-/// Both waits resume only after real VBlank handlers have serviced the redraw.
-pub fn inventory_refresh_contents_and_wait(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+/// Both waits poll only the source byte and resume after actual interrupt service.
+pub fn inventory_refresh_contents_and_wait(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
+    let player = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?
+        .argument_word(0)
+        .read(context);
     let phase = ram::g_inventory_redraw_phase(revision);
     wait_for_redraw(context, phase)?;
-    ram::g_inventory_redraw_player(revision).write(context, arguments[0] as i16 as i8);
+    ram::g_inventory_redraw_player(revision).write(context, player as i8);
     phase.write(context, 1);
     wait_for_redraw(context, phase)?;
     Ok(None)
 }
 
 fn wait_for_redraw(context: &mut dyn Context, phase: Address<i8>) -> Result<()> {
-    let counter = ram::g_frame_counter(context.revision());
     while phase.read(context) != 0 {
-        let previous = counter.read(context);
-        context.wait_vblank_frame(counter.address(), previous)?;
+        context.wait_for_interrupt()?;
     }
     Ok(())
 }

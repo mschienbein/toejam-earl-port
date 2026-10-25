@@ -7,12 +7,68 @@ use std::{
     path::Path,
     sync::{Arc, OnceLock},
 };
-use tje_game::{FunctionId, Translation, ids, ui};
-use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
+use tje_game::{FramedTranslation, FunctionId, Translation, ids, ui};
+use tje_host::{
+    Host, Mode,
+    hooks::HookRegistry,
+    input::{Button, InputHold, InputScript},
+};
 use tje_mem::{Revision, ram};
+
+mod replay_fixtures;
 
 type Result<T, E = Box<dyn Error>> = std::result::Result<T, E>;
 static CANDIDATES: OnceLock<Vec<Translation>> = OnceLock::new();
+static FRAMED_CANDIDATES: OnceLock<Vec<FramedTranslation>> = OnceLock::new();
+
+fn input_script(source: &str) -> Result<InputScript> {
+    if let Ok(script) = InputScript::parse(source) {
+        return Ok(script);
+    }
+    let session = tje_session::Session::from_json(source)?;
+    if !session.writes().is_empty() {
+        return Err("owner natural proof requires a controller-only power-on session; recipe sessions belong to the corpus runner".into());
+    }
+    let p2_connected = session
+        .runs
+        .first()
+        .is_some_and(|run| run.2 & tje_session::CONNECTED != 0);
+    let mut holds = Vec::new();
+    let mut start = 0;
+    for tje_session::Run(frames, p1, p2) in session.runs {
+        if p1 & tje_session::CONNECTED == 0 || (p2 & tje_session::CONNECTED != 0) != p2_connected {
+            return Err("InputScript conversion requires constant controller connectivity".into());
+        }
+        let buttons = |pad: u16| {
+            [
+                (tje_session::UP, Button::Up),
+                (tje_session::DOWN, Button::Down),
+                (tje_session::LEFT, Button::Left),
+                (tje_session::RIGHT, Button::Right),
+                (tje_session::A, Button::A),
+                (tje_session::B, Button::B),
+                (tje_session::C, Button::C),
+                (tje_session::START, Button::Start),
+            ]
+            .into_iter()
+            .filter_map(|(bit, button)| (pad & bit != 0).then_some(button))
+            .collect()
+        };
+        if (p1 | p2) & 0xff != 0 {
+            holds.push(InputHold {
+                start,
+                end: start + frames,
+                p1: buttons(p1),
+                p2: buttons(p2),
+            });
+        }
+        start += frames;
+    }
+    Ok(InputScript {
+        p2_connected,
+        holds,
+    })
+}
 
 fn check(host: &mut Host, id: FunctionId, args: &[u32]) -> Result<()> {
     if !host.checks.by_function.contains_key(id.metadata().name) {
@@ -79,15 +135,32 @@ fn fixtures(host: &mut Host) -> Result<()> {
     Ok(())
 }
 
-fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
+fn run(args: &[String], fixtures_enabled: bool, require_all: bool) -> Result<()> {
     if args.len() != 6 {
-        return Err("usage: tje-ui-inventory-check <rom-dir> <output-dir> <functions-comma-list> <input-json> <frames> <label>".into());
+        return Err("usage: tje-ui-inventory-check <rom-dir> <output-dir> <inventory|functions-comma-list> <input-or-session-json> <frames> <label>".into());
     }
     let output = Path::new(&args[1]);
     fs::create_dir_all(output)?;
     let mut candidates = Vec::new();
-    for name in args[2].split(',') {
+    let mut framed_candidates = Vec::new();
+    let names: Vec<_> = if args[2] == "inventory" {
+        ui::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .filter(|entry| entry.id.metadata().source == "src/ui/inventory.c")
+            .map(|entry| entry.id.metadata().name)
+            .collect()
+    } else {
+        args[2].split(',').collect()
+    };
+    for name in names {
+        if let Some(entry) = ui::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .find(|entry| entry.id.metadata().name == name)
+            .copied()
+        {
+            framed_candidates.push(entry);
+            continue;
+        }
         let translation = ui::PENDING_TRANSLATIONS
             .iter()
             .chain(ui::TRANSLATIONS)
@@ -97,9 +170,12 @@ fn main() -> Result<()> {
         candidates.push(translation);
     }
     let candidates = CANDIDATES.get_or_init(|| candidates).as_slice();
+    let framed_candidates = FRAMED_CANDIDATES
+        .get_or_init(|| framed_candidates)
+        .as_slice();
     let frames: u64 = args[4].parse()?;
     let mut failures = Vec::new();
-    let fixtures_enabled = std::env::var_os("TJE_UI_FIXTURES").is_some();
+    let replay = std::env::var_os("TJE_UI_REPLAY").is_some();
     for revision in [Revision::Rev02, Revision::Rev00] {
         let revision_key = match revision {
             Revision::Rev02 => "rev02",
@@ -111,12 +187,17 @@ fn main() -> Result<()> {
             Revision::Rev02 => "rev02.bin",
             Revision::Rev00 => "rev00.bin",
         }))?;
-        let registry = HookRegistry::proof(revision, candidates)?;
-        let script = InputScript::parse(&source)?;
+        let registry = if replay {
+            HookRegistry::proof_replayed_environment(revision, candidates, framed_candidates, &[])?
+        } else {
+            HookRegistry::proof_with_frames(revision, candidates, framed_candidates)?
+        };
+        let script = Arc::new(input_script(&source)?);
         let mut host = Host::new(&bytes, Mode::Check, registry.clone())?;
-        host.set_wait_input_poller(Arc::new(InputScript::parse(&source)?));
+        host.set_wait_input_poller(script.clone());
         let mut reference = Host::new(&bytes, Mode::Reference, registry)?;
         let mut fixture_counts = BTreeMap::new();
+        let mut fixture_observations = Vec::new();
         let mut natural_reference_equal = false;
         let result = (|| -> Result<()> {
             for frame in 0..frames {
@@ -151,7 +232,11 @@ fn main() -> Result<()> {
                 .iter()
                 .map(|(name, c)| (name.to_owned(), c.calls_checked))
                 .collect();
-            let fixture_result = if fixtures_enabled {
+            let fixture_result = if fixtures_enabled && replay {
+                host.settle_fixture_boundary(script.at(host.frame_count()))?;
+                fixture_observations = replay_fixtures::run(&mut host)?;
+                Ok(())
+            } else if fixtures_enabled {
                 fixtures(&mut host)
             } else {
                 Ok(())
@@ -160,7 +245,14 @@ fn main() -> Result<()> {
                 fixture_counts.insert(name.to_owned(), coverage.calls_checked - before[name]);
             }
             fixture_result?;
-            if !host.checks.unexercised.is_empty()
+            if fixture_observations.iter().any(|observation| {
+                observation
+                    .get("error")
+                    .is_some_and(|error| !error.is_null())
+            }) {
+                return Err("one or more labelled inventory fixtures failed".into());
+            }
+            if (require_all && !host.checks.unexercised.is_empty())
                 || host.checks.mismatches != 0
                 || !host.checks.uninitialized_stack_reads.is_empty()
             {
@@ -173,13 +265,26 @@ fn main() -> Result<()> {
             serde_json::to_vec_pretty(&serde_json::json!({
                 "revision":revision.name(), "frames":host.frame_count(), "selected":args[2],
                 "input":input_path, "whole_session_equal":natural_reference_equal, "error":result.as_ref().err().map(ToString::to_string),
+                "proof_scope": if replay { "own instructions with authenticated original callee segments; not Rust composition" } else { "ClassDefined" },
+                "fixture_observations":fixture_observations,
                 "fixtures_enabled":fixtures_enabled,
                 "fixture_counts":fixture_counts, "checks":host.checks, "measurements":host.measurements,
                 "fixture_entry_sr":host.cpu().status_register(), "fixture_entry_pc":host.cpu().pc(),
             }))?,
         )?;
         match result {
-            Ok(()) => println!("{revision:?}: {} selected hooks PASS", candidates.len()),
+            Ok(()) => {
+                let exercised = host
+                    .checks
+                    .by_function
+                    .iter()
+                    .filter(|(_, coverage)| coverage.calls_checked != 0)
+                    .count();
+                println!(
+                    "{revision:?}: completed with zero mismatches; {exercised}/{} selected roots exercised",
+                    candidates.len() + framed_candidates.len()
+                );
+            }
             Err(error) => {
                 eprintln!("{revision:?}: {error}");
                 failures.push(format!("{revision:?}: {error}"));
@@ -190,5 +295,128 @@ fn main() -> Result<()> {
         Ok(())
     } else {
         Err(failures.join("; ").into())
+    }
+}
+
+fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) != Some("--campaign") {
+        return run(&args, std::env::var_os("TJE_UI_FIXTURES").is_some(), true);
+    }
+    if args.len() != 4 || std::env::var_os("TJE_UI_REPLAY").is_none() {
+        return Err("usage: TJE_UI_REPLAY=1 tje-ui-inventory-check --campaign <rom-dir> <output-dir> <manifest-json>".into());
+    }
+    let manifest: serde_json::Value = serde_json::from_str(&fs::read_to_string(&args[3])?)?;
+    let jobs = manifest["jobs"]
+        .as_array()
+        .ok_or("campaign jobs must be an array")?;
+    let output = Path::new(&args[2]);
+    fs::create_dir_all(output)?;
+    let mut coverage = BTreeMap::<String, BTreeMap<String, u64>>::new();
+    let mut outcomes = Vec::new();
+    let mut failures = Vec::new();
+    // One sequential campaign, all fourteen roots hooked together. Natural
+    // nested original entries are checked by Host, not by per-root reruns.
+    for job in jobs {
+        let source = job["source"]
+            .as_str()
+            .ok_or("campaign source must be a path")?;
+        let frames = job["frames"]
+            .as_u64()
+            .ok_or("campaign frames must be an integer")?;
+        let label = job["label"]
+            .as_str()
+            .ok_or("campaign label must be a string")?;
+        let fixtures = job["fixtures"].as_bool().unwrap_or(false);
+        let invocation = [
+            args[1].clone(),
+            args[2].clone(),
+            "inventory".into(),
+            source.into(),
+            frames.to_string(),
+            label.into(),
+        ];
+        let result = run(&invocation, fixtures, fixtures);
+        if let Err(error) = &result {
+            failures.push(format!("{label}: {error}"));
+        }
+        outcomes.push(
+            serde_json::json!({"label":label, "source":source, "frames":frames,
+            "fixtures":fixtures, "error":result.err().map(|error| error.to_string())}),
+        );
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let path = output.join(format!("{}-{label}.json", revision.name()));
+            let receipt: serde_json::Value = serde_json::from_str(&fs::read_to_string(path)?)?;
+            let counts = coverage.entry(revision.name().into()).or_default();
+            if let Some(functions) = receipt["checks"]["by_function"].as_object() {
+                for (name, function) in functions {
+                    *counts.entry(name.clone()).or_default() +=
+                        function["calls_checked"].as_u64().unwrap_or(0);
+                }
+            }
+        }
+    }
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for entry in ui::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .filter(|entry| entry.id.metadata().source == "src/ui/inventory.c")
+        {
+            if coverage
+                .get(revision.name())
+                .and_then(|counts| counts.get(entry.id.metadata().name))
+                .copied()
+                .unwrap_or(0)
+                == 0
+            {
+                failures.push(format!(
+                    "{}: unexercised {}",
+                    revision.name(),
+                    entry.id.metadata().name
+                ));
+            }
+        }
+    }
+    fs::write(
+        output.join("campaign.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "scope":"modular own-instruction replay; original callee segments are explicit, not Rust composition",
+            "manifest":args[3], "coverage":coverage, "jobs":outcomes, "failures":failures,
+        }))?,
+    )?;
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; ").into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_run_conversion_preserves_buttons_and_connectivity() {
+        let mut recording =
+            tje_session::Session::new(Revision::Rev02, "authored input conversion test");
+        recording
+            .record([tje_session::CONNECTED, tje_session::CONNECTED])
+            .unwrap();
+        recording
+            .record([
+                tje_session::CONNECTED | tje_session::A,
+                tje_session::CONNECTED | tje_session::B,
+            ])
+            .unwrap();
+        recording
+            .record([tje_session::CONNECTED, tje_session::CONNECTED])
+            .unwrap();
+        let script = input_script(&recording.to_json().unwrap()).unwrap();
+        let expected = InputScript::parse(
+            r#"{"p2_connected":true,"holds":[{"start":1,"end":2,"p1":["a"],"p2":["b"]}]}"#,
+        )
+        .unwrap();
+        for frame in 0..3 {
+            assert_eq!(script.at(frame), expected.at(frame));
+        }
     }
 }

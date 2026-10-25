@@ -523,4 +523,13 @@ fn pending_inventory_candidates_are_not_production_registered() {
         assert!(!TRANSLATIONS.iter().any(|proven| proven.id == entry.id));
         assert!(PENDING.contains(&entry.id));
     }
+    for entry in PENDING_FRAMED_TRANSLATIONS {
+        assert!(!TRANSLATIONS.iter().any(|proven| proven.id == entry.id));
+        assert!(
+            !PENDING_TRANSLATIONS
+                .iter()
+                .any(|value| value.id == entry.id)
+        );
+        assert!(PENDING.contains(&entry.id));
+    }
 }
