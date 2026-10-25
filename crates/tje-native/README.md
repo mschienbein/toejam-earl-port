@@ -79,6 +79,45 @@ selectable. F6 toggles Integer/Fit **without changing pixel shape**; F7 cycles S
 bilinear → Nearest → Linear. CLI overrides are `--pixel-shape native|square`,
 `--scale integer|fit` and `--filter sharp|nearest|linear`.
 
+**Display shader** is an independent, default-**Off** opt-in GPU preset, shared
+with the browser. Off leaves the existing pipeline's output byte-for-byte
+unchanged, including its Sharp/Nearest/Linear filter. **Smooth (soft bilinear)**
+widens sharp-bilinear seams to two physical pixels (linear at 2× or below), using
+a linear sampler without overwriting the saved filter. **CRT (flat)** adds
+source-line scanlines and a physical-pixel RGB aperture mask; **CRT (curved)**
+also bows the image and adds a mild vignette/black corners. CRT uses the selected
+filter. Scanlines fade out below 2× to avoid undersampling. All presets retain
+pixel-shape and scale choices, support dynamic framebuffer sizes, affect only
+game video (not the overlay), and never change engine timing, input or audio.
+Native CLI: `--display-shader off|smooth|crt|crt-curved`. Settings files predating
+this field load Off; turning it back Off restores the original display.
+
+Both frontends append the exact same newly authored WGSL effect functions from
+`tje-display`. Enabled effects sample encoded sRGB pixels and convert for the
+target format; legacy Off keeps each frontend's original color/interpolation
+path. This is a single fullscreen-triangle GPU pass, not CPU image processing
+or an intermediate-framebuffer chain. CRT approximates a display; it is not a
+model of a particular television.
+
+Pixel/screenshot and presentation-only performance acceptance (Vulkan adapter
+required; software Vulkan is supported):
+
+```sh
+TJE_SHADER_ARTIFACT_DIR=/private/scratch/shaders \
+  cargo test --locked -p tje-display --test pixels -- --ignored --nocapture
+```
+
+The procedural pattern contains no game assets. The test compares Off against
+independent pre-extras native/browser shader fixtures for all filters, target
+encodings and representative exact/fractional/small/dynamic source sizes;
+compares enabled native/browser pixels within one 8-bit step (two when comparing
+sRGB versus encoded render targets, allowing hardware conversion/filter rounding);
+writes before/after screenshots and measured GPU-completion wall times. It is
+explicitly ignored in ordinary workspace tests because CI need not have a GPU.
+Browser control/persistence/screenshots and a bounded running performance check:
+`node web/verify-shaders.mjs /private/rev02.bin webgl` (repeat with `webgpu`).
+Screenshot artifacts stay private under `scratch/`; never publish game images.
+
 Keyboard defaults: P1 arrows, Z/X/C, Enter; P2 W/S/A/D, G/H/J, Space. A/B/C on pads
 are west/south/east, with D-pad/left stick and Start. Hotkeys: Escape pause, F5
 reset, F6 scale, F7 filter, F8 vsync, F9 recording, F11 fullscreen,

@@ -5,7 +5,7 @@ export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
 }
 
 export function normalizeSettings(value) {
@@ -19,6 +19,7 @@ export function normalizeSettings(value) {
     result.pixelShape = 'square';
   }
   if (['sharp', 'nearest', 'linear'].includes(value?.filter)) result.filter = value.filter;
+  if (['off', 'smooth', 'crt', 'crt-curved'].includes(value?.displayShader)) result.displayShader = value.displayShader;
   result.p2 = value?.p2 === true;
   result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
   return result;

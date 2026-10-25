@@ -1,4 +1,7 @@
-use crate::{input, video::Video};
+use crate::{
+    input,
+    video::{Video, VideoOptions},
+};
 use genesis_config::GenesisEmulatorConfig;
 use js_sys::{Function, Object, Reflect};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -233,7 +236,10 @@ impl WebGame {
         native_pixels: bool,
         integer_scale: bool,
         filter: VideoFilter,
+        display_shader: u32,
     ) -> Result<bool, JsValue> {
+        let display_shader = tje_display::DisplayShader::from_id(display_shader)
+            .ok_or_else(|| js_error("unknown display shader preset"))?;
         let Some(cartridge) = &self.cartridge else {
             return Ok(false);
         };
@@ -243,9 +249,12 @@ impl WebGame {
                 pixels,
                 size,
                 jgenesis_common::frontend::FrameSize { width, height },
-                native_pixels,
-                integer_scale,
-                filter,
+                VideoOptions {
+                    native_pixels,
+                    integer_scale,
+                    filter,
+                    display_shader,
+                },
             )
             .map_err(js_error)
     }

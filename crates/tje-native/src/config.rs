@@ -8,6 +8,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+pub use tje_display::DisplayShader;
 use winit::keyboard::KeyCode;
 
 const SETTINGS_VERSION: u32 = 3;
@@ -98,6 +99,7 @@ pub struct Settings {
     pub pixel_shape: PixelShape,
     pub scale: Scale,
     pub filter: Filter,
+    pub display_shader: DisplayShader,
     pub fullscreen: bool,
     pub vsync: bool,
     pub volume: f32,
@@ -117,6 +119,7 @@ impl Default for Settings {
             pixel_shape: PixelShape::Native,
             scale: Scale::Integer,
             filter: Filter::Sharp,
+            display_shader: DisplayShader::Off,
             fullscreen: false,
             vsync: true,
             volume: 0.8,
@@ -494,6 +497,7 @@ mod tests {
             assert_eq!(unset.pixel_shape, PixelShape::Native);
             assert_eq!(unset.scale, Scale::Integer);
             assert_eq!(unset.filter, Filter::Sharp);
+            assert_eq!(unset.display_shader, DisplayShader::Off);
             for (scale, shape) in [
                 (Scale::Integer, PixelShape::Square),
                 (Scale::Fit, PixelShape::Native),
@@ -535,6 +539,27 @@ mod tests {
                 assert_eq!(restored, settings);
             }
         }
+    }
+
+    #[test]
+    fn optional_display_presets_roundtrip_without_changing_scaling_or_filter() {
+        for display_shader in DisplayShader::ALL {
+            let settings = Settings {
+                display_shader,
+                filter: Filter::Nearest,
+                pixel_shape: PixelShape::Square,
+                scale: Scale::Fit,
+                ..Settings::default()
+            };
+            assert_eq!(
+                Settings::parse(&toml::to_string(&settings).unwrap()).unwrap(),
+                settings
+            );
+        }
+        assert_eq!(
+            Settings::parse("version = 3\n").unwrap().display_shader,
+            DisplayShader::Off
+        );
     }
 
     #[test]

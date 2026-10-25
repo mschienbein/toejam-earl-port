@@ -122,6 +122,7 @@ test('legacy settings migrate once without losing volume/scaling/P2 choices', ()
   assert.equal(result.settings.pixelShape, 'square');
   assert.equal(result.settings.p2, true);
   assert.equal(result.settings.filter, 'sharp');
+  assert.equal(result.settings.displayShader, 'off');
   assert.match(result.notice, /migrated/);
   assert.equal(storage.getItem('tje-settings-v1'), null);
   assert.equal(JSON.parse(storage.getItem(SETTINGS_KEY)).version, SETTINGS_VERSION);
@@ -135,6 +136,7 @@ test('fresh and unset display settings use Native integer with sharp bilinear', 
     assert.equal(settings.pixelShape, 'native');
     assert.equal(settings.scale, 'integer');
     assert.equal(settings.filter, 'sharp');
+    assert.equal(settings.displayShader, 'off');
   }
 });
 
@@ -165,6 +167,20 @@ test('all new pixel-shape and scale combinations round-trip independently', () =
       assert.equal(restored.filter, 'sharp');
     }
   }
+});
+
+test('display shaders are opt-in, round-trip independently and reject unknown presets', () => {
+  for (const displayShader of ['off', 'smooth', 'crt', 'crt-curved']) {
+    const storage = memoryStorage();
+    saveSettings({ ...defaultSettings(), displayShader, pixelShape: 'square', scale: 'fit', filter: 'nearest' }, storage);
+    const restored = readSettings(storage).settings;
+    assert.equal(restored.displayShader, displayShader);
+    assert.equal(restored.pixelShape, 'square');
+    assert.equal(restored.scale, 'fit');
+    assert.equal(restored.filter, 'nearest');
+  }
+  const storage = memoryStorage([[SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, displayShader: 'unknown' })]]);
+  assert.equal(readSettings(storage).settings.displayShader, 'off');
 });
 
 test('versioned mappings, filters and device choices persist; malformed/future versions recover without destructive migration', () => {

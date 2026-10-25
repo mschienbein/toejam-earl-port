@@ -1,4 +1,5 @@
 use jgenesis_common::frontend::{Color, FrameSize};
+use tje_display::DisplayShader;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
 
@@ -11,44 +12,20 @@ pub struct Video {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     texture: wgpu::Texture,
-    bind_groups: [wgpu::BindGroup; 3],
+    bind_groups: [wgpu::BindGroup; 12],
+    texture_srgb: bool,
     size: FrameSize,
     max_dimension: u32,
     backend: &'static str,
     adapter: String,
 }
 
-const SHADER: &str = r#"
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-@vertex fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
-    let x = f32((index << 1u) & 2u);
-    let y = f32(index & 2u);
-    var output: VertexOutput;
-    output.position = vec4<f32>(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
-    output.uv = vec2<f32>(x, 1.0 - y);
-    return output;
+pub struct VideoOptions {
+    pub native_pixels: bool,
+    pub integer_scale: bool,
+    pub filter: VideoFilter,
+    pub display_shader: DisplayShader,
 }
-@group(0) @binding(0) var image: texture_2d<f32>;
-@group(0) @binding(1) var image_sampler: sampler;
-@group(0) @binding(2) var<uniform> options: vec4<u32>;
-@fragment fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    var uv = input.uv;
-    if options.x == 0u {
-        // Sharp-bilinear: preserve flat texel interiors, blending only at an
-        // edge's destination-pixel footprint. No intermediate texture/pass.
-        let dimensions = vec2<f32>(textureDimensions(image));
-        let pixel = uv * dimensions;
-        let prescale = max(floor(1.0 / fwidth(pixel) + 0.0001), vec2<f32>(1.0));
-        let region = 0.5 - 0.5 / prescale;
-        let offset = fract(pixel) - 0.5;
-        uv = (floor(pixel) + 0.5 + (offset - clamp(offset, -region, region)) * prescale) / dimensions;
-    }
-    return textureSample(image, image_sampler, uv);
-}
-"#;
 
 impl Video {
     pub async fn new(canvas: HtmlCanvasElement, backend: &str) -> Result<Self, String> {
@@ -101,7 +78,14 @@ impl Video {
         surface.configure(&device, &config);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Framebuffer blit"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("present.wgsl"),
+                    tje_display::EFFECTS_WGSL
+                )
+                .into(),
+            ),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Framebuffer presentation"),
@@ -118,7 +102,10 @@ impl Video {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fragment"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("target_srgb", config.format.is_srgb() as u32 as f64)],
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: None,
@@ -132,7 +119,8 @@ impl Video {
             width: 320,
             height: 224,
         };
-        let (texture, bind_groups) = Self::create_texture(&device, &pipeline, config.format, size);
+        let texture_srgb = config.format.is_srgb();
+        let (texture, bind_groups) = Self::create_texture(&device, &pipeline, texture_srgb, size);
         Ok(Self {
             surface,
             device,
@@ -141,6 +129,7 @@ impl Video {
             pipeline,
             texture,
             bind_groups,
+            texture_srgb,
             size,
             max_dimension,
             backend: if info.backend == wgpu::Backend::BrowserWebGpu {
@@ -155,9 +144,9 @@ impl Video {
     fn create_texture(
         device: &wgpu::Device,
         pipeline: &wgpu::RenderPipeline,
-        target_format: wgpu::TextureFormat,
+        texture_srgb: bool,
         size: FrameSize,
-    ) -> (wgpu::Texture, [wgpu::BindGroup; 3]) {
+    ) -> (wgpu::Texture, [wgpu::BindGroup; 12]) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("VDP RGBA framebuffer"),
             size: wgpu::Extent3d {
@@ -168,7 +157,7 @@ impl Video {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: if target_format.is_srgb() {
+            format: if texture_srgb {
                 wgpu::TextureFormat::Rgba8UnormSrgb
             } else {
                 wgpu::TextureFormat::Rgba8Unorm
@@ -180,7 +169,11 @@ impl Video {
         // Prebuild all choices when the source texture changes. Switching a
         // setting only selects a bind group; no sampler/texture allocation.
         let bind_groups = std::array::from_fn(|index| {
-            let filter = if index == VideoFilter::Nearest as usize {
+            let preset = index / 3;
+            let filter_index = index % 3;
+            let filter = if filter_index == VideoFilter::Nearest as usize
+                && preset != DisplayShader::Smooth as usize
+            {
                 wgpu::FilterMode::Nearest
             } else {
                 wgpu::FilterMode::Linear
@@ -193,7 +186,7 @@ impl Video {
             });
             let options = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Framebuffer filter mode"),
-                contents: bytemuck::cast_slice(&[index as u32, 0, 0, 0]),
+                contents: bytemuck::cast_slice(&[filter_index as u32, preset as u32, 0, 0]),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -223,10 +216,14 @@ impl Video {
         pixels: &[Color],
         size: FrameSize,
         target: FrameSize,
-        native_pixels: bool,
-        integer_scale: bool,
-        filter: VideoFilter,
+        options: VideoOptions,
     ) -> Result<bool, String> {
+        let VideoOptions {
+            native_pixels,
+            integer_scale,
+            filter,
+            display_shader,
+        } = options;
         let FrameSize { width, height } = target;
         if width == 0 || height == 0 {
             return Ok(false);
@@ -238,10 +235,12 @@ impl Video {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
         }
-        if size != self.size {
+        let texture_srgb = self.config.format.is_srgb() && display_shader == DisplayShader::Off;
+        if size != self.size || texture_srgb != self.texture_srgb {
             (self.texture, self.bind_groups) =
-                Self::create_texture(&self.device, &self.pipeline, self.config.format, size);
+                Self::create_texture(&self.device, &self.pipeline, texture_srgb, size);
             self.size = size;
+            self.texture_srgb = texture_srgb;
         }
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -301,7 +300,8 @@ impl Video {
                 1.0,
             );
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_groups[filter as usize], &[]);
+            let index = display_shader as usize * 3 + filter as usize;
+            pass.set_bind_group(0, &self.bind_groups[index], &[]);
             pass.draw(0..3, 0..1);
         }
         self.queue.submit([encoder.finish()]);

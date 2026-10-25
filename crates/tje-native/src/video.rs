@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use std::sync::Arc;
 use tje_native::{
     backend::VideoFrame,
-    config::{Filter, PixelShape, Scale},
+    config::{DisplayShader, Filter, PixelShape, Scale},
 };
 use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
@@ -19,6 +19,7 @@ pub struct Video {
     sampler: wgpu::Sampler,
     filter_uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    display_shader: DisplayShader,
     ui_renderer: egui_wgpu::Renderer,
     pub presented: u64,
     suspended: bool,
@@ -30,6 +31,7 @@ impl Video {
         event_loop: &ActiveEventLoop,
         backend: &str,
         filter: Filter,
+        display_shader: DisplayShader,
         vsync: bool,
     ) -> Result<Self> {
         let backends = match backend {
@@ -89,7 +91,17 @@ impl Video {
         };
         config.desired_maximum_frame_latency = 2;
         surface.configure(&device, &config);
-        let shader = device.create_shader_module(wgpu::include_wgsl!("present.wgsl"));
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("game presentation and optional display effects"),
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "{}\n{}",
+                    include_str!("present.wgsl"),
+                    tje_display::EFFECTS_WGSL
+                )
+                .into(),
+            ),
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("game frame"),
             entries: &[
@@ -154,11 +166,11 @@ impl Video {
             multiview_mask: None,
             cache: None,
         });
-        let texture = texture(&device, 320, 224);
-        let sampler = sampler(&device, filter);
+        let texture = texture(&device, 320, 224, display_shader);
+        let sampler = sampler(&device, filter, display_shader);
         let filter_uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("pixel filter mode"),
-            contents: bytemuck::cast_slice(&filter_flags(filter)),
+            contents: bytemuck::cast_slice(&filter_flags(filter, display_shader)),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let bind_group = bind_group(&device, &layout, &texture, &sampler, &filter_uniform);
@@ -179,6 +191,7 @@ impl Video {
             sampler,
             filter_uniform,
             bind_group,
+            display_shader,
             ui_renderer,
             presented: 0,
             suspended: size.width == 0 || size.height == 0,
@@ -206,12 +219,23 @@ impl Video {
         }
     }
 
-    pub fn set_filter(&mut self, filter: Filter) {
-        self.sampler = sampler(&self.device, filter);
+    pub fn set_presentation(&mut self, filter: Filter, display_shader: DisplayShader) {
+        self.display_shader = display_shader;
+        if self.texture.format() != texture_format(display_shader) {
+            // Re-upload the current engine frame at the caller, including when
+            // paused. Real texture formats also work on GL without view casts.
+            self.texture = texture(
+                &self.device,
+                self.texture.width(),
+                self.texture.height(),
+                display_shader,
+            );
+        }
+        self.sampler = sampler(&self.device, filter, display_shader);
         self.queue.write_buffer(
             &self.filter_uniform,
             0,
-            bytemuck::cast_slice(&filter_flags(filter)),
+            bytemuck::cast_slice(&filter_flags(filter, display_shader)),
         );
         self.bind_group = bind_group(
             &self.device,
@@ -224,7 +248,7 @@ impl Video {
 
     pub fn upload(&mut self, frame: VideoFrame<'_>) {
         if self.texture.width() != frame.width || self.texture.height() != frame.height {
-            self.texture = texture(&self.device, frame.width, frame.height);
+            self.texture = texture(&self.device, frame.width, frame.height, self.display_shader);
             self.bind_group = bind_group(
                 &self.device,
                 &self.layout,
@@ -369,7 +393,20 @@ impl Video {
     }
 }
 
-fn texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+fn texture_format(display_shader: DisplayShader) -> wgpu::TextureFormat {
+    if display_shader == DisplayShader::Off {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    }
+}
+
+fn texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    display_shader: DisplayShader,
+) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("VDP RGBA"),
         size: wgpu::Extent3d {
@@ -380,16 +417,17 @@ fn texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: texture_format(display_shader),
         usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     })
 }
 
-fn sampler(device: &wgpu::Device, filter: Filter) -> wgpu::Sampler {
-    let filter = match filter {
-        Filter::Nearest => wgpu::FilterMode::Nearest,
-        Filter::Sharp | Filter::Linear => wgpu::FilterMode::Linear,
+fn sampler(device: &wgpu::Device, filter: Filter, display_shader: DisplayShader) -> wgpu::Sampler {
+    let filter = if filter == Filter::Nearest && display_shader != DisplayShader::Smooth {
+        wgpu::FilterMode::Nearest
+    } else {
+        wgpu::FilterMode::Linear
     };
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("pixel filter"),
@@ -399,8 +437,13 @@ fn sampler(device: &wgpu::Device, filter: Filter) -> wgpu::Sampler {
     })
 }
 
-fn filter_flags(filter: Filter) -> [u32; 4] {
-    [u32::from(filter == Filter::Sharp), 0, 0, 0]
+fn filter_flags(filter: Filter, display_shader: DisplayShader) -> [u32; 4] {
+    [
+        u32::from(filter == Filter::Sharp),
+        display_shader as u32,
+        0,
+        0,
+    ]
 }
 
 fn bind_group(
@@ -517,8 +560,17 @@ mod tests {
 
     #[test]
     fn default_filter_enables_sharp_bilinear_only() {
-        assert_eq!(filter_flags(Filter::default()), [1, 0, 0, 0]);
-        assert_eq!(filter_flags(Filter::Nearest), [0; 4]);
-        assert_eq!(filter_flags(Filter::Linear), [0; 4]);
+        assert_eq!(
+            filter_flags(Filter::default(), DisplayShader::default()),
+            [1, 0, 0, 0]
+        );
+        assert_eq!(filter_flags(Filter::Nearest, DisplayShader::Off), [0; 4]);
+        assert_eq!(filter_flags(Filter::Linear, DisplayShader::Off), [0; 4]);
+        for preset in DisplayShader::ALL {
+            assert_eq!(
+                filter_flags(Filter::Sharp, preset),
+                [1, preset as u32, 0, 0]
+            );
+        }
     }
 }

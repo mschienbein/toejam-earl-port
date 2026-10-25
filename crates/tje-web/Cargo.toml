@@ -30,6 +30,7 @@ jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
 bytemuck = "1"
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
+tje-display = { path = "../tje-display" }
 tje-engine-core = { path = "../tje-engine-core" }
 tje-engine-runtime = { path = "../tje-engine-runtime", features = ["devices"] }
 tje-engine-wasmgen = { path = "../tje-engine-wasmgen" }

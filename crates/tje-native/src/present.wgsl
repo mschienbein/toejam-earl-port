@@ -20,8 +20,12 @@ fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
 
 @fragment
 fn fs_main(vertex: Vertex) -> @location(0) vec4<f32> {
-    var uv = vertex.uv;
-    if filter_flags.x != 0u {
+    let preset = filter_flags.y;
+    let source_uv = display_uv(vertex.uv, preset);
+    var uv = source_uv;
+    if preset != 0u {
+        uv = display_sample_uv(uv, vec2<f32>(textureDimensions(frame)), preset, filter_flags.x != 0u);
+    } else if filter_flags.x != 0u {
         // Sharp bilinear: nearest-like flat pixel interiors with a linear seam
         // at fractional boundaries. Integer line multiples remain crisp.
         let size = vec2<f32>(textureDimensions(frame));
@@ -32,6 +36,16 @@ fn fs_main(vertex: Vertex) -> @location(0) vec4<f32> {
         uv = (floor(texel) + 0.5 + (offset - clamp(offset, -region, region)) * prescale) / size;
     }
     let color = textureSample(frame, frame_sampler, uv);
+    if preset != 0u {
+        // Enabled extras sample encoded pixels for identical native/browser
+        // interpolation. Off retains the original sRGB texture and color path.
+        let rgb = display_rgb(color.rgb, source_uv, vertex.position.xy,
+            vec2<f32>(textureDimensions(frame)), preset);
+        if encode_srgb {
+            return vec4(rgb, 1.0);
+        }
+        return vec4(display_linear(rgb), 1.0);
+    }
     if encode_srgb {
         let rgb = select(12.92 * color.rgb, 1.055 * pow(color.rgb, vec3(1.0 / 2.4)) - 0.055, color.rgb > vec3(0.0031308));
         return vec4(rgb, 1.0);

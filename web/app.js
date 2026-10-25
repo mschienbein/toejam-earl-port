@@ -9,6 +9,7 @@ const $ = id => document.getElementById(id);
 const settingsState = readSettings();
 const settings = settingsState.settings;
 const videoFilters = { sharp: VideoFilter.Sharp, nearest: VideoFilter.Nearest, linear: VideoFilter.Linear };
+const displayShaders = { off: 0, smooth: 1, crt: 2, 'crt-curved': 3 };
 const audio = new AudioStream();
 let canvas = $('canvas');
 let game;
@@ -142,7 +143,7 @@ Object.defineProperty(window, 'tje', { value: Object.freeze({
 }) });
 
 function renderVideo() {
-  return game.render(canvas.width, canvas.height, settings.pixelShape === 'native', settings.scale === 'integer', videoFilters[settings.filter]);
+  return game.render(canvas.width, canvas.height, settings.pixelShape === 'native', settings.scale === 'integer', videoFilters[settings.filter], displayShaders[settings.displayShader]);
 }
 
 function resize() {
@@ -413,10 +414,11 @@ function updateSettings() {
   settings.pixelShape = $('pixel-shape').value;
   settings.scale = $('scale').value;
   settings.filter = $('filter').value;
+  settings.displayShader = $('display-shader').value;
   settings.p2 = $('p2').checked;
   $('volume-value').value = `${$('volume').value}%`;
   $('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
-  canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest');
+  canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest' || settings.displayShader !== 'off');
   audio.setVolume(settings.volume);
   persistSettings();
   resize();
@@ -428,9 +430,10 @@ $('volume').setAttribute('aria-valuetext', `${$('volume').value} percent`);
 $('pixel-shape').value = settings.pixelShape;
 $('scale').value = settings.scale;
 $('filter').value = settings.filter;
+$('display-shader').value = settings.displayShader;
 $('p2').checked = settings.p2;
-canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest');
-for (const id of ['volume', 'pixel-shape', 'scale', 'filter', 'p2']) $(id).addEventListener('input', updateSettings);
+canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest' || settings.displayShader !== 'off');
+for (const id of ['volume', 'pixel-shape', 'scale', 'filter', 'display-shader', 'p2']) $(id).addEventListener('input', updateSettings);
 
 let fullscreenReturnFocus;
 function toggleFullscreen() {

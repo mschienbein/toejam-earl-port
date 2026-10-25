@@ -1,0 +1,21 @@
+[package]
+name = "tje-display"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+cli = ["dep:clap"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"], optional = true }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+bytemuck = "1"
+png = "0.18"
+pollster = "0.4"
+serde_json = "1"
+wgpu = "=30.0.1"

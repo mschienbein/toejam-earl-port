@@ -8,7 +8,7 @@ mod video;
 use anyhow::{Context, Result, ensure};
 use audio::Audio;
 use clap::Parser;
-use config::{Filter, PixelShape, Scale, Settings, Storage};
+use config::{DisplayShader, Filter, PixelShape, Scale, Settings, Storage};
 use input::{Input, InputScript};
 use loading::Loading;
 use overlay::{Info, Overlay};
@@ -76,6 +76,9 @@ struct Args {
     /// Sharp bilinear (default), nearest, or linear pixel filtering.
     #[arg(long, value_enum)]
     filter: Option<Filter>,
+    /// Optional GPU display preset; off preserves the original display.
+    #[arg(long, value_enum)]
+    display_shader: Option<DisplayShader>,
     #[arg(long)]
     window_scale: Option<u32>,
     #[arg(long, conflicts_with = "windowed")]
@@ -151,6 +154,7 @@ struct App {
 #[derive(Clone, Copy)]
 struct LiveSettings {
     filter: Filter,
+    display_shader: DisplayShader,
     vsync: bool,
     fullscreen: bool,
     window_scale: u32,
@@ -159,6 +163,7 @@ impl From<&Settings> for LiveSettings {
     fn from(settings: &Settings) -> Self {
         Self {
             filter: settings.filter,
+            display_shader: settings.display_shader,
             vsync: settings.vsync,
             fullscreen: settings.fullscreen,
             window_scale: settings.window_scale,
@@ -207,6 +212,9 @@ impl App {
         }
         if let Some(filter) = args.filter {
             settings.filter = filter;
+        }
+        if let Some(display_shader) = args.display_shader {
+            settings.display_shader = display_shader;
         }
         if let Some(scale) = args.window_scale {
             settings.window_scale = scale;
@@ -262,10 +270,11 @@ impl App {
         println!("CONFIG {}", storage.config_directory.display());
         println!("CACHE {}", storage.cache_directory.display());
         println!(
-            "SETTINGS pixel_shape={:?} scale={:?} filter={:?} fullscreen={} vsync={} volume={}",
+            "SETTINGS pixel_shape={:?} scale={:?} filter={:?} display_shader={:?} fullscreen={} vsync={} volume={}",
             settings.pixel_shape,
             settings.scale,
             settings.filter,
+            settings.display_shader,
             settings.fullscreen,
             settings.vsync,
             settings.volume
@@ -353,6 +362,7 @@ impl App {
             event_loop,
             &self.args.gpu_backend,
             self.settings.filter,
+            self.settings.display_shader,
             self.settings.vsync,
         ))?;
         self.overlay.initialize(&window);
@@ -594,8 +604,13 @@ impl App {
             }
         }
         if let Some(video) = &mut self.video {
-            if next.filter != self.applied.filter {
-                video.set_filter(next.filter);
+            if next.filter != self.applied.filter
+                || next.display_shader != self.applied.display_shader
+            {
+                video.set_presentation(next.filter, next.display_shader);
+                if let Some(backend) = &self.backend {
+                    video.upload(backend.video());
+                }
             }
             if next.vsync != self.applied.vsync {
                 video.set_vsync(next.vsync);
@@ -607,10 +622,11 @@ impl App {
         }
         self.applied = next;
         println!(
-            "SETTINGS applied pixel_shape={:?} scale={:?} filter={:?} vsync={} fullscreen={} window_scale={} volume={} focus_pause={}",
+            "SETTINGS applied pixel_shape={:?} scale={:?} filter={:?} display_shader={:?} vsync={} fullscreen={} window_scale={} volume={} focus_pause={}",
             self.settings.pixel_shape,
             self.settings.scale,
             next.filter,
+            next.display_shader,
             next.vsync,
             next.fullscreen,
             next.window_scale,

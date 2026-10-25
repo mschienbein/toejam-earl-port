@@ -1,6 +1,6 @@
 //! Native-only controls/settings UI; it consumes no backend-specific state.
 use crate::{
-    config::{Filter, PixelShape, Scale, Settings, Storage},
+    config::{DisplayShader, Filter, PixelShape, Scale, Settings, Storage},
     input::{GameButton, Input, PadPress},
 };
 use std::path::PathBuf;
@@ -373,6 +373,16 @@ impl Overlay {
                 .selectable_value(&mut settings.filter, Filter::Linear, "Linear")
                 .changed();
         });
+        egui::ComboBox::from_label("Display shader")
+            .selected_text(settings.display_shader.label())
+            .show_ui(ui, |ui| {
+                for preset in DisplayShader::ALL {
+                    actions.settings_changed |= ui
+                        .selectable_value(&mut settings.display_shader, preset, preset.label())
+                        .changed();
+                }
+            });
+        ui.small("Opt-in GPU effects only. Smooth uses soft bilinear; CRT uses the selected filter. Pixel shape and scaling are unchanged.");
         actions.settings_changed |= ui.checkbox(&mut settings.vsync, "Vsync").changed();
         actions.settings_changed |= ui
             .checkbox(&mut settings.fullscreen, "Fullscreen")

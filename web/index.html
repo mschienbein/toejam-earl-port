@@ -41,8 +41,10 @@
         <label for="pixel-shape">Pixel shape <select id="pixel-shape" aria-describedby="display-help"><option value="native">Native (NTSC)</option><option value="square">Square pixels</option></select></label>
         <label for="scale">Scaling <select id="scale" aria-describedby="display-help"><option value="integer">Integer</option><option value="fit">Fit (non-integer)</option></select></label>
         <label for="filter">Filter <select id="filter" aria-describedby="display-help"><option value="sharp">Sharp bilinear</option><option value="nearest">Nearest pixels</option><option value="linear">Linear / smooth</option></select></label>
+        <label for="display-shader">Display shader <select id="display-shader" aria-describedby="shader-help"><option value="off">Off (original display)</option><option value="smooth">Smooth (soft bilinear)</option><option value="crt">CRT (flat)</option><option value="crt-curved">CRT (curved)</option></select></label>
         <label for="p2"><input id="p2" type="checkbox"> Player 2 keyboard connected</label>
       </div>
+      <p class="small" id="shader-help">Display shaders are opt-in GPU effects. Smooth uses soft bilinear; CRT adds scanlines and an RGB mask to the selected filter, with optional curvature. Pixel shape and scaling are unchanged.</p>
       <p id="display-help" class="small">Native (NTSC) keeps the original display shape; Square pixels keeps the raw framebuffer shape.
         Integer uses the largest whole vertical line multiple that fits, including Native’s fractional horizontal stretch.
         Smaller windows fall back to Fit without cropping. Fit fills the available space while preserving the chosen pixel shape.

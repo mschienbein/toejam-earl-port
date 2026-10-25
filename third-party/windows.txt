@@ -1837,6 +1837,13 @@ Exact upstream source archive: https://crates.io/api/v1/crates/time-core/0.1.9/d
   LICENSE-MIT: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
   selected:MIT:5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8: THIRD_PARTY_LICENSES/5300978963c5ca2620974e7318248801c74d6ddf9fdb41f4e0a3b6349985a3e8.txt
 
+tje-display 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
 tje-engine-core 0.1.0
 Declared: GPL-3.0-only
 Selected: GPL-3.0-only

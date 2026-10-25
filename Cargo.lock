@@ -3331,6 +3331,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-display"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "clap",
+ "png",
+ "pollster",
+ "serde",
+ "serde_json",
+ "wgpu",
+]
+
+[[package]]
 name = "tje-engine-core"
 version = "0.1.0"
 dependencies = [
@@ -3487,6 +3500,7 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
+ "tje-display",
  "tje-engine-cranelift",
  "tje-mem",
  "tje-rom",
@@ -3565,6 +3579,7 @@ dependencies = [
  "jgenesis-common",
  "js-sys",
  "serde_json",
+ "tje-display",
  "tje-engine-core",
  "tje-engine-runtime",
  "tje-engine-verify",

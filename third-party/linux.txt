@@ -2140,6 +2140,13 @@ Exact upstream source archive: https://crates.io/api/v1/crates/tiny-skia-path/0.
   LICENSE: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
   selected:BSD-3-Clause:36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424: THIRD_PARTY_LICENSES/36da1356778a77ca74ac72de60abc2b4189e22423d55e3defa4b5f7460dd0424.txt
 
+tje-display 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
 tje-engine-core 0.1.0
 Declared: GPL-3.0-only
 Selected: GPL-3.0-only
