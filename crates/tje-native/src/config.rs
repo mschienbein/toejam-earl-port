@@ -122,6 +122,7 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub convenience: ConvenienceSettings,
     pub jam_out: tje_jam_out::Settings,
+    pub fixed: tje_extras::fixed::Settings,
     #[serde(default = "crate::input::jam_bindings")]
     pub jam_bindings: [JamBinding; 2],
 }
@@ -146,6 +147,7 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             convenience: ConvenienceSettings::default(),
             jam_out: tje_jam_out::Settings::default(),
+            fixed: tje_extras::fixed::Settings::default(),
             jam_bindings: crate::input::jam_bindings(),
         }
     }
@@ -234,6 +236,11 @@ impl Settings {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.convenience.slot < 5, "save-state slot must be 1..5");
         ensure!(self.jam_out.valid(), "Jam backing must be 0..=6");
+        ensure!(self.fixed.valid(), "invalid Fixed fix mask");
+        ensure!(
+            !self.fixed.enabled || !self.jam_out.enabled,
+            "Fixed is exclusive with Jam Out"
+        );
         if self.jam_out.enabled {
             for (index, binding) in self.jam_bindings.iter().enumerate() {
                 self.validate_jam_binding(index, *binding)?;

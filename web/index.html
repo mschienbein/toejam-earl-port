@@ -92,6 +92,15 @@
         Loading a state or rewinding disables power-on input reports until Reset. Rewind samples every 3 frames and evicts old checkpoints.
         Existing custom key mappings win; Tab continues to move focus. Hold shortcuts work only while the game canvas has focus.</p>
     </details>
+    <details id="fixed-settings">
+      <summary>Fixed v1 — original-bug repairs, default off</summary>
+      <label><input id="fixed-enabled" type="checkbox"> Fixed profile (enhanced session)</label>
+      <div id="fixed-fixes"></div>
+      <p class="small">Selection is applied on the next ROM import/reload. B004–B006 are linked so every placement caller uses checked results.
+        REV 02 repairs are applied only to REV 00 cartridges. Fixed is exclusive with extended view, Jam Out and debug.
+        Shaders, scaling, save states, rewind and fast-forward remain available. Fixed sessions cannot be used as faithful recordings or in netplay.</p>
+      <p id="fixed-notice" role="status" aria-live="polite"></p>
+    </details>
     <details id="jam-settings">
       <summary>Jam Out in play — default off</summary>
       <label><input id="jam-enabled" type="checkbox"> Jam Out in play (enhanced session)</label>

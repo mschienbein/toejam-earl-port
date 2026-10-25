@@ -5258,6 +5258,40 @@
     {
       "authors": [],
       "declared_license": "GPL-3.0-only",
+      "name": "tje-extended-view",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
+      "name": "tje-extras",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
       "name": "tje-game",
       "repository": null,
       "selected": [
@@ -6808,7 +6842,7 @@
   ],
   "format": 1,
   "graph": "linux",
-  "notice_sha256": "2aec40e8648275ab8e51c0349cdee0de7d42fed78783cb2ba1a5b43599ffd35d",
+  "notice_sha256": "181141b95af2862f448b500d0df10d7d8b35b844b9fc7b232356ac24efde8193",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
     "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
@@ -6826,7 +6860,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "05b320ec9dc09f28384a460165f894b51204cb3f671269a0e0c02327fe9611e2",
+  "source_fingerprint": "4202623dc8fd6c919e01f9258e552a2377b80775162dd1df19006563ddcc6bac",
   "targets": [
     "x86_64-unknown-linux-gnu"
   ]

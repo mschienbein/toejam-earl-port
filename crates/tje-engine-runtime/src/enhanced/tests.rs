@@ -118,3 +118,31 @@ fn resumable_sets_compose_timeaware_entries_but_never_duplicate_addresses() {
         );
     }
 }
+
+#[test]
+fn immutable_filtered_selection_never_resurrects_disabled_nested_entries() {
+    static ENTRIES: &[Translation] = &[
+        Translation {
+            id: ids::ABS,
+            function: replacement,
+        },
+        Translation {
+            id: ids::LMULT,
+            function: replacement,
+        },
+    ];
+    let profile = EnhancedProfile::new("filtered-v1", ENTRIES, &[]);
+    for revision in Revision::ALL {
+        let mode = EnhancedMode::new_selected(profile, revision, |id| id == ids::ABS).unwrap();
+        assert_eq!(mode.driver.entries.len(), 1);
+        assert_eq!(mode.driver.entries[0].1.id(), ids::ABS);
+        assert!(
+            mode.driver
+                .dispatcher()
+                .resolve_entry(ids::LMULT)
+                .unwrap()
+                .is_none()
+        );
+        assert!(EnhancedMode::new_selected(profile, revision, |_| false).is_err());
+    }
+}

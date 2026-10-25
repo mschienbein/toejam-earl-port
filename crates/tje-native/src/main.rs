@@ -78,6 +78,18 @@ struct Args {
     #[cfg(feature = "enhanced-mode")]
     #[arg(long, conflicts_with_all = ["enhanced_debug", "jam_out", "extended_view", "replay", "replay_report", "forget_rom"])]
     maker: Option<PathBuf>,
+    /// Opt into the versioned Fixed profile (exclusive with other extras).
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, conflicts_with_all = ["enhanced_debug", "jam_out", "extended_view", "maker", "replay", "replay_report"])]
+    fixed: bool,
+    /// Enable a catalogue fix; B004–B006 are a linked checked-placement cutover.
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, requires = "fixed")]
+    enable_fix: Vec<String>,
+    /// Disable a catalogue fix (repeatable).
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, requires = "fixed")]
+    disable_fix: Vec<String>,
     /// Override the OS-specific per-user data directory (also useful for isolated test sessions).
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -256,6 +268,27 @@ impl App {
         if args.jam_out {
             settings.jam_out.enabled = true;
         }
+        #[cfg(feature = "enhanced-mode")]
+        {
+            if args.fixed {
+                settings.fixed.enabled = true;
+            }
+            for id in &args.enable_fix {
+                settings.fixed.set(id, true).map_err(anyhow::Error::msg)?;
+            }
+            for id in &args.disable_fix {
+                settings.fixed.set(id, false).map_err(anyhow::Error::msg)?;
+            }
+            ensure!(
+                !settings.fixed.enabled
+                    || !args.enhanced_debug && args.extended_view == 0 && args.maker.is_none(),
+                "disable the saved Fixed profile before selecting another extra"
+            );
+        }
+        ensure!(
+            !settings.fixed.enabled || args.replay.is_none() && args.replay_report.is_none(),
+            "Fixed sessions are not faithful recordings; disable Fixed before replaying"
+        );
         ensure!(
             !settings.jam_out.enabled || args.replay.is_none() && args.replay_report.is_none(),
             "Jam Out requires enhanced inputs; controller-only replay cannot enable it"
@@ -504,6 +537,7 @@ impl App {
                 }
                 #[cfg(feature = "enhanced-mode")]
                 backend.set_extended_view(self.args.extended_view)?;
+                backend.set_fixed(self.settings.fixed)?;
                 backend.set_jam_out(self.settings.jam_out)?;
                 #[cfg(feature = "enhanced-mode")]
                 if let Some(course) = &self.maker_course {
@@ -515,6 +549,9 @@ impl App {
                     );
                 }
                 println!("PROFILE {}", backend.profile_id());
+                if backend.profile_id() != "faithful" {
+                    self.reports.invalidate_timeline();
+                }
                 if loading.store {
                     self.storage.store_rom(backend.rom_bytes())?;
                 }
@@ -677,11 +714,20 @@ impl App {
                 || !self.netplay.active() && self.replay.is_none() && !self.recorder.active(),
             "Jam Out is unavailable during netplay or controller-only recording/replay"
         );
+        ensure!(
+            !self.settings.fixed.enabled
+                || !self.netplay.active() && self.replay.is_none() && !self.recorder.active(),
+            "Fixed is unavailable during netplay or faithful recording/replay"
+        );
         if let Some(backend) = &mut self.backend
-            && backend.set_jam_out(self.settings.jam_out)?
+            && (backend.set_fixed(self.settings.fixed)?
+                | backend.set_jam_out(self.settings.jam_out)?)
         {
             self.convenience.clear();
             self.reports.reset();
+            if backend.profile_id() != "faithful" {
+                self.reports.invalidate_timeline();
+            }
             self.reports
                 .complete_frame(&backend.status(), backend.video());
             if let Some(audio) = &self.audio {
@@ -916,6 +962,9 @@ impl App {
             self.convenience.clear();
             if let Some(backend) = &mut self.backend {
                 backend.reset();
+                if backend.profile_id() != "faithful" {
+                    self.reports.invalidate_timeline();
+                }
                 self.reports
                     .complete_frame(&backend.status(), backend.video());
             }
@@ -1632,5 +1681,31 @@ mod maker_args_tests {
                     .is_err()
             );
         }
+    }
+
+    #[cfg(feature = "enhanced-mode")]
+    #[test]
+    fn fixed_cli_is_default_off_exclusive_and_has_repeatable_fix_switches() {
+        assert!(!Args::try_parse_from(["toejam-earl"]).unwrap().fixed);
+        let args = Args::try_parse_from([
+            "toejam-earl",
+            "--fixed",
+            "--disable-fix",
+            "B001",
+            "--disable-fix",
+            "R003",
+            "--enable-fix",
+            "B002",
+        ])
+        .unwrap();
+        assert_eq!(args.disable_fix, ["B001", "R003"]);
+        assert_eq!(args.enable_fix, ["B002"]);
+        for extra in ["--jam-out", "--enhanced-debug"] {
+            assert!(Args::try_parse_from(["toejam-earl", "--fixed", extra]).is_err());
+        }
+        for extra in ["--maker", "--extended-view", "--replay", "--replay-report"] {
+            assert!(Args::try_parse_from(["toejam-earl", "--fixed", extra, "400"]).is_err());
+        }
+        assert!(Args::try_parse_from(["toejam-earl", "--disable-fix", "B001"]).is_err());
     }
 }

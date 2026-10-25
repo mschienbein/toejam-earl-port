@@ -9,7 +9,8 @@ description = "Shared explicit profile selection for extended view and in-play J
 
 [features]
 default = []
-enhanced-mode = ["dep:tje-engine-runtime", "dep:tje-game", "tje-extended-view/enhanced-mode", "tje-jam-out/enhanced-mode"]
+enhanced-mode = ["dep:tje-engine-runtime", "dep:tje-game", "dep:bincode", "tje-extended-view/enhanced-mode", "tje-jam-out/enhanced-mode"]
+preview = ["enhanced-mode", "dep:tje-engine-cranelift", "dep:tje-rom", "dep:tje-session", "dep:genesis-config", "dep:sha1"]
 
 [dependencies]
 tje-extended-view = { path = "../tje-extended-view" }
@@ -17,3 +18,14 @@ tje-jam-out = { path = "../tje-jam-out" }
 tje-mem = { path = "../tje-mem" }
 tje-game = { path = "../tje-game", optional = true }
 tje-engine-runtime = { path = "../tje-engine-runtime", default-features = false, optional = true }
+serde = { version = "1", features = ["derive"] }
+bincode = { version = "2", features = ["derive"], optional = true }
+tje-engine-cranelift = { path = "../tje-engine-cranelift", optional = true, features = ["enhanced-mode"] }
+tje-rom = { path = "../tje-rom", optional = true }
+tje-session = { path = "../tje-session", optional = true }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
+sha1 = { version = "0.10", optional = true }
+
+[[example]]
+name = "profile_session"
+required-features = ["preview"]

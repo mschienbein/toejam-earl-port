@@ -122,6 +122,44 @@ impl CompiledCartridge {
         })
     }
 
+    /// Immutable load-time selection. Saves/rewind carry the exact fix mask;
+    /// changing it requires a new cartridge, never a live sidecar mutation.
+    pub fn set_fixed(&mut self, enabled: bool, fixes: u32) -> Result<(), JsValue> {
+        #[cfg(feature = "enhanced-mode")]
+        {
+            if !enabled {
+                return Ok(());
+            }
+            if self.engine.frame_count() != 0
+                || self.enhanced.profile_id() != "faithful"
+                || self.extended_width != 0
+                || self.jam_settings.enabled
+            {
+                return Err(js_error(
+                    "select Fixed before play, without debug, extended view or Jam Out",
+                ));
+            }
+            let candidate = tje_extras::fixed::new_mode(
+                self.revision,
+                tje_extras::fixed::Settings { enabled, fixes },
+            )
+            .map_err(js_error)?;
+            self.enhanced = candidate;
+            self.enhanced.reset(&mut self.engine);
+            Ok(())
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        {
+            let _ = fixes;
+            if enabled {
+                Err(js_error(
+                    "this build has no enhanced-mode feature; rebuild with TJE_ENHANCED=1",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
     /// Explicit load-time flag; unchanged false never resets faithful state.
     /// Validate before installing so an unavailable feature preserves the old game.
     pub fn set_enhanced_debug(&mut self, enabled: bool) -> Result<(), JsValue> {

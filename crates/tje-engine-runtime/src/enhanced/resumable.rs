@@ -207,12 +207,11 @@ impl EnhancedMode {
         let mut budget = Budget::default();
         let before_frame = engine.frame_count();
         let outcome = {
-            let profile = self.driver.profile.expect("selected profile");
             let mut context = context::Context::new(
                 &self.driver,
                 engine,
                 self.inputs.original(),
-                profile.dispatcher(),
+                self.driver.dispatcher(),
                 invocation.sp,
                 &mut budget,
             )

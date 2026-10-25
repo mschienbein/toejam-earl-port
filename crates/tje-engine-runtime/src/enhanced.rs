@@ -134,11 +134,31 @@ struct Driver {
     revision: Option<Revision>,
     entries: Vec<(u32, SelectedEntry)>,
     resumable: Vec<(u32, ResumableTranslation)>,
+    original_calls_only: bool,
 }
 
 impl EnhancedMode {
     /// Validate immutable selection once, outside the instruction hot path.
     pub fn new(profile: EnhancedProfile, revision: Revision) -> tje_game::Result<Self> {
+        Self::new_inner(profile, revision, |_| true, false)
+    }
+
+    /// Select a built-in profile's entries once at configuration time. The
+    /// caller must bind its immutable selection into a registered sidecar.
+    pub fn new_selected(
+        profile: EnhancedProfile,
+        revision: Revision,
+        selected: impl Fn(tje_game::FunctionId) -> bool,
+    ) -> tje_game::Result<Self> {
+        Self::new_inner(profile, revision, selected, true)
+    }
+
+    fn new_inner(
+        profile: EnhancedProfile,
+        revision: Revision,
+        selected: impl Fn(tje_game::FunctionId) -> bool,
+        original_calls_only: bool,
+    ) -> tje_game::Result<Self> {
         use tje_game::{execution::ExecutionClass, exits::ExitContract};
         if profile.id.is_empty() || profile.id == "faithful" {
             return Err(context::error(
@@ -154,6 +174,9 @@ impl EnhancedMode {
             .map(|entry| entry.id)
             .chain(profile.framed_translations.iter().map(|entry| entry.id))
         {
+            if !selected(id) {
+                continue;
+            }
             if tje_game::exits::contract(id) != ExitContract::Rts
                 || !matches!(
                     tje_game::execution_class(id),
@@ -182,6 +205,9 @@ impl EnhancedMode {
                 .iter()
                 .flat_map(|entries| entries.iter()),
         ) {
+            if !selected(entry.id) {
+                continue;
+            }
             if tje_game::exits::contract(entry.id) != ExitContract::Rts
                 || tje_game::execution_class(entry.id).is_none()
             {
@@ -214,6 +240,7 @@ impl EnhancedMode {
                 revision: Some(revision),
                 entries,
                 resumable,
+                original_calls_only,
             },
             ..Self::default()
         })
@@ -295,6 +322,16 @@ impl EnhancedMode {
 }
 
 impl Driver {
+    fn dispatcher(&self) -> Dispatcher {
+        if self.original_calls_only {
+            // Nested calls re-enter the selected PC table through the original
+            // bridge. A static unfiltered dispatcher must not resurrect a
+            // disabled correction.
+            Dispatcher::hybrid_with(&[])
+        } else {
+            self.profile.expect("selected profile").dispatcher()
+        }
+    }
     fn step_inner<B: Backend>(
         &self,
         engine: &mut Engine<B>,
@@ -364,7 +401,6 @@ impl Driver {
         if budget.depth >= MAX_DEPTH {
             return Err(context::error("enhanced callback nesting limit exhausted"));
         }
-        let profile = self.profile.expect("selected enhanced entry has a profile");
         let sp = engine.cpu().read_address(7);
         context::validate_stack(engine, sp)?;
         let return_pc = tje_mem::Bus::read_u32(engine.devices().memory(), sp);
@@ -376,7 +412,7 @@ impl Driver {
         budget.depth += 1;
         let result = {
             let mut context =
-                context::Context::new(self, engine, inputs, profile.dispatcher(), sp, budget);
+                context::Context::new(self, engine, inputs, self.dispatcher(), sp, budget);
             entry.invoke_prepared(&mut context)
         };
         budget.depth -= 1;

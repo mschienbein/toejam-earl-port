@@ -63,6 +63,10 @@ legacy callbacks cannot call a resumable override; use an explicit
 legacy original calls retain their 1,000,000-step/32-depth operational budget. Failure
 latches the driver, with no fallback/retry of partially applied effects; only a
 successful atomic restore or reset clears it.
+Synchronous children release at their validated actual RTS, even if that step
+made an interrupt pending. Pending device/IRQ state is preserved for the outer
+driver; the bridge neither drains an IRQ/caller past the return boundary nor
+fabricates readiness while completing a bounded callback.
 
 ### Typed sidecars
 
@@ -115,3 +119,81 @@ Rollback adapters also use the atomic capture/reusable-capture/restore/hash
 boundary (and the selected driver for advancement); none drops an enhanced
 envelope to obtain a bare hardware hash. The existing faithful-only connection
 admission guard remains in place.
+
+## Fixed v1
+
+`fixed/1` is a default-off profile containing the catalogue's twenty recommended
+entries: B001, B002, B004–B008, B011, B014, B015, B017, B018 and R001–R008.
+The authoritative ordered manifest is `tje_extras::fixed::MANIFEST`.
+R001–R008 install no overrides on REV 02; selecting them on REV 00 explicitly
+offers the corresponding repairs without changing faithful revision selection.
+No first-set fix requires or is deferred to the shared simulation cutover.
+
+Native: build with `--features enhanced-mode`, enable **Fixed profile** in
+Settings, or use `--fixed [--disable-fix B001] [--enable-fix R003]`.
+Both fix switches are repeatable and reject unknown IDs. Browser: build with
+`TJE_ENHANCED=1`, open **Fixed v1**, select fixes, then re-import the cartridge or
+reload. Native selection changes reset the cartridge; browser selection changes
+are saved for the next import, leaving the current session unchanged. B004–B006
+are one checked-result interface migration: toggling any of these toggles all
+three, preventing a bounded search from feeding unchecked original consumers.
+Every other fix can be toggled independently.
+
+Fixed is **exclusive** with enhanced debug, Maker, extended view and Jam Out.
+Composing Fixed with extended view and Jam Out comes later through a **single
+composed adapter**, not stacked drivers with competing hook/scene ownership.
+Host-only shaders, scaling, audio controls, save states, rewind and fast-forward
+keep their existing adapters and remain available. Fixed snapshots use format 3,
+`fixed/1` and the immutable four-byte fix mask in a registered configuration
+sidecar; an otherwise valid image from another mask is rejected before restoring
+hardware. Revision is already bound by the outer cartridge identity.
+
+Fixed runs are not faithful recordings. Current controller-only recording/replay
+and report replay cannot encode enhanced profiles, so the native frontend rejects
+recording/replaying them instead of writing a misleading faithful recording.
+Both frontends omit controller-only replay timelines from enhanced bug reports,
+including after a native hard reset. Netplay remains faithful-only.
+
+### Corrected outcomes and boundaries
+
+* B004 counts all ten random candidates, then scans all 494 cells once from a
+  deterministic random origin. Every coordinate result is checked.
+* B005 has an explicit **no-placement error** if that finite search fails. It
+  changes no player coordinates, latches the enhanced session and asks the user
+  to reset or restore. It neither invents `(0,0)` nor continues on an unvalidated
+  old position. It does not add disconnected-island prevention (P004).
+* B006 omits an unplaceable item. Large-item spacing and telephone view exclusion
+  have ten deterministic retries; failure leaves the telephone record unchanged.
+  Item-bank ownership/seed restoration still complete. B007 supplies the explicit
+  small-item policy at its recovery caller.
+* B008 owns a record only after one of the two bounded scans succeeds. A full
+  bank declines the spawn, never accesses its neighbour. B011 frees a tile run
+  only when that allocation acquired it.
+* B014/B015 use revision-bound original callsites as narrow Rust argument
+  adapters. They invoke real original speech/dialogue through the resumable
+  scheduler with explicit speaker slots; unrelated callers pass through.
+  Reunion dialogue 1/3 starts with ToeJam and dialogue 4 with Earl; ship collection
+  uses the collector. Original descriptor-forced speakers still take precedence.
+* B001 independently clamps the final X/Y skate speeds after original steering.
+  B002 caps both recipients and conserves the actual pre-clap health sum, including
+  odd totals, when it fits the combined capacities; only over-capacity excess is
+  discarded. B017 stops at rank eight before reading its sentinel threshold.
+  B018 immediately draws the defined empty bar for ineligible animators without
+  temporarily changing actual health.
+* R006/R007 use a documented **entry-reset policy**: reset the scene counter once
+  before original bounded setup, rather than transplanting REV 02 addresses/code.
+  All other scene/device waits remain real. R001 uses the fall guard and bit-27
+  pose refresh; R002 keeps both whirlwind states; R003 gates idle sleep; R004/R005
+  reset only the opener's idle time; R008 pauses lean terrain motion.
+
+ROM-free regressions run canonical faithful Rust bodies against corrected
+callbacks with labelled authored callees; they do not claim hardware proof.
+The private `profile_session` example (`tje-extras/preview`) accepts a matching
+cartridge and committed controller session as an **input source** for local
+playtests, emits per-frame video/audio hashes, and checks snapshot round-trip and
+fix-mask mismatch rejection. Its Fixed playtest is not an enhanced recording.
+Its `fixed-pilot` selection instead uses deterministic live-RAM feedback: Start
+edges accept the default two-controller menus, then short left/right walking stays near spawn.
+It writes no RAM, requires at least 600 live-world frames and observed movement,
+and reports those denominators. This is necessary when repaired REV 00 scene
+timing makes an old faithful menu-input timeline miss its intended menu.

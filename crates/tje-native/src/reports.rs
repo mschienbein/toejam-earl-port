@@ -524,6 +524,25 @@ mod tests {
         assert!(enter(&flag).is_some());
     }
     #[test]
+    fn invalidated_enhanced_timelines_never_export_controller_only_recordings() {
+        let directory =
+            std::env::temp_dir().join(format!("tje-enhanced-report-test-{}", std::process::id()));
+        let reporter = Reporter::new(&directory);
+        reporter.start(Revision::Rev00, None);
+        for _ in 0..2 {
+            // Enhanced admission and every reset reassert the same boundary.
+            reporter.invalidate_timeline();
+            reporter.begin_frame([tje_session::CONNECTED, 0]);
+            let offer = reporter
+                .bug("enhanced diagnostic, not faithful replay".into())
+                .unwrap();
+            let bundle = Bundle::from_json(&fs::read_to_string(offer.path).unwrap()).unwrap();
+            assert!(bundle.recording.is_none());
+            reporter.reset();
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
     fn busy_snapshot_still_saves_the_original_failure_without_deadlocking() {
         let directory =
             std::env::temp_dir().join(format!("tje-busy-report-test-{}", std::process::id()));

@@ -8,6 +8,25 @@ import { AudioStream } from './audio.js';
 import { checkDependencies } from './check-dependencies.mjs';
 import { Conveniences, shortcutAvailable, stateSlot } from './convenience.js';
 import { validateJamBindings } from './jam.js';
+import { FIXES, toggleFix } from './fixed.js';
+
+test('Fixed v1 defaults off and persists its immutable manifest selection', () => {
+  const settings = defaultSettings();
+  assert.equal(settings.fixed.enabled, false);
+  assert.equal(FIXES.length, 20);
+  settings.fixed.enabled = true;
+  settings.fixed.fixes = toggleFix(settings.fixed.fixes, 10, false);
+  const storage = memoryStorage();
+  saveSettings(settings, storage);
+  assert.deepEqual(readSettings(storage).settings.fixed, settings.fixed);
+  const linked = toggleFix(settings.fixed.fixes, 3, false);
+  assert.equal(linked & 28, 0);
+  assert.equal(toggleFix(linked, 4, true) & 28, 28);
+  for (const fixes of [-1, 1 << 20, 4, '123']) {
+    const invalid = memoryStorage([[SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, fixed: { enabled: true, fixes } })]]);
+    assert.equal(readSettings(invalid).settings.fixed.fixes, (1 << 20) - 1);
+  }
+});
 
 function standardPad() {
   return { id: 'Test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };

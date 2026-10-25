@@ -467,6 +467,25 @@ impl Overlay {
             actions.refresh_devices = true;
         }
         ui.separator();
+        ui.heading("Fixed v1 — original-bug repairs (default off)");
+        ui.add_enabled_ui(
+            (cfg!(feature = "enhanced-mode") || settings.fixed.enabled)
+                && !info.netplay_active && !info.recording && info.replay.is_none(),
+            |ui| {
+                actions.settings_changed |= ui.checkbox(&mut settings.fixed.enabled, "Fixed profile").changed();
+                ui.label("Changing this selection resets the cartridge. Exclusive with other enhanced profiles; video, saves, rewind and fast-forward remain available.");
+                ui.add_enabled_ui(settings.fixed.enabled, |ui| {
+                    for fix in tje_extras::fixed::MANIFEST {
+                        let mut enabled = settings.fixed.contains(fix.id);
+                        if ui.checkbox(&mut enabled, format!("{} — {}{}", fix.id, fix.title, if fix.rev00_only { " (REV 00 only)" } else { "" })).changed() {
+                            settings.fixed.set(fix.id, enabled).expect("built-in fix id");
+                            actions.settings_changed = true;
+                        }
+                    }
+                });
+            },
+        );
+        ui.separator();
         ui.heading("Jam Out in play — optional extra");
         ui.add_enabled_ui(
             (cfg!(feature = "enhanced-mode") || settings.jam_out.enabled)

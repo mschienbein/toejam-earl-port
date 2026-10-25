@@ -3465,11 +3465,18 @@ dependencies = [
 name = "tje-extras"
 version = "0.1.0"
 dependencies = [
+ "bincode",
+ "genesis-config",
+ "serde",
+ "sha1",
+ "tje-engine-cranelift",
  "tje-engine-runtime",
  "tje-extended-view",
  "tje-game",
  "tje-jam-out",
  "tje-mem",
+ "tje-rom",
+ "tje-session",
 ]
 
 [[package]]

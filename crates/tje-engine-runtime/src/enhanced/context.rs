@@ -1,4 +1,4 @@
-use super::{Budget, Driver, EnhancedInputs, Sidecars, ready};
+use super::{Budget, Driver, EnhancedInputs, Sidecars};
 use crate::{Backend, Bus as EngineBus, Engine, ReadKind, StepKind};
 use genesis_config::GenesisInputs;
 use std::fmt;
@@ -123,19 +123,7 @@ where
         let saved_pc = self.engine.cpu().pc;
         let entry_pc = id.metadata().address(self.revision());
         set_pc(self.engine, entry_pc);
-        let mut returned = false;
         loop {
-            if returned && ready(self.engine) {
-                if self.engine.cpu().pc != return_pc
-                    || self.engine.cpu().read_address(7) != sp.wrapping_add(4)
-                {
-                    return Err(error(
-                        "compiled original call did not retain its RTS boundary",
-                    ));
-                }
-                self.engine.devices_mut().set_instruction_pc(saved_pc);
-                return Ok(());
-            }
             let opcode = self.engine.cpu().prefetch as u16;
             let before_sp = self.engine.cpu().read_address(7);
             let step = self
@@ -145,8 +133,7 @@ where
                     super::Error::Override(cause) => cause,
                     cause => error(&cause.to_string()),
                 })?;
-            if !returned
-                && before_sp == sp
+            if before_sp == sp
                 && (matches!(step.kind, StepKind::Instruction) && opcode == 0x4e75
                     || matches!(step.kind, StepKind::EnhancedOverride { .. }))
             {
@@ -157,7 +144,13 @@ where
                         "compiled original call changed its return address or stack",
                     ));
                 }
-                returned = true;
+                // This actual RTS is the owned return boundary, even when its
+                // device advance has made an IRQ ready. Do not enter that IRQ
+                // (or execute the caller) while trying to rediscover the same
+                // return PC. The outer driver retains all pending device/IRQ
+                // state and services it when this bounded callback releases.
+                self.engine.devices_mut().set_instruction_pc(saved_pc);
+                return Ok(());
             }
         }
     }
@@ -370,5 +363,76 @@ where
                     .read_u32(self.entry_sp + 4 + index * 4)
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CpuState, StepResult};
+    use genesis_config::GenesisEmulatorConfig;
+    use std::convert::Infallible;
+    use tje_game::ids;
+    use tje_mem::AddressSpace;
+    use tje_native_platform::DeviceRuntime;
+
+    /// An authored RTS backend admits a pending IRQ at the exact return edge.
+    /// It is structural scheduler evidence, not a retail instruction proof.
+    struct ReturnWithIrq;
+    impl Backend for ReturnWithIrq {
+        type Error = Infallible;
+        fn execute(
+            &mut self,
+            cpu: &mut CpuState,
+            bus: &mut dyn EngineBus,
+        ) -> std::result::Result<StepResult, Self::Error> {
+            let sp = cpu.read_address(7);
+            let high = bus.read16(sp, ReadKind::Semantic);
+            let low = bus.read16(sp + 2, ReadKind::Semantic);
+            cpu.pc = (u32::from(high) << 16) | u32::from(low);
+            cpu.write_address(7, sp + 4);
+            cpu.prefetch = u32::from(bus.read16(cpu.pc, ReadKind::Prefetch));
+            cpu.pending_interrupt = 6;
+            Ok(StepResult::normal(16))
+        }
+    }
+    #[test]
+    fn synchronous_child_returns_at_its_rts_without_draining_a_pending_irq() {
+        for revision in Revision::ALL {
+            let mut rom = vec![0; 0x100000];
+            rom[..4].copy_from_slice(&0x00ff8000_u32.to_be_bytes());
+            rom[4..8].copy_from_slice(&0x200_u32.to_be_bytes());
+            rom[0x200..0x202].copy_from_slice(&0x4e71_u16.to_be_bytes());
+            let child = ids::ABS.metadata().address(revision) as usize;
+            rom[child..child + 2].copy_from_slice(&0x4e75_u16.to_be_bytes());
+            let mut engine = Engine::from_devices(
+                DeviceRuntime::new(
+                    AddressSpace::new(rom, revision),
+                    &GenesisEmulatorConfig::default(),
+                ),
+                ReturnWithIrq,
+            );
+            engine.cpu_mut().write_address(7, 0xff7000);
+            engine.cpu_mut().set_sr(0x2000);
+            let driver = Driver::default();
+            let mut budget = Budget::default();
+            {
+                let mut context = Context::new(
+                    &driver,
+                    &mut engine,
+                    GenesisInputs::default(),
+                    Dispatcher::hybrid_with(&[]),
+                    0xff7000,
+                    &mut budget,
+                );
+                context
+                    .call_original_with_execution(ids::ABS, &[7], ExecutionClass::Atomic)
+                    .unwrap();
+            }
+            assert_eq!(engine.cpu().pc, 0x200);
+            assert_eq!(engine.cpu().read_address(7), 0xff7000);
+            assert_eq!(engine.cpu().pending_interrupt, 6);
+            assert!(!super::super::ready(&engine));
+        }
     }
 }

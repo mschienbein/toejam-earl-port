@@ -1,6 +1,8 @@
 //! Shared selection keeps native and browser extras on the same deterministic
 //! profile, publication sidecar and modal ownership rules. Nothing is automatic.
 #![forbid(unsafe_code)]
+
+pub mod fixed;
 use tje_extended_view::{ExperimentalWidth, RenderError, ViewMode};
 
 pub fn view_mode(width: u16) -> Result<ViewMode, RenderError> {

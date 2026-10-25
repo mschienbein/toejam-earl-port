@@ -4474,6 +4474,40 @@
     {
       "authors": [],
       "declared_license": "GPL-3.0-only",
+      "name": "tje-extended-view",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-pc-windows-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
+      "name": "tje-extras",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-pc-windows-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
       "name": "tje-game",
       "repository": null,
       "selected": [
@@ -5976,7 +6010,7 @@
   ],
   "format": 1,
   "graph": "windows",
-  "notice_sha256": "1af15087c7856bc70724ffe08dd01c5d1120b458ba1d7e608eb930ac0cacc18f",
+  "notice_sha256": "204a10f2556c0789e22a2ac2204b52bd581f2e40a1e906a814cdc875dd5d54e4",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
     "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
@@ -5994,7 +6028,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "05b320ec9dc09f28384a460165f894b51204cb3f671269a0e0c02327fe9611e2",
+  "source_fingerprint": "4202623dc8fd6c919e01f9258e552a2377b80775162dd1df19006563ddcc6bac",
   "targets": [
     "x86_64-pc-windows-gnu"
   ]

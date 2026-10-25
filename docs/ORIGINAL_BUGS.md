@@ -2,9 +2,9 @@
 
 **Faithful is the default. Nothing in this catalogue authorizes changing faithful
 code or the shipped original-engine behaviour.** This is the consolidated list
-for a later, explicitly selected **fixed profile**, implemented with enhanced-mode
-overrides on the extras branch. It is a source/evidence catalogue, not a claim
-that every adverse state has occurred in a retail playthrough.
+for the explicitly selected **Fixed v1** profile on the extras branch. Source
+evidence and implementation status are separate: a synthetic trigger is not a
+claim that every adverse state occurred in a retail playthrough.
 
 ## Summary
 
@@ -43,6 +43,115 @@ Do **not** spend this first pass “fixing” EXT.W locals, harmless return-view
 spellings, saved ISR registers, or normal 68000 arithmetic. Disconnected-island
 prevention (**P004**) is valuable but changes level generation and needs its own
 policy and seed/recording domain rather than being bundled into a small safety fix.
+
+## Implementation status — Fixed v1
+
+The recommended first set is implemented in `crates/tje-extras/src/fixed/`;
+its versioned manifest and immutable mask are shared by native/browser settings.
+See [selection and outcome policies](ENHANCED_MODE.md#fixed-v1). No first-set
+entry is deferred to the shared simulation cutover. “Not yet” means absent from
+this profile, not authorization to change a kept exploit or proof-only quirk.
+
+| Entry | Status |
+| --- | --- |
+| B001 | Fixed in profile v1 |
+| B002 | Fixed in profile v1 |
+| B003 | Not yet |
+| B004 | Fixed in profile v1 (linked B004–B006) |
+| B005 | Fixed in profile v1 (explicit no-placement error) |
+| B006 | Fixed in profile v1 (absent item / unchanged telephone) |
+| B007 | Fixed in profile v1 |
+| B008 | Fixed in profile v1 |
+| B009 | Not yet |
+| B010 | Not yet |
+| B011 | Fixed in profile v1 |
+| B012 | Not yet |
+| B013 | Not yet |
+| B014 | Fixed in profile v1 |
+| B015 | Fixed in profile v1 |
+| B016 | Not yet |
+| B017 | Fixed in profile v1 |
+| B018 | Fixed in profile v1 |
+| B019 | Not yet |
+| B020 | Not yet |
+| B021 | Not yet |
+| B022 | Not yet |
+| B023 | Not yet |
+| B024 | Not yet |
+| B025 | Not yet |
+| B026 | Not yet |
+| B027 | Not yet |
+| B028 | Not yet |
+| B029 | Not yet |
+| B030 | Not yet |
+| B031 | Not yet |
+| B032 | Not yet |
+| B033 | Not yet |
+| B034 | Not yet |
+| B035 | Not yet |
+| B036 | Not yet |
+| B037 | Not yet |
+| B038 | Not yet |
+| B039 | Not yet |
+| B040 | Not yet |
+| B041 | Not yet |
+| B042 | Not yet |
+| B043 | Not yet |
+| B044 | Not yet |
+| B045 | Not yet |
+| B046 | Not yet |
+| B047 | Not yet |
+| B048 | Not yet |
+| R001 | Fixed in profile v1, REV 00 only |
+| R002 | Fixed in profile v1, REV 00 only |
+| R003 | Fixed in profile v1, REV 00 only |
+| R004 | Fixed in profile v1, REV 00 only |
+| R005 | Fixed in profile v1, REV 00 only |
+| R006 | Fixed in profile v1, REV 00 only (entry-reset policy) |
+| R007 | Fixed in profile v1, REV 00 only (entry-reset policy) |
+| R008 | Fixed in profile v1, REV 00 only |
+| H001 | Not yet |
+| H002 | Not yet |
+| H003 | Not yet |
+| H004 | Not yet |
+| H005 | Not yet |
+| H006 | Not yet |
+| H007 | Not yet |
+| H008 | Not yet |
+| H009 | Not yet (keep) |
+| H010 | Not yet |
+| H011 | Not yet |
+| H012 | Not yet |
+| H013 | Not yet (keep) |
+| P001 | Not yet (keep) |
+| P002 | Not yet (keep) |
+| P003 | Not yet (keep) |
+| P004 | Not yet (separate generation policy) |
+| P005 | Not yet (keep) |
+| P006 | Not yet (keep) |
+| P007 | Not yet (keep) |
+| P008 | Not yet (keep) |
+| P009 | Not yet (keep) |
+| P010 | Not yet (keep) |
+| P011 | Not yet (keep) |
+| P012 | Not yet (keep) |
+| P013 | Not yet (keep) |
+| Q001 | Not yet (keep) |
+| Q002 | Not yet (keep) |
+| Q003 | Not yet (keep) |
+| Q004 | Not yet (keep) |
+| Q005 | Not yet (keep) |
+| Q006 | Not yet (keep) |
+| Q007 | Not yet (keep) |
+| Q008 | Not yet (keep) |
+| Q009 | Not yet (keep) |
+| Q010 | Not yet (keep) |
+| Q011 | Not yet (keep) |
+| Q012 | Not yet (keep) |
+| Q013 | Not yet (keep) |
+| Q014 | Not yet (keep) |
+| Q015 | Not yet (keep) |
+
 
 ## Reading the evidence and proposed fixes
 
@@ -86,8 +195,8 @@ and profile-owned sidecars; see `L:EnhancedMode2/report.md:23–61,63–111` (ha
 need the resumable form and real original calls/device progress. RTE wrappers
 must not be treated as ordinary RTS overrides. A before-only observer or a
 returning C-handler override is the appropriate boundary if such a change is
-actually wanted. These are implementation sketches, **not claims that a fixed
-profile already exists**.
+actually wanted. Dispositions remain design sketches; the implementation-status
+table above identifies the subset shipped in Fixed v1.
 
 Each disposition includes a compatibility tag:
 

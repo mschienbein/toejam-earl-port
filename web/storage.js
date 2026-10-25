@@ -5,7 +5,7 @@ export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', extendedView: 0, p2: false, players: [defaultPlayer(0), defaultPlayer(1)], enhancedPlayers: [defaultPlayer(2), defaultPlayer(3)], jam: { enabled: false, sounds: true, soundsWhileBusy: false, chord: false, backing: 0 }, convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', extendedView: 0, fixed: { enabled: false, fixes: (1 << 20) - 1 }, p2: false, players: [defaultPlayer(0), defaultPlayer(1)], enhancedPlayers: [defaultPlayer(2), defaultPlayer(3)], jam: { enabled: false, sounds: true, soundsWhileBusy: false, chord: false, backing: 0 }, convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
 }
 
 export function normalizeSettings(value) {
@@ -29,6 +29,11 @@ export function normalizeSettings(value) {
   for (const key of ['enabled', 'soundsWhileBusy', 'chord']) result.jam[key] = value?.jam?.[key] === true;
   result.jam.sounds = value?.jam?.sounds !== false;
   if (Number.isInteger(value?.jam?.backing) && value.jam.backing >= 0 && value.jam.backing <= 6) result.jam.backing = value.jam.backing;
+  result.fixed.enabled = value?.fixed?.enabled === true;
+  if (Number.isInteger(value?.fixed?.fixes) && value.fixed.fixes >= 0 && value.fixed.fixes <= (1 << 20) - 1) {
+    const placement = value.fixed.fixes & 28;
+    if (placement === 0 || placement === 28) result.fixed.fixes = value.fixed.fixes;
+  }
   return result;
 }
 

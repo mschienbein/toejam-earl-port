@@ -37,6 +37,7 @@ pub trait GameBackend {
     fn snapshot(&self) -> Result<MachineSnapshot>;
     fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()>;
     fn set_jam_out(&mut self, settings: tje_jam_out::Settings) -> Result<bool>;
+    fn set_fixed(&mut self, settings: tje_extras::fixed::Settings) -> Result<bool>;
     /// Simulation profile is part of the peer/save identity, not a video preset.
     fn profile_id(&self) -> &'static str {
         "faithful"
@@ -57,6 +58,8 @@ pub struct NativeBackend {
     jam_settings: tje_jam_out::Settings,
     #[cfg(feature = "enhanced-mode")]
     jam_capable: bool,
+    #[cfg(feature = "enhanced-mode")]
+    fixed_settings: tje_extras::fixed::Settings,
 }
 
 impl NativeBackend {
@@ -81,6 +84,8 @@ impl NativeBackend {
             jam_settings: Default::default(),
             #[cfg(feature = "enhanced-mode")]
             jam_capable: false,
+            #[cfg(feature = "enhanced-mode")]
+            fixed_settings: Default::default(),
         })
     }
 
@@ -276,6 +281,37 @@ pub fn enhanced_inputs(
 }
 
 impl GameBackend for NativeBackend {
+    fn set_fixed(&mut self, settings: tje_extras::fixed::Settings) -> Result<bool> {
+        ensure!(settings.valid(), "invalid Fixed fix mask");
+        #[cfg(feature = "enhanced-mode")]
+        {
+            if settings == self.fixed_settings || !settings.enabled && !self.fixed_settings.enabled
+            {
+                self.fixed_settings = settings;
+                return Ok(false);
+            }
+            ensure!(
+                !settings.enabled
+                    || (self.profile_id() == "faithful"
+                        || self.profile_id() == tje_extras::fixed::PROFILE_ID)
+                        && self.extended_width == 0
+                        && !self.jam_settings.enabled,
+                "Fixed is exclusive with debug, Maker, extended view and Jam Out"
+            );
+            let candidate = tje_extras::fixed::new_mode(self.revision, settings)?;
+            self.enhanced = candidate;
+            self.fixed_settings = settings;
+            self.presenter = None;
+            self.jam_capable = false;
+            self.enhanced.reset(&mut self.engine);
+            Ok(true)
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        {
+            ensure!(!settings.enabled, "this build has no enhanced-mode feature");
+            Ok(false)
+        }
+    }
     fn set_jam_out(&mut self, settings: tje_jam_out::Settings) -> Result<bool> {
         ensure!(settings.valid(), "Jam backing must be 0..=6");
         #[cfg(feature = "enhanced-mode")]

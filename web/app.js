@@ -7,6 +7,7 @@ import { Reports } from './reporting.js';
 import { Conveniences } from './convenience.js';
 import { NetplayControls } from './netplay.js';
 import { JamControls } from './jam.js';
+import { fixedSettings } from './fixed.js';
 
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
@@ -268,13 +269,14 @@ async function loadCartridge(bytes, name, origin) {
     cartridge.set_enhanced_debug(new URLSearchParams(location.search).get('enhanced-debug') === '1');
     cartridge.set_extended_view(settings.extendedView);
     jam.configure(cartridge);
+    cartridge.set_fixed(settings.fixed.enabled, settings.fixed.fixes);
     revision = game.install(cartridge);
     source = origin;
     loaded = true;
     conveniences.reset();
     conveniences.configure();
     reports.start(JSON.parse(game.report_identity()));
-    if (settings.jam.enabled || settings.extendedView !== 0) reports.invalidateTimeline();
+    if (settings.fixed.enabled || settings.jam.enabled || settings.extendedView !== 0) reports.invalidateTimeline();
     reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
     inputs.clear();
@@ -489,6 +491,7 @@ $('extended-view').addEventListener('input', () => {
   persistSettings();
   $('extended-view-notice').textContent = 'World width saved. Re-import your ROM or reload this page to apply; the current session is unchanged.';
 });
+fixedSettings(settings, persistSettings);
 canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest' || settings.displayShader !== 'off');
 for (const id of ['volume', 'pixel-shape', 'scale', 'filter', 'display-shader', 'p2']) $(id).addEventListener('input', updateSettings);
 
