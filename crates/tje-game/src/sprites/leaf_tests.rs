@@ -4,6 +4,7 @@ use super::{
 use crate::{
     Context, Dispatcher, FunctionId, Result,
     call_frame::{CallSite, FrameLayout, FrameState, LocalFrame, OutgoingArguments},
+    execution::{RamWidth, WaitComparison, WaitCondition, WaitRequest},
     ids,
 };
 use std::{cell::RefCell, collections::VecDeque};
@@ -23,6 +24,8 @@ struct Machine {
     memory_reads: RefCell<Vec<(u32, u8, u32, u32)>>,
     memory_writes: Vec<(u32, u8, u32)>,
     discarded_reads: Vec<(u32, u8, u16)>,
+    wait_requests: Vec<WaitRequest>,
+    wait_poll_values: VecDeque<u8>,
     writes: Vec<(u8, u16)>,
 }
 impl Machine {
@@ -44,6 +47,8 @@ impl Machine {
             memory_reads: RefCell::new(Vec::new()),
             memory_writes: Vec::new(),
             discarded_reads: Vec::new(),
+            wait_requests: Vec::new(),
+            wait_poll_values: VecDeque::new(),
             writes: Vec::new(),
         }
     }
@@ -94,6 +99,33 @@ impl Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.wait_requests.push(request);
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask: 0xff,
+            value: 0,
+            comparison: WaitComparison::Equal,
+        } = request.condition
+        else {
+            panic!("unexpected polling request {request:?}");
+        };
+        loop {
+            // Authored unit environment changes, not main-thread stores. The
+            // real helper still performs and records each byte poll itself.
+            if let Some(value) = self.wait_poll_values.pop_front() {
+                self.memory.write_u8(address, value);
+            }
+            if self.read_u8(address) == 0 {
+                return Ok(());
+            }
+            assert!(
+                !self.wait_poll_values.is_empty(),
+                "unit poll never becomes ready"
+            );
+        }
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         let value = self.memory.read_u8(address);
         self.discarded_reads.push((address, 1, u16::from(value)));
@@ -1045,5 +1077,37 @@ fn queue_hold_clr_records_a_discarded_byte_before_zero_store() {
             .collect();
         assert_eq!(discarded, [(entity.frame_duration().address(), 1, 5)]);
         assert_eq!(entity.frame_duration().read(&machine), 0);
+    }
+}
+
+#[test]
+fn queue_wait_owns_every_byte_poll_and_the_final_satisfying_read() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for values in [&[0][..], &[1, 0], &[1, 1, 0], &[255, 128, 0]] {
+            let mut machine = Machine::new(revision);
+            let pending = ram::g_sprite_graphics_upload_pending(revision);
+            machine.wait_poll_values.extend(values.iter().copied());
+            machine.trace_memory = true;
+            queue_update::update_and_queue_entity_sprites(&mut machine, &[]).unwrap();
+            assert_eq!(
+                machine.wait_requests,
+                [WaitRequest::ram_byte_equal(pending.address(), 0xff, 0)]
+            );
+            let polls: Vec<_> = machine
+                .memory_reads
+                .borrow()
+                .iter()
+                .filter_map(|(address, value, _, origin)| {
+                    (*address == pending.address() && *origin == 0xff8000).then_some(*value)
+                })
+                .collect();
+            assert_eq!(
+                polls, values,
+                "{revision:?}: no pre-poll or duplicate final read"
+            );
+            assert!(machine.wait_poll_values.is_empty());
+            assert_eq!(machine.memory.read_u8(pending.address()), 1);
+            assert_eq!(machine.sp, 0xff8000);
+        }
     }
 }

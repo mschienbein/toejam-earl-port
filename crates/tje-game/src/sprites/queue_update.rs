@@ -21,9 +21,9 @@ pub(super) fn tick_frame_duration(context: &mut dyn Context, entity: Address<Obj
 }
 
 /// G/src/sprites/entity_sprite_rendering.c:503, UpdateAndQueueEntitySprites.
-/// The exact pending-byte guard is rechecked after each real interrupt. While the
-/// main thread is suspended, only accepted original IRQ work can clear this byte.
-/// This is TimeAware, not an atomic busy loop or a fabricated ready condition.
+/// The typed byte wait owns every original TST.B/BNE poll, including its final
+/// satisfying read. Real timed environments may accept IRQ work while waiting;
+/// no extra read, frame-counter proxy or fabricated ready condition is used.
 pub fn update_and_queue_entity_sprites(
     context: &mut dyn Context,
     _: &[u32],
@@ -60,9 +60,8 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         &[1],
         CallSite::relative(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, revision, 0x16),
     )?;
-    while pending.read(context) != 0 {
-        context.wait_until(WaitRequest::interrupt())?;
-    }
+    // G CC9A/CC7A: one TST.B/BNE poll per iteration, including the final zero.
+    context.wait_until(WaitRequest::ram_byte_equal(pending.address(), 0xff, 0))?;
     let first = if ram::g_split_screen_enabled(revision).read(context) == 0
         && (ram::g_player_inventory_open(revision).at(0).read(context) != 0
             || ram::g_player_inventory_open(revision).at(1).read(context) != 0)
