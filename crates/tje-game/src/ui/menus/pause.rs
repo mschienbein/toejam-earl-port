@@ -121,7 +121,10 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
         0x54,
     )?;
     stack::release(context, 28)?;
-    while read_input(context, caller, player, 0x60)? & 0x80 != 0 {}
+    // c_pause.s:24-31: keep the mapped-input call, not a substitute RAM poll.
+    while read_input(context, caller, player, 0x60)? & 0x80 != 0 {
+        context.poll_yield()?;
+    }
     loop {
         if !reset_selected && read_input(context, caller, player, 0x74)? & 2 != 0 {
             call_at(
@@ -132,6 +135,7 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
             )?;
             reset_selected = true;
             context.set_data_register(3, 1);
+            context.poll_yield()?;
             continue;
         }
         if reset_selected && read_input(context, caller, player, 0x94)? & 1 != 0 {
@@ -140,11 +144,13 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
             stack::release(context, 4)?;
             reset_selected = false;
             set_word(context, 3, 0);
+            context.poll_yield()?;
             continue;
         }
         if read_input(context, caller, player, 0xae)? & 0xc0 != 0 {
             break;
         }
+        context.poll_yield()?;
     }
     call_at(
         context,
@@ -156,7 +162,9 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
         stack::call(context, caller, ids::RESTART_FROM_RESET_ENTRY, 0xca)?;
     }
     ram::g_current_music_selection(revision).write(context, -1);
-    while read_input(context, caller, player, 0xda)? & 0xc0 != 0 {}
+    while read_input(context, caller, player, 0xda)? & 0xc0 != 0 {
+        context.poll_yield()?;
+    }
     frame.leave(context)?;
     Ok(None)
 }
@@ -283,6 +291,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     )?;
     stack::release(context, 8)?;
     while object.draw_flags().read(context) & viewport_mask == 0 {
+        context.poll_yield()?;
         stack::call(context, caller, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, 0x120)?;
         stack::push_move(context, viewport)?;
         stack::push_move(context, object.address())?;
@@ -299,6 +308,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
         if object.sprite_ready().read(context) != 0 {
             break;
         }
+        context.poll_yield()?;
     }
     // c_pause.s:189-201 keeps six outgoing slots across the sound requests.
     stack::push_pea(context, 99)?;
@@ -329,7 +339,11 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
         0x184,
     )?;
     stack::release(context, 24)?;
-    while both_inputs(context, 0x18e, 0x196)? & 0x80 != 0 {}
+    // c_pause.s:202-212 and338-348: both calls are bitwise-OR operands;
+    // observing Start on player2 must not skip player1's source call.
+    while both_inputs(context, 0x18e, 0x196)? & 0x80 != 0 {
+        context.poll_yield()?;
+    }
     loop {
         let first_input = read_input(context, ids::GAME_PAUSED, 0, 0x1a4)? as u8;
         context.set_data_register(
@@ -375,6 +389,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
             _ => {}
         }
         set_word(context, 5, input_stage);
+        context.poll_yield()?;
     }
     ram::g_current_music_selection(revision).write(context, -1);
     let object_number = u32::from(frame.local::<u16>(-2).read(context));
@@ -386,6 +401,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
         if input & 0x80 == 0 {
             break;
         }
+        context.poll_yield()?;
     }
     frame.leave(context)?;
     Ok(None)
@@ -393,3 +409,6 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod poll_tests;

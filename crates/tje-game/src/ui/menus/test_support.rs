@@ -9,6 +9,8 @@ pub(super) enum Access {
     Read(u32, u8, u32),
     Discard(u32, u8),
     Write(u32, u8, u32),
+    Call(FunctionId, u32),
+    Yield,
 }
 struct ExpectedCall {
     function: FunctionId,
@@ -25,6 +27,7 @@ pub(super) struct Fixture {
     pub sp: u32,
     pub frame: FrameState,
     pub calls: Vec<(FunctionId, u32)>,
+    pub yield_writes: VecDeque<Vec<(u32, u8)>>,
     root: FunctionId,
     expected: VecDeque<ExpectedCall>,
 }
@@ -43,6 +46,7 @@ impl Fixture {
             sp: 0xff8000,
             frame: FrameState::new(0xff8000),
             calls: Vec::new(),
+            yield_writes: VecDeque::new(),
             root,
             expected: VecDeque::new(),
         }
@@ -123,6 +127,15 @@ impl tje_mem::Platform for Fixture {
     }
 }
 impl crate::Platform for Fixture {
+    fn poll_yield(&mut self) -> Result<()> {
+        self.accesses.get_mut().push(Access::Yield);
+        if let Some(writes) = self.yield_writes.pop_front() {
+            for (address, value) in writes {
+                self.memory.write_u8(address, value);
+            }
+        }
+        Ok(())
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.accesses.get_mut().push(Access::Discard(address, 1));
         Ok(())
@@ -206,6 +219,9 @@ impl Context for Fixture {
             );
         }
         self.calls.push((function, self.sp));
+        self.accesses
+            .get_mut()
+            .push(Access::Call(function, expected.result));
         self.data[0] = expected.result;
         self.status = 0x2013;
         self.sp += 4;
