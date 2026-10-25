@@ -422,9 +422,19 @@ Historical Reference-bootstrap GenerateSpeech frame-10000 and wrong-wait
 frame-600 comparator fixtures are explicitly **HELD**, not passing evidence or
 expected-error tests. Preserve their cases, old assertions and receipts until
 genuine actual-call replay replacements cover their paths. This is not a claim
-that the known blocked continuous readable session passed. Typed exception and
-nearest-target equivalence fixtures require their own unchanged-trajectory Check
-proof or an explicit blocker; a replay replacement is not implied for them.
+that the known blocked continuous readable session passed. Typed exception
+fixtures require their own unchanged-trajectory Check proof or an explicit
+blocker; a replay replacement is not implied for them.
+
+The historical nearest-target producer/cohort fixture is separately **HELD as
+superseded comparator evidence**: its whole-dead-stack footprint comparison
+includes callee-private MOVEM saves that the governing readable replay contract
+treats as causal-only traffic. The exact cycle engine supplies physical RAM.
+The own-word guard declaration issue was resolved separately; it is not the
+current hold. Preserve the actual case, assertions and counterexample receipts;
+do not add helper/root spill stores or weaken/rerun the old comparator to claim
+success. Nearest remains pending for its separate replay campaign, with no
+cohort-success or production-promotion claim.
 
 The committed `gameplay_10000_frames_both_revisions_and_every_pilot_hook` test
 compares each session to a separate timed reference (whole RAM including stack,

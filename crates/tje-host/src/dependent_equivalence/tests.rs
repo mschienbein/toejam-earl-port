@@ -736,7 +736,7 @@ fn nearest_stored(c: &mut HookContext<'_>) -> Result<Option<u32>> {
 }
 
 #[test]
-#[ignore = "HELD: nearest-target own equivalence fixture hits RustMemory Unwritten at entry SP-6 under the readable guard; no Replay replacement or passing claim"]
+#[ignore = "HELD: superseded whole-dead-stack comparator includes callee-private MOVEM traffic; governing readable replay proof is separate, no cohort-success claim"]
 fn nearest_target_tracks_real_producer_in_both_revisions() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let (key, slug) = match revision {
