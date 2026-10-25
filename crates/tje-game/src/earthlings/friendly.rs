@@ -278,15 +278,31 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
 /// G/src/earthlings/nice_earthling_touch.c:108 (`AI_MailboxTouch`).
 /// TimeAware: speech and mail-order opening require IRQ/VBlank progress. The
 /// compiler `_L95` literal follows the inventoried executable extent.
-pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn ai_mailbox_touch(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = crate::call_frame::LocalFrame::enter(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x0c, 0x3c),
+    )?;
+    let number = frame.argument_word(0).read(context);
+    let earthling = Address::<EarthlingState>::new(frame.argument_slot(1).read(context));
+    let result = mailbox_touch(context, i32::from(number), earthling);
+    super::framed::finish(context, frame, result)
+}
+
+fn mailbox_touch(
+    context: &mut dyn Context,
+    number: i32,
+    earthling: Address<EarthlingState>,
+) -> Result<Option<u32>> {
+    use super::framed::{invoke, invoke_on};
+    use crate::call_frame::OutgoingArguments;
     let revision = context.revision();
-    let number = i32::from(arguments[0] as i16);
-    let earthling = Address::<EarthlingState>::new(arguments[1]);
-    if ram::g_player_interaction_choice_active(revision)
+    let caller = ids::AI_MAILBOX_TOUCH;
+    let active = ram::g_player_interaction_choice_active(revision)
         .at(number)
-        .read(context)
-        != 0
-    {
+        .read(context);
+
+    if active != 0 {
         return Ok(None);
     }
     let bank = if ram::g_mailbox_level_states(revision)
@@ -301,102 +317,199 @@ pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
     };
     let mailbox = ram::g_mailbox_level_states(revision).at(bank);
     let player = super::word_object(revision, number as i16);
-    let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
+    let object_number = earthling.object().read(context);
+    let object = ram::g_player_info(revision).at(i32::from(object_number));
+    // EXT.W / ASL.W #7
     if mailbox.mode().read(context) != 1 {
         if can_interact(context, player, None)
-            && call(
+            && invoke(
                 context,
+                caller,
                 ids::ENTITY_IS_WITHIN_RANGE,
                 &[object.address(), player.address(), 30, 15],
+                0x021252,
             )? != 0
         {
             let contact = mailbox.contact().at(number);
             if contact.read(context) == 0 {
-                let text = inline_text(context, ids::AI_MAILBOX_TOUCH);
+                let text = inline_text(context, caller);
+                // Push right-to-left before the speaker load: an authored record
+                // can alias these outgoing slots, just as in the original.
+                let speech_tail = OutgoingArguments::push(context, &[text, 0])?;
                 let speaker = earthling.object().read(context) as u32;
-                call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
-                call(
+                let speech_args = OutgoingArguments::push(context, &[speaker])?;
+                invoke_on(
                     context,
+                    caller,
+                    ids::GENERATE_SPEECH,
+                    &speech_args,
+                    0x02127e,
+                )?;
+                invoke(
+                    context,
+                    caller,
                     ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
                     &[number as u32],
+                    0x021288,
                 )?;
+                speech_args.release(context)?;
+                speech_tail.release(context)?;
                 contact.write(context, 1);
-            } else if contact.read(context) == 1 {
-                if ram::g_player_interaction_responses(revision)
-                    .at(number)
-                    .read(context)
-                    == 2
-                {
-                    call(
-                        context,
-                        ids::INVENTORY_OPEN_MAIL_ORDER_MENU,
-                        &[number as u32],
-                    )?;
+            } else {
+                let observed = contact.read(context);
+
+                if observed == 1 {
+                    if ram::g_player_interaction_responses(revision)
+                        .at(number)
+                        .read(context)
+                        == 2
+                    {
+                        invoke(
+                            context,
+                            caller,
+                            ids::INVENTORY_OPEN_MAIL_ORDER_MENU,
+                            &[number as u32],
+                            0x0212c2,
+                        )?;
+                    }
+                    contact.write(context, 2);
+                    let response = ram::g_player_interaction_responses(revision).at(number);
+                    context.discard_u8(response.address())?;
+                    response.write(context, 0);
                 }
-                contact.write(context, 2);
-                ram::g_player_interaction_responses(revision)
-                    .at(number)
-                    .write(context, 0);
             }
         } else {
-            mailbox.contact().at(number).write(context, 0)
+            let contact = mailbox.contact().at(number);
+            context.discard_u8(contact.address())?;
+            contact.write(context, 0);
         }
         return Ok(None);
     }
-    if i16::from(earthling.state().read(context)) & 252 == 4 {
-        if call(
+    if i32::from(earthling.state().read(context)) & 252 == 4 {
+        if invoke(
             context,
+            caller,
             ids::ENTITY_IS_WITHIN_RANGE,
             &[object.address(), player.address(), 20, 10],
+            0x021312,
         )? != 0
         {
-            call(
+            invoke(
                 context,
+                caller,
                 ids::PLAYER_YOUCH,
                 &[number as u32, earthling.address()],
+                0x021328,
             )?;
         }
-        let timer = mailbox.timer().read(context).wrapping_sub(1);
+        let old = mailbox.timer().read(context);
+        let timer = old.wrapping_sub(1);
         mailbox.timer().write(context, timer);
         if timer == 0 {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+            invoke(
+                context,
+                caller,
+                ids::SET_EARTHLING_STATE,
+                &[earthling.address(), 0],
+                0x021336,
+            )?;
             object.frame().write(context, -1);
             mailbox.timer().write(context, 175);
-        } else if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
-            call(
+        } else {
+            let cooldown = ram::g_pcm_effect_cooldown_ticks(revision).read(context);
+
+            if cooldown == 0 {
+                invoke(
+                    context,
+                    caller,
+                    ids::PLAY_SOUND_EFFECT,
+                    &[rom::sfx_mailbox_roar(revision).address(), 50, 0],
+                    0x021366,
+                )?;
+                earthling.saved_x_or_status().write(context, 1);
+            }
+        }
+        return Ok(None);
+    }
+    let state = earthling.state().read(context);
+
+    if state == 0 {
+        let timer = mailbox.timer().read(context);
+        if timer != 0 {
+            // TST.W and SUBQ.W perform separate reads.
+            let old = mailbox.timer().read(context);
+            let timer = old.wrapping_sub(1);
+            mailbox.timer().write(context, timer);
+        } else {
+            let close = player.sprite_state().read(context) != 5
+                && player.sprite_state().read(context) != 6
+                && invoke(
+                    context,
+                    caller,
+                    ids::ENTITY_IS_WITHIN_RANGE,
+                    &[object.address(), player.address(), 100, 40],
+                    0x0213aa,
+                )? != 0;
+            if close {
+                invoke(
+                    context,
+                    caller,
+                    ids::SET_EARTHLING_STATE,
+                    &[earthling.address(), 3],
+                    0x0213d2,
+                )?;
+            } else {
+                let random = invoke(context, caller, ids::GET_RANDOM_NUMBER, &[], 0x0213be)? & 255;
+
+                if random == 1 {
+                    invoke(
+                        context,
+                        caller,
+                        ids::SET_EARTHLING_STATE,
+                        &[earthling.address(), 1],
+                        0x0213d2,
+                    )?;
+                }
+            }
+        }
+        return Ok(None);
+    }
+    let state = earthling.state().read(context);
+
+    if state == 1 {
+        let duration = object.frame_duration().read(context);
+
+        if duration == 0 {
+            invoke(
                 context,
-                ids::PLAY_SOUND_EFFECT,
-                &[rom::sfx_mailbox_roar(revision).address(), 50, 0],
+                caller,
+                ids::SET_EARTHLING_STATE,
+                &[earthling.address(), 0],
+                0x0213ec,
             )?;
-            earthling.saved_x_or_status().write(context, 1);
-        }
-    } else if earthling.state().read(context) == 0 {
-        if mailbox.timer().read(context) != 0 {
-            mailbox
-                .timer()
-                .write(context, mailbox.timer().read(context).wrapping_sub(1))
-        } else if player.sprite_state().read(context) != 5
-            && player.sprite_state().read(context) != 6
-            && call(
-                context,
-                ids::ENTITY_IS_WITHIN_RANGE,
-                &[object.address(), player.address(), 100, 40],
-            )? != 0
-        {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
-        } else if call(context, ids::GET_RANDOM_NUMBER, &[])? & 255 == 1 {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 1])?;
-        }
-    } else if earthling.state().read(context) == 1 {
-        if object.frame_duration().read(context) == 0 {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
             object.frame().write(context, -1);
         }
-    } else if earthling.state().read(context) == 3 && object.frame_duration().read(context) == 0 {
-        call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 4])?;
-        earthling.timer().write(context, 0);
-        mailbox.timer().write(context, 33);
-        earthling.saved_x_or_status().write(context, 0);
+        return Ok(None);
+    }
+    let state = earthling.state().read(context);
+
+    if state == 3 {
+        let duration = object.frame_duration().read(context);
+
+        if duration == 0 {
+            invoke(
+                context,
+                caller,
+                ids::SET_EARTHLING_STATE,
+                &[earthling.address(), 4],
+                0x021410,
+            )?;
+            context.discard_u16(earthling.timer().address())?;
+            earthling.timer().write(context, 0);
+            mailbox.timer().write(context, 33);
+            context.discard_u16(earthling.saved_x_or_status().address())?;
+            earthling.saved_x_or_status().write(context, 0);
+        }
     }
     Ok(None)
 }
@@ -404,61 +517,101 @@ pub fn ai_mailbox_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
 /// G/src/earthlings/nice_earthling_touch.c:249 (`AI_WisemanTouch`).
 /// TimeAware: speech and identification inventory wait for real IRQs. The
 /// `_L189` literal follows RTS, outside the inventoried executable extent.
-pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn ai_wiseman_touch(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = crate::call_frame::LocalFrame::enter(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x1c, 0x1c),
+    )?;
+    let number = frame.argument_word(0).read(context);
+    let earthling = Address::<EarthlingState>::new(frame.argument_slot(1).read(context));
+    let result = wiseman_touch(context, i32::from(number), earthling);
+    super::framed::finish(context, frame, result)
+}
+
+fn wiseman_touch(
+    context: &mut dyn Context,
+    number: i32,
+    earthling: Address<EarthlingState>,
+) -> Result<Option<u32>> {
+    use super::framed::{invoke, invoke_on};
+    use crate::call_frame::OutgoingArguments;
     let revision = context.revision();
-    let number = i32::from(arguments[0] as i16);
-    let earthling = Address::<EarthlingState>::new(arguments[1]);
+    let caller = ids::AI_WISEMAN_TOUCH;
     let player = super::word_object(revision, number as i16);
-    let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
+    let object_number = earthling.object().read(context);
+    let object = ram::g_player_info(revision).at(i32::from(object_number));
+
     let interaction = ram::g_player_wiseman_interaction_states(revision).at(number);
     let mut next = -1_i8;
     if !(can_interact(context, player, None)
-        && call(
+        && invoke(
             context,
+            caller,
             ids::ENTITY_IS_WITHIN_RANGE,
             &[object.address(), player.address(), 35, 15],
+            0x021772,
         )? != 0)
     {
+        context.discard_u8(interaction.address())?;
         interaction.write(context, 0);
+
         return Ok(None);
     }
-    if interaction.read(context) == 2 {
+    let observed = interaction.read(context);
+
+    if observed == 2 {
         return Ok(None);
     }
     earthling.state_delay().write(context, 1);
-    if ram::g_player_interaction_choice_active(revision)
+    let active = ram::g_player_interaction_choice_active(revision)
         .at(number)
-        .read(context)
-        != 0
-        || (ram::g_player_info(revision).at(0).level().read(context)
-            == ram::g_player_info(revision).at(1).level().read(context)
-            && ram::g_player_wiseman_interaction_states(revision)
-                .at(number ^ 1)
-                .read(context)
-                != 0
-            && ram::g_player_wiseman_interaction_states(revision)
-                .at(number ^ 1)
-                .read(context)
-                != 2)
-    {
+        .read(context);
+
+    if active != 0 {
         return Ok(None);
+    }
+    let second_level = ram::g_player_info(revision).at(1).level().read(context);
+    let first_level = ram::g_player_info(revision).at(0).level().read(context);
+    if second_level == first_level {
+        let other = ram::g_player_wiseman_interaction_states(revision).at(number ^ 1);
+        if other.read(context) != 0 {
+            let observed = other.read(context);
+
+            if observed != 2 {
+                return Ok(None);
+            }
+        }
     }
     if interaction.read(context) == 0 {
         if earthling.state().read(context) >= 2 {
-            next = call(
+            next = invoke(
                 context,
+                caller,
                 ids::EARTHLING_SELECT_TURN_STATE,
                 &[earthling.address()],
-            )? as i8
+                0x0217f2,
+            )? as i8;
         } else if earthling.state().read(context) <= 1 {
-            let text = inline_text(context, ids::AI_WISEMAN_TOUCH);
+            let text = inline_text(context, caller);
+            let speech_tail = OutgoingArguments::push(context, &[text, 0])?;
             let speaker = earthling.object().read(context) as u32;
-            call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
-            call(
+            let speech_args = OutgoingArguments::push(context, &[speaker])?;
+            invoke_on(
                 context,
+                caller,
+                ids::GENERATE_SPEECH,
+                &speech_args,
+                0x02181c,
+            )?;
+            invoke(
+                context,
+                caller,
                 ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
                 &[number as u32],
+                0x021826,
             )?;
+            speech_args.release(context)?;
+            speech_tail.release(context)?;
             interaction.write(context, 1);
         }
     } else if interaction.read(context) == 1 {
@@ -467,21 +620,30 @@ pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
             .read(context)
             == 2
         {
-            call(
+            let sound_args = OutgoingArguments::push(
                 context,
-                ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_wiseman_think(revision).address(), 64, 1],
             )?;
-            call(
+            invoke_on(
                 context,
+                caller,
+                ids::PLAY_SOUND_EFFECT,
+                &sound_args,
+                0x02186a,
+            )?;
+            invoke(
+                context,
+                caller,
                 ids::INVENTORY_OPEN_IDENTIFICATION_MENU,
                 &[number as u32],
+                0x021876,
             )?;
+            sound_args.release(context)?;
         }
         interaction.write(context, 3);
-        ram::g_player_interaction_responses(revision)
-            .at(number)
-            .write(context, 0);
+        let response = ram::g_player_interaction_responses(revision).at(number);
+        context.discard_u8(response.address())?;
+        response.write(context, 0);
     } else if interaction.read(context) == 3
         && ram::g_player_inventory_open(revision)
             .at(number)
@@ -492,11 +654,14 @@ pub fn ai_wiseman_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<
         next = 2;
         object.velocity_x().write(context, -320);
     }
+
     if next != -1 {
-        call(
+        invoke(
             context,
+            caller,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
+            0x0218da,
         )?;
         object.frame().write(context, -1);
     }

@@ -512,16 +512,19 @@ fn boundary_values_cover_each_byte_and_seeded_assignments_are_reproducible() {
     }
 }
 
-fn nearest_function() -> tje_game::TranslationFn {
-    tje_game::earthlings::PENDING_TRANSLATIONS
-        .iter()
-        .find(|entry| entry.id == ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET)
-        .expect("complete pending nearest-target body")
-        .function
+fn nearest_function() -> tje_game::SelectedEntry {
+    let entry = Dispatcher::hybrid_with_frames(
+        tje_game::earthlings::PENDING_TRANSLATIONS,
+        tje_game::earthlings::PENDING_FRAMED_TRANSLATIONS,
+    )
+    .resolve_entry(ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET)
+    .expect("unambiguous pending nearest-target body")
+    .expect("complete pending nearest-target body");
+    assert!(!entry.is_canonical_production());
+    entry
 }
 fn nearest(c: &mut HookContext<'_>) -> Result<Option<u32>> {
-    let args = std::array::from_fn::<_, 4, _>(|index| c.argument_u32(index as u32));
-    Ok(nearest_function()(c, &args)?)
+    Ok(nearest_function().invoke_prepared(c)?)
 }
 
 struct MutantContext<'a> {
@@ -681,7 +684,6 @@ impl Context for MutantContext<'_> {
     }
 }
 fn nearest_mutant(c: &mut HookContext<'_>, substitute: bool) -> Result<Option<u32>> {
-    let args = std::array::from_fn::<_, 4, _>(|index| c.argument_u32(index as u32));
     let sp = c.stack_pointer()?;
     let stored = [c.read_u16(STORED), c.read_u16(STORED + 2)];
     let mut proxy = MutantContext {
@@ -690,7 +692,7 @@ fn nearest_mutant(c: &mut HookContext<'_>, substitute: bool) -> Result<Option<u3
         stored,
         substitute,
     };
-    Ok(nearest_function()(&mut proxy, &args)?)
+    Ok(nearest_function().invoke_prepared(&mut proxy)?)
 }
 fn nearest_offset(c: &mut HookContext<'_>) -> Result<Option<u32>> {
     nearest_mutant(c, false)

@@ -1,19 +1,33 @@
-use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
+use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
 use crate::{Context, FunctionId, Result, call_at, ids};
 use tje_mem::{Address, ObjectState, Revision, ram, rom};
 
 // Return PCs are inventory executable-call sites plus the matching compiler's
 // JSR width: register=2, PC-relative=4, absolute-long=6. REV 00 offsets agree.
-fn invoke(
+pub(super) fn invoke(
     context: &mut dyn Context,
     caller: FunctionId,
     callee: FunctionId,
     args: &[u32],
     return_rev02: u32,
 ) -> Result<u32> {
-    let offset = return_rev02 - caller.metadata().address(Revision::Rev02);
-    let site = CallSite::relative(caller, context.revision(), offset);
+    let site = site(context, caller, return_rev02);
     call_at(context, callee, args, site)
+}
+pub(super) fn site(context: &dyn Context, caller: FunctionId, return_rev02: u32) -> CallSite {
+    let offset = return_rev02 - caller.metadata().address(Revision::Rev02);
+    CallSite::relative(caller, context.revision(), offset)
+}
+pub(super) fn invoke_on(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    arguments: &OutgoingArguments,
+    return_rev02: u32,
+) -> Result<u32> {
+    let site = site(context, caller, return_rev02);
+    let dispatcher = context.dispatcher();
+    arguments.call(context, dispatcher, callee, site)
 }
 pub(super) fn finish(
     context: &mut dyn Context,
@@ -37,25 +51,25 @@ pub(super) fn finish(
 /// G/src/earthlings/spawning_and_banks.c:101 (`FindSpawnLocationForEarthling`).
 /// Atomic; exact LINK #-16 / MOVEM D2-D7,A2-A4 frame. TerrainValidation receives
 /// real -16/-14(A6) output words. No Rust stack pointer or invented RAM scratch.
-pub fn find_spawn_location_for_earthling(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn find_spawn_location_for_earthling(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(16, 0xfc, 0x1c))?;
-    let result = find_spawn(context, arguments, &frame);
+    let kind = frame.argument_word(0).read(context);
+    let bank = frame.argument_word(1).read(context);
+    let output_x = frame.argument_slot(2).read(context);
+    let result = find_spawn(context, kind, bank, output_x, &frame);
     finish(context, frame, result)
 }
 fn find_spawn(
     context: &mut dyn Context,
-    arguments: &[u32],
+    kind: i16,
+    bank: i16,
+    output_x: u32,
     frame: &LocalFrame,
 ) -> Result<Option<u32>> {
     let revision = context.revision();
     let caller = ids::FIND_SPAWN_LOCATION_FOR_EARTHLING;
-    let kind = arguments[0] as i16;
-    let bank = arguments[1] as i16;
-    let level = arguments[4] as i16;
-    let map = if i16::from(ram::g_player1_map_level(revision).read(context)) == level {
+    let map_level = i16::from(ram::g_player1_map_level(revision).read(context));
+    let map = if map_level == frame.argument_word(4).read(context) {
         ram::g_player1_level_map(revision).cast::<u16>()
     } else {
         ram::g_player2_level_map(revision).cast::<u16>()
@@ -88,12 +102,13 @@ fn find_spawn(
             frame,
             map,
             width,
-            (bank, level),
+            bank,
             (row, column),
             (0x0178ec, 0x017936),
         )? {
-            Address::<i16>::new(arguments[2]).write(context, x.read(context));
-            Address::<i16>::new(arguments[3]).write(context, y.read(context));
+            Address::<i16>::new(output_x).write(context, x.read(context));
+            let output_y = frame.argument_slot(3).read(context);
+            Address::<i16>::new(output_y).write(context, y.read(context));
             return Ok(Some(0));
         }
     }
@@ -111,12 +126,13 @@ fn find_spawn(
                 frame,
                 map,
                 width,
-                (bank, level),
+                bank,
                 (row, column),
                 (0x0179e8, 0x017a32),
             )? {
-                Address::<i16>::new(arguments[2]).write(context, x.read(context));
-                Address::<i16>::new(arguments[3]).write(context, y.read(context));
+                Address::<i16>::new(output_x).write(context, x.read(context));
+                let output_y = frame.argument_slot(3).read(context);
+                Address::<i16>::new(output_y).write(context, y.read(context));
                 return Ok(Some(0));
             }
             column = (column + 1) % 19;
@@ -136,11 +152,10 @@ fn spawn_probe(
     frame: &LocalFrame,
     map: Address<u16>,
     width: i16,
-    bank_level: (i16, i16),
+    bank: i16,
     position: (i16, i16),
     sites: (u32, u32),
 ) -> Result<bool> {
-    let (bank, level) = bank_level;
     let (row, column) = position;
     let (terrain_pc, overlap_pc) = sites;
     let caller = ids::FIND_SPAWN_LOCATION_FOR_EARTHLING;
@@ -150,8 +165,8 @@ fn spawn_probe(
     );
     let x = frame.local::<i16>(-16);
     let y = frame.local::<i16>(-14);
-    let height = frame.local::<i16>(-2).read(context) as u32;
     let mask = u32::from(frame.local::<u8>(-5).read(context));
+    let height = frame.local::<i16>(-2).read(context) as u32;
     if invoke(
         context,
         caller,
@@ -164,9 +179,10 @@ fn spawn_probe(
     }
     y.write(context, y.read(context).wrapping_add((row + 1) * 64));
     x.write(context, x.read(context).wrapping_add((column + 1) * 128));
-    let definition = frame.local::<u32>(-12).read(context);
-    let px = x.read(context) as u32;
+    let level = frame.argument_word(4).read(context);
     let py = y.read(context) as u32;
+    let px = x.read(context) as u32;
+    let definition = frame.local::<u32>(-12).read(context);
     Ok(invoke(
         context,
         caller,
@@ -179,12 +195,10 @@ fn spawn_probe(
 /// G/src/earthlings/spawning_and_banks.c:190 (`EarthlingRetainLevelBank`).
 /// Atomic; LINK #-8 / MOVEM D2-D6,A2-A4. Coordinates and the special/bank slots
 /// keep their emitted addresses and retain residual bytes until an original store.
-pub fn earthling_retain_level_bank(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn earthling_retain_level_bank(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(8, 0x7c, 0x1c))?;
-    let result = retain(context, arguments[0] as i16, &frame);
+    let level = frame.argument_word(0).read(context);
+    let result = retain(context, level, &frame);
     finish(context, frame, result)
 }
 fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<Option<u32>> {
@@ -204,7 +218,9 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
                     .read(context),
             ) == level
         {
-            users.write(context, users.read(context).wrapping_add(1));
+            let old = users.read(context);
+            let next = old.wrapping_add(1);
+            users.write(context, next);
             return Ok(None);
         }
     }
@@ -329,7 +345,9 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
             record.y().write(context, y.read(context));
             record.saved_y().write(context, y.read(context));
             if kind == 19 || kind == 9 {
+                context.discard_u16(record.saved_x_or_status().address())?;
                 record.saved_x_or_status().write(context, 0);
+                context.discard_u16(record.saved_y().address())?;
                 record.saved_y().write(context, 0);
             } else if kind == 7 {
                 record.saved_x_or_status().write(context, 1);
@@ -341,13 +359,16 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
                 .health_visibility()
                 .at(0)
                 .write(context, definition.health().read(context));
+            context.discard_u8(record.health_visibility().at(1).address())?;
             record.health_visibility().at(1).write(context, 0);
         } else {
             record.kind().write(context, -1)
         }
     }
     let users = ram::g_earthling_bank_users(revision).at(bank);
-    users.write(context, users.read(context).wrapping_add(1));
+    let old = users.read(context);
+    let next = old.wrapping_add(1);
+    users.write(context, next);
     ram::g_earthling_bank_levels(revision)
         .at(bank)
         .write(context, level as i8);
@@ -357,13 +378,13 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
 /// G/src/earthlings/targeting.c:18 (`EarthlingSteerTowardNearestTarget`).
 /// Atomic with LINK #-12 / MOVEM D2-D6,A2-A4. The conditionally initialized
 /// delta words and entry A3 target residue are deliberately not replaced by zero.
-pub fn earthling_steer_toward_nearest_target(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn earthling_steer_toward_nearest_target(context: &mut dyn Context) -> Result<Option<u32>> {
     let mut target = Address::<ObjectState>::new(context.address_register(3));
     let frame = LocalFrame::enter(context, FrameLayout::link(12, 0x7c, 0x1c))?;
-    let result = steer(context, arguments, &frame, &mut target);
+    let state = Address::<ObjectState>::new(frame.argument_slot(0).read(context));
+    let maximum = frame.argument_word(1).read(context) as u16;
+    let separation = frame.argument_word(2).read(context);
+    let result = steer(context, state, maximum, separation, &frame, &mut target);
     finish(context, frame, result)
 }
 fn candidate(
@@ -382,76 +403,84 @@ fn candidate(
         context,
         ((i32::from(target.x().read(context)) - i32::from(state.x().read(context))) >> 2) as i16,
     );
-    let bias = if state.x().read(context) < target.x().read(context) {
+    let bias = if target.x().read(context) > state.x().read(context) {
         dx.read(context).wrapping_sub(separation)
     } else {
         dx.read(context).wrapping_add(separation)
     };
     dx.write(context, bias);
-    dy.write(
-        context,
-        ((i32::from(target.y().read(context)) - i32::from(state.y().read(context))) >> 2) as i16,
-    );
+    let delta_y = i32::from(target.y().read(context)) - i32::from(state.y().read(context));
+    dy.write(context, (delta_y >> 2) as i16);
+    // c_targeting.s:62-64 and repeated candidates: final shifted-out bit.
+    super::pending_access::extend(context, delta_y & 2 != 0);
     let x = dx.read(context) as u32;
-    if invoke(
+    let absolute_x = invoke(
         context,
         ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
         ids::ABS,
         &[x],
         abs_x_pc,
-    )? as i32
-        >= 160
-    {
+    )? as i32;
+    if (x as i32) < 0 {
+        super::pending_access::extend(context, true); // runtime.s NEG.L
+    }
+    if absolute_x >= 160 {
         return Ok(());
     }
     let y = dy.read(context) as u32;
-    if (invoke(
+    let absolute_y = invoke(
         context,
         ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
         ids::ABS,
         &[y],
         abs_y_pc,
-    )? as i32)
-        < 112
-    {
+    )? as i32;
+    if (y as i32) < 0 {
+        super::pending_access::extend(context, true);
+    }
+    if absolute_y < 112 {
         let x = i32::from(dx.read(context));
         let y = i32::from(dy.read(context));
         frame.local::<u16>(-12 + player * 2).write(
             context,
             (x.wrapping_mul(x).wrapping_add(y.wrapping_mul(y))) as u16,
         );
+        // The bounded squared-distance ADD.L cannot carry from bit 31.
+        super::pending_access::extend(context, false);
     }
     Ok(())
 }
 fn steer(
     context: &mut dyn Context,
-    arguments: &[u32],
+    state: Address<ObjectState>,
+    maximum_parameter: u16,
+    separation_parameter: i16,
     frame: &LocalFrame,
     target: &mut Address<ObjectState>,
 ) -> Result<Option<u32>> {
     let revision = context.revision();
     let caller = ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET;
-    let state = Address::<ObjectState>::new(arguments[0]);
-    let mode = arguments[3] as i8;
-    let separation = (arguments[2] as i16) >> 2;
-    let mut maximum = if state.sprite_state().read(context) == 2 {
-        0x400
-    } else {
-        (arguments[1] as u16).wrapping_shl(8)
-    };
     let d0 = frame.local::<u16>(-12);
     let d1 = frame.local::<u16>(-10);
     d0.write(context, 0x7fff);
     d1.write(context, 0x7fff);
+    let separation = separation_parameter >> 2;
+    super::pending_access::extend(context, separation_parameter & 2 != 0);
+    let mut maximum = if state.sprite_state().read(context) == 2 {
+        0x400
+    } else {
+        super::pending_access::extend(context, maximum_parameter & 0x100 != 0);
+        maximum_parameter.wrapping_shl(8)
+    };
     for player in 0..2 {
-        let decoy = ram::g_player_decoy_entities(revision)
-            .at(player)
-            .read(context);
-        if decoy == 0 {
+        let decoy_slot = ram::g_player_decoy_entities(revision).at(player);
+        if decoy_slot.read(context) == 0 {
             continue;
         }
+        let decoy = decoy_slot.read(context);
+        super::pending_access::extend(context, decoy < 0);
         *target = ram::g_player_info(revision).at(i32::from(decoy));
-        if state.level().read(context) == target.level().read(context) {
+        if target.level().read(context) == state.level().read(context) {
             let (xpc, ypc) = if player == 0 {
                 (0x01aad4, 0x01aae8)
             } else {
@@ -478,12 +507,12 @@ fn steer(
     if !special {
         for player in 0..2 {
             let player_state = ram::g_player_info(revision).at(player);
-            if state.level().read(context) != player_state.level().read(context)
+            if player_state.level().read(context) != state.level().read(context)
                 || ram::g_player_elevator_flags(revision)
                     .at(player)
                     .read(context)
                     != 0
-                || (mode == 7
+                || (frame.argument_byte(3).read(context) == 7
                     && ram::g_player_control_remap_entities(revision)
                         .at(player)
                         .read(context)
@@ -497,7 +526,7 @@ fn steer(
             } else {
                 state.attachment_y_or_latch()
             };
-            if mode == 18
+            if frame.argument_byte(3).read(context) == 18
                 && (ram::g_player_inventory(revision)
                     .at(player)
                     .at(0)
@@ -534,14 +563,15 @@ fn steer(
         }
     }
     if maximum < d0.read(context) && maximum < d1.read(context) {
+        super::pending_access::char_flags(context, u32::MAX);
         return Ok(Some(u32::MAX));
     }
-    let selected = if d0.read(context) < d1.read(context) {
+    let selected = if d1.read(context) > d0.read(context) {
         0
     } else {
         1
     };
-    let result = if mode == 12 {
+    let result = if frame.argument_byte(3).read(context) == 12 {
         let (dx, dy) = selected_deltas(context, frame, selected);
         invoke(
             context,
@@ -550,7 +580,7 @@ fn steer(
             &[state.address(), dx, dy],
             0x01adea,
         )?
-    } else if mode == 7 {
+    } else if frame.argument_byte(3).read(context) == 7 {
         let target = if special {
             ram::g_player_info(revision).at(i32::from(
                 ram::g_player_decoy_entities(revision)
@@ -569,7 +599,7 @@ fn steer(
             0x01ae3a,
         )?
     } else {
-        if mode == 14 && !special {
+        if frame.argument_byte(3).read(context) == 14 && !special {
             invoke(
                 context,
                 caller,
@@ -587,11 +617,13 @@ fn steer(
             0x01ae7c,
         )?
     };
+    super::pending_access::char_flags(context, result);
     Ok(Some(result as i8 as u32))
 }
 
-fn selected_deltas(context: &dyn Context, frame: &LocalFrame, player: i32) -> (u32, u32) {
+fn selected_deltas(context: &mut dyn Context, frame: &LocalFrame, player: i32) -> (u32, u32) {
     // MCC68K pushes right to left: Y is consumed before X, including residuals.
+    super::pending_access::extend(context, false); // selected-index ADD.L
     let dy = frame.local::<i16>(-4 + player * 2).read(context) as u32;
     let dx = frame.local::<i16>(-8 + player * 2).read(context) as u32;
     (dx, dy)

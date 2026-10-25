@@ -34,7 +34,7 @@ fn fixture(host: &mut Host, id: FunctionId, args: &[u32]) {
         });
 }
 
-fn frame_fixtures(host: &mut Host) {
+pub(crate) fn frame_fixtures(host: &mut Host) {
     let revision = host.revision();
     for bank in 0..2 {
         for slot in 0..20 {
@@ -72,7 +72,7 @@ fn frame_fixtures(host: &mut Host) {
     }
 }
 
-fn friendly_fixtures(host: &mut Host, selected: Option<&str>) {
+pub(crate) fn friendly_fixtures(host: &mut Host, selected: Option<&str>) {
     let revision = host.revision();
     // Use an actually allocated original object, so the speech allocation cannot
     // legitimately reuse the synthetic Earthling's otherwise-free handle.
@@ -238,8 +238,13 @@ fn held_composed_session_and_settled_fixtures_both_revisions() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry =
-            HookRegistry::proof_filtered(revision, previous::proof_translations(), &roots).unwrap();
+        let registry = HookRegistry::proof_filtered_with_frames(
+            revision,
+            previous::proof_translations(),
+            tje_game::earthlings::PENDING_FRAMED_TRANSLATIONS,
+            &roots,
+        )
+        .unwrap();
         let mode = Mode::Check;
         let mut checked = Host::new(&bytes, mode, registry.clone()).unwrap();
         let mut reference = Host::new(&bytes, Mode::Reference, registry).unwrap();

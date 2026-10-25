@@ -818,8 +818,13 @@ fn short_index_widths_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry =
-            HookRegistry::proof_filtered(revision, proof_translations(), &roots).unwrap();
+        let registry = HookRegistry::proof_filtered_with_frames(
+            revision,
+            proof_translations(),
+            earthlings::PENDING_FRAMED_TRANSLATIONS,
+            &roots,
+        )
+        .unwrap();
         // Reference replay has no entry replacements; check_fixture explicitly
         // checks candidates only after the live-state boundary is reached.
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
@@ -948,9 +953,10 @@ fn open_present_branches_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry = HookRegistry::proof_filtered(
+        let registry = HookRegistry::proof_filtered_with_frames(
             revision,
             proof_translations(),
+            earthlings::PENDING_FRAMED_TRANSLATIONS,
             &[ids::OPEN_EARTHLING_PRESENT],
         )
         .unwrap();
@@ -986,8 +992,13 @@ fn explicit_earthling_frames_on_live_states() {
             "TJE_REV00_ROM"
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry =
-            HookRegistry::proof_filtered(revision, proof_translations(), &roots).unwrap();
+        let registry = HookRegistry::proof_filtered_with_frames(
+            revision,
+            proof_translations(),
+            earthlings::PENDING_FRAMED_TRANSLATIONS,
+            &roots,
+        )
+        .unwrap();
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
         let script =
             InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
@@ -1120,7 +1131,12 @@ fn earthlings_sessions_and_labeled_live_fixtures() {
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
         let pending = std::env::var("TJE_EARTHLINGS_PENDING").unwrap_or_default();
         let registry = if pending == "all" {
-            HookRegistry::proof(revision, proof_translations()).unwrap()
+            HookRegistry::proof_with_frames(
+                revision,
+                proof_translations(),
+                earthlings::PENDING_FRAMED_TRANSLATIONS,
+            )
+            .unwrap()
         } else {
             HookRegistry::filtered(revision, &["earthlings"], &[]).unwrap()
         };

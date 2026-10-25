@@ -26,6 +26,7 @@ mod generic;
 mod interactions;
 mod movement;
 mod open_present;
+mod pending_access;
 mod santa;
 mod state;
 
@@ -261,50 +262,51 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 
 /// Unapproved bodies retained only for explicit proof: nearest-target's native
 /// producer/caller cohort, timed IRQ commutation, and the finite-search ceiling.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    // Dependent residual: awaiting dependent-equivalence proof.
-    crate::Translation {
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+
+/// Prepared-frame bodies remain pending. Lazy source-width argument reads and
+/// exact call setup are a body-form change, never proof or live admission.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    // Deliberate residual delta words; replay shadow causality must retain them.
+    crate::FramedTranslation {
         id: ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
         function: framed::earthling_steer_toward_nearest_target,
     },
-    // CorpusCheck e28a82e: real both-ROM calls differ in VDP command/latch state.
-    crate::Translation {
+    // CorpusCheck's differing ISR environments still require the new proof.
+    crate::FramedTranslation {
         id: ids::EARTHLING_DISPATCH_ABILITIES,
         function: dispatch::earthling_dispatch_abilities,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::PLAYER_PROCESS_LIFE_REQUEST,
         function: interactions::player_process_life_request,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::PROCESS_EARTHLINGS,
         function: dispatch::process_earthlings,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
         function: dispatch::earthling_dispatch_player_contacts,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::AI_GENERIC_ENEMY_THINK,
         function: generic::ai_generic_enemy_think,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::AI_MAILBOX_TOUCH,
         function: friendly::ai_mailbox_touch,
     },
-    // Finite TerrainValidation CPU search. Measured operational ceilings are
-    // declared below; actual clocked IRQ comparison remains a proof obligation.
-    crate::Translation {
+    // Measured finite-search ceilings remain unchanged; no admission implied.
+    crate::FramedTranslation {
         id: ids::EARTHLING_RETAIN_LEVEL_BANK,
         function: framed::earthling_retain_level_bank,
     },
-    // Same measured CPU-search contract; no production activation from a ceiling.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::FIND_SPAWN_LOCATION_FOR_EARTHLING,
         function: framed::find_spawn_location_for_earthling,
     },
-    // REV 00 cooperation frame 45131: missing original HBlank contribution.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::AI_WISEMAN_TOUCH,
         function: friendly::ai_wiseman_touch,
     },
@@ -787,3 +789,6 @@ mod decrement_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod access_tests;
