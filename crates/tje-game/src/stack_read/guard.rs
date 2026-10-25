@@ -18,6 +18,9 @@ pub struct DmaMetrics {
     pub reset_invalidated: u64,
     pub discarded: u64,
     pub failed: u64,
+    /// Cumulative distinct (Guard identity, epoch) scopes that encountered
+    /// unknown-origin proof debt; retirement/reset does not erase the count.
+    pub unknown_origin_proof_debt: u64,
     pub pending_proof: u64,
     pub capacity_hits: u64,
     pub active: u64,
@@ -33,6 +36,7 @@ struct MetricCounters {
     reset_invalidated: AtomicU64,
     discarded: AtomicU64,
     failed: AtomicU64,
+    unknown_origin_proof_debt: AtomicU64,
     pending_proof: AtomicU64,
     capacity_hits: AtomicU64,
     active: AtomicU64,
@@ -94,6 +98,7 @@ impl Namespace {
             reset_invalidated: m.reset_invalidated.load(Ordering::Relaxed),
             discarded: m.discarded.load(Ordering::Relaxed),
             failed: m.failed.load(Ordering::Relaxed),
+            unknown_origin_proof_debt: m.unknown_origin_proof_debt.load(Ordering::Relaxed),
             pending_proof: m.pending_proof.load(Ordering::Relaxed),
             capacity_hits: m.capacity_hits.load(Ordering::Relaxed),
             active: m.active.load(Ordering::Relaxed),
@@ -138,6 +143,7 @@ struct ScopeSeal {
     namespace: Arc<Namespace>,
     epoch: AtomicU64,
     failed_epoch: AtomicU64,
+    unknown_debt_epoch: AtomicU64,
     error: Mutex<Option<Unsupported>>,
 }
 struct Abort {
@@ -178,6 +184,7 @@ impl Guard {
                 namespace,
                 epoch: AtomicU64::new(0),
                 failed_epoch: AtomicU64::new(0),
+                unknown_debt_epoch: AtomicU64::new(0),
                 error: Mutex::new(None),
             }),
         }
@@ -203,16 +210,25 @@ impl Guard {
         )
     }
     fn latch(&self, error: Unsupported) -> Unsupported {
+        let epoch = self.epoch();
         let first = self.scope.namespace.latch(error);
         *self
             .scope
             .error
             .lock()
             .expect("readable scope lock poisoned") = Some(first);
-        self.scope
-            .failed_epoch
-            .store(self.epoch(), Ordering::Relaxed);
+        self.scope.failed_epoch.store(epoch, Ordering::Relaxed);
         first
+    }
+    fn record_unknown_origin_debt(&self) {
+        let epoch = self.epoch();
+        if self.scope.unknown_debt_epoch.swap(epoch, Ordering::Relaxed) != epoch {
+            self.scope
+                .namespace
+                .metrics
+                .unknown_origin_proof_debt
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
     fn abort(&self, error: Unsupported) -> ! {
         let error = self.latch(error);
@@ -486,6 +502,7 @@ impl Guard {
                 .fetch_add(1, Ordering::Relaxed);
             // Let origin.start finish constructing the physical lease. The
             // boundary reports this debt even if fill/copy never reads RAM.
+            self.record_unknown_origin_debt();
             self.latch(self.error(
                 0,
                 0,
@@ -513,6 +530,7 @@ impl Guard {
                 .metrics
                 .failed
                 .fetch_add(1, Ordering::Relaxed);
+            self.record_unknown_origin_debt();
             self.abort(self.error(raw, 2, Reader::VdpDma, UnsupportedReason::UnknownDmaOrigin));
         }
         if let Some(error) = self.read_window(raw & !1, 2, Reader::VdpDma, high) {
@@ -554,6 +572,7 @@ impl Guard {
         }
     }
     pub fn missing_dma_origin(&self) -> ! {
+        self.record_unknown_origin_debt();
         self.abort(self.error(
             0,
             0,
@@ -847,7 +866,91 @@ mod tests {
                 assert!(guard.state.lock().unwrap().active_dma.is_none());
                 assert_eq!(guard.scope.namespace.metrics().active, 0);
                 assert_eq!(guard.scope.namespace.metrics().failed, 1);
+                assert_eq!(guard.scope.namespace.metrics().unknown_origin_proof_debt, 1);
             }
         }
+    }
+    #[test]
+    fn unknown_debt_counts_scope_epochs_without_replacing_an_earlier_cause() {
+        let namespace = Arc::new(Namespace::default());
+        let guard = Guard::with_namespace(Arc::clone(&namespace));
+        let first = guard
+            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+                let _caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    guard.read(S - 1, 1, Reader::RustMemory);
+                }));
+                let epoch = guard.epoch();
+                guard.dma_started(epoch, 1, true);
+                guard.dma_retired(epoch, 1, DmaRetirement::Completed);
+                // Another uncertain start in the same scope is not another debt.
+                guard.dma_started(epoch, 2, true);
+                guard.dma_retired(epoch, 2, DmaRetirement::Cancelled);
+            })
+            .unwrap_err();
+        assert_eq!(first.reason, UnsupportedReason::Unwritten);
+        assert_eq!(namespace.metrics().unknown_origin_proof_debt, 1);
+        assert_eq!(namespace.metrics().active, 0);
+        assert_eq!(guard.finish_proof().unwrap_err(), first);
+
+        // A genuinely new analysis trajectory has a new epoch; clearing its
+        // failure latch must not clear previously recorded accounting.
+        namespace.reset_failure();
+        guard
+            .run_root(ids::GET_RANDOM_NUMBER, S, || {
+                let epoch = guard.epoch();
+                guard.dma_started(epoch, 2, true);
+                guard.dma_retired(epoch, 2, DmaRetirement::Cancelled);
+            })
+            .unwrap_err();
+        assert_eq!(guard.epoch(), 2);
+        assert_eq!(namespace.metrics().unknown_origin_proof_debt, 2);
+    }
+
+    #[test]
+    fn different_guard_slots_at_the_same_epoch_count_independently() {
+        let namespace = Arc::new(Namespace::default());
+        let slots = [
+            Guard::with_namespace(Arc::clone(&namespace)),
+            Guard::with_namespace(Arc::clone(&namespace)),
+        ];
+        for (index, guard) in slots.iter().enumerate() {
+            namespace.reset_failure();
+            let error = guard
+                .run_root(ids::GET_RANDOM_NUMBER, S, || {
+                    let epoch = guard.epoch();
+                    guard.dma_started(epoch, 1, true);
+                    guard.dma_retired(epoch, 1, DmaRetirement::Discarded);
+                })
+                .unwrap_err();
+            assert_eq!(error.reason, UnsupportedReason::UnknownDmaOrigin);
+            assert_eq!(guard.epoch(), 1);
+            assert_eq!(
+                namespace.metrics().unknown_origin_proof_debt,
+                index as u64 + 1
+            );
+        }
+        namespace.reset_failure();
+        assert_eq!(namespace.metrics().unknown_origin_proof_debt, 2);
+        assert_eq!(namespace.metrics().active, 0);
+    }
+    #[test]
+    fn forwarding_another_slots_first_error_does_not_create_new_origin_debt() {
+        let namespace = Arc::new(Namespace::default());
+        let origin = Guard::with_namespace(Arc::clone(&namespace));
+        let caller = Guard::with_namespace(Arc::clone(&namespace));
+        let error = caller
+            .run_root(ids::NO_OP, S, || {
+                origin
+                    .run_root(ids::GET_RANDOM_NUMBER, S - 16, || {
+                        origin.dma_started(origin.epoch(), 1, true);
+                        origin.dma_retired(origin.epoch(), 1, DmaRetirement::Completed);
+                    })
+                    .unwrap_err();
+                caller.assert_no_failure();
+            })
+            .unwrap_err();
+        assert_eq!(error.root, ids::GET_RANDOM_NUMBER);
+        assert_eq!(error.reason, UnsupportedReason::UnknownDmaOrigin);
+        assert_eq!(namespace.metrics().unknown_origin_proof_debt, 1);
     }
 }

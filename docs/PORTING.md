@@ -1398,6 +1398,18 @@ An unknown issuer or exhausted generation latches `unknown_dma_origin` at start
 without interrupting lease construction. Finishing/cancelling a fill/copy without
 any RAM-source read cannot clear that uncertainty or certify the proof.
 
+The CLI exposes `summary.unsupported_stack_read` as the optional structured
+first guard cause, including through dependency-probe wrappers, even in
+fail-fast mode. ContinueOriginal's per-failure packets remain unchanged.
+`summary.unknown_origin_proof_debt` mirrors
+`checks.readable_stack_guard.unknown_origin_proof_debt`: a cumulative count of
+distinct **guard identity plus epoch** scopes that encountered an original
+unknown-origin event. Repeated callbacks and propagation of another scope's
+first error do not add new debt. Completion, cancellation, discard and failure
+latch reset do not erase the count. This is independent of `dma_failed` and
+terminal active/queued ownership, preserves the existing first cause, and is
+reporting only—not an approval latch or a change to proof-status policy.
+
 Twelve preallocated controller slots are a resource ceiling, not a hardware
 FIFO/deferred-command or source-work bound. Exhaustion rejects before a new
 root executes; the controller does not grow a tracker per root. Metrics expose

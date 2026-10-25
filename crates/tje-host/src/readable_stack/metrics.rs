@@ -13,6 +13,9 @@ pub struct ReadableGuardMetrics {
     pub dma_reset_invalidated: u64,
     pub dma_discarded: u64,
     pub dma_failed: u64,
+    /// Cumulative unknown-origin proof scopes, independent of the first error
+    /// reason and of currently active/queued physical ownership.
+    pub unknown_origin_proof_debt: u64,
     pub pending_proof_boundaries: u64,
     pub queued_commands_consumed: u64,
     pub queued_commands_discarded: u64,
@@ -31,6 +34,7 @@ impl From<tje_game::stack_read::DmaMetrics> for ReadableGuardMetrics {
             dma_reset_invalidated: m.reset_invalidated,
             dma_discarded: m.discarded,
             dma_failed: m.failed,
+            unknown_origin_proof_debt: m.unknown_origin_proof_debt,
             pending_proof_boundaries: m.pending_proof,
             queued_commands_consumed: m.queued_consumed,
             queued_commands_discarded: m.queued_discarded,
