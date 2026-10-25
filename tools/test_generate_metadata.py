@@ -40,6 +40,20 @@ unsigned short palette[16];
             "grid": {"type": "char (*)[16]", "source_declaration": "char grid[][16]"},
         })
 
+    def test_ambiguous_parenthesized_arrays_fail_closed_instead_of_retaining_a_scalar(self) -> None:
+        for header, reason in [
+            (
+                b"void example(char (text)[4], char (*row)[16]) ",
+                "ambiguous C array parameter declarator",
+            ),
+            (
+                b"void example(text, row)\nchar (text)[4];\nchar (*row)[16];\n",
+                "cannot parse C parameter declarations",
+            ),
+        ]:
+            with self.subTest(header=header), self.assertRaisesRegex(ValueError, reason):
+                metadata.array_parameter_types(header, "example", self.parser)
+
     def test_scalar_and_explicit_pointer_parameters_are_not_rewritten(self) -> None:
         header = b"void example(text, length, glyph)\nchar *text;\nshort length;\nchar glyph;\n"
         self.assertEqual(metadata.array_parameter_types(header, "example", self.parser), {})

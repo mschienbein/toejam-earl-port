@@ -301,6 +301,11 @@ when first). For multiple dimensions only the outer array adjusts, so `char rows
 receives a pointer to a 16-character row. This differs from the aggregate-by-value
 case below. Both centered cutscene text queues demonstrate the rule: G declares
 `char text[]`, and each matching listing loads the complete longword pointer.
+Parentheses around the identifier do not change this rule: `char (text)[4]`
+also adjusts to a pointer, while `char (*row)[16]` is already a pointer to an
+array and must not be confused with an array parameter.
+If the AST grammar cannot disambiguate a parenthesized array declaration, the
+metadata generator rejects it rather than retaining the inventory's scalar ABI.
 
 Function ABI metadata is generated, not hand-patched. The private inventory's
 older scalar-width field is insufficient to recover a discarded array
