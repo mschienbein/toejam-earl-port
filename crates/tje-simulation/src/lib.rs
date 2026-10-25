@@ -11,7 +11,11 @@ mod enhanced_tests;
 pub mod ids;
 pub mod ownership;
 pub mod phase;
+#[cfg(test)]
+mod player_tests;
+pub mod players;
 pub mod recording;
+pub mod resources;
 pub mod session;
 #[cfg(test)]
 mod session_tests;

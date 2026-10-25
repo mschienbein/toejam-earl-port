@@ -1,6 +1,6 @@
 # Four-player co-op — fail-closed foundation and gameplay design
 
-Status: **tested primitives, not a playable campaign**, 2026-10-25. Main explicitly revised the current implementation to a fail-closed foundation: `tje-four-player` provides typed four-seat sidecar data, level-ID arrival bookkeeping, four-pad routing, runtime palette variants and quadrant layout primitives. Requests to enable four-player reject before mutation until the complete simulation/render closure exists. Two-player faithful play remains the untouched default. New/HD artwork is excluded. The shared cutover, dependencies and staged estimates are in [mode-owned-simulation.md](mode-owned-simulation.md).
+Status: **fail-closed services, not a playable campaign**, 2026-10-25. `tje-four-player` provides typed four-seat sidecar data, level-ID arrival bookkeeping, four-pad routing, runtime palette variants and quadrant layout primitives. `tje-simulation::players` and `resources` add the S3 mode-owned player/inventory/effect services described below; they do not install a gameplay profile. Requests to enable four-player still reject before mutation until the complete simulation/render closure and S6 evidence exist. Two-player faithful play remains the untouched default. New/HD artwork is excluded. The shared cutover is in [mode-owned-simulation.md](mode-owned-simulation.md).
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -61,11 +61,55 @@ Allocate bounded host memory once per enhanced session, with reusable scratch fo
 - `players[4]`: 24.8 motion, canonical animation state, archetype resources, health/lives/rank/score/bucks, sixteen inventory slots, all fall/jump/skates/sleep/hurt/Hula/remap/respawn timers, active present and effect ownership, 5×5 terrain cache, menu/choice/release latches, elevator reference and optional Jam state. Generalized bounded counters retain intended original wrap semantics where relevant; larger coordinate/distance computations use checked i32/i64 arithmetic.
 - `levels`: one entry per visited level (initial campaign 0–26), containing geometry/path edits, reveal/visited bits, anchors/elevators, Earthling/item records and stable collected/removed bitsets. Up to four levels need active simulation; keep lightweight mutable state for all visited levels so splitting and returning cannot regenerate consumed items.
 - Persistent Earthlings are distinct from transient draw objects. Use four-seat target/contact masks and separate health/status fields instead of overloading the original two-byte health/visibility array. Starting default remains twenty persistent Earthlings per ordinary level; raising density is a separate optional setting.
-- Effects/projectiles/drops use bounded session pools with explicit per-player quotas and atomic allocation transactions. Default proposed capacity: 256 runtime entities, 64 projectiles, 128 drops; reserve required player/elevator/ship resources so cosmetic allocation cannot block progression. Fail a cosmetic spawn without altering simulation; never evict an authoritative actor because a viewport ran out of sprites.
+- Effects/projectiles/drops use bounded session pools with explicit per-player quotas and atomic allocation transactions. The shared admitted-capacity proposal is 1024 logical actor slots, 64 combined projectile/effect slots and 128 drops, not the obsolete 256-actor estimate. Stock four-floor reservations total 492 slots; expanded four-floor reservations with 64 Earthlings and 112 placed items per floor total 988. Required hero/elevator/ship resources have disjoint reservations; an effect/drop allocation cannot evict them or depend on viewport sprite capacity.
 - `phase`, input frame, four pad/action words, independent deterministic RNG streams, shared world seed/ruleset version, config events and ordered mutation queue. Level changes commit before map queries for the new level; same-tick item claims use a rotating seat-priority seed recorded in state, so exactly one inventory receives the item.
 - Camera transforms and draw lists are rebuildable presentation state unless they determine discovery/activation; any such dependency must instead live in authoritative interest state and be snapshotted. No per-frame heap allocation or full-world copies; use stable arenas, dirty cells and spatial bins.
 
-Budget [INFERENCE]: four-player state under 16 KiB; twenty 18-byte original-style Earthling records and 32 eight-byte items are only about 616 bytes/level before host IDs/status expansion. Allow 4 MiB total authoritative enhanced state (including 27 visited levels and 256 runtime entities) and 64 MiB derivative graphics/cache storage initially. These are explicit host budgets, not claims of free Genesis RAM. Larger/Maker caps are negotiated separately.
+Budget [INFERENCE until aggregate maximum-codec admission]: the four canonical heroes and runtime counters target under 16 KiB; persistent resources use separate negotiated pools. Allow 4 MiB total authoritative enhanced state (including visited levels, shared item ledgers and the 1024-slot logical actor envelope) and 64 MiB derivative graphics/cache storage initially. S3 allocates pool capacity once; its tick scratch is fixed-size. These are host budgets, not claims of free Genesis RAM. Larger/Maker counts must pass the same aggregate capacity calculation.
+
+### S3 player and resource service boundary
+
+`tje-simulation::PlayerServices` owns per-seat runtime counters and borrows the
+canonical `CoopState` heroes. `PlayerGeometry` resolves dimensions, terrain,
+collision and safe respawn by `LevelId`. `PlayerWorld` implements mandatory
+atomic present transactions and actor-effect operations; an unsupported world
+operation rejects rather than silently consuming a present. No method calls
+original two-element RAM helpers or carries ROM callbacks.
+
+- Checked 24.8 motion, independent 5×5 terrain caches, directional/remapped input,
+  authored frame multipliers, jump/wings/skates/swim states, hurt/squish, health,
+  death/respawn, explicit fall cohorts and identified health/life donations.
+- Sixteen wrapper slots per hero; one shared 28-kind wrapping/identification
+  permutation; separate wrapper/effect RNG streams. Mystery resolves before
+  activation. Randomizer is a saved sixty-step operation over all inventories.
+  Ground and dropped present contents retain their logical identity when their
+  wrapping is rerolled; they do not accidentally acquire a new effect.
+- OriginalV1 item binding preserves source slots and holes with stable IDs
+  `level*128 + slot + 1`. All 28 present identities resolve through the shared
+  wrapping map; food/large-item classes 64–83 (except buck 80) use a bounded,
+  borrowed signed-health lookup from the authenticated user's ROM. There is no
+  copied food table or automatic floor repopulation on reentry.
+- All 28 presents dispatch to equipped/status, resource or real world operations.
+  Persistent decoys, clouds, doors, phones, boomboxes, roses and projectiles carry
+  typed owner/source/level and generation-checked handles. Limits are 64 effects
+  (16 per seat by default) and 128 drops (32 per seat), independently of rendering.
+- Claims, finite-stock purchases, drops, identification and global ship parts
+  commit in saved rotating-seat order. A rejected allocation/purchase leaves
+  inventory and bucks untouched; duplicate phase/tick admission cannot repeat it.
+- Per-seat inventory/mail/identify/map intents, action-release latches, identified
+  recipients and all-participant pause. Overlays neutralize only the requesting
+  hero's voluntary motion; damage and other actors keep advancing.
+- Automatic lemonade and hot-tub contacts are hero pose machines, not newly
+  invented paid prompts. Hot-tub entry/exit side is geometric rather than a
+  two-player identity branch. Animation completion requires an admitted started/
+  held sequence, never a cache-residency or zero-duration heuristic.
+
+These are simulation service tests over authored geometry/actors, not private
+four-pad campaign recordings, ROM semantic-equivalence receipts, native/wasm
+enhanced-hash parity, or frontend playability evidence. Aggregate adapters,
+resource imports and S1–S5 ownership integration still pass the S6 fail-closed
+admission gate; this module does not bypass it.
+
 
 ## Four pads, recordings, snapshots and network
 
@@ -115,12 +159,14 @@ Required tests:
 
 Principal risks: broad two-player assumptions hidden in readable leaves; rendering/animation/physics coupling; transition and interaction latches; a plausible-looking four-character demo that does not survive a campaign; small-screen readability. Fixed quadrants and typed state are recommended defaults, not user decisions that block these documents. Whether to fund four-independent-peer play, new artwork, or change the default camera later remains a user choice; no such work is implicitly approved here.
 
-Main owns final integration gates. `tje-mode-view` now supplies immutable
+Main owns final integration gates. S3 supplies the mode-owned player, present,
+inventory and resource services described above. `tje-mode-view` supplies immutable
 phase-stamped publication, residency-independent animation resource stepping,
 shared stock/owned-world decoders and a bounded four-view host compositor with
 per-seat overlays. Native/browser enhanced builds expose default-disabled extra
-seat binding preparation and reconnect-safe routing. These services are not
-connected to an admitted gameplay profile: there is still no four-player session
-choice, complete simulated present/AI/transition closure, or enhanced gameplay
-recording. Private composition fixtures are not evidence of a playable co-op
-session, and the gameplay acceptance above remains unchanged.
+seat binding preparation and reconnect-safe routing. These services are not yet
+connected through the aggregate to an admitted gameplay profile: there is still
+no four-player session choice, integrated player/population/transition closure,
+or exercised four-pad gameplay recording. Private composition fixtures, authored
+simulation, codec and palette tests are not evidence of a playable co-op campaign.
+The gameplay acceptance above remains the S6 gate.
