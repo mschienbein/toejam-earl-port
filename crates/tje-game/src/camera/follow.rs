@@ -160,6 +160,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
     let second_y = ram::g_camera2_pending_y(revision);
     context.set_address_register(2, first_x.address());
     context.set_address_register(3, first_y.address());
+    set_word(context, 2, 0);
     let primary_x = first.x().read(context).wrapping_sub(first_x.read(context));
     let mut primary_y = first
         .y()
@@ -175,24 +176,40 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         .read(context)
         .wrapping_sub(second_y.read(context))
         .wrapping_sub(i16::from(second.height_pixels().read(context) / 2));
+    set_word(context, 3, primary_x);
+    set_word(context, 4, primary_y);
+    set_word(context, 6, secondary_x);
+    set_word(context, 5, secondary_y);
     if first.height().read(context) > 0
         && first.animation_group_mask().read(context) & 0x04008000 != 0
     {
         if ram::g_split_screen_enabled(revision).read(context) != 0 {
             primary_y = primary_y.wrapping_sub(first.height().read(context) / 2);
-        } else if first.y().read(context) < second.y().read(context) {
-            primary_y = primary_y.wrapping_sub(first.height().read(context));
+        } else {
+            // MOVE.W partner.y,D1; CMP.W player.y,D1 reads the right C
+            // operand first. Do not rely on Rust's left-to-right comparison.
+            let partner_y = second.y().read(context);
+            let player_y = first.y().read(context);
+            if partner_y > player_y {
+                primary_y = primary_y.wrapping_sub(first.height().read(context));
+            }
         }
     }
+    set_word(context, 4, primary_y);
     if second.height().read(context) > 0
         && second.animation_group_mask().read(context) & 0x04008000 != 0
     {
         if ram::g_split_screen_enabled(revision).read(context) != 0 {
             secondary_y = secondary_y.wrapping_sub(second.height().read(context) / 2);
-        } else if second.y().read(context) < first.y().read(context) {
-            secondary_y = secondary_y.wrapping_sub(second.height().read(context));
+        } else {
+            let partner_y = first.y().read(context);
+            let player_y = second.y().read(context);
+            if partner_y > player_y {
+                secondary_y = secondary_y.wrapping_sub(second.height().read(context));
+            }
         }
     }
+    set_word(context, 5, secondary_y);
     let vx = [frame.local::<i16>(-8), frame.local::<i16>(-6)];
     let vy = [frame.local::<i16>(-4), frame.local::<i16>(-2)];
     let dispatcher = context.dispatcher();
@@ -229,19 +246,25 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         ids::GET_PLAYER_CAMERA_VELOCITY,
         CallSite::new(caller + 0xfc),
     )?;
+    // The original TST.B precedes LEA 40(SP),SP.
+    let shared = ram::g_split_screen_enabled(revision).read(context) == 0;
     secondary.release(context)?;
     primary.release(context)?;
 
-    if ram::g_split_screen_enabled(revision).read(context) == 0
+    if shared
         && ram::g_player_inventory_open(revision).at(0).read(context) == 0
         && ram::g_player_inventory_open(revision).at(1).read(context) == 0
         && ram::g_player_lives(revision).at(0).read(context) >= 0
         && ram::g_player_lives(revision).at(1).read(context) >= 0
     {
-        let v0 = vx[0].read(context);
-        let v1 = vx[1].read(context);
-        if v0 != 0 || v1 != 0 {
-            let velocity = combined_velocity(v0, v1, primary_x, secondary_x, 50, 270);
+        if vx[0].read(context) != 0 || vx[1].read(context) != 0 {
+            let velocity = combined_velocity(
+                |index| vx[index].read(context),
+                primary_x,
+                secondary_x,
+                50,
+                270,
+            );
             follow_axis(
                 context,
                 first_x,
@@ -255,10 +278,14 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
                 ],
             )?;
         }
-        let v0 = vy[0].read(context);
-        let v1 = vy[1].read(context);
-        if v0 != 0 || v1 != 0 {
-            let velocity = combined_velocity(v0, v1, primary_y, secondary_y, 40, 158);
+        if vy[0].read(context) != 0 || vy[1].read(context) != 0 {
+            let velocity = combined_velocity(
+                |index| vy[index].read(context),
+                primary_y,
+                secondary_y,
+                40,
+                158,
+            );
             follow_axis(
                 context,
                 first_y,
@@ -276,6 +303,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
     } else if ram::g_player_lives(revision).at(0).read(context) >= 0 {
         let velocity = vx[0].read(context);
         if velocity != 0 {
+            let velocity = vx[0].read(context);
             follow_axis(
                 context,
                 first_x,
@@ -291,6 +319,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         }
         let velocity = vy[0].read(context);
         if velocity != 0 {
+            let velocity = vy[0].read(context);
             follow_axis(
                 context,
                 first_y,
@@ -303,6 +332,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         }
         let velocity = vx[1].read(context);
         if velocity != 0 {
+            let velocity = vx[1].read(context);
             follow_axis(
                 context,
                 second_x,
@@ -318,6 +348,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         }
         let velocity = vy[1].read(context);
         if velocity != 0 {
+            let velocity = vy[1].read(context);
             follow_axis(
                 context,
                 second_y,
@@ -331,6 +362,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
     } else {
         let velocity = vx[1].read(context);
         if velocity != 0 {
+            let velocity = vx[1].read(context);
             follow_axis(
                 context,
                 first_x,
@@ -346,6 +378,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         }
         let velocity = vy[1].read(context);
         if velocity != 0 {
+            let velocity = vy[1].read(context);
             follow_axis(
                 context,
                 first_y,
@@ -361,40 +394,40 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
 }
 
 fn combined_velocity(
-    first: i16,
-    second: i16,
+    mut read: impl FnMut(usize) -> i16,
     primary: i16,
     secondary: i16,
     lower: i16,
     upper: i16,
 ) -> i16 {
-    if first < 0 && second < 0 {
-        if first < second && secondary < upper {
-            first
+    if read(0) < 0 && read(1) < 0 {
+        // The source MOVE of operand 1 precedes CMP's read of operand 0.
+        if read(1) > read(0) && secondary < upper {
+            read(0)
         } else if primary < upper {
-            second
+            read(1)
         } else {
             0
         }
-    } else if first > 0 && second > 0 {
-        if first > second && secondary > lower {
-            first
+    } else if read(0) > 0 && read(1) > 0 {
+        if read(1) < read(0) && secondary > lower {
+            read(0)
         } else if primary > lower {
-            second
+            read(1)
         } else {
             0
         }
     } else {
         let mut combined = 0_i16;
-        if first < 0 && secondary < upper {
-            combined = first;
-        } else if second < 0 && primary < upper {
-            combined = second;
+        if read(0) < 0 && secondary < upper {
+            combined = read(0);
+        } else if read(1) < 0 && primary < upper {
+            combined = read(1);
         }
-        if first > 0 && secondary > lower {
-            combined = combined.wrapping_add(first);
-        } else if second > 0 && primary > lower {
-            combined = combined.wrapping_add(second);
+        if read(0) > 0 && secondary > lower {
+            combined = combined.wrapping_add(read(0));
+        } else if read(1) > 0 && primary > lower {
+            combined = combined.wrapping_add(read(1));
         }
         combined
     }
@@ -412,6 +445,7 @@ fn follow_axis(
     let next = fixed.read(context).wrapping_add(i32::from(velocity));
     fixed.write(context, next);
     let target = (fixed.read(context) >> 8) as i16;
+    set_word(context, 3, target);
     let mut blocked = false;
     while target > position.read(context) {
         // All movement sites are absolute-long JSR (six bytes); offsets above
@@ -423,6 +457,7 @@ fn follow_axis(
             CallSite::new(caller + sites[0].1),
         )? as i16
             != 0;
+        set_word(context, 2, i16::from(blocked));
         if blocked {
             break;
         }
@@ -435,6 +470,7 @@ fn follow_axis(
             CallSite::new(caller + sites[1].1),
         )? as i16
             != 0;
+        set_word(context, 2, i16::from(blocked));
         if blocked {
             break;
         }
@@ -446,9 +482,29 @@ fn follow_axis(
     Ok(())
 }
 
+fn set_word(context: &mut dyn Context, register: usize, value: i16) {
+    let high = context.data_register(register) & 0xffff0000;
+    context.set_data_register(register, high | u32::from(value as u16));
+}
+
 #[cfg(test)]
 mod tests {
-    use super::combined_velocity;
+    fn combined_velocity(
+        first: i16,
+        second: i16,
+        primary: i16,
+        secondary: i16,
+        lower: i16,
+        upper: i16,
+    ) -> i16 {
+        super::combined_velocity(
+            |index| [first, second][index],
+            primary,
+            secondary,
+            lower,
+            upper,
+        )
+    }
 
     #[test]
     fn shared_velocity_preserves_sign_gates_and_edge_asymmetry() {
@@ -459,5 +515,81 @@ mod tests {
         assert_eq!(combined_velocity(-300, 200, 160, 160, 50, 270), -100);
         assert_eq!(combined_velocity(300, -200, 160, 160, 50, 270), 100);
         assert_eq!(combined_velocity(-300, 200, 50, 270, 50, 270), 0);
+    }
+
+    #[test]
+    fn combined_velocity_preserves_short_circuit_and_cmp_operand_reads() {
+        for (values, expected_reads, expected) in [
+            ([-200, -100], &[0, 1, 1, 0, 0][..], -200),
+            ([-100, -200], &[0, 1, 1, 0, 1][..], -200),
+            ([100, 200], &[0, 0, 1, 1, 0, 1][..], 200),
+            ([-300, 200], &[0, 1, 0, 0, 0, 0, 1, 1][..], -100),
+            ([300, -200], &[0, 0, 1, 0, 1, 1, 0, 0][..], 100),
+        ] {
+            let mut reads = Vec::new();
+            let actual = super::combined_velocity(
+                |index| {
+                    reads.push(index);
+                    values[index]
+                },
+                160,
+                160,
+                50,
+                270,
+            );
+            assert_eq!(actual, expected);
+            assert_eq!(reads, expected_reads);
+        }
+    }
+
+    #[test]
+    fn flight_comparisons_read_partner_y_before_player_y() {
+        use super::super::movement::tests::{Access, Machine};
+        use tje_mem::{Revision, ram};
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let mut machine = Machine::new(revision);
+            let first = ram::g_player_info(revision).at(0);
+            let second = ram::g_player_info(revision).at(1);
+            for (entity, y) in [(first, 100), (second, 200)] {
+                entity.x().write(&mut machine.memory, 200);
+                entity.y().write(&mut machine.memory, y);
+                entity.height().write(&mut machine.memory, 16);
+                entity.height_pixels().write(&mut machine.memory, 32);
+                entity
+                    .animation_group_mask()
+                    .write(&mut machine.memory, 0x04000000);
+            }
+            for player in 0..2 {
+                ram::g_player_lives(revision)
+                    .at(player)
+                    .write(&mut machine.memory, 3);
+            }
+            super::update_camera_following(&mut machine, &[]).unwrap();
+            let accesses = machine.main_accesses();
+            let expected = [
+                Access::Read(first.x().address(), 2),
+                Access::Read(ram::g_camera1_pending_x(revision).address(), 2),
+                Access::Read(first.y().address(), 2),
+                Access::Read(ram::g_camera1_pending_y(revision).address(), 2),
+                Access::Read(first.height_pixels().address(), 1),
+                Access::Read(second.x().address(), 2),
+                Access::Read(ram::g_camera2_pending_x(revision).address(), 2),
+                Access::Read(second.y().address(), 2),
+                Access::Read(ram::g_camera2_pending_y(revision).address(), 2),
+                Access::Read(second.height_pixels().address(), 1),
+                Access::Read(first.height().address(), 2),
+                Access::Read(first.animation_group_mask().address(), 4),
+                Access::Read(ram::g_split_screen_enabled(revision).address(), 1),
+                Access::Read(second.y().address(), 2),
+                Access::Read(first.y().address(), 2),
+                Access::Read(first.height().address(), 2),
+                Access::Read(second.height().address(), 2),
+                Access::Read(second.animation_group_mask().address(), 4),
+                Access::Read(ram::g_split_screen_enabled(revision).address(), 1),
+                Access::Read(first.y().address(), 2),
+                Access::Read(second.y().address(), 2),
+            ];
+            assert_eq!(&accesses[..expected.len()], expected);
+        }
     }
 }
