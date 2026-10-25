@@ -103,7 +103,10 @@ Playtest reports omit replayable input recordings during netplay because earlier
 predictions can be revised.
 
 `tje-netplay` contains ROM-free delayed/lossy/reordered two-peer and real UDP
-tests. The native library also has ignored **production-engine** tests, comparing
+tests. The real-socket unit test uses a monotonic 10-second deadline, yields to
+kernel delivery, and drains late input until both peers confirm all 120 frames;
+only the simulated-delivery tests use a virtual clock. The native library also
+has ignored **production-engine** tests, comparing
 canonical final bytes (CPU, all hardware, framebuffer and exact stereo sample
 bits) to the no-latency run of the existing two-player recording:
 

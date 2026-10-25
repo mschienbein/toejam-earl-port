@@ -136,6 +136,13 @@ pub enum Error {
         entry: FunctionId,
         cause: Box<Error>,
     },
+    /// A compiled callee in the unclocked extras bridge failed with its actual
+    /// frame live. This grants no timing, transfer or production-body authority.
+    #[cfg(feature = "enhanced-mode")]
+    EnhancedExecutionFailure {
+        entry: FunctionId,
+        cause: Box<Error>,
+    },
     /// A deliberate non-RTS exit. Callers propagate it without running cleanup.
     ControlTransfer(exits::ControlTransfer),
     OpenBus(open_bus::OpenBusError),
@@ -193,6 +200,12 @@ impl fmt::Display for Error {
                 "timed execution of {} failed: {cause}",
                 entry.metadata().name,
             ),
+            #[cfg(feature = "enhanced-mode")]
+            Self::EnhancedExecutionFailure { entry, cause } => write!(
+                formatter,
+                "enhanced compiled call to {} failed: {cause}",
+                entry.metadata().name,
+            ),
             Self::ControlTransfer(transfer) => write!(
                 formatter,
                 "control transfer from {}: {:?}",
@@ -210,6 +223,8 @@ impl std::error::Error for Error {
             Self::Clock(error) | Self::ClockAfterTransfer { error, .. } => Some(error),
             Self::CleanupAfterTransfer { error, .. } => Some(error.as_ref()),
             Self::TimingExecutionFailure { cause, .. } => Some(cause.as_ref()),
+            #[cfg(feature = "enhanced-mode")]
+            Self::EnhancedExecutionFailure { cause, .. } => Some(cause.as_ref()),
             _ => None,
         }
     }
@@ -237,12 +252,14 @@ impl From<execution::CallClockError> for Error {
 impl Error {
     /// Already-failed execution keeps its first cause and actual frame.
     pub fn is_failed_execution(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::ClockAfterTransfer { .. }
-                | Self::CleanupAfterTransfer { .. }
-                | Self::TimingExecutionFailure { .. }
-        )
+            | Self::CleanupAfterTransfer { .. }
+            | Self::TimingExecutionFailure { .. } => true,
+            #[cfg(feature = "enhanced-mode")]
+            Self::EnhancedExecutionFailure { .. } => true,
+            _ => false,
+        }
     }
 
     /// Ordinary errors may unwind diagnostic bookkeeping. Nonlocal transfers

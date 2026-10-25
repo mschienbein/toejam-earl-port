@@ -53,6 +53,7 @@ fn shipping_release_graph_contains_no_68000_or_development_fallback() {
             "oracle",
             "browser-proof",
             "call-window-proofs",
+            "enhanced-mode",
         ] {
             assert!(
                 !graph.contains(forbidden),

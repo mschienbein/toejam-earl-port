@@ -11,6 +11,8 @@ default = ["devices"]
 devices = ["dep:tje-native-platform", "dep:genesis-config", "dep:jgenesis-common"]
 # Non-shipping structural evidence. It cannot invoke or certify a source root.
 call-window-proofs = ["devices"]
+# Non-cycle-exact gameplay replacements; faithful scheduling stays independent.
+enhanced-mode = ["devices", "tje-game/enhanced-mode"]
 
 [dependencies]
 bincode = "2"

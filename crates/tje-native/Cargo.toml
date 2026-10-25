@@ -10,6 +10,10 @@ rust-version.workspace = true
 name = "toejam-earl"
 path = "src/main.rs"
 
+[features]
+default = []
+enhanced-mode = ["tje-engine-runtime/enhanced-mode"]
+
 [dependencies]
 anyhow = "1"
 bytemuck = "1"

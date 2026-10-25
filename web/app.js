@@ -262,6 +262,7 @@ async function loadCartridge(bytes, name, origin) {
     // emission. Cache hits never enter that lazy generation path.
     await new Promise(resolve => setTimeout(resolve, 0));
     const cartridge = await CompiledCartridge.load(new Uint8Array(bytes), audio.context?.sampleRate ?? 48000, compiling);
+    cartridge.set_enhanced_debug(new URLSearchParams(location.search).get('enhanced-debug') === '1');
     revision = game.install(cartridge);
     source = origin;
     loaded = true;
@@ -275,7 +276,7 @@ async function loadCartridge(bytes, name, origin) {
     engineWarning = compilation.storageError ? ` Compiled-code cache unavailable: ${compilation.storageError}. This visit can still play.` : '';
     const code = compilation.cacheHit ? 'verified engine cache loaded'
       : compilation.storageError ? 'engine generated for this visit; code cache unavailable' : 'engine generated and cached locally';
-    $('cartridge').textContent = `${revision} · ${name} · ${origin === 'stored' ? 'remembered cartridge' : 'imported locally'} · ${code}`;
+    $('cartridge').textContent = `${revision} · ${name} · ${origin === 'stored' ? 'remembered cartridge' : 'imported locally'} · ${code} · ${game.profile_id()}`;
     resize();
     if (origin === 'stored') {
       status(`${revision} ready from this browser’s storage. Click Play; no file selection is needed.${storageWarning}${engineWarning}`, 'ready');

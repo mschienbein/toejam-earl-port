@@ -46,6 +46,8 @@ pub struct NativeBackend {
     engine: Engine,
     revision: Revision,
     sample_rate: u32,
+    #[cfg(feature = "enhanced-mode")]
+    enhanced: tje_engine_runtime::enhanced::EnhancedMode,
 }
 
 impl NativeBackend {
@@ -60,6 +62,8 @@ impl NativeBackend {
             engine,
             revision,
             sample_rate: 48_000,
+            #[cfg(feature = "enhanced-mode")]
+            enhanced: Default::default(),
         })
     }
 
@@ -68,6 +72,24 @@ impl NativeBackend {
     }
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+    pub fn profile_id(&self) -> &'static str {
+        #[cfg(feature = "enhanced-mode")]
+        return self.enhanced.profile_id();
+        #[cfg(not(feature = "enhanced-mode"))]
+        "faithful"
+    }
+    /// Select only at cartridge load/reset, never halfway through an invocation.
+    #[cfg(feature = "enhanced-mode")]
+    pub fn set_enhanced_debug(&mut self, enabled: bool) -> Result<()> {
+        use tje_engine_runtime::enhanced::{DEBUG_PROFILE, EnhancedMode};
+        self.enhanced = if enabled {
+            EnhancedMode::new(DEBUG_PROFILE, self.revision)?
+        } else {
+            EnhancedMode::default()
+        };
+        self.enhanced.reset(&mut self.engine);
+        Ok(())
     }
     pub fn rom_bytes(&self) -> &[u8] {
         self.engine.devices().memory().rom()
@@ -115,18 +137,34 @@ pub fn genesis_inputs(controllers: Controllers) -> GenesisInputs {
 }
 
 impl GameBackend for NativeBackend {
+    fn profile_id(&self) -> &'static str {
+        NativeBackend::profile_id(self)
+    }
     fn snapshot(&self) -> Result<MachineSnapshot> {
-        Ok(self.engine.snapshot()?)
+        #[cfg(feature = "enhanced-mode")]
+        ensure!(
+            !self.enhanced.is_failed(),
+            "reset or restore a valid save before capturing failed enhanced execution"
+        );
+        Ok(self.engine.snapshot_with_profile(self.profile_id())?)
     }
     fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()> {
-        self.engine.restore(snapshot)?;
+        let profile = self.profile_id();
+        self.engine.restore_with_profile(snapshot, profile)?;
         if self.engine.devices().audio_sample_rate() != self.sample_rate {
             self.engine.set_audio_sample_rate(self.sample_rate)?;
         }
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced.after_restore();
         Ok(())
     }
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]> {
         self.engine.devices_mut().clear_trace();
+        #[cfg(feature = "enhanced-mode")]
+        return Ok(self
+            .enhanced
+            .play_frame(&mut self.engine, genesis_inputs(controllers))?);
+        #[cfg(not(feature = "enhanced-mode"))]
         Ok(self.engine.play_frame(genesis_inputs(controllers))?)
     }
 
@@ -147,6 +185,9 @@ impl GameBackend for NativeBackend {
         Ok(())
     }
     fn reset(&mut self) {
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced.reset(&mut self.engine);
+        #[cfg(not(feature = "enhanced-mode"))]
         self.engine.reset();
     }
     fn status(&self) -> Status {

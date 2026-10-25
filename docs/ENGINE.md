@@ -642,6 +642,85 @@ proofs do not prove arbitrary callback game effects, all ISA/ISR source bodies,
 or promote the exemplar into the production registry. Busy controller loops
 and ISR wrappers retain their own complete source-region/closure obligations.
 
+## Opt-in enhanced gameplay
+
+The non-default Cargo feature `enhanced-mode` exposes
+`tje_engine_runtime::enhanced::{EnhancedProfile, EnhancedMode}`. This is a
+deliberately **non-cycle-exact mod driver**, not an additional proof profile.
+The faithful `Machine::step`/`play_frame` implementations do not consult it,
+and both frontend features and runtime selection default off.
+
+`EnhancedProfile::new(id, values, frames)` takes a versioned static identity and
+separate slices of `tje_game::Translation` and `FramedTranslation`. Only those
+explicit entries participate: `Dispatcher::hybrid_with_frames` does **not**
+include the proven subsystem tables. `EnhancedMode::new(profile, revision)`
+rejects ambiguous/duplicate entries, empty selections, TimeAware functions and
+non-RTS exits before execution. Its `step(&mut Engine<B>, inputs)` and
+`play_frame(&mut Engine<B>, inputs)` keep the original engine and backend intact.
+
+At a ready compiled function entry, after owed waits/interrupts have priority,
+the callback borrows the **live** CPU registers, banked stacks, RAM/ROM and
+devices through the existing readable `Context`. Prepared stack slots supply
+arguments; no CPU/device snapshot or second argument/return-address frame is
+manufactured. RAM accesses reuse typed views. Functional MMIO uses the existing
+immediate facade, removing transaction latency but retaining ordered device
+effects. `call_at`/`call_at_void` can call unselected compiled originals; actual
+internal entry boundaries redispatch selected replacements, including recursion.
+No emulator, reference CPU or instruction interpreter is used.
+
+This reuses the readable dispatch/physical-frame architecture studied in
+`NativeCompiledOriginalCallees`, but does not reuse or mint its timing admission,
+source completion, CallClock grants or proof receipts. Ordinary callbacks must
+terminate and restore their entry stack/return address. The driver performs a
+synthetic 16-cycle RTS-sized return and real device progress, preserving returned
+registers/CCR and never cleaning caller arguments. Nested compiled calls retain
+their real instruction/IRQ/device scheduling. Frame events from those calls
+remain visible to the frontend. Such execution is deterministic but **not**
+timing-equivalent to the cartridge. Callback errors retain actual failed state,
+never fall back/retry, and require reset or a valid same-profile restore before
+further enhanced execution.
+Compiled-callee errors carry the feature-gated
+`tje_game::Error::EnhancedExecutionFailure`, so readable outgoing-frame cleanup
+cannot rewrite the failing PC/SP or erase a nested first cause. This marker
+grants no timing/transfer/proven-body authority. Callbacks own their register ABI
+and any normal Rust-side local cleanup; the driver does not restore a saved CPU.
+
+Limits: no blocking/yielding Rust callbacks, no TimeAware callees, nonlocal
+transfers, RTE overrides, or deterministic sidecar state. Nested compiled work
+has a shared million-step/32-depth operational ceiling, not a timing claim;
+arbitrary Rust code must itself be bounded. Compiled child calls are synchronous;
+long bulk work is not suitable for a per-frame callback without a resumable API.
+Callbacks must keep persistent state in borrowed RAM/devices, not hidden mutable
+statics, host clocks or nondeterministic I/O/RNG.
+Profile identity is external to CPU state. Both frontends bind save/restore and
+rewind through `snapshot_with_profile`/`restore_with_profile`; a different profile
+rejects before mutation. State hashes include that profile binding. Direct engine
+snapshot users must supply the selected profile themselves (ordinary `snapshot`
+means faithful). Only a successful checked restore releases the driver failure
+latch. More players, Maker state and resumable logic require additional explicit
+state/scheduling APIs; enhanced netplay is not enabled by this foundation.
+
+The harmless `DEBUG_PROFILE` (`debug-text-background-v1`) calls the readable
+text-background helper and changes that panel's colour to newly chosen magenta.
+No ROM palette asset is stored. To opt in natively:
+
+```sh
+cargo run --locked -p tje-native --features enhanced-mode -- --rom /private/game.bin --enhanced-debug
+```
+
+For the browser, build with `TJE_ENHANCED=1 bash web/build.sh`, serve locally,
+and open `/?enhanced-debug=1`. Without the query flag it remains faithful; a
+standard build rejects the flag before replacing the current cartridge. The
+cartridge label displays the profile. Generated native/Wasm code caches remain
+unchanged because replacements are selected after compiled code dispatch.
+
+ROM-free registry/native tests cover separation, arguments, live registers/RAM/
+VDP, single return, nested compiled→Rust redispatch and fail-closed callbacks.
+Private ignored tests in `tje-engine-cranelift/tests/enhanced.rs` compare both
+revision one-player recordings with selection off against ordinary engine
+playback, printing identical video/audio SHA-256 hashes. A separate 1,200-frame
+menu/gameplay test checks enabled-mode determinism, magenta CRAM and frame pacing.
+
 ## Frontend playback
 
 `Engine<B>::from_devices(DeviceRuntime, B)` reads the reset vectors and initial

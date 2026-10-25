@@ -62,6 +62,10 @@ struct Args {
     /// Import a user's .bin/.md/.gen/.smd/.zip cartridge; later launches use the stored copy.
     #[arg(long)]
     rom: Option<PathBuf>,
+    /// Opt into the non-cycle-exact magenta text-panel demonstration.
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, conflicts_with = "replay_report")]
+    enhanced_debug: bool,
     /// Override the OS-specific per-user data directory (also useful for isolated test sessions).
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -448,6 +452,11 @@ impl App {
         let loading = self.loading.take().unwrap();
         match result {
             Ok(mut backend) => {
+                #[cfg(feature = "enhanced-mode")]
+                if self.args.enhanced_debug {
+                    backend.set_enhanced_debug(true)?;
+                }
+                println!("PROFILE {}", backend.profile_id());
                 if loading.store {
                     self.storage.store_rom(backend.rom_bytes())?;
                 }

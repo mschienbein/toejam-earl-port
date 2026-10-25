@@ -45,6 +45,15 @@ impl WebGame {
         if self.netplay.is_some() {
             return Err(js_error("disconnect the current netplay session first"));
         }
+        if self
+            .cartridge
+            .as_ref()
+            .is_some_and(|cartridge| cartridge.profile_id() != "faithful")
+        {
+            return Err(js_error(
+                "netplay currently requires faithful simulation; disable enhanced-debug before connecting",
+            ));
+        }
         let token: [u8; 16] = token
             .try_into()
             .map_err(|_| js_error("invalid connection capability"))?;
@@ -66,7 +75,7 @@ impl WebGame {
             protocol: PROTOCOL_VERSION,
             engine: format!("{ENGINE_VERSION}:{}", env!("CARGO_PKG_VERSION")),
             rom_sha1: cartridge.revision.sha1().into(),
-            mode: "faithful".into(),
+            mode: cartridge.profile_id().into(),
             sample_rate: self.sample_rate,
             config,
             initial_state: cartridge.engine.snapshot().map_err(js_error)?.state_hash(),

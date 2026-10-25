@@ -58,6 +58,8 @@ pub struct CompiledCartridge {
     engine: Engine<BrowserBackend>,
     revision: Revision,
     sample_rate: u32,
+    #[cfg(feature = "enhanced-mode")]
+    enhanced: tje_engine_runtime::enhanced::EnhancedMode,
 }
 
 #[wasm_bindgen]
@@ -99,7 +101,35 @@ impl CompiledCartridge {
             engine,
             revision,
             sample_rate,
+            #[cfg(feature = "enhanced-mode")]
+            enhanced: Default::default(),
         })
+    }
+
+    /// Explicit load-time flag; unchanged false never resets faithful state.
+    /// Validate before installing so an unavailable feature preserves the old game.
+    pub fn set_enhanced_debug(&mut self, enabled: bool) -> Result<(), JsValue> {
+        #[cfg(feature = "enhanced-mode")]
+        {
+            use tje_engine_runtime::enhanced::{DEBUG_PROFILE, EnhancedMode};
+            if enabled {
+                self.enhanced =
+                    EnhancedMode::new(DEBUG_PROFILE, self.revision).map_err(js_error)?;
+                self.enhanced.reset(&mut self.engine);
+            } else if self.enhanced.profile_id() != "faithful" {
+                self.enhanced = EnhancedMode::default();
+                self.enhanced.reset(&mut self.engine);
+            }
+            Ok(())
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        if enabled {
+            Err(js_error(
+                "this build has no enhanced-mode feature; rebuild with TJE_ENHANCED=1",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Forget every compiled configuration/version for the accepted cartridge.
@@ -125,6 +155,37 @@ impl CompiledCartridge {
                     .map_err(js_error)?;
             }
         }
+        Ok(())
+    }
+}
+
+impl CompiledCartridge {
+    fn profile_id(&self) -> &'static str {
+        #[cfg(feature = "enhanced-mode")]
+        return self.enhanced.profile_id();
+        #[cfg(not(feature = "enhanced-mode"))]
+        "faithful"
+    }
+
+    fn snapshot_state(&self) -> Result<MachineSnapshot, JsValue> {
+        #[cfg(feature = "enhanced-mode")]
+        if self.enhanced.is_failed() {
+            return Err(js_error(
+                "reset or restore a valid save before capturing failed enhanced execution",
+            ));
+        }
+        self.engine
+            .snapshot_with_profile(self.profile_id())
+            .map_err(js_error)
+    }
+
+    fn restore_state(&mut self, image: &MachineSnapshot) -> Result<(), JsValue> {
+        let profile = self.profile_id();
+        self.engine
+            .restore_with_profile(image, profile)
+            .map_err(js_error)?;
+        #[cfg(feature = "enhanced-mode")]
+        self.enhanced.after_restore();
         Ok(())
     }
 }
@@ -165,6 +226,8 @@ impl WebGame {
     }
 
     pub fn install(&mut self, cartridge: CompiledCartridge) -> String {
+        // A cartridge/profile change ends the peer's simulation identity.
+        self.netplay = None;
         let revision = cartridge.revision.name().to_owned();
         self.sample_rate = cartridge.sample_rate;
         self.cartridge = Some(cartridge);
@@ -175,6 +238,13 @@ impl WebGame {
         revision
     }
 
+    pub fn profile_id(&self) -> String {
+        self.cartridge
+            .as_ref()
+            .map_or("faithful", CompiledCartridge::profile_id)
+            .into()
+    }
+
     /// Release the generated instance/table entry before asynchronous cache
     /// removal. No self borrow is retained by the subsequent forgetting future.
     pub fn unload(&mut self) -> Option<String> {
@@ -182,6 +252,7 @@ impl WebGame {
             .cartridge
             .as_ref()
             .map(|cartridge| cartridge.revision.sha1().to_owned());
+        self.netplay = None;
         self.cartridge = None;
         self.audio.clear();
         if let Some(rewind) = &mut self.rewind {
@@ -224,7 +295,7 @@ impl WebGame {
             .cartridge
             .as_ref()
             .ok_or_else(|| js_error("import a ROM first"))?;
-        Ok(cartridge.engine.snapshot().map_err(js_error)?.into_bytes())
+        Ok(cartridge.snapshot_state()?.into_bytes())
     }
 
     pub fn restore(&mut self, bytes: Vec<u8>) -> Result<(), JsValue> {
@@ -234,7 +305,7 @@ impl WebGame {
         let image = MachineSnapshot::from_bytes(bytes).map_err(js_error)?;
         let rate = self.sample_rate;
         let cartridge = self.cartridge_mut()?;
-        cartridge.engine.restore(&image).map_err(js_error)?;
+        cartridge.restore_state(&image)?;
         if cartridge.engine.devices().audio_sample_rate() != rate {
             cartridge
                 .engine
@@ -253,12 +324,7 @@ impl WebGame {
             .cartridge
             .as_ref()
             .ok_or_else(|| js_error("import a ROM first"))?;
-        Ok(cartridge
-            .engine
-            .snapshot()
-            .map_err(js_error)?
-            .state_hash()
-            .to_vec())
+        Ok(cartridge.snapshot_state()?.state_hash().to_vec())
     }
 
     pub fn set_rewind(&mut self, enabled: bool) {
@@ -284,7 +350,7 @@ impl WebGame {
         else {
             return Ok(false);
         };
-        cartridge.engine.restore(&image).map_err(js_error)?;
+        cartridge.restore_state(&image)?;
         if cartridge.engine.devices().audio_sample_rate() != self.sample_rate {
             cartridge
                 .engine
@@ -301,7 +367,11 @@ impl WebGame {
                 "disconnect netplay before resetting the cartridge",
             ));
         }
-        self.cartridge_mut()?.engine.reset();
+        let cartridge = self.cartridge_mut()?;
+        #[cfg(feature = "enhanced-mode")]
+        cartridge.enhanced.reset(&mut cartridge.engine);
+        #[cfg(not(feature = "enhanced-mode"))]
+        cartridge.engine.reset();
         #[cfg(feature = "replay-observer")]
         self.cartridge_mut()?.engine.devices_mut().enable_trace();
         self.audio.clear();
@@ -324,6 +394,12 @@ impl WebGame {
             .ok_or_else(|| js_error("import a ROM first"))?;
         #[cfg(feature = "replay-observer")]
         cartridge.engine.devices_mut().clear_trace();
+        #[cfg(feature = "enhanced-mode")]
+        let samples = cartridge
+            .enhanced
+            .play_frame(&mut cartridge.engine, input::inputs(p1, p2, p2_connected))
+            .map_err(js_error)?;
+        #[cfg(not(feature = "enhanced-mode"))]
         let samples = cartridge
             .engine
             .play_frame(input::inputs(p1, p2, p2_connected))
@@ -337,7 +413,7 @@ impl WebGame {
         if let Some(rewind) = &mut self.rewind
             && cartridge.engine.frame_count().is_multiple_of(3)
         {
-            rewind.push(cartridge.engine.snapshot().map_err(js_error)?);
+            rewind.push(cartridge.snapshot_state()?);
         }
         Ok(())
     }

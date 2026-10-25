@@ -4,6 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+# Failure-frame preservation for the deliberately unclocked extras bridge only.
+enhanced-mode = []
+
 [dependencies]
 tje-mem = { path = "../tje-mem" }
 

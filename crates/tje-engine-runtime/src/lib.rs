@@ -8,6 +8,9 @@ pub mod abi;
 pub mod portable_timing;
 pub mod timing_region;
 
+#[cfg(feature = "enhanced-mode")]
+pub mod enhanced;
+
 mod exception;
 
 #[cfg(feature = "devices")]
@@ -68,8 +71,17 @@ pub enum StepKind {
     Reset,
     Halted,
     Stopped,
-    InterruptAdmission { level: u8 },
-    InterruptAcknowledge { level: u8 },
+    InterruptAdmission {
+        level: u8,
+    },
+    InterruptAcknowledge {
+        level: u8,
+    },
+    /// A deliberate gameplay replacement, never original-instruction coverage.
+    #[cfg(feature = "enhanced-mode")]
+    EnhancedOverride {
+        function: tje_game::FunctionId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

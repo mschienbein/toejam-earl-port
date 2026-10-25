@@ -10,6 +10,7 @@ description = "Native cycle-exact continuation compiler and verified local machi
 [features]
 default = ["devices"]
 devices = ["dep:tje-native-platform", "dep:tje-mem", "dep:tje-rom", "dep:genesis-config", "dep:sha1", "tje-engine-runtime/devices"]
+enhanced-mode = ["devices", "tje-engine-runtime/enhanced-mode"]
 
 [[example]]
 name = "first_launch"

@@ -24,6 +24,7 @@ export function checkDependencies() {
     assert(!/\bgenesis-core v[^\n]*\[[^\]]*\bemulator\b/.test(tree.stdout), 'vendored peripheral types must not enable their 68000 emulator feature');
     assert(!/browser-proof|reference-export/.test(tree.stdout), 'browser oracle features must never be enabled');
     if (!observer) assert(!/replay-observer/.test(tree.stdout), 'release graph must not contain replay observers');
+    assert(!/\benhanced-mode\b/.test(tree.stdout), 'default shipping/replay graphs must not select gameplay replacements');
     assert(tree.stdout.includes('tje-engine-wasmgen v'), 'the real compiled engine must be linked');
     results.push({ graph: observer ? 'observation-only' : 'shipping', interpreterFree: true });
   }

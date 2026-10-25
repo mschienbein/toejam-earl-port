@@ -12,6 +12,8 @@ default = []
 # Observation only: no reference CPU, oracle, or alternative execution path.
 replay-observer = ["dep:bincode"]
 reference-export = ["dep:bincode"]
+# Deliberate gameplay changes; still requires an explicit per-cartridge flag.
+enhanced-mode = ["tje-engine-runtime/enhanced-mode"]
 
 [[example]]
 name = "replay-reference"

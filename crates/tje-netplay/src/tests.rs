@@ -205,15 +205,22 @@ fn inputs_are_immutable_and_memory_horizon_is_bounded() {
 #[test]
 fn two_local_udp_instances_exchange_inputs_and_hashes() {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
     let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
     let config = Config::default();
     let mut host = udp::Connection::host(identity(config), address, address, 0).unwrap();
     let invitation = udp::Invitation::decode(&host.code().unwrap()).unwrap();
     let mut join = udp::Connection::join(identity(config), address, invitation, 0).unwrap();
     let mut machines = [Toy::default(), Toy::default()];
-    for tick in 0..5000_u64 {
-        host.pump(tick * 17).unwrap();
-        join.pump(tick * 17).unwrap();
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let now_ms = started.elapsed().as_millis() as u64;
+        host.pump(now_ms).unwrap();
+        join.pump(now_ms).unwrap();
         host.peer_mut().reconcile(&mut machines[0]).unwrap();
         join.peer_mut().reconcile(&mut machines[1]).unwrap();
         for (player, connection) in [&mut host, &mut join].into_iter().enumerate() {
@@ -228,11 +235,28 @@ fn two_local_udp_instances_exchange_inputs_and_hashes() {
         if host.peer().stats().confirmed == 120 && join.peer().stats().confirmed == 120 {
             break;
         }
+        // These are real OS sockets, not the virtual delivery queue above.
+        // Yield to kernel delivery and keep pumping after the last local frame
+        // until both peers have received/reconciled all 120 frames.
+        thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(host.peer().stats().confirmed, 120);
     assert_eq!(join.peer().stats().confirmed, 120);
     assert_eq!(
         machines[0].state_hash().unwrap(),
         machines[1].state_hash().unwrap()
+    );
+    let mut reference = Toy::default();
+    for frame in 0..120 {
+        let pads = if frame < u64::from(config.input_delay) {
+            [0; 2]
+        } else {
+            std::array::from_fn(|player| input(player, frame - u64::from(config.input_delay)))
+        };
+        reference.advance(pads).unwrap();
+    }
+    assert_eq!(
+        machines[0].state_hash().unwrap(),
+        reference.state_hash().unwrap()
     );
 }
