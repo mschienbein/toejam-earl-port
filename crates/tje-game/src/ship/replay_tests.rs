@@ -1,6 +1,6 @@
 //! ROM-free access-order regressions. Callees are explicit unit-test doubles;
 //! these tests are not emulator proofs or ReplayedEnvironment evidence.
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::VecDeque};
 
 use crate::{Context, Dispatcher, FunctionId, Result, call_frame::FrameState, execution, ids};
 use tje_mem::{AddressSpace, Bus, Platform, Revision, ram, rom};
@@ -14,6 +14,8 @@ enum Event {
     Write(u32, u8, u32, u32),
     Control(u16, u32),
     Call(FunctionId, Vec<u32>, u32),
+    Wait(execution::WaitRequest),
+    Yield,
 }
 
 struct Machine {
@@ -23,6 +25,11 @@ struct Machine {
     address: [u32; 8],
     frame: FrameState,
     allocated: u32,
+    upload_polls: RefCell<VecDeque<u8>>,
+    input_polls: VecDeque<u32>,
+    transition_frames: VecDeque<u16>,
+    yield_limit: Option<usize>,
+    yields: usize,
 }
 
 impl Machine {
@@ -44,6 +51,11 @@ impl Machine {
             address: [0; 8],
             frame: FrameState::new(SP),
             allocated: 0,
+            upload_polls: RefCell::default(),
+            input_polls: VecDeque::new(),
+            transition_frames: VecDeque::new(),
+            yield_limit: None,
+            yields: 0,
         };
         machine.address[7] = SP;
         machine
@@ -60,6 +72,9 @@ impl Machine {
         if id == ids::ALLOCATE_ENTITY {
             return Ok(self.allocated);
         }
+        if id == ids::READ_MAPPED_PLAYER_INPUT {
+            return Ok(self.input_polls.pop_front().unwrap_or(0));
+        }
         if id == ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES {
             tje_mem::Address::<tje_mem::ObjectState>::new(arguments[0])
                 .draw_flags()
@@ -69,7 +84,8 @@ impl Machine {
             ram::g_frame_counter(self.revision()).write(&mut self.memory, 240);
         }
         if id == ids::ANIMATE_TRANSITION_BACKGROUND {
-            ram::g_frame_counter(self.revision()).write(&mut self.memory, 480);
+            let frame = self.transition_frames.pop_front().unwrap_or(480);
+            ram::g_frame_counter(self.revision()).write(&mut self.memory, frame);
         }
         Ok(0)
     }
@@ -77,7 +93,14 @@ impl Machine {
 
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
-        let value = self.memory.read_u8(address);
+        let value = if address == ram::g_sprite_graphics_upload_pending(self.revision()).address() {
+            self.upload_polls
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or_else(|| self.memory.read_u8(address))
+        } else {
+            self.memory.read_u8(address)
+        };
         self.events
             .borrow_mut()
             .push(Event::Read(address, 1, u32::from(value)));
@@ -125,6 +148,30 @@ impl Platform for Machine {
     fn write_vdp_data(&mut self, _: u16) {}
 }
 impl crate::Platform for Machine {
+    fn wait_until(&mut self, request: execution::WaitRequest) -> Result<()> {
+        let address = ram::g_sprite_graphics_upload_pending(self.revision()).address();
+        assert_eq!(
+            request.condition,
+            execution::WaitCondition::Ram {
+                address,
+                width: execution::RamWidth::Byte,
+                mask: 0xff,
+                value: 0,
+                comparison: execution::WaitComparison::Equal,
+            }
+        );
+        self.events.borrow_mut().push(Event::Wait(request));
+        while self.read_u8(address) != 0 {}
+        Ok(())
+    }
+    fn poll_yield(&mut self) -> Result<()> {
+        self.events.borrow_mut().push(Event::Yield);
+        self.yields += 1;
+        if self.yield_limit == Some(self.yields) {
+            return Err(crate::Error::Platform("unit spin ceiling".into()));
+        }
+        Ok(())
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         let value = self.memory.read_u8(address);
         self.events
@@ -579,5 +626,236 @@ fn ship_and_speech_clr_reads_keep_discarded_purpose_before_zero_stores() {
         record.object().write(&mut c.memory, 6);
         super::ship_piece_ability(&mut c, &[0, record.address()]).unwrap();
         discarded_clear(&c.events.borrow(), record.object().address(), 1, 6);
+    }
+}
+
+#[test]
+fn speech_upload_wait_owns_all_byte_polls_including_the_satisfying_read() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for samples in [&[0_u8][..], &[0x80, 0xff, 0][..]] {
+            let mut c = Machine::new(revision);
+            c.allocated = 6;
+            c.upload_polls.get_mut().extend(samples.iter().copied());
+            ram::g_player_info(revision)
+                .at(0)
+                .draw_flags()
+                .write(&mut c.memory, 3);
+            assert_eq!(
+                crate::speech::generate_speech(&mut c, &[0, 0xfff000, 0]).unwrap(),
+                Some(6)
+            );
+            let pending = ram::g_sprite_graphics_upload_pending(revision).address();
+            let trace: Vec<_> = c
+                .events
+                .borrow()
+                .iter()
+                .filter(|event| match event {
+                    Event::Wait(_) => true,
+                    Event::Read(address, width, _) => {
+                        *address <= pending && pending < *address + u32::from(*width)
+                    }
+                    _ => false,
+                })
+                .cloned()
+                .collect();
+            let mut expected = vec![Event::Wait(execution::WaitRequest::ram_byte_equal(
+                pending, 0xff, 0,
+            ))];
+            expected.extend(
+                samples
+                    .iter()
+                    .map(|&value| Event::Read(pending, 1, u32::from(value))),
+            );
+            assert_eq!(trace, expected);
+            let counter = ram::g_frame_counter(revision).address();
+            assert!(
+                !c.events.borrow().iter().any(
+                    |event| matches!(event, Event::Read(address, _, _) if *address == counter)
+                )
+            );
+            assert_eq!(c.address[7], SP);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AcknowledgementPoll {
+    Counter(u16),
+    Input(u32),
+    Animate,
+    Yield,
+}
+
+fn acknowledgement_polls(c: &Machine) -> Vec<AcknowledgementPoll> {
+    let counter = ram::g_frame_counter(c.revision()).address();
+    c.events
+        .borrow()
+        .iter()
+        .filter_map(|event| match event {
+            Event::Read(address, width, value)
+                if *address <= counter && counter < *address + u32::from(*width) =>
+            {
+                assert_eq!((*address, *width), (counter, 2));
+                Some(AcknowledgementPoll::Counter(*value as u16))
+            }
+            Event::Call(id, args, _) if *id == ids::READ_MAPPED_PLAYER_INPUT => {
+                Some(AcknowledgementPoll::Input(args[0]))
+            }
+            Event::Call(id, _, _) if *id == ids::ANIMATE_SHIP_SCREEN_BACKGROUND => {
+                Some(AcknowledgementPoll::Animate)
+            }
+            Event::Yield => Some(AcknowledgementPoll::Yield),
+            Event::Wait(_) => panic!("compound acknowledgement must not become a single RAM wait"),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn acknowledgement_timeout_keeps_counter_inputs_animation_and_yield_order() {
+    use AcknowledgementPoll::{Animate, Counter, Input, Yield};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Machine::new(revision);
+        c.input_polls.extend([0, 0]);
+        super::wait_for_ship_screen_acknowledgement(&mut c, &[2]).unwrap();
+        assert_eq!(
+            acknowledgement_polls(&c),
+            [Counter(0), Input(0), Input(1), Animate, Yield, Counter(240)],
+        );
+        assert_eq!(c.yields, 1);
+        assert_eq!(c.address[7], SP);
+    }
+}
+
+#[test]
+fn acknowledgement_release_keeps_each_pad_poll_and_ignores_expired_outer_timeout() {
+    use AcknowledgementPoll::{Animate, Counter, Input, Yield};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (player, samples, expected) in [
+            (
+                0,
+                vec![0x10, 0x10, 0],
+                vec![Counter(0), Input(0), Input(0), Animate, Yield, Input(0)],
+            ),
+            (
+                1,
+                vec![0x20, 0x20, 0],
+                vec![Counter(0), Input(1), Input(1), Animate, Yield, Input(1)],
+            ),
+            (
+                2,
+                vec![0, 0x40, 0x40, 0],
+                vec![
+                    Counter(0),
+                    Input(0),
+                    Input(1),
+                    Input(1),
+                    Animate,
+                    Yield,
+                    Input(1),
+                ],
+            ),
+        ] {
+            let mut c = Machine::new(revision);
+            c.input_polls.extend(samples);
+            super::wait_for_ship_screen_acknowledgement(&mut c, &[player]).unwrap();
+            // The animation stub advances the counter to 240 while the pad is
+            // still held. Only the release predicate may end that inner loop.
+            assert_eq!(acknowledgement_polls(&c), expected);
+            assert!(c.input_polls.is_empty());
+            assert_eq!(c.yields, 1);
+            assert_eq!(c.address[7], SP);
+        }
+    }
+}
+
+#[test]
+fn completion_yields_after_literal_stage_work_without_an_extra_frame_poll() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Machine::new(revision);
+        c.transition_frames.extend([0, 480]);
+        super::play_ship_completion_sequence(&mut c, &[0]).unwrap();
+        let counter = ram::g_frame_counter(revision).address();
+        let events = c.events.borrow();
+        let reads: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Read(address, width, value) if *address == counter => Some((*width, *value)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reads, [(2, 0), (2, 480), (2, 480)]);
+        let yield_index = events
+            .iter()
+            .position(|event| matches!(event, Event::Yield))
+            .unwrap();
+        assert_eq!(events[yield_index + 1], Event::Read(counter, 2, 480));
+        assert!(!events.iter().any(|event| matches!(event, Event::Wait(_))));
+        assert_eq!(c.yields, 1);
+        assert_eq!(c.address[7], SP);
+    }
+}
+
+#[test]
+fn uncollected_search_yields_only_after_failed_original_byte_tests() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let assignments = ram::g_ship_piece_level_assignments(revision);
+        let mut c = Machine::new(revision);
+        assignments.at(2).write(&mut c.memory, 7);
+        super::show_random_uncollected_ship_piece(&mut c, &[]).unwrap();
+        let probes: Vec<_> = c
+            .events
+            .borrow()
+            .iter()
+            .filter(|event| match event {
+                Event::Read(address, _, _) => {
+                    (assignments.address()..assignments.address() + 10).contains(address)
+                }
+                Event::Yield => true,
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        assert_eq!(
+            probes,
+            [
+                Event::Read(assignments.at(1).address(), 1, 0),
+                Event::Yield,
+                Event::Read(assignments.at(2).address(), 1, 7),
+            ]
+        );
+        assert!(c.events.borrow().iter().any(|event| matches!(event, Event::Call(id, args, _) if *id == ids::SHOW_SHIP_PIECES && args == &[2, 2])));
+
+        let mut c = Machine::new(revision);
+        c.yield_limit = Some(3);
+        let error = super::show_random_uncollected_ship_piece(&mut c, &[]).unwrap_err();
+        assert!(matches!(error, crate::Error::Platform(message) if message == "unit spin ceiling"));
+        let probes: Vec<_> = c
+            .events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Read(address, 1, _)
+                    if (assignments.address()..assignments.address() + 10).contains(address) =>
+                {
+                    Some(*address)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            probes,
+            [
+                assignments.at(1).address(),
+                assignments.at(2).address(),
+                assignments.at(3).address()
+            ]
+        );
+        assert_eq!(c.yields, 3);
+        assert!(
+            !c.events.borrow().iter().any(
+                |event| matches!(event, Event::Call(id, _, _) if *id == ids::SHOW_SHIP_PIECES)
+            )
+        );
     }
 }

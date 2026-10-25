@@ -159,9 +159,13 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         }
         let flags = bubble.draw_flags().read(context) | 8;
         bubble.draw_flags().write(context, flags);
-        while ram::g_sprite_graphics_upload_pending(revision).read(context) != 0 {
-            context.wait_until(WaitRequest::interrupt())?;
-        }
+        // TST.B/BNE at REV02 01E228 / REV00 01E1E6: the wait owns
+        // every poll, including the satisfying zero byte.
+        context.wait_until(WaitRequest::ram_byte_equal(
+            ram::g_sprite_graphics_upload_pending(revision).address(),
+            0xff,
+            0,
+        ))?;
         let tile = u32::from(bubble.tile().read(context) & 0x7ff);
         let queue = OutgoingArguments::push(context, &[text, i32::from(length) as u32, tile])?;
         queue.call(

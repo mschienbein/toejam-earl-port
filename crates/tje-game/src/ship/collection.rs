@@ -247,6 +247,7 @@ pub fn play_ship_completion_sequence(
                 context.discard_u8(ram::g_requested_music_selection(revision).address())?;
                 ram::g_requested_music_selection(revision).write(context, 0);
             }
+            context.poll_yield()?;
         }
         let blanked = mode.read(context) & 0x3c;
         mode.write(context, blanked);
@@ -375,6 +376,7 @@ pub fn show_random_uncollected_ship_piece(
         {
             break;
         }
+        context.poll_yield()?;
     }
     dispatcher.call_at(
         context,

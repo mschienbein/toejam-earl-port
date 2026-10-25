@@ -466,6 +466,7 @@ pub fn wait_for_ship_screen_acknowledgement(
                                 &[0],
                                 site(if player == 0 { 0x38 } else { 0x72 }),
                             )?;
+                            context.poll_yield()?;
                         }
                         break 'timeout;
                     }
@@ -477,6 +478,7 @@ pub fn wait_for_ship_screen_acknowledgement(
                 &[0],
                 site(0x90),
             )?;
+            context.poll_yield()?;
         }
         Ok(None)
     })();
