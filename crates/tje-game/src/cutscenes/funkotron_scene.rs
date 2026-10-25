@@ -186,12 +186,15 @@ pub fn funkatron_update_scene_entities(
                     let sequence = descriptor.idle_sequence().read(context);
                     object.sequence().write(context, sequence);
                     object.frame().write(context, -1);
-                    object.sprite_state().write(context, 0);
+                    super::ending::clear_byte_instruction(
+                        context,
+                        object.sprite_state().address(),
+                    )?;
                 }
             }
         } else if object_number != 0 {
             call(context, ids::FREE_ENTITY, &[object_number as i32 as u32])?;
-            slot.write(context, 0);
+            super::ending::clear_byte_instruction(context, slot.address())?;
         }
         placement_number = placement_number.wrapping_add(1);
     }

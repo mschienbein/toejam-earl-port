@@ -51,7 +51,7 @@ fn descending_body(context: &mut dyn Context) -> Result<Option<u32>> {
     mode.write(context, current | 64);
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
     let state = ram::g_cutscene_script_state(revision);
-    state.write(context, 0);
+    clear_word_instruction(context, state.address())?;
     while state.read(context) != -1 {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
         match state.read(context) {
@@ -134,7 +134,10 @@ pub fn ending_play_upward_rocketship_departure(
         .address(revision);
     call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
     call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
-    ram::g_requested_music_selection(revision).write(context, 0);
+    clear_byte_instruction(
+        context,
+        ram::g_requested_music_selection(revision).address(),
+    )?;
     let mut character_y = 195_i16;
     let mut character_x = 112_i16;
     let mut move_timer = 15_i16;
@@ -162,7 +165,7 @@ pub fn ending_play_upward_rocketship_departure(
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    state.write(context, 0);
+    clear_word_instruction(context, state.address())?;
     countdown.write(context, 17);
     while state.read(context) != -1 {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
@@ -282,7 +285,7 @@ pub fn ending_play_scrolling_credits(context: &mut dyn Context, _: &[u32]) -> Re
     let countdown = ram::g_cutscene_script_countdown(revision);
     let state = ram::g_cutscene_script_state(revision);
     countdown.write(context, 85);
-    state.write(context, 0);
+    clear_word_instruction(context, state.address())?;
     let mut scroll = 0_i16;
     let mut animation_phase = 0_i16;
     while state.read(context) != -1 {
@@ -419,7 +422,7 @@ pub fn ending_play_dialogue_and_departure(
     let mut mouth_timer = 0_i16;
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    state.write(context, 0);
+    clear_word_instruction(context, state.address())?;
     countdown.write(context, 34);
     while state.read(context) != -1 {
         call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
@@ -557,7 +560,7 @@ pub fn ending_play_dialogue_and_departure(
                         &[character_x as i32 as u32, character_y as i32 as u32],
                     )?;
                     mouth_timer = 4;
-                    event.write(context, 0);
+                    clear_byte_instruction(context, event.address())?;
                 }
                 mouth_timer = mouth_timer.wrapping_sub(1);
                 if mouth_timer == 0 {
@@ -649,6 +652,28 @@ fn increment_word_and_reload<B: tje_mem::Bus + ?Sized>(
     let next = word.read(context).wrapping_add(1);
     word.write(context, next);
     word.read(context)
+}
+
+/// Matching c_ending.s:8,334,440,1171 and c_funkotron_scene.s:277,289:
+/// CLR.B performs a discarded byte read before the zero store.
+pub(super) fn clear_byte_instruction<B: tje_mem::Bus + crate::Platform + ?Sized>(
+    context: &mut B,
+    address: u32,
+) -> Result<()> {
+    context.discard_u8(address)?;
+    context.write_u8(address, 0);
+    Ok(())
+}
+
+/// Matching c_ending.s:18-19,134,470,642,1000,1167: CLR.W uses one
+/// discarded physical word read, never a semantic read or two byte reads.
+fn clear_word_instruction<B: tje_mem::Bus + crate::Platform + ?Sized>(
+    context: &mut B,
+    address: u32,
+) -> Result<()> {
+    context.discard_u16(address)?;
+    context.write_u16(address, 0);
+    Ok(())
 }
 
 /// G/src/cutscenes/ending.c:466 (`EndingPlayBouncingRocketshipScene`).
@@ -783,11 +808,14 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
     ship.release(context)?;
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
     let state = ram::g_cutscene_script_state(revision);
-    state.write(context, 0);
+    clear_word_instruction(context, state.address())?;
     ram::g_cutscene_script_countdown(revision).write(context, 17);
     let movement_frame = frame.local::<i16>(-2);
     while state.read(context) != -1 {
-        ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
+        clear_byte_instruction(
+            context,
+            ram::g_sprite_graphics_upload_pending(revision).address(),
+        )?;
         framed_ending_call(
             context,
             caller,
@@ -969,7 +997,10 @@ fn ending_sequence_body(context: &mut dyn Context) -> Result<Option<u32>> {
     );
     context.set_address_register(3, y.address());
     context.set_address_register(4, x.address());
-    ram::g_requested_music_selection(revision).write(context, 0);
+    clear_byte_instruction(
+        context,
+        ram::g_requested_music_selection(revision).address(),
+    )?;
     let wait = retained_ending_call(context, caller, 0x26, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     let current = mode.read(context);
@@ -977,8 +1008,8 @@ fn ending_sequence_body(context: &mut dyn Context) -> Result<Option<u32>> {
     wait.release(context)?;
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
     framed_ending_call(context, caller, 0x4a, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-    x.write(context, 0);
-    y.write(context, 0);
+    clear_word_instruction(context, x.address())?;
+    clear_word_instruction(context, y.address())?;
     context.write_vdp_control(0x8228);
     context.write_vdp_command(0x4000_0010);
     context.write_vdp_data(y.read(context) as u16);
