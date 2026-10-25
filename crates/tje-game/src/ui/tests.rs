@@ -3,6 +3,13 @@ use crate::{Context, Dispatcher, FunctionId, ids};
 use std::collections::VecDeque;
 use tje_mem::{AddressSpace, Bus, Revision, rom};
 
+#[derive(Debug, PartialEq, Eq)]
+enum DeviceAccess {
+    Semantic(u32, u8),
+    Discarded(u32, u8),
+    Write(u32, u16, u8),
+}
+
 struct Fixture {
     memory: AddressSpace,
     data: [u32; 8],
@@ -11,6 +18,7 @@ struct Fixture {
     reads: VecDeque<(u32, u8)>,
     word_reads: VecDeque<(u32, u16)>,
     writes: Vec<(u32, u16, bool)>,
+    accesses: Vec<DeviceAccess>,
 }
 
 impl Fixture {
@@ -23,6 +31,7 @@ impl Fixture {
             reads: VecDeque::new(),
             word_reads: VecDeque::new(),
             writes: Vec::new(),
+            accesses: Vec::new(),
         }
     }
 
@@ -51,17 +60,28 @@ impl tje_mem::Platform for Fixture {
     }
 }
 impl crate::Platform for Fixture {
+    fn discard_u8(&mut self, address: u32) -> crate::Result<()> {
+        let (expected, _discarded) = self
+            .reads
+            .pop_front()
+            .expect("unexpected discarded byte read");
+        assert_eq!(address, expected);
+        self.accesses.push(DeviceAccess::Discarded(address, 1));
+        Ok(())
+    }
     fn discard_u16(&mut self, address: u32) -> crate::Result<()> {
         let (expected, _discarded) = self
             .word_reads
             .pop_front()
             .expect("unexpected discarded word read");
         assert_eq!(address, expected);
+        self.accesses.push(DeviceAccess::Discarded(address, 2));
         Ok(())
     }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         let (expected, value) = self.reads.pop_front().expect("unexpected device read");
         assert_eq!(address, expected);
+        self.accesses.push(DeviceAccess::Semantic(address, 1));
         value
     }
     fn read_device_u16(&mut self, address: u32) -> u16 {
@@ -70,13 +90,17 @@ impl crate::Platform for Fixture {
             .pop_front()
             .expect("unexpected word device read");
         assert_eq!(address, expected);
+        self.accesses.push(DeviceAccess::Semantic(address, 2));
         value
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
         self.writes.push((address, u16::from(value), false));
+        self.accesses
+            .push(DeviceAccess::Write(address, u16::from(value), 1));
     }
     fn write_device_u16(&mut self, address: u32, value: u16) {
         self.writes.push((address, value, true));
+        self.accesses.push(DeviceAccess::Write(address, value, 2));
     }
 }
 impl Context for Fixture {
@@ -401,43 +425,60 @@ fn selected_slot_narrows_but_selector_retreats_in_place() {
 }
 
 #[test]
-fn controller_presence_preserves_widths_order_and_early_exit() {
-    for (first, second, expected) in [(15, 15, 0), (0, 15, 0), (0, 0, 1)] {
-        let mut c = Fixture::new(Revision::Rev02);
-        for (data, control, value) in [(0xa10003, 0xa10009, first)]
-            .into_iter()
-            .chain((first != 15).then_some((0xa10005, 0xa1000b, second)))
-        {
-            c.reads.extend([
-                (data, 0x77),
-                (data, value),
-                (control, 0x40),
-                (data, 0x77),
-                (data, value),
-            ]);
+fn controller_presence_tags_discarded_clr_reads_without_changing_detection() {
+    use DeviceAccess::{Discarded, Semantic, Write};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (first, second, expected) in [
+            (15, 15, 0),
+            (0, 15, 0),
+            (0, 0, 1),
+            (0xff, 0, 0),
+            (0x80, 0x80, 1),
+            (0, 0xff, 0),
+        ] {
+            for poison in [0, 0xff] {
+                let mut c = Fixture::new(revision);
+                let mut expected_accesses = vec![Write(0xa11100, 0x100, 2)];
+                let mut expected_writes = vec![(0xa11100, 0x100, true)];
+                for (data, control, value) in [(0xa10003, 0xa10009, first)]
+                    .into_iter()
+                    .chain((first & 15 != 15).then_some((0xa10005, 0xa1000b, second)))
+                {
+                    c.reads.extend([
+                        (data, poison),
+                        (data, value),
+                        (control, poison),
+                        (data, poison),
+                        (data, value),
+                    ]);
+                    expected_accesses.extend([
+                        Write(control, 0x40, 1),
+                        Discarded(data, 1),
+                        Write(data, 0, 1),
+                        Semantic(data, 1),
+                        Discarded(control, 1),
+                        Write(control, 0, 1),
+                        Discarded(data, 1),
+                        Write(data, 0, 1),
+                        Semantic(data, 1),
+                    ]);
+                    expected_writes.extend([
+                        (control, 0x40, false),
+                        (data, 0, false),
+                        (control, 0, false),
+                        (data, 0, false),
+                    ]);
+                }
+                c.word_reads.push_back((0xa11100, 0xffff));
+                expected_accesses.extend([Discarded(0xa11100, 2), Write(0xa11100, 0, 2)]);
+                expected_writes.push((0xa11100, 0, true));
+                assert_eq!(c.call(ids::ARE_BOTH_CONTROLLERS_CONNECTED, &[]), expected);
+                assert!(c.reads.is_empty());
+                assert!(c.word_reads.is_empty());
+                assert_eq!(c.accesses, expected_accesses);
+                assert_eq!(c.writes, expected_writes);
+            }
         }
-        c.word_reads.push_back((0xa11100, 0x100));
-        let id = ids::ARE_BOTH_CONTROLLERS_CONNECTED;
-        assert_eq!(c.call(id, &[]), expected);
-        assert!(c.reads.is_empty());
-        assert!(c.word_reads.is_empty());
-        let mut expected_writes = vec![
-            (0xa11100, 0x100, true),
-            (0xa10009, 0x40, false),
-            (0xa10003, 0, false),
-            (0xa10009, 0, false),
-            (0xa10003, 0, false),
-        ];
-        if first != 15 {
-            expected_writes.extend([
-                (0xa1000b, 0x40, false),
-                (0xa10005, 0, false),
-                (0xa1000b, 0, false),
-                (0xa10005, 0, false),
-            ]);
-        }
-        expected_writes.push((0xa11100, 0, true));
-        assert_eq!(c.writes, expected_writes);
     }
 }
 

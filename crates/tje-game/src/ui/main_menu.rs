@@ -6,26 +6,28 @@ use tje_mem::ram;
 /// Atomic execution preserves the controller/Z80 access order with clocks frozen.
 /// MCC68K emits CLR for zero stores here: its 68000 read-before-write bus
 /// transactions are observable, even though the read values are discarded.
+/// Both G/build/{rev02,rev00}/asm/c_main_menu.s:274,282-283,305,313-314
+/// emit byte CLR pre-reads; line333 emits the final word CLR pre-read.
 pub fn are_both_controllers_connected(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     context.write_z80_bus_request(0x100);
     context.write_controller_control(false, 0x40);
-    let _ = context.read_controller_data(false);
+    context.discard_u8(0xa10003)?;
     context.write_controller_data(false, 0);
     let first_read = context.read_controller_data(false);
-    let _ = context.read_device_u8(0xa10009);
+    context.discard_u8(0xa10009)?;
     context.write_controller_control(false, 0);
-    let _ = context.read_controller_data(false);
+    context.discard_u8(0xa10003)?;
     context.write_controller_data(false, 0);
     let second_read = context.read_controller_data(false);
     let mut present = (second_read & first_read & 15) != 15;
     if present {
         context.write_controller_control(true, 0x40);
-        let _ = context.read_controller_data(true);
+        context.discard_u8(0xa10005)?;
         context.write_controller_data(true, 0);
         let first_read = context.read_controller_data(true);
-        let _ = context.read_device_u8(0xa1000b);
+        context.discard_u8(0xa1000b)?;
         context.write_controller_control(true, 0);
-        let _ = context.read_controller_data(true);
+        context.discard_u8(0xa10005)?;
         context.write_controller_data(true, 0);
         let second_read = context.read_controller_data(true);
         if second_read & first_read & 15 == 15 {
