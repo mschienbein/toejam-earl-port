@@ -139,17 +139,17 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::RESTART_FROM_RESET_ENTRY,
         function: entries::restart_from_reset_entry,
     },
-    crate::Translation {
-        id: crate::ids::LEVEL4_ISR,
-        function: entries::level4_isr,
-    },
 ];
 
 /// Remaining non-RTS candidates require hardware-clock/IRQ proofs, not quiet fixtures.
 /// START's fill join is proven in prepared entries; natural cold start still
 /// rejects the initial VDP status HBlank phase (7208/720C), requiring a clocked prefix.
 /// ISR fixture coverage alone does not discharge natural IRQ timing observations.
-pub static PENDING: &[crate::FunctionId] = &[crate::ids::START, crate::ids::LEVEL6_ISR];
+pub static PENDING: &[crate::FunctionId] = &[
+    crate::ids::START,
+    crate::ids::LEVEL6_ISR,
+    crate::ids::LEVEL4_ISR,
+];
 
 /// Keeps pending bodies reachable in the library without production registration.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
@@ -160,6 +160,15 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::LEVEL6_ISR,
         function: entries::level6_isr,
+    },
+    // Natural campaigns (integrate/p0 74ec04e): after the original HBlank handler the
+    // frame counter FF800F is one higher than after the Rust body, at REV 00 frame
+    // 382,370 (1B vs 1A) and REV 02 frame 389,762 (29 vs 28); the 81 earlier sessions
+    // pass. The original spans an interrupt the zero-time body does not; awaits the
+    // exception-root control profile.
+    crate::Translation {
+        id: crate::ids::LEVEL4_ISR,
+        function: entries::level4_isr,
     },
 ];
 

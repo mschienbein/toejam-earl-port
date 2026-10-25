@@ -46,7 +46,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [elevator](#elevator) | 27 | 20 | 7 | 0 | 16 | 3 | 8 | 0 |
 | [jamout](#jamout) | 18 | 11 | 7 | 0 | 10 | 1 | 7 | 0 |
 | [map](#map) | 68 | 53 | 15 | 0 | 48 | 7 | 13 | 0 |
-| [platform](#platform) | 19 | 17 | 2 | 0 | 4 | 10 | 5 | 0 |
+| [platform](#platform) | 19 | 16 | 3 | 0 | 4 | 10 | 5 | 0 |
 | [player](#player) | 65 | 42 | 23 | 0 | 43 | 1 | 21 | 0 |
 | [presents](#presents) | 65 | 47 | 18 | 0 | 47 | 0 | 18 | 0 |
 | [runtime](#runtime) | 6 | 6 | 0 | 0 | 6 | 0 | 0 | 0 |
@@ -54,7 +54,7 @@ Regenerate once after integrating translation lanes, not in each lane.
 | [speech](#speech) | 8 | 5 | 3 | 0 | 4 | 1 | 3 | 0 |
 | [sprites](#sprites) | 42 | 38 | 4 | 0 | 33 | 8 | 1 | 0 |
 | [ui](#ui) | 76 | 47 | 29 | 0 | 26 | 19 | 31 | 0 |
-| **Total** | **648** | **460** | **188** | **0** | **383** | **79** | **186** | **0** |
+| **Total** | **648** | **459** | **189** | **0** | **383** | **79** | **186** | **0** |
 
 Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; collision query: **5**.
 
@@ -466,7 +466,7 @@ Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; col
 | `DisableAllInterrupts` | hand-written asm | [`src/asm/interrupts.s:33`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L33) | `0x000322` | `0x000322` | Atomic | [`platform::disable_all_interrupts`](../crates/tje-game/src/platform/mod.rs#L22) | production |
 | `EnableAllInterrupts` | hand-written asm | [`src/asm/interrupts.s:41`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L41) | `0x000328` | `0x000328` | Atomic | [`platform::enable_all_interrupts`](../crates/tje-game/src/platform/mod.rs#L29) | production |
 | `Level6Isr` | hand-written asm | [`src/asm/interrupts.s:49`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L49) | `0x00032E` | `0x00032E` | TimeAware | [`platform::entries::level6_isr`](../crates/tje-game/src/platform/entries.rs#L35) | pending — Remaining non-RTS candidates require hardware-clock/IRQ proofs, not quiet fixtures. START's fill join is proven in prepared entries; natural cold start still rejects the initial VDP status HBlank phase (7208/720C), requiring a clocked prefix. ISR fixture coverage alone does not discharge natural IRQ timing observations. Keeps pending bodies reachable in the library without production registration. |
-| `Level4Isr` | hand-written asm | [`src/asm/interrupts.s:59`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L59) | `0x00033E` | `0x00033E` | TimeAware | [`platform::entries::level4_isr`](../crates/tje-game/src/platform/entries.rs#L45) | production |
+| `Level4Isr` | hand-written asm | [`src/asm/interrupts.s:59`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L59) | `0x00033E` | `0x00033E` | TimeAware | [`platform::entries::level4_isr`](../crates/tje-game/src/platform/entries.rs#L45) | pending — Remaining non-RTS candidates require hardware-clock/IRQ proofs, not quiet fixtures. START's fill join is proven in prepared entries; natural cold start still rejects the initial VDP status HBlank phase (7208/720C), requiring a clocked prefix. ISR fixture coverage alone does not discharge natural IRQ timing observations. Natural campaigns (integrate/p0 74ec04e): after the original HBlank handler the frame counter FF800F is one higher than after the Rust body, at REV 00 frame 382,370 (1B vs 1A) and REV 02 frame 389,762 (29 vs 28); the 81 earlier sessions pass. The original spans an interrupt the zero-time body does not; awaits the exception-root control profile. |
 | `RestartFromResetEntry` | hand-written asm | [`src/asm/interrupts.s:69`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/interrupts.s#L69) | `0x00034E` | `0x00034E` | TimeAware | [`platform::entries::restart_from_reset_entry`](../crates/tje-game/src/platform/entries.rs#L55) | production |
 | `DmaCopyWordsToVram` | hand-written asm | [`src/asm/dma.s:15`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/dma.s#L15) | `0x025978` | `0x025900` | Functional | [`platform::video::dma_copy_words_to_vram`](../crates/tje-game/src/platform/video.rs#L176) | production |
 | `ClearVideoRAM` | hand-written asm | [`src/asm/vdp.s:20`](https://github.com/mschienbein/toejam-earl-decomp/blob/main/src/asm/vdp.s#L20) | `0x026F44` | `0x026ECC` | Functional | [`platform::video::clear_video_ram`](../crates/tje-game/src/platform/video.rs#L37) | production |
