@@ -170,10 +170,7 @@ fn bounded_entries_and_manual_value_registration_cannot_launder_bodies() {
         assert!(registry.admission.noncanonical_hooks);
         rejects_before_rom_import(registry);
         let mut registry = HookRegistry::empty(revision);
-        let pending = candidate(
-            tje_game::core::PENDING_TRANSLATIONS,
-            ids::WAIT_FOR_NEXT_V_BLANK,
-        );
+        let pending = candidate(MIXED, ids::WAIT_FOR_NEXT_V_BLANK);
         registry
             .register_translation_with_execution(pending, ExecutionClass::TimeAware)
             .unwrap();

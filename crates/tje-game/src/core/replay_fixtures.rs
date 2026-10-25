@@ -1,15 +1,16 @@
 //! Opt-in ReplayedEnvironment campaign. Arguments: ROM root, evidence root,
 //! natural input JSON, frame count. Run only after the shared envelope lands.
-//! All seven eligible core roots are selected together, never per-root replays.
-//! Wait retains its stronger canonical timed harness. FurtherInitialisation's
-//! nonreturning finite-stage harness is separate; the frozen selector candidate
-//! is deliberately not rechecked by this campaign.
+//! All eight eligible core roots are selected together, never per-root replays.
+//! Wait uses its readable word-framed body here and independently retains the
+//! stronger canonical timed harness. FurtherInitialisation's finite-stage
+//! harness is separate; the frozen selector is deliberately not rechecked.
 use std::{fs, path::Path, sync::Arc};
 use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, fixture::BoundaryAdvance, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Platform, Ptr, Revision, ram};
 
 const ROOTS: &[FunctionId] = &[
+    ids::WAIT_FOR_NEXT_V_BLANK,
     ids::CHECK_START_BUTTON,
     ids::PROCESS_INPUT,
     ids::HANDLE_V_BLANK,
@@ -88,6 +89,28 @@ fn fixtures(host: &mut Host, output: &Path) -> Vec<serde_json::Value> {
     let revision = host.revision();
     let mut rows = Vec::new();
     quiet(host);
+    for count in [0x12340001, 0x12340000, 0x1234ffff, 0x12348000] {
+        attempt(
+            host,
+            &mut rows,
+            ids::WAIT_FOR_NEXT_V_BLANK,
+            "display-off lazy word argument, upper slot word ignored",
+            &[count],
+            output,
+        );
+    }
+    ram::g_mode2_reg_softcopy(revision).write(&mut host.context(), 0x40);
+    for count in [0x12340000, 0x1234ffff, 0x12348000] {
+        attempt(
+            host,
+            &mut rows,
+            ids::WAIT_FOR_NEXT_V_BLANK,
+            "display-on nonpositive word count without fabricated clock",
+            &[count],
+            output,
+        );
+    }
+    ram::g_mode2_reg_softcopy(revision).write(&mut host.context(), 0x20);
     for (first, second, old_first, old_second) in [
         (0, 0, 0, 0),
         (0x80, 0, 0x80, 0),
@@ -295,7 +318,7 @@ fn main() {
         passed &= ok;
         fs::write(&output, serde_json::to_vec_pretty(&serde_json::json!({
             "revision":revision.name(),"envelope":"ReplayedEnvironment","production_eligible":false,
-            "campaign":"one pass selecting all seven replay-compatible roots; nested live calls are checked naturally",
+            "campaign":"one pass selecting all eight replay-compatible roots; nested live calls are checked naturally",
             "modularity":"catalogued callees use actual original JSR/RTS segments, not an all-Rust composition proof",
             "input":arguments[2],"requested_frames":frames,"completed_frames":completed,
             "failure":failure,"natural_checks":natural,"settling":boundary,"fixtures":rows,

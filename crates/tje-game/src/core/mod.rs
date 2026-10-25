@@ -273,10 +273,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: remaining::select_viewport_sprite_chain,
     },
     crate::Translation {
-        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
-        function: wait_for_next_vblank,
-    },
-    crate::Translation {
         id: crate::ids::PROCESS_INPUT,
         function: input::process_input,
     },
@@ -297,6 +293,10 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
 /// Pending body-form cutover only: lazy source-width incoming argument loads.
 /// These entries grant no production or replay-tier approval.
 pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: crate::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: wait_for_next_vblank_readable_framed,
+    },
     crate::FramedTranslation {
         id: crate::ids::ENTER_SPLIT_SCREEN,
         function: views::enter_split_screen,
@@ -322,10 +322,30 @@ pub static MAIN_LOOP_BODIES: crate::exits::MainLoopBodies = main_loop::BODIES;
 /// G/src/core/startup_and_main_loop.c:142 (`WaitForNextVBlank`, REV 02 0x000578).
 /// TimeAware: suspend until the actual IRQ-updated counter changes. This wait
 /// does not perform the separate idle RNG draws in FurtherInitialisation.
+pub fn wait_for_next_vblank_readable_framed(context: &mut dyn Context) -> Result<Option<u32>> {
+    let entry = crate::ids::WAIT_FOR_NEXT_V_BLANK;
+    let frame = context
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    if !frame.is_prepared_for(entry) || context.stack_pointer()? != frame.entry_sp {
+        return Err(crate::call_frame::FrameError::PreparedEntryRequired(entry).into());
+    }
+    // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:188-189:
+    // MOVE.W 6(SP),D0 precedes even the display-disabled early return.
+    let count = frame.argument_word(0).read(context);
+    wait_for_next_vblank_count(context, count)
+}
+
+/// G/src/core/startup_and_main_loop.c:142 (`WaitForNextVBlank`).
+/// Actual value-form readable candidate retained by the existing strict and
+/// projection host regressions; never selected as a ReplayedEnvironment root.
 pub fn wait_for_next_vblank(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+    wait_for_next_vblank_count(context, arguments[0] as i16)
+}
+
+fn wait_for_next_vblank_count(context: &mut dyn Context, mut count: i16) -> Result<Option<u32>> {
     let revision = context.revision();
     if ram::g_mode2_reg_softcopy(revision).read(context) & 0x40 != 0 {
-        let mut count = arguments[0] as i16;
         while count > 0 {
             let counter = ram::g_frame_counter(revision);
             let previous = counter.read(context);

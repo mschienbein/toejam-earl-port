@@ -26,28 +26,50 @@ fn proof_roots(include_wait: bool) -> Vec<tje_game::Translation> {
     ROOTS
         .iter()
         .filter(|&&id| include_wait || id != ids::WAIT_FOR_NEXT_V_BLANK)
-        .map(|&id| {
-            *tje_game::translations()
+        .filter_map(|&id| {
+            tje_game::translations()
                 .chain(tje_game::core::PENDING_TRANSLATIONS)
                 .chain(tje_game::jamout::PENDING_TRANSLATIONS)
                 .find(|entry| entry.id == id)
-                .unwrap()
+                .copied()
+        })
+        .collect()
+}
+
+fn proof_framed_roots(include_wait: bool) -> Vec<tje_game::FramedTranslation> {
+    ROOTS
+        .iter()
+        .filter(|&&id| include_wait || id != ids::WAIT_FOR_NEXT_V_BLANK)
+        .filter_map(|&id| {
+            tje_game::framed_translations()
+                .chain(tje_game::core::PENDING_FRAMED_TRANSLATIONS)
+                .find(|entry| entry.id == id)
+                .copied()
         })
         .collect()
 }
 
 static NATURAL_ROOTS: LazyLock<Vec<tje_game::Translation>> = LazyLock::new(|| proof_roots(false));
 static FIXTURE_ROOTS: LazyLock<Vec<tje_game::Translation>> = LazyLock::new(|| proof_roots(true));
+static NATURAL_FRAMED: LazyLock<Vec<tje_game::FramedTranslation>> =
+    LazyLock::new(|| proof_framed_roots(false));
+static FIXTURE_FRAMED: LazyLock<Vec<tje_game::FramedTranslation>> =
+    LazyLock::new(|| proof_framed_roots(true));
 
 fn registry(revision: Revision, include_wait: bool) -> HookRegistry {
     // The shared proof API overlays these bodies on all proven callees; no
     // selected pending body silently falls back to its original implementation.
-    let roots = if include_wait {
-        &*FIXTURE_ROOTS
+    let (roots, framed) = if include_wait {
+        (&*FIXTURE_ROOTS, &*FIXTURE_FRAMED)
     } else {
-        &*NATURAL_ROOTS
+        (&*NATURAL_ROOTS, &*NATURAL_FRAMED)
     };
-    HookRegistry::proof(revision, roots.as_slice()).unwrap()
+    assert_eq!(
+        roots.len() + framed.len(),
+        ROOTS.len() - usize::from(!include_wait),
+        "every selected root has exactly one registered body form",
+    );
+    HookRegistry::proof_with_frames(revision, roots.as_slice(), framed.as_slice()).unwrap()
 }
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {

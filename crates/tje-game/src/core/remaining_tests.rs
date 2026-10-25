@@ -1,6 +1,6 @@
 use super::remaining::*;
-use super::test_support::{TestContext, Write};
-use super::wait_for_next_vblank;
+use super::test_support::{Access, TestContext, Write};
+use super::wait_for_next_vblank_readable_framed;
 use crate::Context;
 use tje_mem::{Revision, ram, rom};
 
@@ -101,12 +101,34 @@ fn input_masks_keep_previous_values_and_group_precedence() {
 
 #[test]
 fn vblank_wait_preserves_disabled_and_nonpositive_returns() {
-    let revision = Revision::Rev02;
-    let mut context = TestContext::new(revision);
-    assert_eq!(wait_for_next_vblank(&mut context, &[1]).unwrap(), None);
-    ram::g_mode2_reg_softcopy(revision).write(&mut context, 0x40);
-    for count in [0, 0xffff, 0x8000] {
-        assert_eq!(wait_for_next_vblank(&mut context, &[count]).unwrap(), None);
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (mode, count) in [
+            (0, 0x12340001),
+            (0x40, 0x12340000),
+            (0x40, 0x1234ffff),
+            (0x40, 0x12348000),
+        ] {
+            let mut context = TestContext::new(revision);
+            let frame = context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[count]);
+            let shadow = ram::g_mode2_reg_softcopy(revision);
+            shadow.write(&mut context, mode);
+            context.trace_accesses = true;
+            assert_eq!(
+                wait_for_next_vblank_readable_framed(&mut context).unwrap(),
+                None
+            );
+            assert_eq!(
+                *context.accesses.borrow(),
+                vec![
+                    Access::Read(frame.argument_word(0).address(), 2),
+                    Access::Read(shadow.address(), 1),
+                ],
+            );
+        }
+        let mut context = TestContext::new(revision);
+        context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[1]);
+        ram::g_mode2_reg_softcopy(revision).write(&mut context, 0x40);
+        // An Atomic unit context has no clock authority: don't fake the poll.
+        assert!(wait_for_next_vblank_readable_framed(&mut context).is_err());
     }
-    assert!(wait_for_next_vblank(&mut context, &[1]).is_err());
 }
