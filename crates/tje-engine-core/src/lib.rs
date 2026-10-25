@@ -11,9 +11,14 @@ pub mod timing_region;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod word_reader_tests;
 
 pub use ir::{InstructionIr, Program};
-pub use lower::{CompileError, compile_instruction, compile_instruction_with_divider};
+pub use lower::{
+    CompileError, compile_instruction, compile_instruction_with_divider,
+    compile_instruction_with_word_reader,
+};
 
 /// Canonical state shared by both compiled backends and the scheduler.
 /// A7 is selected from USP/SSP by SR.S, never stored in `a`.

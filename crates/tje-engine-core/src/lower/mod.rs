@@ -38,8 +38,27 @@ enum Operand {
     Memory(Value, Option<(u8, Value)>),
     Immediate(Value),
 }
+enum WordSource<'a> {
+    Bytes(&'a [u8]),
+    Reader(&'a dyn Fn(u32) -> Option<u16>),
+}
+impl WordSource<'_> {
+    fn word(&self, pc: u32) -> Option<u16> {
+        match self {
+            Self::Bytes(bytes) => {
+                let start = pc as usize;
+                let end = start.checked_add(2)?;
+                bytes
+                    .get(start..end)
+                    .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            }
+            Self::Reader(reader) => reader(pc),
+        }
+    }
+}
+
 struct Builder<'a> {
-    rom: &'a [u8],
+    rom: WordSource<'a>,
     start: u32,
     position: Cell<u32>,
     opcode: u16,
@@ -59,13 +78,32 @@ pub fn compile_instruction_with_divider(
     pc: u32,
     m68k_divider: u32,
 ) -> Result<InstructionIr, CompileError> {
+    compile_instruction_source(WordSource::Bytes(rom), pc, m68k_divider)
+}
+
+/// Compile from a caller-owned immutable, big-endian word view without
+/// retaining or copying a second ROM byte image. `None` has the same exact
+/// truncation error as the slice APIs. Addresses are not masked or relocated.
+///
+/// This is compilation input, not an emulated bus read or an instruction/time
+/// grant. The caller must supply stable ROM words, not mutable device samples.
+pub fn compile_instruction_with_word_reader(
+    reader: &dyn Fn(u32) -> Option<u16>,
+    pc: u32,
+    m68k_divider: u32,
+) -> Result<InstructionIr, CompileError> {
+    compile_instruction_source(WordSource::Reader(reader), pc, m68k_divider)
+}
+
+fn compile_instruction_source(
+    rom: WordSource<'_>,
+    pc: u32,
+    m68k_divider: u32,
+) -> Result<InstructionIr, CompileError> {
     if pc & 1 != 0 {
         return Err(CompileError::OddPc(pc));
     }
-    let bytes = rom
-        .get(pc as usize..pc as usize + 2)
-        .ok_or(CompileError::Truncated(pc))?;
-    let opcode = u16::from_be_bytes([bytes[0], bytes[1]]);
+    let opcode = rom.word(pc).ok_or(CompileError::Truncated(pc))?;
     let instruction = decode::decode(opcode);
     let b = Builder {
         rom,
@@ -230,11 +268,7 @@ impl Builder<'_> {
     }
     fn word(&self) -> Result<u16, CompileError> {
         let pc = self.position.get();
-        let b = self
-            .rom
-            .get(pc as usize..pc as usize + 2)
-            .ok_or(CompileError::Truncated(pc))?;
-        let word = u16::from_be_bytes([b[0], b[1]]);
+        let word = self.rom.word(pc).ok_or(CompileError::Truncated(pc))?;
         let next = pc.wrapping_add(2);
         let prefetch = self.read_raw(self.k(next), Width::Word, ReadKind::Prefetch);
         self.store(F::Prefetch, prefetch);
