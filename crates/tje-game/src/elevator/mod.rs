@@ -26,6 +26,11 @@ pub use ride::{
 pub use scenes::{load_final_level_map, map_clear_active_level_objects, map_enter_final_level};
 pub use transitions::{process_elevator_step1, process_elevator_step2, process_elevators};
 
+/// Check-only bodies proven under the recorded environment, never live replacements.
+pub static PROVEN_REPLAYED: &[crate::Translation] = &[];
+/// Framed counterpart of `PROVEN_REPLAYED`, also excluded from production.
+pub static PROVEN_REPLAYED_FRAMED: &[crate::FramedTranslation] = &[];
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[Translation] = &[
     Translation {

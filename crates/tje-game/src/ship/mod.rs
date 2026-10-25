@@ -19,6 +19,11 @@ pub use screen::{animate_ship_screen_palette, show_ship_pieces};
 use crate::{Context, Result, execution::ExecutionClass, ids};
 use tje_mem::{ram, rom};
 
+/// Check-only bodies proven under the recorded environment, never live replacements.
+pub static PROVEN_REPLAYED: &[crate::Translation] = &[];
+/// Framed counterpart of `PROVEN_REPLAYED`, also excluded from production.
+pub static PROVEN_REPLAYED_FRAMED: &[crate::FramedTranslation] = &[];
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {

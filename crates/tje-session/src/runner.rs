@@ -101,6 +101,16 @@ pub fn host(bytes: &[u8], mode: Mode, revision: Revision, capture_ticks: bool) -
     } else {
         HookRegistry::translated(revision)?
     };
+    host_with_registry(bytes, mode, revision, capture_ticks, registry)
+}
+
+pub(crate) fn host_with_registry(
+    bytes: &[u8],
+    mode: Mode,
+    revision: Revision,
+    capture_ticks: bool,
+    registry: HookRegistry,
+) -> Result<Host> {
     let mut host = Host::new(bytes, mode, registry)?;
     let entries = functions()
         .iter()
@@ -184,12 +194,12 @@ pub fn apply_recipe(host: &mut Host, session: &Session, frame: u64) {
 
 /// One immutable, indexed timeline is shared by both independent check forks.
 /// RAM recipes use the same helper as ordinary frame-by-frame replay.
-struct SessionInputs {
+pub(crate) struct SessionInputs {
     session: Arc<Session>,
     end_frames: Vec<u64>,
 }
 impl SessionInputs {
-    fn new(session: Arc<Session>) -> Self {
+    pub(crate) fn new(session: Arc<Session>) -> Self {
         let mut end = 0;
         let end_frames = session
             .runs
@@ -1110,6 +1120,7 @@ pub fn replay(
     report: &Path,
     completed: &[ReplayReport],
     continue_after_mismatch: bool,
+    selection: &crate::selection::Selection,
 ) -> Result<ReplayReport> {
     ensure!(
         !continue_after_mismatch || mode == Mode::Check,
@@ -1121,7 +1132,8 @@ pub fn replay(
         tje_rom::Rom::import(bytes)?.revision() == revision,
         "ROM revision does not match session"
     );
-    let mut host = host(bytes, mode, revision, false)?;
+    let registry = selection.registry(mode, revision)?;
+    let mut host = host_with_registry(bytes, mode, revision, false, registry)?;
     if continue_after_mismatch {
         host.set_check_failure_policy(CheckFailurePolicy::ContinueOriginal)?;
     }
@@ -1818,6 +1830,7 @@ mod tests {
                 Path::new("must-not-be-written.json"),
                 &[],
                 true,
+                &crate::selection::Selection::default(),
             )
             .unwrap_err();
             assert!(error.to_string().contains("requires --mode check"));

@@ -64,7 +64,19 @@ def array_parameter_types(header: bytes, name: str, parser: Parser) -> dict[str,
         ]
         base = " ".join(node.text.decode() for node in base_nodes)
         for declarator in declaration.children_by_field_name("declarator"):
-            chain = declarator_chain(declarator)
+            # Parentheses group declarators; only pointer/array/function nodes
+            # are semantic operations adjacent to the parameter identifier.
+            chain = [
+                node for node in declarator_chain(declarator)
+                if node.type != "parenthesized_declarator"
+            ]
+            if chain[-1].type != "identifier" and any(
+                node.type in ("array_declarator", "abstract_array_declarator") for node in chain
+            ):
+                # The C grammar can interpret char (text)[4] as an unnamed
+                # array of functions taking typedef text. Never silently use
+                # the stale inventory scalar ABI when the named shape is lost.
+                raise ValueError(f"ambiguous C array parameter declarator in {name}")
             if len(chain) < 2 or chain[-2].type != "array_declarator":
                 continue
             # The operation adjacent to the identifier determines whether this

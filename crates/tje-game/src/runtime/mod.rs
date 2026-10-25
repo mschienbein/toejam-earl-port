@@ -46,6 +46,11 @@ fn unsigned_divmod(context: &mut dyn Context, quotient: bool) -> Result<Option<u
     }))
 }
 
+/// Check-only bodies proven under the recorded environment, never live replacements.
+pub static PROVEN_REPLAYED: &[crate::Translation] = &[];
+/// Framed counterpart of `PROVEN_REPLAYED`, also excluded from production.
+pub static PROVEN_REPLAYED_FRAMED: &[crate::FramedTranslation] = &[];
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
@@ -73,6 +78,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         function: uldivt,
     },
 ];
+
+/// Canonical pending availability; never consulted by live dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
 
 /// Runtime entries need no non-atomic execution contract.
 pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[];

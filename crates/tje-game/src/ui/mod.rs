@@ -42,6 +42,11 @@ pub use waiting::{inventory_refresh_contents_and_wait, wait_for_vblank_with_grap
 use crate::{Context, Result, ids};
 use tje_mem::ram;
 
+/// Check-only bodies proven under the recorded environment, never live replacements.
+pub static PROVEN_REPLAYED: &[crate::Translation] = &[];
+/// Framed counterpart of `PROVEN_REPLAYED`, also excluded from production.
+pub static PROVEN_REPLAYED_FRAMED: &[crate::FramedTranslation] = &[];
+
 /// Both-revision-proven entries; this literal registry is also traceability input.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {

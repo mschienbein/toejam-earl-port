@@ -12,6 +12,11 @@
 use crate::{Context, Result, Translation, ids};
 use tje_mem::{Address, ObjectState, ram};
 
+/// Check-only bodies proven under the recorded environment, never live replacements.
+pub static PROVEN_REPLAYED: &[crate::Translation] = &[];
+/// Framed counterpart of `PROVEN_REPLAYED`, also excluded from production.
+pub static PROVEN_REPLAYED_FRAMED: &[crate::FramedTranslation] = &[];
+
 /// Available Rust entries owned by this subsystem.
 pub static TRANSLATIONS: &[Translation] = &[
     Translation {
@@ -35,6 +40,10 @@ pub static TRANSLATIONS: &[Translation] = &[
         function: entity_find_horizontal_collision_at_x,
     },
 ];
+
+/// Canonical pending availability; never consulted by live dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
 
 /// All five original collision queries are reviewed Atomic.
 pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[];

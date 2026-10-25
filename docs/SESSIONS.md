@@ -76,12 +76,74 @@ SESSION_TOOL="$CARGO_TARGET_DIR/release/tje-session"
   --out scratch/coverage-union.json
 ```
 
-Check/replacement use `HookRegistry::translated(revision)`, not a local duplicate
+By default, check/replacement use `HookRegistry::translated(revision)`, not a duplicate
 registry. Untranslated functions continue in the original. Check mode is fail-closed
 and reports the host's exact function error; it is not replacement mode with
 warnings suppressed. Coverage should be taken from **reference** (or check, whose
 live CPU still executes the original), never presented as reference coverage when
 measured in replacement mode.
+
+`--function func_00059e` (repeatable, also accepting catalogue names) narrows the
+checked/replaced roots through the registry's existing root filter. It never
+changes the production callee availability. An explicit `--pending --mode check
+--function …` instead uses the owners' canonical pending value/framed bodies as
+strict proof roots, composed with production and only those selected candidates.
+Pending selection requires explicit roots, rejects missing/ambiguous bodies, and
+cannot enable replacement. It changes no game status or production table.
+
+### Modular replay-environment campaigns
+
+The `replayed-environment` Cargo feature binds the frozen
+`HookRegistry::proof_replayed_environment(revision, pending, framed, functions)`
+and `Host::finalize_replayed_campaign()` API. Enable it only after that Host
+implementation lands. A binary without the feature reports unavailable and
+cannot silently fall back to strict checks or approve zero mismatches.
+
+The durable corpus driver builds from a clean committed source tree, records the
+actual binary SHA-256 and source/body-availability identities, then runs every
+committed `sessions/*.tje.json` in both revisions:
+
+```sh
+. /home/michael/.local/share/tje-dev/env.sh
+uv run python tools/replay_campaign.py build \
+  --target-dir "$PWD/scratch/replay-target" \
+  --out "$PWD/scratch/replay-build.json"
+uv run python tools/replay_campaign.py run \
+  --build-receipt "$PWD/scratch/replay-build.json" \
+  --rom-rev00 roms/rev00.bin --rom-rev02 roms/rev02.bin \
+  --all-pending --workers 10 --out "$PWD/scratch/replay-campaign"
+```
+
+Use repeatable `--function func_...` instead of `--all-pending` for an explicit
+requested set. The worker preflights each requested root, records constructor
+Unsupported exclusions, and constructs the supported batch with the complete
+candidate availability. Any exclusion keeps the original outer scope incomplete,
+even if the supported Host subset completes. An empty supported set never becomes
+an empty-filter request for all roots. Metadata errors fail closed.
+
+Each session report preserves `checks.replayed_environment` schema 1 verbatim.
+Counts distinguish entered/reference-completed/checked/own-matched/passed/failed,
+Unsupported, open and provisional cases; only Host-issued dependency-closed
+`passed` proofs count as passed. Exact first-failure indices/packets, truncation
+and each callee obligation's entry witness, sealed body/form/origin/version,
+effective contract, required outputs and actual `discharged_by` packet remain
+linked by report hash and JSON pointer. These process-local descriptions are
+never compared across jobs to mint or import proof authority.
+
+Reports and logs are fsynced before an atomic, directory-fsynced completion
+receipt. Restart the same command to reuse intact matching receipts; damaged,
+unparsable or identity-mismatched jobs are not done. Recorded failures are retained
+without confirmation retries. Source/binary/ROM/root-scope changes require a new
+output directory. No more than ten workers run, and every zero-checked requested
+function is listed separately for each revision.
+
+An uncalled root in one session may be covered elsewhere in the same corpus,
+revision and source/body manifest. All entered cases must nevertheless be closed,
+checked and passed, with no failed/unsupported/open/provisional case or unresolved
+obligation. Per-session finalizer errors stay visible. The driver writes no
+production or `PROVEN_REPLAYED` tables; Main alone changes status.
+
+### Strict check failure collection and coverage
 
 For an explicitly counted corpus investigation, `--mode check
 --continue-after-mismatch` selects the host's `ContinueOriginal` policy. Each

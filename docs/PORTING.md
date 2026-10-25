@@ -113,7 +113,21 @@ registry for testing original fallback, not the pending-composition harness.
 All these constructors resolve the owner classes; no metadata regeneration,
 shared-table edit or incorrect Atomic approval is required.
 
-Registries (`TRANSLATIONS`, `FRAMED_TRANSLATIONS`, `PENDING_TRANSLATIONS`,
+Each subsystem also owns literal `PROVEN_REPLAYED: &[Translation]` and
+`PROVEN_REPLAYED_FRAMED: &[FramedTranslation]` availability tables, initially empty
+and separate from both production and pending body registries. Their shared
+`Subsystem.replayed_translations` / `replayed_framed_translations` slices feed
+`tje_game::replayed_translations()` and `replayed_framed_translations()`, which
+return cloneable iterators over static body references. These APIs expose
+check-only candidates, not canonical-production identity, proof authority or live
+replacement eligibility. Ordinary `translations()`, `framed_translations()` and
+`Dispatcher::hybrid()` never select them. Adding a table or declaring an execution
+contract does not prove a body or change its pending status; Main alone approves
+any status move after the required proof and corpus gate.
+These availability tables follow the same literal-array rule as the traceability
+registries below.
+
+Traceability registries (`TRANSLATIONS`, `FRAMED_TRANSLATIONS`, `PENDING_TRANSLATIONS`,
 `PENDING_FRAMED_TRANSLATIONS`, `PENDING`, `ATOMIC_CAPABLE`, `EXECUTION_CONTRACTS`)
 are literal arrays written in the subsystem module, one
 entry per function. No aliases to another module's static (`= templates::PENDING`),
