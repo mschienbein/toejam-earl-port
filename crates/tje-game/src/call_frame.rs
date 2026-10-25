@@ -41,6 +41,23 @@ impl FrameState {
             ..self
         }
     }
+    /// Declare an original uninitialized-local bug. The backend, not this DTO,
+    /// checks ownership, current allocation, width and the cited read witness.
+    pub const fn uninitialized_local(
+        self,
+        owner: FunctionId,
+        offset: i32,
+        width: crate::stack_read::LocalWidth,
+        citation: &'static str,
+    ) -> crate::stack_read::UninitializedLocalRead {
+        crate::stack_read::UninitializedLocalRead {
+            owner,
+            frame: self,
+            offset,
+            width,
+            citation,
+        }
+    }
     pub const fn argument_slot(self, index: i32) -> Address<u32> {
         Address::new(
             self.entry_sp

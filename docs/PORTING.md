@@ -1291,6 +1291,45 @@ producer and read-before-later-store cases, accept direct/original-callee
 initialization controls, cover CPU write issue → DMA old-value read → RAM commit,
 and assert both sides' endpoint-normalization reads remain in the root audit.
 
+### Explicit original uninitialized-local declarations
+
+Original bugs that consume an uninitialized own-frame local must be named, not
+hidden behind a generic memory read or an address waiver. The shared interface is:
+
+```rust,ignore
+use tje_game::stack_read::LocalWidth;
+let read = frame_state.uninitialized_local(
+    owner,
+    original_entry_sp_offset,
+    LocalWidth::Word,
+    "matching source/listing citation, own-frame offset and read width",
+);
+let value = context.read_uninitialized_local(read)?;
+```
+
+`UninitializedLocalRead` carries the owner, current `FrameState`, signed entry-SP
+offset, typed Byte/Word/Long width and static citation. It is a declaration, not
+authority. An implementing backend must validate the exact current owner/frame
+and allocated lifetime, a negative offset, the entire aligned word/long footprint
+below entry SP, and its actual input witness before exposing residue. Mixed reads
+preserve current own-written lanes and true unchanged entry-residue lanes; no
+store, initialization bit or `ReadPurpose` is manufactured.
+
+The `Context` default returns structured `UnsupportedStackRead` without fetching
+RAM, consulting an original, or supplying a zero/fallback operand. This failure
+is frame-preserving, never an accepted control transfer. Its typed root, raw and
+canonical address, width, reader and reason remain available through
+`Error::unsupported_stack_read`. A failed backend contract remains the first
+error. This shared API neither activates a read permission in an existing
+platform nor registers, promotes or proves any function.
+
+`tje_mem::written_ram::WrittenRam` supplies only shared canonical 64-KiB RAM
+bookkeeping (`get`, `set`, mirror-aware `clear`, `addresses`, touched-word `reset`).
+It grants no read or frame authority. Separate live-allocation and cumulative
+history instances retain their distinct meanings. Unique dirty-word membership
+survives clear/re-mark loops, so reset does not repeatedly clear the full RAM
+bitmap or grow bookkeeping on a hot root.
+
 ### Future private-frame provenance is rejection-only
 
 An IRQ-commutation certifier can bind an extra future-read obligation with
