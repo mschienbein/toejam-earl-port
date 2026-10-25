@@ -14,6 +14,7 @@ pub mod phase;
 #[cfg(test)]
 mod player_tests;
 pub mod players;
+pub mod population;
 pub mod recording;
 pub mod resources;
 pub mod session;

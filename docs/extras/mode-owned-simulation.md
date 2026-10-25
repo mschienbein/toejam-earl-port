@@ -64,7 +64,6 @@ The saved bridge starts with `PresentationA (1) → Population (2) → Presentat
 The controller-only enhanced recording format is separate from faithful `tje-session`: eight-byte `TJEINPUT` magic, little-endian u16 version 1 and zero u16 flags, u32 body length, SHA-256 of the body, then canonical fixed-width little-endian bincode. The typed body contains complete normalized session configuration, initial stable input routing, compressed four-pad/action runs, and frame/epoch-ordered explicit source assignments. It contains no RAM recipe, snapshot, ROM resource data or executable pointers. Payloads are bounded at 16 MiB, 262144 runs and 65536 assignments; unknown versions/flags, bad checksums/lengths, stale assignment epochs, disabled/unassigned input, trailing bytes and config/ROM/generator mismatches reject. SHA-256 is corruption/identity checking, not author authentication.
 
 Replay's seek index is derivative and rebuilt once; rewinding seeks by the restored hardware frame, never a serialized host iterator. Disconnect records neutral input without silently transferring a seat. The aggregate latches hero input only at the Players phase, including a first hardware frame after boot/intro; it does not reuse the primitive codec's consecutive-from-zero bookkeeping helper for gameplay cadence. Recording primitives do not install a playable profile, add transport, or supply the still-required actual native/browser four-pad transition evidence.
-
 ## 3. Subsystems that move together
 
 The names below identify ownership roots, not a complete whitelist. The implementation must expand them through all leaves/callbacks before admission.
@@ -232,3 +231,73 @@ Before a gameplay selector is admitted:
 8. Run the repository's fmt, default/enhanced clippy/tests, both wasm builds, function-trace check, tools unittests and public audit after integration. Report exact exercised evidence, known gaps and remaining capability admission, not inferred playability.
 
 Current fail-closed primitives intentionally do not satisfy items 3–7's gameplay acceptance. No private four-player gameplay screenshot or level-transition run is claimed by this foundation delivery.
+
+## S4 service increment: AI and persistent populations
+
+`tje-simulation::population` owns the generalized, typed population services. It
+does **not** install a gameplay profile or weaken the S6 admission gate.
+
+- Floors are ordered by `LevelId`; up to four retained hero floors share one
+  persistent population each. `PopulationId { level, local }` survives release,
+  removal and collection. Stable failure/removal/collection sets cover all 64
+  identities, not an original 32-bit bank mask. Logical body handles occupy the
+  agreed generation-checked actor domain 32..352; draw instances are not actors.
+- Ordinary starting count remains twenty. The shared walkable-area density
+  policy is explicit and independent of hero/view count. Per-floor capacity is
+  distinct from initial count; negotiating a denser profile requires its actual
+  body/companion reservation. Whole activity changes preflight capacity before
+  mutation; exhaustion never evicts a required actor, relocates a creature or
+  changes population composition to make a draw fit.
+- Canonical interest is inclusive ±480 X and ±336 Y world pixels around each
+  same-floor hero, plus required actors on hero-active floors. Dormant AI and
+  animation timers pause. No camera, window size, draw visit or graphics cache
+  participates in activation, RNG, collision or allocation.
+- All 25 original kinds import from the user's cartridge. Movement, thinker and
+  touch pointers become finite typed dispatch; unknown callbacks reject.
+  Definition parameters, animation descriptors and projectile aiming vectors
+  are checked runtime resources, not public table copies or serialized pointers.
+  Generic and horizontal thinkers, protected attacks, terrain restrictions,
+  truck transitions, Cupid/chicken projectiles, mole theft latches, Santa and
+  per-customer service continuations use explicit four-seat eligibility.
+- Targeting considers eligible decoys before heroes; equal-distance candidates
+  prefer the higher seat, extending the original two-seat tie. Contacts rotate a
+  saved seat priority and re-read hero eligibility after each transaction.
+  Inventory/map overlays are not an AI pause or damage-immunity input.
+- `step` admits alternating-record AI/contact phases. `advance_motion` integrates
+  all active bodies' continuous axes/elevation; `advance_animation` applies
+  delegated authored motion only at logical frame boundaries. All three have
+  separate saved duplicate-admission stamps. Animation sequence indices and
+  resource-frame indices are distinct, and held/zero-period animations need no
+  renderer residency.
+- `ContactSink` is the aggregate's real player/economy/effect transaction adapter.
+  It accepts or rejects hurt/squish/status, mole capture/theft/release, Santa
+  drops, objectives, paid-service stages and fully specified projectile launches.
+  Rejection must not partially charge or mutate a hero. Lemonade/hot-tub
+  contacts invoke S3's automatic hero-state services rather than inventing paid
+  menus. `Environment` borrows checked geometry/resources and S5's logical
+  animation step. No host ID or pointer enters an original object/player ABI.
+- `resolve` and `service` accept current body generations only; `known_body`
+  recognizes previously issued generations for effects that outlive their
+  source's activity. Aggregate capture/restore uses `validate_world` together
+  with the session's player/effect/service reference checks.
+
+`population::stock::prepare_stock_specials` supplies OriginalV1 item generation
+with the seeded first-two-record mailbox/ship prefix and its original strict
+340×200 large-item exclusion predicate. It shares S2's exact `OriginalRng` and
+`TerrainValidation` footprint search, preserves mailbox mode draw order and
+elevator placement exclusions, and does not confuse the later ambient ordinary
+population RNG with the seeded item generator. Authored courses still supply
+explicit records, not stock population injection.
+
+Tests exercise same-floor and four-disjoint-floor lifetimes, every kind and
+typed thinker/contact family, decoy ties and eligibility, contacts and services
+for all seats, protected states, sleeping, terrain, motion/animation admission,
+stable IDs beyond 31, snapshot/resimulation, bounded spawning and atomic pool
+pressure, and four 64-actor floors in the negotiated body domain. The optional
+private test imports every kind and its initial animation in both retail
+revisions without publishing asset data. These are service/resource checks,
+not a four-pad campaign recording, native/browser parity proof or balance claim.
+OriginalV1 full-generator RAM parity and S6 frontend/campaign evidence remain
+their respective owners' admission work. No engine/frontend selection or
+faithful gameplay path changes in this service increment.
+
