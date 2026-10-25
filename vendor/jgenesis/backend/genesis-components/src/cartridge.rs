@@ -651,6 +651,29 @@ impl Cartridge {
         self.cheat_overrides.update_cheat_codes(&config.cheat_codes);
     }
 
+    /// TJE reference proof: positive mapping evidence only. This inspects no
+    /// ROM/external value, latch or mutable state; unknown mappers are not proof.
+    #[cfg(feature = "reference-proof-hooks")]
+    #[must_use]
+    pub fn reference_basic_rom_is_mapped(&self, address: u32, word: bool) -> bool {
+        let address = address & 0xffffff;
+        if address >= 0x400000 || (word && address & 1 != 0) {
+            return false;
+        }
+        let Mapper::Basic(mapper) = &self.mapper else {
+            return false;
+        };
+        let bytes = if word { 2 } else { 1 };
+        let Some(end) = (address as usize).checked_add(bytes) else {
+            return false;
+        };
+        if self.rom.0.len().checked_mul(2).is_none_or(|length| end > length) {
+            return false;
+        }
+        let external = self.external.address_range();
+        !mapper.ram_mapped || !(0..bytes).any(|lane| external.contains(&(address + lane as u32)))
+    }
+
     #[must_use]
     pub fn peek_word(&self, address: u32) -> u16 {
         self.mapper.peek_word(address, &self.rom, &self.external).unwrap_or(0xFFFF)

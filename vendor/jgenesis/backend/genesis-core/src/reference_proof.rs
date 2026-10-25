@@ -15,6 +15,9 @@ pub use reset::{
 };
 pub(crate) use reset::{ResetContinuation, cartridge_identity};
 
+mod read_context;
+pub use read_context::ReadContext;
+
 const BUSREQ: u32 = 0xa11100;
 const LOCK: u16 = 0x41;
 const RELEASED_TICKS: u16 = 112;

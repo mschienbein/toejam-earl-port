@@ -253,6 +253,11 @@ pub struct HybridBusCheckpoint {
     pub cpu_halt: bool,
 }
 
+/// The passive actual-read journal exists only in reference-proof builds.
+#[cfg_attr(
+    not(feature = "reference-proof-hooks"),
+    doc = "```compile_fail\nlet _: genesis_core::reference_proof::ReadContext;\n```"
+)]
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisBus {
     #[partial_clone(partial)]
@@ -280,6 +285,9 @@ pub struct GenesisBus {
     pub native_writes: Option<Vec<crate::native::TimedWrite>>,
     /// TJE native: opt-in CPU-issued transactions at every address, including ROM.
     pub native_cpu_accesses: Option<Vec<crate::native::CpuAccess>>,
+    /// TJE reference proof: actual read context, never a source/readiness grant.
+    #[cfg(feature = "reference-proof-hooks")]
+    pub reference_read_contexts: Option<Vec<crate::reference_proof::ReadContext>>,
     /// TJE native: all-origin actual work-RAM commits, separate from CPU issues.
     pub native_ram_writes: Option<Vec<crate::native::RamWrite>>,
     /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
@@ -323,6 +331,8 @@ impl GenesisBus {
             timing_survey,
             native_writes,
             native_cpu_accesses,
+            #[cfg(feature = "reference-proof-hooks")]
+            reference_read_contexts,
             native_ram_writes,
             hybrid_cpu_accesses,
             hybrid_exception_boundaries,
@@ -353,6 +363,8 @@ impl GenesisBus {
                 timing_survey,
                 native_writes,
                 native_cpu_accesses,
+                #[cfg(feature = "reference-proof-hooks")]
+                reference_read_contexts,
                 native_ram_writes,
                 hybrid_cpu_accesses,
                 hybrid_exception_boundaries,
@@ -389,6 +401,8 @@ impl GenesisBus {
             timing_survey,
             native_writes,
             native_cpu_accesses,
+            #[cfg(feature = "reference-proof-hooks")]
+            reference_read_contexts,
             native_ram_writes,
             hybrid_cpu_accesses,
             hybrid_exception_boundaries,
@@ -419,6 +433,8 @@ impl GenesisBus {
                 timing_survey,
                 native_writes,
                 native_cpu_accesses.as_ref().map(Vec::len),
+                #[cfg(feature = "reference-proof-hooks")]
+                reference_read_contexts,
                 native_ram_writes,
                 hybrid_cpu_accesses,
                 hybrid_exception_boundaries,
@@ -452,6 +468,8 @@ impl GenesisBus {
             timing_survey: _,
             native_writes: _,
             native_cpu_accesses: _,
+            #[cfg(feature = "reference-proof-hooks")]
+                reference_read_contexts: _,
             native_ram_writes: _,
             hybrid_cpu_accesses: _,
             hybrid_exception_boundaries: _,
@@ -529,6 +547,8 @@ impl GenesisBus {
             timing_survey: None,
             native_writes: None,
             native_cpu_accesses: None,
+            #[cfg(feature = "reference-proof-hooks")]
+            reference_read_contexts: None,
             native_ram_writes: None,
             hybrid_cpu_accesses: None,
             hybrid_exception_boundaries: None,
@@ -763,6 +783,34 @@ impl GenesisBus {
         self.m68k_read_with_purpose::<WORD>(address, m68000_emu::ReadPurpose::Semantic)
     }
 
+    /// TJE reference proof/host operand contract: one decoder for driven lanes.
+    /// Pure inspection; it does not read MMIO, flush writes or advance clocks.
+    pub fn hybrid_read_driven_mask(&self, address: u32, word: bool) -> u16 {
+        let full = if word { 0xffff } else { 0xff };
+        match address & 0xffffff {
+            0x000000..=0x7fffff | 0xe00000..=0xffffff => full,
+            0xa00000..=0xa0ffff if self.z80_signals.busack() => full,
+            0xa10000..=0xa1001f => full,
+            0xa11100 => {
+                if word {
+                    0x0100
+                } else {
+                    0x01
+                }
+            }
+            0xc00000..=0xc00003 | 0xc00008..=0xc0000b => full,
+            0xc00004..=0xc00007 => {
+                if word {
+                    0x03ff
+                } else if address & 1 == 0 {
+                    0x03
+                } else {
+                    0xff
+                }
+            }
+            _ => 0,
+        }
+    }
     fn m68k_read_with_purpose<const WORD: bool>(
         &mut self,
         address: u32,
@@ -778,6 +826,19 @@ impl GenesisBus {
             .as_ref()
             .filter(|survey| survey.reference_proof.reset_capture_active())
             .map(|_| self.open_bus);
+        #[cfg(feature = "reference-proof-hooks")]
+        let read_context_before = self.reference_read_contexts.as_ref().map(|_| {
+            let physical = address & 0xffffff;
+            let mut mask = self.hybrid_read_driven_mask(physical, WORD);
+            if physical < 0x800000
+                && !self.cartridge.as_ref().is_some_and(|cartridge| {
+                    cartridge.reference_basic_rom_is_mapped(physical, WORD)
+                })
+            {
+                mask = 0;
+            }
+            (mask, self.z80_signals.busack())
+        });
         let value = self.m68k_read_inner::<WORD>(address, purpose);
         #[cfg(feature = "reference-proof-hooks")]
         if let Some(open_bus_before) = reset_open_bus_before {
@@ -792,6 +853,15 @@ impl GenesisBus {
                     open_bus_after: self.open_bus,
                 },
             );
+        }
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some((mask, busack)) = read_context_before {
+            self.reference_read_contexts
+                .as_mut()
+                .expect("actual read observer remains installed")
+                .push(crate::reference_proof::ReadContext::new(
+                    address, WORD, purpose, value, mask, busack,
+                ));
         }
         if let Some(trace) = &mut self.native_cpu_accesses {
             let purpose = match purpose {
@@ -1793,5 +1863,21 @@ mod dma_capture_tests {
         z80.timing_survey.as_mut().unwrap().cpu = crate::timing_survey::TimingCpu::Z80;
         z80_emu::BusInterface::write_memory(&mut z80, 0x7f00, 7);
         assert!(z80.hybrid_dma_capture().unwrap().deferred_dma_port_write_seen);
+    }
+}
+
+#[cfg(all(test, not(feature = "reference-proof-hooks")))]
+mod read_context_feature_off_tests {
+    use super::*;
+    #[test]
+    fn ordinary_bus_mask_inspection_is_pure_without_proof_feature_or_observer() {
+        let bus = GenesisBus::new(TimingMode::Ntsc, None, &GenesisEmulatorConfig::default());
+        let before = bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap();
+        assert_eq!(bus.hybrid_read_driven_mask(0x1c00004, true), 0x03ff);
+        assert_eq!(bus.hybrid_read_driven_mask(0xc00005, false), 0xff);
+        assert_eq!(bus.hybrid_read_driven_mask(0xa11100, true), 0x0100);
+        assert_eq!(bus.hybrid_read_driven_mask(0xa00000, false), 0);
+        assert!(bus.native_cpu_accesses.is_none());
+        assert_eq!(before, bincode::encode_to_vec(&bus, bincode::config::standard()).unwrap());
     }
 }

@@ -219,6 +219,26 @@ Additional `TJE native` device-only interfaces:
   same-value, decoded or analysis-reset revival. Hard-reset reconstruction moves
   only independently trusted reset lineage. Capture overflow/fault fails closed.
   The existing proof-only feature and shipping-graph guard cover this lane.
+- `backend/genesis-core/src/reference_proof/read_context.rs`: local passive
+  actual-read context records behind that same proof-only feature. The optional
+  `GenesisBus::reference_read_contexts` journal defaults to `None`; feature-off
+  builds have no field/module and perform no added capture work or allocation.
+  Each actual main-CPU read retains its original address, byte/word width,
+  semantic/prefetch/discarded purpose and full raw value, with the driven mask
+  and Z80 ownership sampled at the read before dispatch. It does not mask,
+  substitute, replay or perform an additional read, nor enable timing policy.
+  The unchanged host operand-mask table is shared through the pure
+  `GenesisBus::hybrid_read_driven_mask` decoder. Exhaustive control views retain
+  the optional observer; no source/readiness/reset authority is created.
+  Synthetic feature-on/off tests and the explicit shipping-feature guard cover
+  this journal, including byte lanes, physical aliases and changing Z80 ownership.
+  Actual all-address contexts additionally require a present, positively
+  Basic-mapped in-range ROM beat; no-cartridge reads, ROM holes, external-memory
+  overlap and unknown mappers conservatively record mask zero. The proof-only
+  `reference_basic_rom_is_mapped` query in
+  `backend/genesis-components/src/cartridge.rs` inspects mapping/ranges only,
+  never a value or latch. The legacy MMIO helper table remains unchanged.
+
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

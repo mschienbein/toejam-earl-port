@@ -53,13 +53,18 @@ fn shipping_release_graph_contains_no_68000_or_development_fallback() {
             "oracle",
             "browser-proof",
             "call-window-proofs",
-            "reference-proof-hooks",
         ] {
             assert!(
                 !graph.contains(forbidden),
                 "shipping graph contains {forbidden}:\n{graph}"
             );
         }
+        // This feature includes the passive actual-read context journal as well
+        // as reset/audio fixtures. No frontend may enable it, even by a dev edge.
+        assert!(
+            !graph.contains("reference-proof-hooks"),
+            "shipping graph enables reference-only actual-read context/fixture hooks:\n{graph}"
+        );
         // The standalone device adapter intentionally reuses genesis-core's audio,
         // controller and capture types. Its emulator module is feature-gated off;
         // checking that boundary is stronger than banning a peripheral crate name.

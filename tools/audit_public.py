@@ -49,6 +49,7 @@ LOCAL_VENDOR_FILES = frozenset({
     "backend/genesis-core/src/reference_proof/tests.rs",
     "backend/genesis-core/src/reference_proof/reset.rs",
     "backend/genesis-core/src/reference_proof/reset_tests.rs",
+    "backend/genesis-core/src/reference_proof/read_context.rs",
 })
 MAX_BYTES = 1_000_000
 MAX_DECODED_BYTES = 16 * MAX_BYTES

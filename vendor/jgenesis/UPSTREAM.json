@@ -21,7 +21,7 @@
       "upstream_path": "backend/genesis-components/Cargo.toml"
     },
     "backend/genesis-components/src/cartridge.rs": {
-      "modified": false,
+      "modified": true,
       "upstream_blob": "799d005c24ae2c03b35d91e693de48830abe377b",
       "upstream_path": "backend/genesis-components/src/cartridge.rs"
     },
@@ -196,6 +196,11 @@
       "upstream_path": "backend/genesis-core/src/lib.rs"
     },
     "backend/genesis-core/src/reference_proof.rs": {
+      "modified": true,
+      "upstream_blob": null,
+      "upstream_path": null
+    },
+    "backend/genesis-core/src/reference_proof/read_context.rs": {
       "modified": true,
       "upstream_blob": null,
       "upstream_path": null

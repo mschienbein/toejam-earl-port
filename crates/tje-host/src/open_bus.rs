@@ -22,30 +22,7 @@ pub(crate) struct DeviceRead<T> {
 /// Bits supplied by the current standalone ToeJam & Earl device decoder.
 /// A predicate may observe only these without declaring a CPU prefetch source.
 pub(crate) fn driven_mask(bus: &GenesisBus, address: u32, word: bool) -> u16 {
-    let full = if word { 0xffff } else { 0xff };
-    match address & tje_mem::ADDRESS_MASK {
-        0x000000..=0x7fffff | 0xe00000..=0xffffff => full,
-        0xa00000..=0xa0ffff if bus.z80_signals.busack() => full,
-        0xa10000..=0xa1001f => full,
-        0xa11100 => {
-            if word {
-                0x0100
-            } else {
-                0x01
-            }
-        }
-        0xc00000..=0xc00003 | 0xc00008..=0xc0000b => full,
-        0xc00004..=0xc00007 => {
-            if word {
-                0x03ff
-            } else if address & 1 == 0 {
-                0x03
-            } else {
-                0xff
-            }
-        }
-        _ => 0,
-    }
+    bus.hybrid_read_driven_mask(address, word)
 }
 
 pub(crate) fn prepare(
