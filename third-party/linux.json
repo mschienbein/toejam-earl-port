@@ -6826,7 +6826,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "db87daa3926759dc78f3a1ea73376d30fcc591ddde0487dd2076368208e2169f",
+  "source_fingerprint": "e00deed4391731874154371642b78a9c7383558f3cd8ec408e6bff4cf7ec4de5",
   "targets": [
     "x86_64-unknown-linux-gnu"
   ]

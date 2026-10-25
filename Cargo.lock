@@ -3660,6 +3660,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-world"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "png",
+ "sha1",
+ "sha2",
+ "tje-engine-runtime",
+ "tje-game",
+ "tje-mem",
+ "tje-rom",
+]
+
+[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

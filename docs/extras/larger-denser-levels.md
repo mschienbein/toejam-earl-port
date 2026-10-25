@@ -1,8 +1,142 @@
-# Larger, denser levels — design, not implementation
+# Larger, denser levels
 
-Status: proposed independent opt-in world settings, 2026-10-25. Wider view is not itself a larger world or a population-cap increase. Faithful defaults, fixed maps, seeds and frame/audio behavior remain unchanged. No HD artwork is involved.
+Status: **phase 1 backend, native admission closed**, 2026-10-25. Independent size/density settings, bounded ExpandedV1 generation and persistent sidecar primitives are implemented in `crates/tje-world`; this is **not a playable larger-level mode**. Main explicitly approved this phase boundary until the shared ownership closure exists. Wider view is not itself a larger world or a population-cap increase. Faithful defaults remain unchanged. No HD artwork is involved.
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
+
+## Implemented phase 1 contract
+
+`tje-world` is an independent, safe-Rust library. No engine/frontend path depends
+on it and no original selection table changes. `LevelSize` (`Original`, `Expanded`
+28×39, experimental `Large` 38×52, custom 8–64 per axis) and `Density` (`Original`,
+`Low`, `Normal`, `Busy`) are independent immutable configuration fields.
+`admit_native` / enhanced `configure_native` accept only `Original` + `Original`
+and otherwise return the missing-closure error **before profile registration,
+sidecar insertion, reset or any RAM mutation**. The accepted default does nothing;
+it does not replace the faithful original generator with ExpandedV1.
+
+The shared [mode-owned simulation plan](mode-owned-simulation.md), led by the
+four-player work, inventories functions, shared interfaces and implementation-size
+estimates for terrain/render, collision, player, population, inventory/phone, map,
+and elevator transitions. Four-player and larger worlds use the same `LevelId`
+(validated 0–31), not independently invented bank IDs. ExtendedView's current
+stock-bank renderer is intentionally not modified here; its future map-source
+input must borrow `LevelGeometry` without copying expanded cells into stock RAM.
+Maker's stock-size admission remains separate; its validated future 8–64-cell
+format can supply the same geometry source. No extra obtains a native admission
+exception merely because another extra can display more pixels.
+
+### Generator identity, work and publication
+
+- `GenerationSpec` includes ROM SHA1, root seed, generator version, size/density,
+  ordinary floor ID and a measured stock/control population baseline. Special
+  floors 0/1/26 are not generated or stretched. Large/custom remain experimental.
+- Configuration identity is SHA-256 over `tje-world/config/1\0`, version as BE u16,
+  root seed as BE u64, the 20 ROM-digest bytes, size tag, width/height as BE u16,
+  and density tag. Generation identity adds `tje-world/generation/1\0`, that
+  digest, BE floor ID, baseline walkable tiles (BE u32), ordinary item/Earthling
+  counts (BE u16 each), reserved-item count and two one-byte service flags.
+- Candidate geometry has a separate SHA-256 identity over
+  `tje-world/geometry/1\0`, BE version, BE root seed, ROM SHA1, BE width/height
+  and BE floor ID. Changing density or its measured population baseline does
+  **not** reseed the geometry candidate for an attempt. Population capacity can
+  still determine whether that candidate is accepted.
+- A stage starts from SHA-256 of `tje-world/stage/1\0`, BE version, the appropriate
+  identity digest (geometry for geometry stages; full generation for population,
+  loot and AI), BE floor ID, zero-based attempt byte, BE u16 stage-label length,
+  and label bytes. Its first eight digest bytes are BE u64, reduced modulo
+  2147483646, then incremented. Park–Miller/Schrage keeps the full 31-bit state;
+  draws expose its low 16 bits and use explicit modulo reduction. No faithful
+  RNG/cache, randomized host hash or idle-loop draw is involved.
+- Stages are `anchors`, `paths`, `regions`, `features`, `shapes`, `alternatives`,
+  `terrain`, `connectivity`, `validation`, `population` and `runtime-ai`; `loot`
+  is reserved but does not yet choose actual item definitions. The code fixes
+  loop/neighbor/draw order. Anchor candidates draw X then Y; accepted anchors
+  then draw their alternate flag. Routes draw an axis only when both axes
+  differ, then reduce Manhattan distance. Regions draw frontier index then
+  direction. Feature candidates use the imported parameter-4 percentage capped
+  at 35%, reserve anchor neighborhoods, and mark bounded 3×3 interior patches.
+  Alternatives draw one choice; mixed-region transition candidates inspect at
+  most 16 descriptors, each with at most 64 shapes. Populations use their own
+  stream; actor AI states are allocated from `runtime-ai`.
+- Separated anchors reserve 3×3-cell arrival/exit/objective regions. A closed
+  chain connects them, then bounded iterative frontier growth, interior feature
+  marking and imported ROM edge/filled/path shape, alternative and transition
+  resolution produce final `Cell` values. Full ordinary land uses the edge bank;
+  filled-terrain shapes are separate features, not a synonym for solid ground.
+  Region scratch labels and final cells are distinct types. This is a new
+  versioned pipeline, **not original seed/draw-order equivalence**.
+- Connectivity uses actual 8×8-tile terrain, including mirrored bases and
+  overlay precedence. A fixed 128-tile local flood propagates boundary bits
+  through a circular worklist containing at most one entry per metatile. Coarse
+  labels alone cannot validate a required route. Arrival/exit/objective 4×2-tile
+  footprints and all declared region anchors must be reachable.
+- Each `advance` performs 1–1024 deterministic work units. One unit is a bounded
+  candidate/cell, never an elapsed-time slice. Anchor sampling is capped at
+  `area*8`, growth at `area*32`, tile-connectivity queue work at `area*128`,
+  placement at `area*4` candidates per requested record. Exactly **64 attempts**
+  (0–63) may run. Exhaustion retains the request/settings/reason and never
+  publishes the last invalid map, substitutes stock geometry or changes a seat.
+- The enhanced `generate` body processes 256 work units, restores its job to
+  the typed sidecar, then yields `Wait::Frames(1)`. It is deliberately **not
+  bound to `MapLoadPlayerLevel` or any native profile**: returning from such an
+  override into original consumers would violate closed admission. A future
+  mode-owned loader may select it once the shared closure is complete.
+
+### Persistence, placement and limits
+
+`WorldState` owns sorted LevelId-keyed floors, mutable cell/path edits, dirty-cell
+bits, shared coarse 320×256 discovery, stable pickup/removal bits, dropped items,
+per-floor runtime RNG and pending generation/transition data. Reentry does not
+regenerate a stored floor. Model elevator/fall/reentry/telephone transactions
+prepare a landing only after publication; committing the model transaction does
+not run an original elevator or mutate hero RAM. Transitions to authored special
+floors are rejected until their mode-owned staging exists.
+
+Density budgets use **measured reachable walkable tile area**, not map envelope,
+viewport count or width. `Original` retains supplied original counts; `Low`,
+`Normal`, `Busy` apply 75/100/125% to the stock-area ratio with integer rounding.
+Reservations are allocated first, then totals cap at 128 items and 64 Earthlings
+per floor. Placement uses checked terrain footprints, stable IDs, explicit
+spacing, arrival safety and a four-hostile local cap; impossible placement
+rejects that attempt rather than silently dropping records. These records carry
+placement **roles**, not fabricated cartridge actor/item definitions; resolving
+roles, loot composition and actual gameplay behavior belongs to the shared
+mode-owned population cutover. Promotion scaling is recorded as a rational
+area ratio, not applied to original rank RAM in this phase.
+
+Four hero-active floors, 128 global dropped items, 64 effects and 60 companion
+reservations fit the 1024-logical-entity envelope. A maximum 64×64 floor's cells,
+paths and dirty/discovery bits fit the proposed 32 KiB geometry allowance; its
+bounded population fits 16 KiB. The canonical codec is fixed-width little-endian
+bincode with a 4 MiB decoding ceiling. Schema/configuration/extent/work invariants
+are validated before standalone restore and in the enhanced format-3 sidecar.
+Snapshots retain every generation phase and immutable configuration identity.
+Nothing allocates additional Genesis RAM, VRAM, CRAM or hardware sprite entries.
+Actual imported sprite-piece residency admission is still part of the closed
+native boundary, not something these placement primitives claim to prove.
+The encoded maximum-dimension regression measured **12,353 bytes** of geometry
+and **4,297 bytes** of population per floor; 23 stored maximum-size floors plus
+a pending maximum-size generation encoded to **588,504 bytes**. The test also
+reserves all remaining slots in the 32-floor 32+16 KiB envelope and 64 KiB for
+other enhanced owners, still below the 4 MiB ceiling.
+
+Tests cover fixed PRNG/SHA vectors; deterministic success/failure across the
+dimension/seed corpus and work quanta; exact 64-attempt exhaustion for
+coarse-connected/tile-disconnected geometry; bounds/caps; every loading-phase
+round-trip; stable bits beyond 31; atomic failed publication; multi-floor model
+transitions and persistent deltas; default-off admission; and logical resource
+budgets. `world-proof` privately imports each supported revision and emits
+determinism/round-trip hashes and clearly labeled **terrain-overview** PNGs.
+It does not emit a gameplay, campaign, native/wasm parity or balance claim.
+
+```sh
+cargo run -p tje-world --features private-proof --example world-proof -- \
+  /private/path/to/user-rom.bin /private/output/world-overviews
+```
+
+The original design and uncompleted shipping acceptance requirements follow.
+
 
 ## Original generation and limits
 
@@ -58,7 +192,7 @@ Memory [INFERENCE]: one maximum map's word cells are 8192 bytes; path bytes add 
 
 Use EnhancedMode's separate non-default `EnhancedProfile(name, &[Translation], &[FramedTranslation])`, existing `Context` physical-frame ABI and selected nested-call interception. Atomic/Functional replacements with synthetic RTS charges are enhanced, not timing-proven faithful Rust. Reuse the dispatch convention of `NativeCompiledOriginalCallees` ([P `docs/ENGINE.md:437–506`](docs/ENGINE.md#L437)); do not modify faithful selection tables or add a second opcode interpreter.
 
-The current registry has no typed sidecar or resumable generation/render API. Required future common work is listed in [four-player.md](four-player.md) F-A/F-B; larger levels can use that foundation with only one/two hero seats and do **not** depend on completing four-player balance/UI.
+EnhancedMode now supplies typed sidecars, resumable overrides and format-3 atomic envelopes (see [ENHANCED_MODE.md](../ENHANCED_MODE.md)). The still-missing part is the shared mode-owned world/render/transition closure in [mode-owned-simulation.md](mode-owned-simulation.md); larger levels do **not** require four-player balance/UI, but they cannot bypass that common storage-ownership boundary.
 
 Replace these ownership boundaries together:
 
@@ -72,7 +206,7 @@ The closure is broad even for two players. Inventory/phone/map/elevator/cutscene
 
 ExtendedView's first 400×224 (400×112 original split) presentation and experimental ≤512 width remain the camera envelope, not a license to display the entire enlarged floor. For four players use the co-op 2×2 400×224 view composition or optional shared view; the level geometry is independent of the composition. Character palette swaps follow co-op's runtime ROM-derived per-instance palettes, not extra global CRAM banks. Generation only uses existing metatile art decoded locally; no ROM table payload, generated map snapshot, tiles or original text is checked into P.
 
-Snapshots must atomically combine core format-1 `TJESTATE` (actual ROM SHA1, CPU/devices/timing/input/audio) with enhanced profile/body-manifest/ruleset/generator/config/course identity and the entire map/population/RNG/delta sidecar. The first core snapshot API does not provide this wrapper. Enhanced inputs use a new versioned record format; faithful two-pad recordings and Netplay packets are not repurposed. Peer-to-peer enhanced play must compare generator identity, dimensions, accepted attempts and sidecar hashes before input simulation; no hosted sharing is needed.
+Snapshots atomically combine faithful format-2 `TJESTATE` (actual ROM SHA1, CPU/devices/timing/input/audio) with enhanced profile/body-manifest/configuration and the map/population/RNG/delta sidecar through EnhancedMode's format-3 envelope. Enhanced inputs use a separate versioned record; faithful two-pad recordings and Netplay packets are not repurposed. Peer-to-peer enhanced play must compare generator identity, dimensions, accepted attempts and sidecar hashes before input simulation; no hosted sharing is needed.
 
 ## Balance and risks
 
@@ -103,4 +237,4 @@ Required tests before shipping:
 7. Same world/input manifest under 320/400/512 presentation, shared/quadrant views, fast-forward and variable presentation cadence: authoritative state/RNG identical. Discovery and promotion updates occur once, not per view.
 8. Whole short and full campaign progression with expanded ordinary levels, original special floors and all hero counts. Playtest route-time, resource starvation, rank pace and threat density before promoting a preset from experimental.
 
-No executable changes or checks are performed by this design-only assignment. Main owns final workspace/audit/replay gates.
+Phase-1 tests and private evidence are recorded in the worker report. The full shipping acceptance list above remains open; no playable expanded campaign or native admission is claimed.

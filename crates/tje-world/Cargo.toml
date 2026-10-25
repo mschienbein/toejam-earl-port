@@ -1,0 +1,27 @@
+[package]
+name = "tje-world"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Bounded opt-in world geometry and deterministic ExpandedV1 generation"
+
+[features]
+default = []
+enhanced-mode = ["dep:tje-engine-runtime", "dep:tje-game", "tje-engine-runtime/enhanced-mode"]
+private-proof = ["dep:tje-rom", "dep:png", "dep:sha1"]
+
+[dependencies]
+bincode = "2"
+sha2 = "0.10"
+tje-mem = { path = "../tje-mem" }
+tje-engine-runtime = { path = "../tje-engine-runtime", optional = true, default-features = false }
+tje-game = { path = "../tje-game", optional = true }
+tje-rom = { path = "../tje-rom", optional = true }
+png = { version = "0.18", optional = true }
+sha1 = { version = "0.10", optional = true }
+
+[[example]]
+name = "world-proof"
+required-features = ["private-proof"]
