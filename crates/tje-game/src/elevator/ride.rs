@@ -122,12 +122,10 @@ pub fn elevator_update_ride_dialogue(context: &mut dyn Context, _: &[u32]) -> Re
 /// G/src/elevator/elevator_scene.c:484 (`ElevatorPrepareRideDialogue`).
 /// LINK A6,#-4 and MOVEM D2-D6/A2-A4 are retained because sprite linking may
 /// address the saved caller frame. Reply line one's word really lives at A6-2.
-pub fn elevator_prepare_ride_dialogue(
-    context: &mut dyn Context,
-    args: &[u32],
-) -> Result<Option<u32>> {
+pub fn elevator_prepare_ride_dialogue(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
-    let result = prepare_dialogue_body(context, args[0]);
+    let entity_address = frame.argument_slot(0).read(context);
+    let result = prepare_dialogue_body(context, entity_address);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
@@ -154,14 +152,25 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
     if ram::g_player_lives(revision).at(0).read(context) >= 0
         && ram::g_player_lives(revision).at(1).read(context) >= 0
     {
-        let random = call(context, ids::GET_RANDOM_NUMBER, &[])? as u16;
+        let random = call_at(
+            context,
+            ids::GET_RANDOM_NUMBER,
+            &[],
+            CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x3e),
+        )? as u16;
         set_low_word(context, 2, random as i16);
         if u32::from(random) % 100 < 75 {
-            let mut speech =
-                (u32::from(call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 14) as i16;
+            let mut speech = (u32::from(call_at(
+                context,
+                ids::GET_RANDOM_NUMBER,
+                &[],
+                CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x66),
+            )? as u16)
+                % 14) as i16;
             let mask = ram::g_elevator_ride_used_dialogue_mask(revision);
             let mut attempt = 0;
-            set_low_word(context, 2, speech);
+            // MOVEQ #0,D2 precedes MOVE.W of the unsigned RNG result.
+            context.set_data_register(2, speech as u32);
             set_low_word(context, 3, attempt);
             while attempt < 14 {
                 if (1_i32.wrapping_shl(speech as u32) & mask.read(context)) == 0 {
@@ -178,50 +187,23 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
                 let x = entity.x().read(context).wrapping_sub(24);
                 entity.x().write(context, x);
                 let descriptor = rom::speech_string_pointers(revision).at(i32::from(speech));
-                let text = descriptor.first_line().read(context).address();
-                let speaker = i32::from(entity.entity_index().read(context));
-                let first = call_at(
-                    context,
-                    ids::GENERATE_SPEECH,
-                    &[speaker as u32, text, 0],
-                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0xe6),
-                )? as i16;
+                let first = generate_ride_line(context, entity, descriptor.first_line(), 0xe6)?;
                 set_low_word(context, 3, first);
-                let mut second = 0_i16;
                 if descriptor.second_line().read(context).address() != 0 {
-                    let text = descriptor.second_line().read(context).address();
-                    let speaker = i32::from(entity.entity_index().read(context));
-                    second = call_at(
-                        context,
-                        ids::GENERATE_SPEECH,
-                        &[speaker as u32, text, 0],
-                        CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x110),
-                    )? as i16;
+                    let second =
+                        generate_ride_line(context, entity, descriptor.second_line(), 0x110)?;
                     set_low_word(context, 5, second);
                 }
                 let x = entity.x().read(context).wrapping_add(40);
                 entity.x().write(context, x);
-                let text = descriptor.reply_first_line().read(context).address();
-                let speaker = i32::from(entity.entity_index().read(context));
-                let reply_first = call_at(
-                    context,
-                    ids::GENERATE_SPEECH,
-                    &[speaker as u32, text, 0],
-                    CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x134),
-                )? as i16;
+                let reply_first =
+                    generate_ride_line(context, entity, descriptor.reply_first_line(), 0x134)?;
                 let reply_slot =
                     tje_mem::Address::<i16>::new(context.address_register(6).wrapping_sub(2));
                 reply_slot.write(context, reply_first);
-                let mut reply_second = 0_i16;
                 if descriptor.reply_second_line().read(context).address() != 0 {
-                    let text = descriptor.reply_second_line().read(context).address();
-                    let speaker = i32::from(entity.entity_index().read(context));
-                    reply_second = call_at(
-                        context,
-                        ids::GENERATE_SPEECH,
-                        &[speaker as u32, text, 0],
-                        CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, 0x160),
-                    )? as i16;
+                    let reply_second =
+                        generate_ride_line(context, entity, descriptor.reply_second_line(), 0x160)?;
                     set_low_word(context, 6, reply_second);
                 }
                 let x = entity.x().read(context).wrapping_sub(16);
@@ -236,22 +218,36 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
                     // Resolve the live A6 at the original use point: Queue's
                     // Build callee can overwrite its saved caller A6 at 55/56
                     // links. A cached LocalFrame base would hide that bug.
-                    let line = match index {
-                        0 => first,
-                        1 => second,
-                        2 => tje_mem::Address::<i16>::new(
-                            context.address_register(6).wrapping_sub(2),
-                        )
-                        .read(context),
-                        _ => reply_second,
+                    let byte = match index {
+                        0 => context.data_register(3) as u8,
+                        1 => context.data_register(5) as u8,
+                        2 => {
+                            tje_mem::Address::<u8>::new(context.address_register(6).wrapping_sub(1))
+                                .read(context)
+                        }
+                        _ => context.data_register(6) as u8,
                     };
-                    lines.at(index).write(context, line as u8);
-                    if line as u8 != 0 {
-                        ram::g_player_info(revision)
+                    lines.at(index).write(context, byte);
+                    let line = if byte != 0 {
+                        match index {
+                            0 => context.data_register(3) as i16,
+                            1 => context.data_register(5) as i16,
+                            2 => tje_mem::Address::<i16>::new(
+                                context.address_register(6).wrapping_sub(2),
+                            )
+                            .read(context),
+                            _ => context.data_register(6) as i16,
+                        }
+                    } else {
+                        0
+                    };
+                    if byte != 0 {
+                        let ready = ram::g_player_info(revision)
                             .cast::<ObjectState>()
                             .byte_offset(i32::from(line.wrapping_shl(7)))
-                            .sprite_ready()
-                            .write(context, 0);
+                            .sprite_ready();
+                        context.discard_u8(ready.address())?;
+                        ready.write(context, 0);
                     }
                 }
                 call_at(
@@ -265,9 +261,38 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
         }
     }
     for index in 0..4 {
+        context.discard_u8(lines.at(index).address())?;
         lines.at(index).write(context, 0);
     }
     Ok(())
+}
+
+// The compiler pushes the third argument before reading the text pointer, and
+// pushes that pointer before reading the speaker byte. Keep that interleaving:
+// the emulated stack and entity/descriptor storage may alias.
+fn generate_ride_line(
+    context: &mut dyn Context,
+    entity: tje_mem::Address<ObjectState>,
+    text: tje_mem::Address<tje_mem::Ptr<i8>>,
+    return_offset: u32,
+) -> Result<i16> {
+    let revision = context.revision();
+    let dispatcher = context.dispatcher();
+    let final_argument = OutgoingArguments::push(context, &[0])?;
+    let pointer = text.read(context).address();
+    let text_argument = OutgoingArguments::push(context, &[pointer])?;
+    let speaker = i32::from(entity.entity_index().read(context)) as u32;
+    let speaker_argument = OutgoingArguments::push(context, &[speaker])?;
+    let line = speaker_argument.call(
+        context,
+        dispatcher,
+        ids::GENERATE_SPEECH,
+        CallSite::relative(ids::ELEVATOR_PREPARE_RIDE_DIALOGUE, revision, return_offset),
+    )? as i16;
+    speaker_argument.release(context)?;
+    text_argument.release(context)?;
+    final_argument.release(context)?;
+    Ok(line)
 }
 
 fn set_low_word(context: &mut dyn Context, register: usize, value: i16) {
@@ -317,42 +342,66 @@ pub fn elevator_ride_v_blank(context: &mut dyn Context, _: &[u32]) -> Result<Opt
 pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let velocity = ram::g_elevator_ride_scroll_velocity(revision);
-    while velocity.read(context) < 2048 {
-        context.wait_vblank_frame(velocity.address(), velocity.read(context) as u16)?;
+    loop {
+        let polled = velocity.read(context);
+        if polled >= 2048 {
+            break;
+        }
+        context.wait_vblank_frame(velocity.address(), polled as u16)?;
     }
     ram::g_elevator_ride_scroll_acceleration(revision).write(context, -2048);
-    while velocity.read(context) > 0 {
-        context.wait_vblank_frame(velocity.address(), velocity.read(context) as u16)?;
+    loop {
+        let polled = velocity.read(context);
+        if polled <= 0 {
+            break;
+        }
+        context.wait_vblank_frame(velocity.address(), polled as u16)?;
     }
+    let callback = ram::g_v_blank_func(revision).address();
+    context.discard_u16(callback)?;
+    context.discard_u16(callback.wrapping_add(2))?;
     ram::g_v_blank_func(revision).write(context, tje_mem::Ptr::new(0));
-    call(context, ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES, &[])?;
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_at(
+        context,
+        ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
+        &[],
+        CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x26),
+    )?;
+    call_at(
+        context,
+        ids::DISABLE_BLANKING_GRAPHICS,
+        &[],
+        CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x2c),
+    )?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     let value = mode.read(context) & 0x3c;
     mode.write(context, value);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(
+    call_at(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line2(revision).address(), 1],
+        CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x58),
     )?;
     context.write_vdp_command(0x40000000);
-    call(
+    call_at(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::level_tiles(revision).address(), 1040],
+        CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x74),
     )?;
     Ok(None)
 }
 
 /// G/src/elevator/elevator_scene.c:579 (`ElevatorBeginRideScene`).
-/// The pending-byte spin suspends until a real IRQ can change its containing
-/// RAM word; every wake rechecks the byte, never fabricating upload completion.
+/// The pending-byte spin suspends for an actual interrupt and then rechecks
+/// TST.B's byte predicate, without an invented containing-word read.
 /// Preserve MOVEM D2-D5/A2-A4 and the retained state/dialogue/palette argument
 /// areas; callees that inspect the original caller frame see those real slots.
-pub fn elevator_begin_ride_scene(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn elevator_begin_ride_scene(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x1c))?;
-    let result = begin_ride_body(context, args[0]);
+    let elevator_address = frame.argument_slot(0).read(context);
+    let result = begin_ride_body(context, elevator_address);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
@@ -388,9 +437,11 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
     first.y().write(context, y);
     let level = ram::g_player1_map_level(revision).read(context);
     first.level().write(context, level);
+    context.discard_u8(first.sprite_ready().address())?;
     first.sprite_ready().write(context, 0);
     let level = ram::g_player1_map_level(revision).read(context);
     second.level().write(context, level);
+    context.discard_u8(second.sprite_ready().address())?;
     second.sprite_ready().write(context, 0);
     let state_arguments = OutgoingArguments::push(context, &[elevator.address(), 12])?;
     state_arguments.call(
@@ -415,9 +466,7 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
         )?;
         let pending = ram::g_sprite_graphics_upload_pending(revision);
         while pending.read(context) != 0 {
-            let address = pending.address() & !1;
-            let previous = context.read_u16(address);
-            context.wait_vblank_frame(address, previous)?;
+            context.wait_for_interrupt()?;
         }
         if first.sprite_ready().read(context) != 0 && second.sprite_ready().read(context) != 0 {
             break;
@@ -507,6 +556,9 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
     )?;
     hud_arguments.release(context)?;
     palette_arguments.release(context)?;
+    let fixed = ram::g_elevator_ride_scroll_y_fixed(revision).address();
+    context.discard_u16(fixed)?;
+    context.discard_u16(fixed.wrapping_add(2))?;
     ram::g_elevator_ride_scroll_y_fixed(revision).write(context, 0);
     context.write_vdp_command(0x40000010);
     context.write_vdp_data(ram::g_elevator_ride_scroll_y_low_word(revision).read(context) as u16);
@@ -514,6 +566,7 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
     ram::g_elevator_ride_scroll_acceleration(revision).write(context, 1024);
     context.write_vdp_command(0x7c000003);
     context.write_vdp_data(0xffff);
+    context.discard_u16(ram::g_frame_counter(revision).address())?;
     ram::g_frame_counter(revision).write(context, 0);
     ram::g_v_blank_func(revision).write(
         context,
@@ -526,12 +579,10 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
 /// On the original invalid/no-rider paths, destination level and the elevator
 /// pointer retain entry D3/A3. Preserve those values rather than initializing
 /// the C locals or replacing unchecked original accesses with validation.
-pub fn elevator_advance_riders_to_next_level(
-    context: &mut dyn Context,
-    args: &[u32],
-) -> Result<Option<u32>> {
+pub fn elevator_advance_riders_to_next_level(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x0c))?;
-    let result = advance_riders_body(context, args[0] as i8);
+    let handle = frame.argument_byte(0).read(context);
+    let result = advance_riders_body(context, handle);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
@@ -596,10 +647,9 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
         let requested = ram::g_requested_music_selection(revision);
         let current = ram::g_current_music_selection(revision);
         requested.write(context, 6);
-        while current.read(context) != requested.read(context) {
-            let address = current.address() & !1;
-            let previous = context.read_u16(address);
-            context.wait_vblank_frame(address, previous)?;
+        // MOVE.B requested,D0 precedes CMP.B current,D0 on every poll.
+        while requested.read(context) != current.read(context) {
+            context.wait_for_interrupt()?;
         }
         let bank = (i32::from(handle) - 1) >> 1;
         elevator = ram::g_elevator_records(revision).at(bank).at(0);
@@ -727,6 +777,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             CallSite::relative(caller, revision, 0x22a),
         )?;
     }
+    context.discard_u8(ram::g_elevator_departure_in_progress(revision).address())?;
     ram::g_elevator_departure_in_progress(revision).write(context, 0);
     let split_arguments = OutgoingArguments::push(context, &[1])?;
     split_arguments.call(

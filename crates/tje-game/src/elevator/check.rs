@@ -8,7 +8,8 @@ use std::{
     },
 };
 use tje_game::{
-    Context, FunctionId, Translation, camera, elevator, execution::ExecutionClass, ids,
+    Context, FramedTranslation, FunctionId, Translation, camera, elevator,
+    execution::ExecutionClass, ids,
 };
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Ptr, Revision, ram};
@@ -94,24 +95,12 @@ const TIME_PROOF: &[Translation] = &[
         function: elevator::map_enter_final_level,
     },
     Translation {
-        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
-        function: elevator::elevator_prepare_ride_dialogue,
-    },
-    Translation {
         id: ids::ELEVATOR_RIDE_V_BLANK,
         function: elevator::elevator_ride_v_blank,
     },
     Translation {
-        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
-        function: elevator::elevator_begin_ride_scene,
-    },
-    Translation {
         id: ids::ELEVATOR_END_RIDE_SCENE,
         function: elevator::elevator_end_ride_scene,
-    },
-    Translation {
-        id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
-        function: elevator::elevator_advance_riders_to_next_level,
     },
     Translation {
         id: ids::PROCESS_ELEVATOR_STEP1,
@@ -120,6 +109,21 @@ const TIME_PROOF: &[Translation] = &[
     Translation {
         id: ids::PROCESS_ELEVATORS,
         function: elevator::process_elevators,
+    },
+];
+
+const TIME_FRAMED_PROOF: &[FramedTranslation] = &[
+    FramedTranslation {
+        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        function: elevator::elevator_prepare_ride_dialogue,
+    },
+    FramedTranslation {
+        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
+        function: elevator::elevator_begin_ride_scene,
+    },
+    FramedTranslation {
+        id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
+        function: elevator::elevator_advance_riders_to_next_level,
     },
 ];
 
@@ -767,9 +771,10 @@ fn main() {
                 .map(|name| {
                     TIME_PROOF
                         .iter()
-                        .find(|entry| entry.id.metadata().name == name)
+                        .map(|entry| entry.id)
+                        .chain(TIME_FRAMED_PROOF.iter().map(|entry| entry.id))
+                        .find(|id| id.metadata().name == name)
                         .unwrap_or_else(|| panic!("unknown timed proof root: {name}"))
-                        .id
                 })
                 .collect()
         })
@@ -815,7 +820,13 @@ fn main() {
             "rev00"
         };
         let registry = if selection == "time-all" {
-            HookRegistry::proof_filtered(revision, TIME_PROOF, &selected_roots).unwrap()
+            HookRegistry::proof_filtered_with_frames(
+                revision,
+                TIME_PROOF,
+                TIME_FRAMED_PROOF,
+                &selected_roots,
+            )
+            .unwrap()
         } else if selection == "transition" {
             HookRegistry::proof(revision, TRANSITION_PROOF).unwrap()
         } else if timed {
@@ -831,7 +842,10 @@ fn main() {
             }) {
                 registry
                     .register_translation_with_execution(
-                        tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
+                        tje_game::Dispatcher::hybrid()
+                            .resolve_entry(translation.id)
+                            .unwrap()
+                            .unwrap(),
                         ExecutionClass::Atomic,
                     )
                     .unwrap();

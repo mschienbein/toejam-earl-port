@@ -1,6 +1,6 @@
 //! Elevator record and animation leaves; see docs/PORTING.md.
 
-use crate::{Context, Result, Translation, execution::ExecutionClass, ids};
+use crate::{Context, FramedTranslation, Result, Translation, execution::ExecutionClass, ids};
 use tje_mem::{Address, Bus, ElevatorRecord, ObjectState, Revision, ram, rom};
 
 mod geometry;
@@ -119,18 +119,6 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         id: ids::MAP_ENTER_FINAL_LEVEL,
         function: map_enter_final_level,
     },
-    // Real ISR entry interleaves differently with GenerateSpeech RAM stores.
-    // Exact LINK/MOVEM/local/call sites below do not resolve clock ordering.
-    Translation {
-        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
-        function: elevator_prepare_ride_dialogue,
-    },
-    // Settled proof disagrees in ISR-visible RAM; the stricter caller envelope
-    // also exposes the host's outstanding DMA pending-write queue overflow.
-    Translation {
-        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
-        function: elevator_begin_ride_scene,
-    },
     // Original deceleration needs more than the fixed timed-call bound permits.
     // Never shorten the 2048→0 ride or raise the bound inside this translation.
     Translation {
@@ -148,9 +136,27 @@ pub static PENDING_TRANSLATIONS: &[Translation] = &[
         id: ids::PROCESS_ELEVATORS,
         function: process_elevators,
     },
+];
+
+/// Pending source-time argument loads; none is production registered.
+/// Prepare consumes MOVE.L 8(A6) after LINK/MOVEM, Begin MOVE.L 32(SP) after
+/// MOVEM, and Advance only MOVE.B 11(A6), never an eager four-byte snapshot.
+pub static PENDING_FRAMED_TRANSLATIONS: &[FramedTranslation] = &[
+    // Real ISR entry interleaves differently with GenerateSpeech RAM stores.
+    // Exact LINK/MOVEM/local/call sites below do not resolve clock ordering.
+    FramedTranslation {
+        id: ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
+        function: elevator_prepare_ride_dialogue,
+    },
+    // Settled proof disagrees in ISR-visible RAM; the stricter caller envelope
+    // also exposes the host's outstanding DMA pending-write queue overflow.
+    FramedTranslation {
+        id: ids::ELEVATOR_BEGIN_RIDE_SCENE,
+        function: elevator_begin_ride_scene,
+    },
     // Frame-1300 no-rider residual-D3 fixture: original 37 ISRs, Rust 27.
     // The shared-ride branch also depends on Begin/EndRideScene above.
-    Translation {
+    FramedTranslation {
         id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
         function: elevator_advance_riders_to_next_level,
     },

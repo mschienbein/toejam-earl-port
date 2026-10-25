@@ -1,4 +1,8 @@
-use crate::{Context, Result, call, ids};
+use crate::{
+    Context, Result, call, call_at,
+    call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
+    ids,
+};
 use tje_mem::{ElevatorRecord, ram, rom};
 
 /// G/src/elevator/elevator_scene.c:327 (`LoadFinalLevelMap`).
@@ -120,36 +124,83 @@ pub fn map_clear_active_level_objects(context: &mut dyn Context, _: &[u32]) -> R
 }
 
 /// G/src/elevator/elevator_scene.c:396 (`MapEnterFinalLevel`).
+/// Retain MOVEM A2/A3, each source return PC, and the sprite/split arguments
+/// until their actual cleanup points; callees can observe those RAM slots.
 pub fn map_enter_final_level(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x0c))?;
+    let result =
+        enter_final_level_body(context).map_err(|error| context.protect_timing_failure(error));
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result.map(|()| None);
+    }
+    let leave = frame.leave(context);
+    result?;
+    leave?;
+    Ok(None)
+}
+
+fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
     let revision = context.revision();
+    let caller = ids::MAP_ENTER_FINAL_LEVEL;
+    let dispatcher = context.dispatcher();
+    context.set_address_register(2, ram::g_player_info(revision).address());
     for player in 0..2 {
         if ram::g_player_lives(revision).at(player).read(context) >= 0 {
             let entity = ram::g_player_info(revision).at(player);
             entity.level().write(context, 26);
             let level = i32::from(entity.level().read(context));
-            call(
+            call_at(
                 context,
                 ids::MAP_LOAD_PLAYER_LEVEL,
                 &[player as u32, level as u32],
+                CallSite::relative(caller, revision, if player == 0 { 0x2a } else { 0x7e }),
             )?;
+            context.set_address_register(3, entity.address());
+            context.discard_u16(entity.height().address())?;
             entity.height().write(context, 0);
-            call(context, ids::STOP_PLAYER, &[entity.address()])?;
+            call_at(
+                context,
+                ids::STOP_PLAYER,
+                &[entity.address()],
+                CallSite::relative(caller, revision, if player == 0 { 0x3c } else { 0x90 }),
+            )?;
+            context.discard_u8(ram::g_player_fall_states(revision).at(player).address())?;
             ram::g_player_fall_states(revision)
                 .at(player)
                 .write(context, 0);
-            call(context, ids::SET_SPRITE, &[entity.address(), 0])?;
+            let sprite_arguments = OutgoingArguments::push(context, &[entity.address(), 0])?;
+            sprite_arguments.call(
+                context,
+                dispatcher,
+                ids::SET_SPRITE,
+                CallSite::relative(caller, revision, if player == 0 { 0x4e } else { 0xa2 }),
+            )?;
             let behavior = entity.behavior_flags().read(context) & !(0x10 | 0x40);
             entity.behavior_flags().write(context, behavior);
             let tile = entity.tile().read(context) & !0x8000;
             entity.tile().write(context, tile);
+            sprite_arguments.release(context)?;
         }
     }
     let mode = ram::g_mode2_reg_softcopy(revision);
     let value = mode.read(context) & 0x3c;
     mode.write(context, value);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::LOAD_FINAL_LEVEL_MAP, &[])?;
-    call(context, ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES, &[])?;
+    call_at(
+        context,
+        ids::LOAD_FINAL_LEVEL_MAP,
+        &[],
+        CallSite::relative(caller, revision, 0xd2),
+    )?;
+    call_at(
+        context,
+        ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
+        &[],
+        CallSite::relative(caller, revision, 0xd8),
+    )?;
     let first = ram::g_player_info(revision).at(0);
     let second = ram::g_player_info(revision).at(1);
     first.x().write(context, 496);
@@ -158,10 +209,23 @@ pub fn map_enter_final_level(context: &mut dyn Context, _: &[u32]) -> Result<Opt
     second.x().write(context, x);
     let y = first.y().read(context);
     second.y().write(context, y);
-    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    let split_arguments = OutgoingArguments::push(context, &[1])?;
+    split_arguments.call(
+        context,
+        dispatcher,
+        ids::UPDATE_SCREEN_SPLIT_MODE,
+        CallSite::relative(caller, revision, 0xfe),
+    )?;
     let value = mode.read(context) | 0x40;
     mode.write(context, value);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
-    Ok(None)
+    let hardware_mode = 0x8104 | u16::from(mode.read(context));
+    split_arguments.release(context)?;
+    context.write_vdp_control(hardware_mode);
+    call_at(
+        context,
+        ids::ENABLE_BLANKING_GRAPHICS,
+        &[],
+        CallSite::relative(caller, revision, 0x124),
+    )?;
+    Ok(())
 }
