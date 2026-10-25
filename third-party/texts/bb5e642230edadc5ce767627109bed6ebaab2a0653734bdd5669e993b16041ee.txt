@@ -116,7 +116,8 @@
 > /// See also [Apple's documentation][apple-doc].
 > ///
 > /// [apple-doc]:
-> https://developer.apple.com/documentation/foundation/nscopying
+> https://developer.apple.com/documentation/foundation/nscopyi
+> ng
 > ///
 > ///
 > /// # Examples
@@ -218,7 +219,8 @@
 > /// See [Apple's documentation][apple-doc] for details.
 > ///
 > /// [apple-doc]:
-> https://developer.apple.com/documentation/foundation/nsmutablecopying
+> https://developer.apple.com/documentation/foundation/nsmutab
+> lecopying
 > ///
 > ///
 > /// # Example

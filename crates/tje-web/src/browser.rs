@@ -15,6 +15,8 @@ use tje_session::report::{Build, EngineState};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
+mod netplay;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = globalThis, js_name = tjeCaptureWasmPanic, catch)]
@@ -143,6 +145,7 @@ pub struct WebGame {
     audio: Vec<f32>,
     sample_rate: u32,
     rewind: Option<RewindBuffer>,
+    netplay: Option<tje_netplay::Peer<tje_engine_runtime::MachineSnapshot>>,
 }
 
 #[wasm_bindgen]
@@ -157,6 +160,7 @@ impl WebGame {
             audio: Vec::with_capacity(4096),
             sample_rate: 48_000,
             rewind: None,
+            netplay: None,
         })
     }
 
@@ -195,6 +199,11 @@ impl WebGame {
         if sample_rate == self.sample_rate {
             return Ok(());
         }
+        if self.netplay.is_some() {
+            return Err(js_error(
+                "disconnect netplay before changing the audio sample rate",
+            ));
+        }
         if let Some(cartridge) = &mut self.cartridge {
             cartridge
                 .engine
@@ -208,6 +217,9 @@ impl WebGame {
 
     /// Private ROM-derived bytes, never an input recording or bug-report field.
     pub fn snapshot(&self) -> Result<Vec<u8>, JsValue> {
+        if self.netplay.is_some() {
+            return Err(js_error("disconnect netplay before saving a local state"));
+        }
         let cartridge = self
             .cartridge
             .as_ref()
@@ -216,6 +228,9 @@ impl WebGame {
     }
 
     pub fn restore(&mut self, bytes: Vec<u8>) -> Result<(), JsValue> {
+        if self.netplay.is_some() {
+            return Err(js_error("disconnect netplay before loading a local state"));
+        }
         let image = MachineSnapshot::from_bytes(bytes).map_err(js_error)?;
         let rate = self.sample_rate;
         let cartridge = self.cartridge_mut()?;
@@ -247,7 +262,7 @@ impl WebGame {
     }
 
     pub fn set_rewind(&mut self, enabled: bool) {
-        if enabled {
+        if enabled && self.netplay.is_none() {
             self.rewind
                 .get_or_insert_with(|| RewindBuffer::new(64 * 1024 * 1024));
         } else {
@@ -256,6 +271,9 @@ impl WebGame {
     }
 
     pub fn rewind(&mut self) -> Result<bool, JsValue> {
+        if self.netplay.is_some() {
+            return Err(js_error("rewind is unavailable during netplay"));
+        }
         let Some(cartridge) = &mut self.cartridge else {
             return Ok(false);
         };
@@ -278,6 +296,11 @@ impl WebGame {
     }
 
     pub fn reset(&mut self) -> Result<(), JsValue> {
+        if self.netplay.is_some() {
+            return Err(js_error(
+                "disconnect netplay before resetting the cartridge",
+            ));
+        }
         self.cartridge_mut()?.engine.reset();
         #[cfg(feature = "replay-observer")]
         self.cartridge_mut()?.engine.devices_mut().enable_trace();
@@ -292,6 +315,9 @@ impl WebGame {
     /// interleaved f32 output for the AudioWorklet. Exact f64 samples stay in the
     /// engine and are observed without conversion in replay-observer builds.
     pub fn step(&mut self, p1: u8, p2: u8, p2_connected: bool) -> Result<(), JsValue> {
+        if self.netplay.is_some() {
+            return Err(js_error("use netplay_step while a peer session is active"));
+        }
         let cartridge = self
             .cartridge
             .as_mut()

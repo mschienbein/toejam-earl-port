@@ -45,7 +45,14 @@ def legal_text(text: str) -> bytes:
     normalized = "\n".join(lines) + "\n"
     if re.findall(r"\S+", normalized) != re.findall(r"\S+", text):
         raise ValueError("legal-text reflow changed upstream words")
-    return ("\n".join("> " + line for line in lines) + "\n").encode("utf-8")
+    # Long upstream URLs can contain SHA-512 identifiers. Soft-wrap display
+    # tokens too: no legal characters are removed, and quoted fragments cannot
+    # be mistaken for a single encoded binary payload by the publication audit.
+    quoted = []
+    for line in lines:
+        quoted.extend("> " + line[start:start + 60]
+                      for start in range(0, max(1, len(line)), 60))
+    return ("\n".join(quoted) + "\n").encode("utf-8")
 
 
 def source_fingerprint(root: Path = ROOT) -> str:

@@ -267,6 +267,26 @@
       "version": "1.5.0"
     },
     {
+      "authors": [],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "arboard",
+      "repository": "https://github.com/1Password/arboard",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/arboard/3.7.0/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE.txt": "35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b",
+        "LICENSE-MIT.txt": "e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a",
+        "selected:MIT:e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a": "e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a"
+      },
+      "version": "3.7.0"
+    },
+    {
       "authors": [
         {
           "name": "bluss"
@@ -611,6 +631,25 @@
       "version": "1.12.1"
     },
     {
+      "authors": [],
+      "declared_license": "Unlicense OR MIT",
+      "name": "byteorder-lite",
+      "repository": "https://github.com/image-rs/byteorder-lite",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/byteorder-lite/0.1.0/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-MIT": "cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206",
+        "selected:MIT:cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206": "cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206"
+      },
+      "version": "0.1.0"
+    },
+    {
       "authors": [
         {
           "name": "Alex Crichton <alex@alexcrichton.com>"
@@ -653,8 +692,8 @@
       ],
       "texts": {
         "LICENSE": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
-        "selected:MIT:0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c": "0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c",
-        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0"
+        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
+        "selected:MIT:ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85": "ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85"
       },
       "version": "0.2.2"
     },
@@ -1646,7 +1685,7 @@
       ],
       "texts": {
         "LICENSE": "8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2",
-        "LICENSE-LIBM-MIT": "1eae7f1e54d3828d4c995a7a121dfe37260a3223ffe92181b7dee39e79ce474f",
+        "LICENSE-LIBM-MIT": "aab3ba7c5d4e468e7ee580caa8bb3c63bf994ac02d371f41b9eab244941ca075",
         "selected:Apache-2.0:8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2": "8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2",
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
@@ -1962,6 +2001,29 @@
     {
       "authors": [
         {
+          "name": "Sebastian K <s3bk@protonmail.com>"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "fax",
+      "repository": "https://github.com/pdf-rs/fax",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/fax/0.2.7/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE": "08e7cf9f27bff11929d62c499ab8f5197a8527385bc4bd76bb3a23d0451ed200",
+        "selected:MIT:08e7cf9f27bff11929d62c499ab8f5197a8527385bc4bd76bb3a23d0451ed200": "08e7cf9f27bff11929d62c499ab8f5197a8527385bc4bd76bb3a23d0451ed200"
+      },
+      "version": "0.2.7"
+    },
+    {
+      "authors": [
+        {
           "name": "The image-rs Developers"
         }
       ],
@@ -2265,6 +2327,30 @@
       "selected": [
         "MIT"
       ],
+      "source_archive": "https://crates.io/api/v1/crates/getrandom/0.3.4/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "0f4d6e87052e57f9780de39e641ba9049fa888009ee8ff1bb8cc355f67a32922",
+        "LICENSE-MIT": "95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27",
+        "selected:MIT:95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27": "95b602d8cc29a524108382ca20d0765c7f1e6f77a87e21c93397d46b8fe38b27"
+      },
+      "version": "0.3.4"
+    },
+    {
+      "authors": [
+        {
+          "name": "The Rand Project Developers"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "getrandom",
+      "repository": "https://github.com/rust-random/getrandom",
+      "selected": [
+        "MIT"
+      ],
       "source_archive": "https://crates.io/api/v1/crates/getrandom/0.4.3/download",
       "targets": [
         "aarch64-apple-darwin",
@@ -2472,6 +2558,30 @@
         "selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e": "8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e"
       },
       "version": "0.5.0"
+    },
+    {
+      "authors": [
+        {
+          "name": "The image-rs Developers"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "image",
+      "repository": "https://github.com/image-rs/image",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/image/0.25.10/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b",
+        "LICENSE-MIT": "2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa",
+        "selected:MIT:2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa": "2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa"
+      },
+      "version": "0.25.10"
     },
     {
       "authors": [],
@@ -2687,7 +2797,7 @@
         "x86_64-apple-darwin"
       ],
       "texts": {
-        "LICENSE.txt": "784cb42e3a8cab0c54945392875f122d96aa74300be708da552b1b546b0a194d",
+        "LICENSE.txt": "f6ce35ac556387493c95af0722af7a2e408b7aad446aa28d59ce447a8e9a52e4",
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
       "version": "0.2.16"
@@ -2947,6 +3057,30 @@
         "selected:MIT:b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47": "b97ca8f9603f03758cb22b3d8545afd2e16d5ed3335d4ed2ed741af1e7176f47"
       },
       "version": "0.9.1"
+    },
+    {
+      "authors": [
+        {
+          "name": "Radzivon Bartoshyk"
+        }
+      ],
+      "declared_license": "BSD-3-Clause OR Apache-2.0",
+      "name": "moxcms",
+      "repository": "https://github.com/awxkee/moxcms.git",
+      "selected": [
+        "Apache-2.0"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/moxcms/0.8.1/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE.md": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e",
+        "LICENSE.md": "922d4862df60756fa6e10f63e811ceb84ba47a0cf580a5d6202a2dcd574c88d2",
+        "selected:Apache-2.0:76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e"
+      },
+      "version": "0.8.1"
     },
     {
       "authors": [
@@ -3492,7 +3626,7 @@
       ],
       "texts": {
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b",
-        "src/copying.rs": "cb4944ae7595e8930600cafa2ef3e564187b981e6f45c7826cb995df3e7efda9",
+        "src/copying.rs": "c0c0402a8c7b6b019690bf5e8557176676edfc01adecd8c976c068162a3ac709",
         "src/tests/copying.rs": "04cb8b97aaa0c57e563a31d1c2c4438e072d47b7cb71083fc19bd22549db3ae3"
       },
       "version": "0.2.2"
@@ -3512,7 +3646,7 @@
       ],
       "texts": {
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b",
-        "src/copying.rs": "571c96a11ac171de534a694bab03f2186a88e255470522ca236893911bca8755",
+        "src/copying.rs": "bb5e642230edadc5ce767627109bed6ebaab2a0653734bdd5669e993b16041ee",
         "src/tests/copying.rs": "04cb8b97aaa0c57e563a31d1c2c4438e072d47b7cb71083fc19bd22549db3ae3"
       },
       "version": "0.3.2"
@@ -3613,8 +3747,8 @@
         "x86_64-apple-darwin"
       ],
       "texts": {
-        "LICENSE.txt": "9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663",
-        "selected:MPL-2.0:9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663": "9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663"
+        "LICENSE.txt": "cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15",
+        "selected:MPL-2.0:cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15": "cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15"
       },
       "version": "0.2.0"
     },
@@ -3846,6 +3980,57 @@
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
       "version": "1.0.18"
+    },
+    {
+      "authors": [
+        {
+          "name": "Radzivon Bartoshyk"
+        }
+      ],
+      "declared_license": "BSD-3-Clause OR Apache-2.0",
+      "name": "pxfm",
+      "repository": "https://github.com/awxkee/pxfm",
+      "selected": [
+        "Apache-2.0"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/pxfm/0.1.30/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE.md": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e",
+        "LICENSE.md": "922d4862df60756fa6e10f63e811ceb84ba47a0cf580a5d6202a2dcd574c88d2",
+        "selected:Apache-2.0:76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e"
+      },
+      "version": "0.1.30"
+    },
+    {
+      "authors": [
+        {
+          "name": "Colin Kiegel <kiegel@gmx.de>"
+        },
+        {
+          "name": "Paul Colomiets <paul@colomiets.name>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "quick-error",
+      "repository": "http://github.com/tailhook/quick-error",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/quick-error/2.0.1/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "da668f0e70a7404a1bf5e1e5c63def72da2750eaad8318b90581f77471f62a69",
+        "LICENSE-MIT": "9bd8fdf40cfb85d867eb21672cf2ef2f3ff1008369c785cb9db347afe7666950",
+        "selected:MIT:9bd8fdf40cfb85d867eb21672cf2ef2f3ff1008369c785cb9db347afe7666950": "9bd8fdf40cfb85d867eb21672cf2ef2f3ff1008369c785cb9db347afe7666950"
+      },
+      "version": "2.0.1"
     },
     {
       "authors": [
@@ -4729,6 +4914,30 @@
     {
       "authors": [
         {
+          "name": "The image-rs Developers"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "tiff",
+      "repository": "https://github.com/image-rs/image-tiff",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/tiff/0.11.3/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE": "f87cc4198cc8f095537731d018447bfe23af270bc9043965bed5944c7b048022",
+        "selected:MIT:f87cc4198cc8f095537731d018447bfe23af270bc9043965bed5944c7b048022": "f87cc4198cc8f095537731d018447bfe23af270bc9043965bed5944c7b048022",
+        "tests/COPYRIGHT": "43c12470c8777d48eec25e32cc0d94333f7f239289d47bbb37738e0f1cbcdbc4"
+      },
+      "version": "0.11.3"
+    },
+    {
+      "authors": [
+        {
           "name": "Jacob Pratt <open-source@jhpratt.dev>"
         },
         {
@@ -4910,6 +5119,24 @@
       "authors": [],
       "declared_license": "GPL-3.0-only",
       "name": "tje-native-platform",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
+      "name": "tje-netplay",
       "repository": "https://github.com/mschienbein/toejam-earl-port",
       "selected": [
         "GPL-3.0-only"
@@ -5640,6 +5867,30 @@
     {
       "authors": [
         {
+          "name": "The image-rs Developers"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "weezl",
+      "repository": "https://github.com/image-rs/weezl",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/weezl/0.1.12/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "3088d7f7b4de0f5cb013de05e628e248f3d5e8fc1774839b38e5f899c13919c2",
+        "selected:MIT:3088d7f7b4de0f5cb013de05e628e248f3d5e8fc1774839b38e5f899c13919c2": "3088d7f7b4de0f5cb013de05e628e248f3d5e8fc1774839b38e5f899c13919c2"
+      },
+      "version": "0.1.12"
+    },
+    {
+      "authors": [
+        {
           "name": "gfx-rs developers"
         }
       ],
@@ -5978,17 +6229,63 @@
         "selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7"
       },
       "version": "1.0.23"
+    },
+    {
+      "authors": [],
+      "declared_license": "MIT OR Apache-2.0 OR Zlib",
+      "name": "zune-core",
+      "repository": "https://github.com/etemesi254/zune-image",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/zune-core/0.5.3/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45",
+        "LICENSE-ZLIB": "30d63b5edb86f04b80ef6ebd8a7f3fd0f5d5d1e56ba50a0cfaa7ec04e86e6bcc",
+        "selected:MIT:beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45": "beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45"
+      },
+      "version": "0.5.3"
+    },
+    {
+      "authors": [
+        {
+          "name": "caleb <etemesicaleb@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0 OR Zlib",
+      "name": "zune-jpeg",
+      "repository": "https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/zune-jpeg/0.5.15/download",
+      "targets": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45",
+        "LICENSE-ZLIB": "30d63b5edb86f04b80ef6ebd8a7f3fd0f5d5d1e56ba50a0cfaa7ec04e86e6bcc",
+        "selected:MIT:beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45": "beaccb40285f4923b065f5ea514518ed87d13e7da91c85ece336598b72810e45"
+      },
+      "version": "0.5.15"
     }
   ],
   "format": 1,
   "graph": "macos",
-  "notice_sha256": "b6efa1fae35845cbf9d910f978488d276dfbef6fdb55bba389649fbd24604793",
+  "notice_sha256": "86dd3c6558ca97b3958890c1a7b190c7da7863cfda44449e95240d2b5f8a267b",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
-    "rust/COPYRIGHT-library-part-2.txt": "83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576",
+    "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
     "rust/licenses/Apache-2.0.txt": "67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7",
     "rust/licenses/BSD-2-Clause.txt": "7e1455b977e2ec0a018aea88e81907ceaa33dbc9c1e8c6a7f13171c7eeae7386",
-    "rust/licenses/CC-BY-SA-4.0.txt": "96ba51e318d556be112ccb779d2c7b52d9d7f94087eccd61c97dbe1641587de4",
+    "rust/licenses/CC-BY-SA-4.0.txt": "09409cb51720ef769fed69593f4e9d15a55ca073880cfa761044094ec928137e",
     "rust/licenses/GCC-exception-3.1.txt": "1f014719a37cfb66593631786d0f1253b4e47491870b119b8647a48de91ecdae",
     "rust/licenses/GPL-2.0-only.txt": "216923bd42dc46cf5a22ea3af391fb199e75e39cce138d94250a55471d255137",
     "rust/licenses/GPL-3.0-or-later.txt": "620c05b2c30aa4c2eb3160dab4762ef35d7803db942043be9382ac1859b8a51c",
@@ -6000,7 +6297,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "75b0a622e4f9cf994c970ccae26fcb5a4d226ba1468f4cce42f37735504bb205",
+  "source_fingerprint": "c4a9c226748425796035d69add3ff1ac2308e94663fd25aa49566789f9597e1d",
   "targets": [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin"

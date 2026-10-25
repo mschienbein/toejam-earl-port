@@ -24,6 +24,7 @@ pub struct Actions {
     pub forget_rom: bool,
     pub reporting: crate::reports::Actions,
     pub convenience: Option<crate::convenience::Command>,
+    pub netplay: Option<tje_native::netplay::Action>,
 }
 
 pub struct Frame {
@@ -43,6 +44,8 @@ pub struct Info<'a> {
     pub storage: &'a Storage,
     pub input: &'a Input,
     pub devices: &'a [String],
+    pub netplay_active: bool,
+    pub netplay_status: &'a str,
 }
 
 pub struct Overlay {
@@ -56,6 +59,7 @@ pub struct Overlay {
     player: usize,
     forget_confirmation: bool,
     pub reports: crate::reports::Ui,
+    pub netplay: tje_native::netplay::Ui,
 }
 
 impl Overlay {
@@ -71,6 +75,7 @@ impl Overlay {
             player: 0,
             forget_confirmation: false,
             reports: crate::reports::Ui::new(),
+            netplay: tje_native::netplay::Ui::default(),
         }
     }
     pub fn initialize(&mut self, window: &Window) {
@@ -224,12 +229,20 @@ impl Overlay {
                             ui.selectable_value(&mut self.tab, 1, "Controls");
                             ui.selectable_value(&mut self.tab, 2, "Cartridge / help");
                             ui.selectable_value(&mut self.tab, 3, "Extras");
+                            ui.selectable_value(&mut self.tab, 4, "Online co-op");
                         });
                         ui.separator();
                         match self.tab {
                             0 => self.general(ui, settings, &info, &mut actions),
                             1 => self.controls(ui, settings, info.input, &mut actions),
-                            3 => { actions.settings_changed |= crate::convenience::controls(ui, &mut settings.convenience, info.has_game && info.replay.is_none(), info.recording, &mut actions.convenience); }
+                            3 => {
+                                ui.add_enabled_ui(!info.netplay_active, |ui| {
+                                    actions.settings_changed |= crate::convenience::controls(ui, &mut settings.convenience, info.has_game && info.replay.is_none(), info.recording, &mut actions.convenience);
+                                });
+                            }
+                            4 => actions.netplay = self.netplay.draw(ui, info.netplay_active,
+                                info.has_game && info.loading.is_none() && info.replay.is_none() && !info.recording,
+                                info.netplay_status),
                             _ => {
                                 if info.loading.is_none() {
                                     self.import_ui(ui, &mut actions, info.storage.rom_path().is_file());

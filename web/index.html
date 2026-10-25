@@ -85,6 +85,35 @@
       <button id="cancel-mapping" type="button" hidden>Cancel assignment (Escape)</button>
       <div id="player-controls"></div>
     </details>
+    <details id="netplay-settings">
+      <summary>Online two-player co-op — off by default</summary>
+      <p>Opt-in rollback prototype. Host is player 1, joiner player 2; both use their local player 1 controls.
+        Starting or disconnecting resets to power-on. Both players supply the same ROM locally; only its hash is compared.
+        The engine build, audio rate and simulation settings must also match. No ROM or save image is sent.</p>
+      <p>Connection setup is copy/paste only: host creates an offer; joiner pastes it and creates an answer;
+        host pastes the answer and applies it. Codes contain network addresses and a session capability: share only with your trusted peer.
+        Browser codes use encrypted WebRTC data channels; native UDP codes are separate and cannot interoperate.</p>
+      <label for="net-delay">Input delay (frames) <select id="net-delay">
+        <option value="0">0</option><option value="1">1</option><option value="2" selected>2 (default)</option>
+        <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+        <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+      </select></label>
+      <label for="net-stun"><input id="net-stun" type="checkbox"> Use free public STUN for NAT discovery (Google; contacts it only when hosting/joining)</label>
+      <p class="small">Without STUN, no public service is contacted. There is no signaling server, account, TURN relay or relay fallback.
+        Some NAT/firewall combinations cannot connect directly. Rollback is bounded to 12 frames, then waits rather than dropping game frames.
+        Corrections may cause visual jumps or audio discontinuities; replayed audio is never queued twice.</p>
+      <button id="net-host" type="button">Host — reset and create offer</button>
+      <label for="net-remote">Paste remote offer (joiner) or answer (host)</label>
+      <textarea id="net-remote" rows="4" maxlength="98304" spellcheck="false"></textarea>
+      <button id="net-join" type="button">Join — reset and create answer</button>
+      <button id="net-answer" type="button" disabled>Host: apply answer</button>
+      <label for="net-local">Your connection code — select and copy all</label>
+      <textarea id="net-local" rows="4" readonly spellcheck="false"></textarea>
+      <button id="net-disconnect" type="button" disabled>Disconnect and reset to local play</button>
+      <p id="net-status" role="status" aria-live="polite">Off — local faithful play. No network connection exists.</p>
+      <p class="small">Reset/import, save/load, rewind, fast-forward and recording are unavailable while connected.
+        Pausing or hiding a tab stops your inputs; the other player waits at the prediction bound. Resume both peers to continue.</p>
+    </details>
     <section aria-labelledby="reports-heading">
       <h2 id="reports-heading">Playtest reports</h2>
       <p>Crashes are saved locally in this browser’s IndexedDB, never uploaded. Reports contain the build/commit, browser/OS,

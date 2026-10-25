@@ -5,4 +5,5 @@
 pub mod backend;
 pub mod config;
 pub mod input;
+pub mod netplay;
 pub mod replay;

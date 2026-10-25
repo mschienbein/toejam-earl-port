@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import audit_public
 import notices
 import release
 
@@ -99,6 +100,16 @@ class CommittedNoticeTests(unittest.TestCase):
         normalized = "\n".join(line.removeprefix("> ") for line in quoted.splitlines())
         self.assertEqual(normalized.split(), text.split())
         self.assertTrue(all(len(line) <= 60 for line in normalized.splitlines()))
+
+    def test_long_notice_identifiers_soft_wrap_without_losing_characters(self) -> None:
+        text = "url:\nhttps://example.invalid/sha512/" + bytes(range(128, 192)).hex() + "/download\n"
+        unfolded = ("\n".join("> " + line for line in text.splitlines()) + "\n").encode()
+        self.assertTrue(audit_public.content_reasons("LICENSE.txt", unfolded, None))
+        quoted = notices.legal_text(text)
+        normalized = "\n".join(line.removeprefix("> ") for line in quoted.decode().splitlines())
+        self.assertEqual("".join(normalized.split()), "".join(text.split()))
+        self.assertTrue(all(len(line) <= 60 for line in normalized.splitlines()))
+        self.assertEqual(audit_public.content_reasons("LICENSE.txt", quoted, None), [])
 
     def test_fingerprint_is_independent_of_host_path_order_and_crlf(self) -> None:
         expected = notices.source_fingerprint()

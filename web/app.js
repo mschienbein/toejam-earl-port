@@ -5,6 +5,7 @@ import { ControlSettings } from './controls.js';
 import { cartridgeStore, readSettings, saveSettings } from './storage.js';
 import { Reports } from './reporting.js';
 import { Conveniences } from './convenience.js';
+import { NetplayControls } from './netplay.js';
 
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
@@ -18,6 +19,7 @@ let wasm;
 let inputs;
 let controls;
 let conveniences;
+let netplay;
 let starting = false;
 let resumeOnVisible = false;
 let playbackVersion = 0;
@@ -132,6 +134,7 @@ function snapshot() {
     presentationFps: wallSeconds > 0 ? presented / wallSeconds : 0,
     gamepads: inputs?.pads ?? 0, keyEvents: inputs?.keyEvents.slice() ?? [0, 0],
     lastInputs: inputs?.last.slice() ?? [0, 0, false], settings: structuredClone(settings), storageWarning,
+    netplay: netplay?.started ? JSON.parse(game.netplay_status()) : null,
     canvas: { width: canvas.width, height: canvas.height },
     secure: isSecureContext, crossOriginIsolated,
   };
@@ -175,7 +178,7 @@ function frame(now) {
       void pause('Audio was interrupted; trying to resume. Click Play if another gesture is required.', true).then(tryAutomaticResume);
       return;
     }
-    const speed = conveniences.tick(now, game.target_fps());
+    const speed = netplay?.active ? { fast: false, rewind: false, changed: false } : conveniences.tick(now, game.target_fps());
     if (speed.changed) audio.begin(!speed.fast && !speed.rewind);
     if (speed.rewind) {
       if (game.rewind()) {
@@ -197,9 +200,13 @@ function frame(now) {
       steps++;
       const [p1, p2, p2Connected] = inputs.poll(settings.p2);
       const started = performance.now();
-      reports.begin(p1, p2, p2Connected);
-      game.step(p1, p2, p2Connected);
-      reports.complete(JSON.parse(game.report_state()));
+      if (netplay?.active) {
+        if (!game.netplay_step(p1)) break;
+      } else {
+        reports.begin(p1, p2, p2Connected);
+        game.step(p1, p2, p2Connected);
+        reports.complete(JSON.parse(game.report_state()));
+      }
       if (debugCrashFrame > 0 && typeof game.debug_crash === 'function' && game.frames() >= debugCrashFrame) game.debug_crash();
       const elapsed = performance.now() - started;
       emulationMs += elapsed;
@@ -284,6 +291,7 @@ async function loadCartridge(bytes, name, origin) {
 
 async function importFile(file) {
   if (!file || busy) return;
+  if (netplay?.active) { status('Disconnect netplay before replacing the cartridge.'); return; }
   busy = true;
   $('rom').disabled = true;
   $('rom-error').hidden = true;
@@ -375,6 +383,7 @@ $('play').addEventListener('click', () => {
 
 $('reset').addEventListener('click', async () => {
   if (!loaded || busy) return;
+  if (netplay?.active) return;
   busy = true;
   try {
     await pause();
@@ -413,6 +422,7 @@ window.addEventListener('drop', event => {
 
 $('forget').addEventListener('click', async () => {
   if (busy) return;
+  if (netplay?.active) return;
   busy = true;
   try {
     await pause();
@@ -526,10 +536,39 @@ async function boot() {
   conveniences = new Conveniences(settings, {
     command: action => { void convenienceAction(action); },
     persist: persistSettings,
-    available: () => loaded && !busy && !reports.crashed,
+    available: () => loaded && !busy && !reports.crashed && !netplay?.active,
     game: () => game,
   });
   controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
+  netplay = new NetplayControls({
+    game,
+    available: () => loaded && !busy && !reports.crashed,
+    begin: async ({ player, token, delay, window: rollbackWindow }) => {
+      await pause('Preparing direct peer connection…');
+      const sampleRate = await audio.start(settings.volume);
+      game.set_sample_rate(sampleRate);
+      conveniences.reset();
+      game.set_rewind(false);
+      game.netplay_start(player, new Uint8Array(token), delay, rollbackWindow, performance.now());
+      // Predicted inputs can be revised; do not label them a replayable recording.
+      reports.unload();
+      resetMeasurements();
+      activeSince = performance.now();
+      running = true;
+      $('play').textContent = 'Pause';
+      $('play').setAttribute('aria-pressed', 'true');
+      status('Netplay connecting — exchange the connection codes below.', 'running');
+    },
+    stop: () => {
+      void pause('Netplay disconnected; cartridge reset. Click Play for local play.');
+      game.netplay_stop();
+      conveniences.configure();
+      reports.start(JSON.parse(game.report_identity()));
+      reports.engine = JSON.parse(game.report_state());
+      resetMeasurements();
+    },
+    fail: error => { status(`Netplay stopped: ${error.message ?? error}. Cartridge reset; local play remains available.`, 'paused'); },
+  });
   new ResizeObserver(resize).observe($('screen'));
   status(`Checking private cartridge storage. Graphics: ${game.backend()}.`, 'loading');
   busy = true; // Block a second drop while the remembered cartridge compiles.

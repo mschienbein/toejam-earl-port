@@ -83,8 +83,58 @@ fn shipping_release_graph_contains_no_68000_or_development_fallback() {
                 graph.contains("tje-engine-cranelift"),
                 "shipping native game must use compiled native continuations"
             );
+            assert!(
+                graph.lines().any(|line| line.starts_with("egui-winit ")
+                    && line
+                        .split_once("features=")
+                        .is_some_and(|(_, features)| features
+                            .split(',')
+                            .any(|feature| feature.split_whitespace().next() == Some("arboard")))),
+                "native connection codes need an OS clipboard, not egui's per-window fallback"
+            );
         }
         assert!(graph.contains("tje-engine-runtime"));
         assert!(graph.contains("tje-native-platform"));
     }
+}
+
+#[test]
+#[ignore = "requires a desktop clipboard; verifies connection codes cross separate native window clipboard contexts"]
+fn desktop_clipboard_roundtrip_for_connection_codes() {
+    use egui_winit::clipboard::Clipboard;
+    use tje_netplay::{Config, udp::Invitation};
+    // SAFETY: None borrows no raw display handle. The enabled arboard backend
+    // discovers the OS clipboard independently, exactly as egui-winit does.
+    let mut host = unsafe { Clipboard::new(None) };
+    // SAFETY: as above; a distinct instance detects accidental in-window-only
+    // fallback, which cannot transfer a host code to a second game window.
+    let mut join = unsafe { Clipboard::new(None) };
+    let previous_text = host.get();
+    let previous_image = if previous_text.is_none() {
+        host.get_image()
+    } else {
+        None
+    };
+    let code = Invitation {
+        address: "127.0.0.1:19791".parse().unwrap(),
+        token: [17; 16],
+        config: Config::default(),
+        sample_rate: 48000,
+    }
+    .encode()
+    .unwrap();
+    host.set_text(code.clone());
+    let received = join.get();
+    if let Some(text) = previous_text {
+        host.set_text(text);
+    } else if let Some(image) = previous_image {
+        host.set_image(&image);
+    } else {
+        host.set_text(String::new());
+    }
+    assert_eq!(
+        received.as_deref(),
+        Some(code.as_str()),
+        "OS clipboard transfer must work across instances"
+    );
 }

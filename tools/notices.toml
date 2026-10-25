@@ -13,6 +13,11 @@ accepted = ["Bitstream-Vera", "OFL-1.1", "Ubuntu-font-1.0"]
 # Less-common terms are accepted only for the reviewed packages that need them.
 [arrayref]
 accepted = ["BSD-2-Clause"]
+# Native OS clipboard support: reviewed permissive Boost 1.0 terms; retain full notices.
+[clipboard-win]
+accepted = ["BSL-1.0"]
+[error-code]
+accepted = ["BSL-1.0"]
 [foldhash]
 accepted = ["Zlib"]
 [inotify]

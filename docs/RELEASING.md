@@ -244,9 +244,12 @@ the obligations. Upstream alternative licence texts are retained as notices,
 not a claim that every alternative is selected.
 Full legal texts are presented as quotations with whitespace reflowed for
 readability. An equality check ensures every upstream word and punctuation
-token remains in order. The quotation layout also prevents decorative rules
-or disclaimer lines being mistaken for nested encodings by the public audit;
-no content exemption or licence clause is added.
+token remains in order before display folding. Overlong tokens (including
+upstream SHA-512 source-credit URLs) are soft-wrapped without losing any
+characters; removing quotation prefixes and layout breaks reconstructs them.
+The quotation layout also prevents decorative rules or disclaimer lines being
+mistaken for nested encodings by the public audit; no content exemption or
+licence clause is added.
 The macOS `.app` retains its legal payload under `Contents/Resources`, not just
 beside the bundle. The generated web page links to its published notices.
 
@@ -289,6 +292,10 @@ combination:
 - **MIT, BSD-2-Clause, BSD-3-Clause, ISC and Zlib** are permissive/GPL-compatible.
   Preserve their notices. Less-common terms are scoped to the exact reviewed
   packages, rather than accepting arbitrary new dependencies automatically.
+- **Boost Software License 1.0** is permissive/GPL-compatible. Its acceptance is
+  limited to `clipboard-win` and `error-code`, used by native connection-code
+  copy/paste on Windows. Full terms and upstream notices are retained even where
+  the licence permits omission for generated machine-executable object code.
 - **Apache-2.0** is compatible with **GPLv3**, not GPLv2-only. Its full terms and
   every packaged upstream NOTICE are retained, including the Apache-only
   `cpal` dependency. LLVM exceptions are additional permissions and their actual

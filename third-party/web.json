@@ -27,6 +27,29 @@
     {
       "authors": [
         {
+          "name": "David Tolnay <dtolnay@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "anyhow",
+      "repository": "https://github.com/dtolnay/anyhow",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/anyhow/1.0.104/download",
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f",
+        "LICENSE-MIT": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7",
+        "selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7": "c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7"
+      },
+      "version": "1.0.104"
+    },
+    {
+      "authors": [
+        {
           "name": "bluss"
         }
       ],
@@ -327,8 +350,8 @@
       ],
       "texts": {
         "LICENSE": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
-        "selected:MIT:0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c": "0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c",
-        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0"
+        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
+        "selected:MIT:ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85": "ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85"
       },
       "version": "0.2.2"
     },
@@ -1022,7 +1045,7 @@
         "wasm32-unknown-unknown"
       ],
       "texts": {
-        "LICENSE.txt": "784cb42e3a8cab0c54945392875f122d96aa74300be708da552b1b546b0a194d",
+        "LICENSE.txt": "f6ce35ac556387493c95af0722af7a2e408b7aad446aa28d59ce447a8e9a52e4",
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
       "version": "0.2.16"
@@ -2337,6 +2360,23 @@
     {
       "authors": [],
       "declared_license": "GPL-3.0-only",
+      "name": "tje-netplay",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "wasm32-unknown-unknown"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
       "name": "tje-rom",
       "repository": "https://github.com/mschienbein/toejam-earl-port",
       "selected": [
@@ -3044,13 +3084,13 @@
   ],
   "format": 1,
   "graph": "web",
-  "notice_sha256": "5eef932f219a56ae958931348296defdfa36cd37fac9050721b994e77affeaa7",
+  "notice_sha256": "804cd0c420d6a6f3d4a4d18d7683129e661173a103eea4b95a5c9475075982d6",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
-    "rust/COPYRIGHT-library-part-2.txt": "83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576",
+    "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
     "rust/licenses/Apache-2.0.txt": "67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7",
     "rust/licenses/BSD-2-Clause.txt": "7e1455b977e2ec0a018aea88e81907ceaa33dbc9c1e8c6a7f13171c7eeae7386",
-    "rust/licenses/CC-BY-SA-4.0.txt": "96ba51e318d556be112ccb779d2c7b52d9d7f94087eccd61c97dbe1641587de4",
+    "rust/licenses/CC-BY-SA-4.0.txt": "09409cb51720ef769fed69593f4e9d15a55ca073880cfa761044094ec928137e",
     "rust/licenses/GCC-exception-3.1.txt": "1f014719a37cfb66593631786d0f1253b4e47491870b119b8647a48de91ecdae",
     "rust/licenses/GPL-2.0-only.txt": "216923bd42dc46cf5a22ea3af391fb199e75e39cce138d94250a55471d255137",
     "rust/licenses/GPL-3.0-or-later.txt": "620c05b2c30aa4c2eb3160dab4762ef35d7803db942043be9382ac1859b8a51c",
@@ -3062,7 +3102,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "75b0a622e4f9cf994c970ccae26fcb5a4d226ba1468f4cce42f37735504bb205",
+  "source_fingerprint": "c4a9c226748425796035d69add3ff1ac2308e94663fd25aa49566789f9597e1d",
   "targets": [
     "wasm32-unknown-unknown"
   ]

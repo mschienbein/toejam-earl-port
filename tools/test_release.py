@@ -242,6 +242,7 @@ class ReleaseTests(unittest.TestCase):
         }
         self.assertEqual({path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()},
                          expected)
+        self.assertIn("netplay.js", expected)
         self.assertIn('href="./icon.png"', site.joinpath("index.html").read_text())
         self.assertIn('href="./THIRD_PARTY_NOTICES.txt"', site.joinpath("index.html").read_text())
         self.assertNotIn(b"\r", site.joinpath("index.html").read_bytes())

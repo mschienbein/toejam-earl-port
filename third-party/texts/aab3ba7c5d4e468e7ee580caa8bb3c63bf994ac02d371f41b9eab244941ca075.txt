@@ -1,7 +1,8 @@
 > rust-lang/libm as a whole is available for use under the MIT
 > license:
 > 
-> ------------------------------------------------------------------------------
+> ------------------------------------------------------------
+> ------------------
 > Permission is hereby granted, free of charge, to any person
 > obtaining a copy
 > of this software and associated documentation files (the
@@ -31,7 +32,8 @@
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 > OTHER DEALINGS IN THE
 > SOFTWARE.
-> ------------------------------------------------------------------------------
+> ------------------------------------------------------------
+> ------------------
 > 
 > This Rust library contains the following copyrights:
 > 
@@ -56,7 +58,8 @@
 > notice relevant to
 > math portions of the library:
 > 
-> ------------------------------------------------------------------------------
+> ------------------------------------------------------------
+> ------------------
 > Much of the math library code (src/math/* and src/complex/*)
 > is
 > Copyright © 1993,2004 Sun Microsystems or
@@ -68,4 +71,5 @@
 > and labelled as such in comments in the individual source
 > files. All
 > have been licensed under extremely permissive terms.
-> ------------------------------------------------------------------------------
+> ------------------------------------------------------------
+> ------------------

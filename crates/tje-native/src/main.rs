@@ -23,8 +23,8 @@ use std::{
 };
 use tje_engine_cranelift::{CacheConfig, ENGINE_VERSION};
 use tje_native::{
-    backend::{GameBackend, VideoFrame},
-    config, input,
+    backend::{GameBackend, NativeBackend, VideoFrame},
+    config, input, netplay,
     replay::Replay,
 };
 use tje_rom::Rom;
@@ -127,7 +127,8 @@ struct App {
     window: Option<Arc<Window>>,
     video: Option<Video>,
     audio: Option<Audio>,
-    backend: Option<Box<dyn GameBackend>>,
+    backend: Option<Box<NativeBackend>>,
+    netplay: netplay::Session,
     loading: Option<Loading>,
     replay: Option<Replay>,
     paused: bool,
@@ -319,6 +320,7 @@ impl App {
             video: None,
             audio: None,
             backend: None,
+            netplay: netplay::Session::default(),
             loading: None,
             replay,
             paused: false,
@@ -388,6 +390,10 @@ impl App {
     }
 
     fn import(&mut self, path: &Path, store: bool) -> Result<()> {
+        ensure!(
+            !self.netplay.active(),
+            "disconnect netplay before replacing the cartridge"
+        );
         ensure!(
             self.loading.is_none(),
             "native game preparation is already running"
@@ -501,6 +507,10 @@ impl App {
 
     fn forget_rom(&mut self) -> Result<()> {
         ensure!(
+            !self.netplay.active(),
+            "disconnect netplay before forgetting the cartridge"
+        );
+        ensure!(
             self.loading.is_none(),
             "wait for native game preparation before forgetting the cartridge"
         );
@@ -544,7 +554,7 @@ impl App {
             self.paused,
             self.overlay.open || self.loading.is_some(),
             self.focused,
-            self.settings.pause_on_focus_loss,
+            self.settings.pause_on_focus_loss && !self.netplay.active(),
             self.script.is_some(),
         )
     }
@@ -666,6 +676,10 @@ impl App {
 
     fn rewind_once(&mut self) -> Result<()> {
         ensure!(
+            !self.netplay.active(),
+            "rewind is unavailable during netplay"
+        );
+        ensure!(
             self.replay.is_none() && !self.recorder.active(),
             "rewind is unavailable during input replay or recording"
         );
@@ -686,6 +700,10 @@ impl App {
     fn convenience_command(&mut self, command: convenience::Command) {
         use convenience::Command;
         let result = (|| -> Result<()> {
+            ensure!(
+                !self.netplay.active(),
+                "disconnect netplay before using convenience controls"
+            );
             ensure!(
                 self.replay.is_none(),
                 "convenience controls are unavailable during input replay"
@@ -788,6 +806,11 @@ impl App {
             return Ok(());
         }
         let hotkeys = &self.settings.hotkeys;
+        if self.netplay.active() && [hotkeys.reset, hotkeys.record].contains(&key) {
+            self.overlay
+                .show_error("Disconnect netplay before reset or recording.");
+            return Ok(());
+        }
         let settings_changed = [
             hotkeys.fullscreen,
             hotkeys.scale,
@@ -903,14 +926,31 @@ impl App {
             self.loading.is_some(),
             self.backend.is_some(),
         );
+        if self.netplay.active()
+            && let Some(backend) = &mut self.backend
+            && let Err(error) = self.netplay.poll(backend)
+        {
+            self.netplay.disconnect(backend);
+            self.convenience.clear();
+            self.reports.start(self.revision.unwrap(), None);
+            self.overlay.show_error(format!(
+                "Netplay disconnected: {error:#}. Cartridge reset to local play."
+            ));
+            self.paused = true;
+            self.sync_pause();
+            return Ok(());
+        }
         let rewinding = !self.is_paused()
             && self.replay.is_none()
+            && !self.netplay.active()
             && !self.recorder.active()
             && self.convenience.rewinding(&self.settings, &self.input);
         if rewinding {
             self.rewind_once()?;
         }
-        let fast = self.replay.is_none() && self.convenience.fast(&self.settings, &self.input);
+        let fast = !self.netplay.active()
+            && self.replay.is_none()
+            && self.convenience.fast(&self.settings, &self.input);
         if (fast || rewinding)
             && let Some(audio) = &self.audio
         {
@@ -930,13 +970,20 @@ impl App {
                 } else {
                     self.input.controllers(&self.settings.players)
                 };
-                self.reports.begin_frame(std::array::from_fn(|index| {
-                    tje_session::encode_pad(
-                        controllers.connected[index],
-                        controllers.buttons[index],
-                    )
-                }));
-                let samples = if let Some(replay) = &mut self.replay {
+                if !self.netplay.active() {
+                    self.reports.begin_frame(std::array::from_fn(|index| {
+                        tje_session::encode_pad(
+                            controllers.connected[index],
+                            controllers.buttons[index],
+                        )
+                    }));
+                }
+                let samples = if self.netplay.active() {
+                    if !self.netplay.advance(backend.as_mut(), controllers)? {
+                        break;
+                    }
+                    backend.engine().devices().audio_samples()
+                } else if let Some(replay) = &mut self.replay {
                     replay
                         .advance(backend.as_mut())?
                         .context("input replay ended before its advertised frame count")?
@@ -947,12 +994,14 @@ impl App {
                 if !fast {
                     self.audio.as_ref().unwrap().push(samples);
                 }
-                self.recorder.frame(controllers)?;
+                if !self.netplay.active() {
+                    self.recorder.frame(controllers)?;
+                }
                 self.total_frames += 1;
                 self.video.as_mut().unwrap().upload(backend.video());
                 self.reports
                     .complete_frame(&backend.status(), backend.video());
-                if self.replay.is_none() && !self.recorder.active() {
+                if !self.netplay.active() && self.replay.is_none() && !self.recorder.active() {
                     self.convenience
                         .capture(backend.as_ref(), &self.settings.convenience)?;
                 }
@@ -1009,6 +1058,7 @@ impl App {
     fn redraw(&mut self) -> Result<()> {
         let was_open = self.overlay.open;
         let paused = self.is_paused();
+        let netplay_status = self.netplay.status();
         let (frame, actions) = self.overlay.draw(
             self.window.as_ref().unwrap(),
             &mut self.settings,
@@ -1031,6 +1081,8 @@ impl App {
                 storage: &self.storage,
                 input: &self.input,
                 devices: &self.devices,
+                netplay_active: self.netplay.active(),
+                netplay_status: &netplay_status,
             },
         );
         if actions.restore_defaults {
@@ -1051,6 +1103,38 @@ impl App {
         }
         if actions.dismiss {
             self.overlay.message = None;
+        }
+        if let Some(action) = actions.netplay {
+            let hosting = matches!(&action, netplay::Action::Host { .. });
+            let result = if let Some(backend) = &mut self.backend {
+                if matches!(action, netplay::Action::Disconnect) {
+                    self.netplay.disconnect(backend);
+                    self.reports.start(self.revision.unwrap(), None);
+                    Ok(())
+                } else {
+                    self.netplay
+                        .start(backend, &action, self.audio.as_ref().unwrap().sample_rate)
+                        .map(|code| {
+                            self.overlay.netplay.code = code;
+                            // Predicted/revised inputs are not a power-on recording.
+                            self.reports.unload();
+                        })
+                }
+            } else {
+                Err(anyhow::anyhow!("import a cartridge before connecting"))
+            };
+            match result {
+                Ok(()) => {
+                    self.convenience.clear();
+                    self.audio.as_ref().unwrap().flush();
+                    self.overlay.open = hosting;
+                    self.paused = false;
+                    self.total_frames = 0;
+                }
+                Err(error) => self
+                    .overlay
+                    .show_error(format!("Could not start netplay: {error:#}")),
+            }
         }
         if actions.resume {
             self.paused = false;
@@ -1313,7 +1397,13 @@ impl ApplicationHandler for App {
         if let Some(audio) = &mut self.audio
             && let Some(rate) = audio.maintain(now)
             && let Some(backend) = &mut self.backend
-            && let Err(error) = backend.set_audio_sample_rate(rate)
+            && let Err(error) = if self.netplay.active() && rate != self.netplay.sample_rate() {
+                Err(anyhow::anyhow!(
+                    "audio device rate changed during netplay; disconnect and reconnect with a matching rate"
+                ))
+            } else {
+                backend.set_audio_sample_rate(rate)
+            }
         {
             self.fail(event_loop, error);
             return;

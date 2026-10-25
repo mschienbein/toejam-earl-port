@@ -16,10 +16,10 @@ This report/reference licence set covers all upstream library targets, not a cla
 that compiler/documentation or every optional component was linked into this artifact.
 Source: https://github.com/rust-lang/rust (version pinned in rust-toolchain.toml)
   rust/COPYRIGHT-library-part-1.txt: THIRD_PARTY_LICENSES/866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a.txt
-  rust/COPYRIGHT-library-part-2.txt: THIRD_PARTY_LICENSES/83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576.txt
+  rust/COPYRIGHT-library-part-2.txt: THIRD_PARTY_LICENSES/c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b.txt
   rust/licenses/Apache-2.0.txt: THIRD_PARTY_LICENSES/67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7.txt
   rust/licenses/BSD-2-Clause.txt: THIRD_PARTY_LICENSES/7e1455b977e2ec0a018aea88e81907ceaa33dbc9c1e8c6a7f13171c7eeae7386.txt
-  rust/licenses/CC-BY-SA-4.0.txt: THIRD_PARTY_LICENSES/96ba51e318d556be112ccb779d2c7b52d9d7f94087eccd61c97dbe1641587de4.txt
+  rust/licenses/CC-BY-SA-4.0.txt: THIRD_PARTY_LICENSES/09409cb51720ef769fed69593f4e9d15a55ca073880cfa761044094ec928137e.txt
   rust/licenses/GCC-exception-3.1.txt: THIRD_PARTY_LICENSES/1f014719a37cfb66593631786d0f1253b4e47491870b119b8647a48de91ecdae.txt
   rust/licenses/GPL-2.0-only.txt: THIRD_PARTY_LICENSES/216923bd42dc46cf5a22ea3af391fb199e75e39cce138d94250a55471d255137.txt
   rust/licenses/GPL-3.0-or-later.txt: THIRD_PARTY_LICENSES/620c05b2c30aa4c2eb3160dab4762ef35d7803db942043be9382ac1859b8a51c.txt
@@ -39,6 +39,16 @@ Exact upstream source archive: https://crates.io/api/v1/crates/aho-corasick/1.1.
   COPYING: THIRD_PARTY_LICENSES/03c7a18c5260f8532192f32180c7d289631a0dadb6dde8a49c40443143e73348.txt
   LICENSE-MIT: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
   selected:MIT:cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206: THIRD_PARTY_LICENSES/cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206.txt
+
+anyhow 1.0.104
+Declared: MIT OR Apache-2.0
+Selected: MIT
+Authors (upstream metadata): David Tolnay <dtolnay@gmail.com>
+Source: https://github.com/dtolnay/anyhow
+Exact upstream source archive: https://crates.io/api/v1/crates/anyhow/1.0.104/download
+  LICENSE-APACHE: THIRD_PARTY_LICENSES/d1e09191ac3ebc99d40ad38aef9594f35b08a691186947c72c896207fc7d772f.txt
+  LICENSE-MIT: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
+  selected:MIT:c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7: THIRD_PARTY_LICENSES/c192e09e77f11be6cd4d372d646741a1a8e1a28e5e405e062dfe2dfb8ae97be7.txt
 
 arrayvec 0.7.8
 Declared: MIT OR Apache-2.0
@@ -167,8 +177,8 @@ Authors (upstream metadata): Zicklag <zicklag@katharostech.com>
 Source: https://github.com/katharostech/cfg_aliases
 Exact upstream source archive: https://crates.io/api/v1/crates/cfg_aliases/0.2.2/download
   LICENSE: THIRD_PARTY_LICENSES/cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0.txt
-  selected:MIT:0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c: THIRD_PARTY_LICENSES/0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c.txt
   selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0: THIRD_PARTY_LICENSES/cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0.txt
+  selected:MIT:ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85: THIRD_PARTY_LICENSES/ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85.txt
 
 chacha20 0.10.2
 Declared: MIT OR Apache-2.0
@@ -464,7 +474,7 @@ Selected: MIT
 Authors (upstream metadata): Alex Crichton <alex@alexcrichton.com>; Amanieu d'Antras <amanieu@gmail.com>; Jorge Aparicio <japaricious@gmail.com>; Trevor Gross <tg@trevorgross.com>
 Source: https://github.com/rust-lang/compiler-builtins
 Exact upstream source archive: https://crates.io/api/v1/crates/libm/0.2.16/download
-  LICENSE.txt: THIRD_PARTY_LICENSES/784cb42e3a8cab0c54945392875f122d96aa74300be708da552b1b546b0a194d.txt
+  LICENSE.txt: THIRD_PARTY_LICENSES/f6ce35ac556387493c95af0722af7a2e408b7aad446aa28d59ce447a8e9a52e4.txt
   selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b: THIRD_PARTY_LICENSES/d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b.txt
 
 litrs 1.0.1
@@ -1017,6 +1027,13 @@ Source: https://github.com/mschienbein/toejam-earl-port
   selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
 
 tje-native-platform 0.1.0
+Declared: GPL-3.0-only
+Selected: GPL-3.0-only
+Authors (upstream metadata): 
+Source: https://github.com/mschienbein/toejam-earl-port
+  selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70: THIRD_PARTY_LICENSES/603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70.txt
+
+tje-netplay 0.1.0
 Declared: GPL-3.0-only
 Selected: GPL-3.0-only
 Authors (upstream metadata): 

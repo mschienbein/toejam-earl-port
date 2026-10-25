@@ -56,6 +56,75 @@ immediately and are saved; there is no Apply/restart step.
   the recovery status. Device-rate changes update the backend resampler and flush
   stale queued sound.
 
+## Online two-player co-op (opt-in)
+
+Netplay is **off on every launch**. Offline play neither opens a network socket
+nor captures rollback states. Open **Settings → Online co-op** after importing a
+cartridge; replay and recording must be stopped. Starting or disconnecting resets
+to local power-on. The host is P1 and the joiner P2, but **both use their local P1
+keyboard/gamepad bindings**.
+
+For two native instances on one machine, leave the host bind address
+`0.0.0.0:19791` and advertised address `127.0.0.1:19791`, choose **Host**, then copy
+its connection code. The host dialog stays open for copying; close Settings (F1)
+after sharing. Paste the code into the second instance and choose **Join** (it
+uses an automatic local port). Across a LAN, advertise the host's LAN IP; across
+the Internet, forward that UDP port and advertise the host's reachable public IP.
+IPv6 addresses use `[address]:port`. Native UDP has no discovery, STUN, server,
+account or relay. It is not encrypted: exchange its random capability code only
+with a trusted peer. Unsupported NAT/firewall paths cannot connect.
+
+In the browser, open **Online two-player co-op** below the controls. Host creates
+an offer code; joiner pastes it and creates an answer; host pastes the answer and
+applies it. The page uses encrypted WebRTC unreliable/unordered data channels
+with manual, complete-ICE signaling. Free public STUN is an explicit unchecked
+option; without it, no public discovery service is contacted. TURN is never used.
+Browser and native codes are intentionally separate: direct native-to-browser
+interoperability is not implemented.
+
+Both peers compare normalized ROM SHA-1, engine version, faithful simulation
+profile, audio sample rate, delay/window and complete power-on state before
+advancing. **No ROM, graphics, audio, compiled code or snapshots are transmitted.**
+Inputs use 0–8 delay frames (default 2); last-input prediction rolls back at most
+12 frames, then waits rather than skipping simulation. A cumulative ACK and
+bounded input retransmission tolerate packet loss/reordering. Every 30 confirmed
+frames, complete canonical machine-state hashes detect divergence and stop play.
+The settings/status show rollback count, replayed frames, maximum depth and waits.
+
+Save/load, rewind, fast-forward, reset/import and input recording are disabled
+online. Manual pause/settings (and a hidden browser tab) stop local advancement
+but transport keeps pumping; the other peer waits at the prediction bound.
+Native focus-loss auto-pause is ignored online so two local windows can run:
+losing focus releases held keys rather than pausing the peer. After resuming,
+corrections catch up. Only each new presented frame's audio is queued: replayed
+audio is discarded, not played twice. Predicted audio can have discontinuities;
+this prototype does not promise artifact-free audio or arbitrary-latency play.
+Playtest reports omit replayable input recordings during netplay because earlier
+predictions can be revised.
+
+`tje-netplay` contains ROM-free delayed/lossy/reordered two-peer and real UDP
+tests. The native library also has ignored **production-engine** tests, comparing
+canonical final bytes (CPU, all hardware, framebuffer and exact stereo sample
+bits) to the no-latency run of the existing two-player recording:
+
+```sh
+TJE_REV02_ROM=/private/rev02.bin cargo test --locked --release -p tje-native netplay::tests -- --ignored --nocapture
+```
+
+`TJE_NETPLAY_FRAMES` selects 120–12000 frames (default 3600, including both players' movement);
+`TJE_NETPLAY_CACHE` selects a private compiled-code cache. For the UDP test,
+`TJE_NETPLAY_TEST_IP` may select a local LAN interface instead of loopback.
+
+After building `web/pkg`, `node web/verify-netplay.mjs /private/rev02.bin`
+exercises real direct WebRTC, the production Wasm engine, simulated delivery
+delay/loss, and the two-context host/join UI. Set `PLAYWRIGHT_MODULE` /
+`PLAYWRIGHT_BROWSERS_PATH` to an existing Playwright/Chromium installation and
+`TJE_WEB_ARTIFACT_DIR` to a private directory under `scratch/` for the hash-only
+JSON receipt. No STUN or public signaling service is used by this harness.
+Native copy/paste uses the OS clipboard, not egui's per-window fallback; the
+ignored `desktop_clipboard_roundtrip_for_connection_codes` test exercises two
+independent clipboard contexts on a running desktop.
+
 ## Pixel shape and scaling
 
 The default is **Native (NTSC) + Integer + Sharp bilinear**. Pixel shape can also

@@ -348,6 +348,25 @@
       "version": "1.5.0"
     },
     {
+      "authors": [],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "arboard",
+      "repository": "https://github.com/1Password/arboard",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/arboard/3.7.0/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE.txt": "35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b",
+        "LICENSE-MIT.txt": "e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a",
+        "selected:MIT:e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a": "e745a71dd8c4262b7b22060d082adad38a73ca454cf094c656fc8b3c8c308d4a"
+      },
+      "version": "3.7.0"
+    },
+    {
       "authors": [
         {
           "name": "David Roundy <roundyd@physics.oregonstate.edu>"
@@ -680,6 +699,24 @@
       "version": "1.12.1"
     },
     {
+      "authors": [],
+      "declared_license": "Unlicense OR MIT",
+      "name": "byteorder-lite",
+      "repository": "https://github.com/image-rs/byteorder-lite",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/byteorder-lite/0.1.0/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-MIT": "cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206",
+        "selected:MIT:cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206": "cd932fac6ab04c0276bad784ed86f0fa32d99ebda536dce13edfc1cd84f17206"
+      },
+      "version": "0.1.0"
+    },
+    {
       "authors": [
         {
           "name": "Elinor Berger <elinor@safaradeg.net>"
@@ -783,8 +820,8 @@
       ],
       "texts": {
         "LICENSE": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
-        "selected:MIT:0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c": "0912abb0206b4afc60dbf146c89e83ca487f12255913e6b05fc591d3e42be71c",
-        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0"
+        "selected:MIT:cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0": "cf22403f9ff3259fef3de9f1bbd8dfef245c1a4174f23b3c1887a6a3e671bfd0",
+        "selected:MIT:ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85": "ddcc13b53862171d0cf06f23779cdb7b4f2dcc974724aa0817886040866e7e85"
       },
       "version": "0.2.2"
     },
@@ -1641,7 +1678,7 @@
       ],
       "texts": {
         "LICENSE": "8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2",
-        "LICENSE-LIBM-MIT": "1eae7f1e54d3828d4c995a7a121dfe37260a3223ffe92181b7dee39e79ce474f",
+        "LICENSE-LIBM-MIT": "aab3ba7c5d4e468e7ee580caa8bb3c63bf994ac02d371f41b9eab244941ca075",
         "selected:Apache-2.0:8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2": "8d90e6a709270ae8ae4e6d46821d812d6e66440e4be4db613705a522a5d25eb2",
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
@@ -1983,6 +2020,29 @@
     {
       "authors": [
         {
+          "name": "bluss"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "fixedbitset",
+      "repository": "https://github.com/petgraph/fixedbitset",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/fixedbitset/0.5.7/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "da81833b848038f7f5e34b5786da238e47f590ce2bde90d6cbe5c409c0883d76",
+        "selected:MIT:da81833b848038f7f5e34b5786da238e47f590ce2bde90d6cbe5c409c0883d76": "da81833b848038f7f5e34b5786da238e47f590ce2bde90d6cbe5c409c0883d76"
+      },
+      "version": "0.5.7"
+    },
+    {
+      "authors": [
+        {
           "name": "Alex Crichton <alex@alexcrichton.com>"
         },
         {
@@ -2028,6 +2088,28 @@
         "selected:MIT:6b3677440c3951ef7c04b1fcabe65ef30a902da40cdbc05d01da98978c630651": "6b3677440c3951ef7c04b1fcabe65ef30a902da40cdbc05d01da98978c630651"
       },
       "version": "1.0.7"
+    },
+    {
+      "authors": [
+        {
+          "name": "Orson Peters <orsonpeters@gmail.com>"
+        }
+      ],
+      "declared_license": "Zlib",
+      "name": "foldhash",
+      "repository": "https://github.com/orlp/foldhash",
+      "selected": [
+        "Zlib"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/foldhash/0.1.5/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE": "ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac",
+        "selected:Zlib:ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac": "ac2350fdd2857716f3c47603ab182b9bacce5258132eb864b8dc2247da53e7ac"
+      },
+      "version": "0.1.5"
     },
     {
       "authors": [
@@ -2402,6 +2484,29 @@
       "selected": [
         "MIT"
       ],
+      "source_archive": "https://crates.io/api/v1/crates/hashbrown/0.15.5/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031",
+        "selected:MIT:3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031": "3d2531da221b11f0a01070685f464e650de077b4f069161638cf10def091e031"
+      },
+      "version": "0.15.5"
+    },
+    {
+      "authors": [
+        {
+          "name": "Amanieu d'Antras <amanieu@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "hashbrown",
+      "repository": "https://github.com/rust-lang/hashbrown",
+      "selected": [
+        "MIT"
+      ],
       "source_archive": "https://crates.io/api/v1/crates/hashbrown/0.16.1/download",
       "targets": [
         "x86_64-unknown-linux-gnu"
@@ -2450,6 +2555,29 @@
         "selected:MIT:8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e": "8b689707bb6fe3318a0c67de6e5cca2b8aeea0569d606e3db66b3d83469a0a2e"
       },
       "version": "0.5.0"
+    },
+    {
+      "authors": [
+        {
+          "name": "The image-rs Developers"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "image",
+      "repository": "https://github.com/image-rs/image",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/image/0.25.10/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "35958db676228ec5a20110278fd63910102405ba7ee15fe301c36e1fd300ed5b",
+        "LICENSE-MIT": "2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa",
+        "selected:MIT:2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa": "2c4f3aa94a1cf0f248e48b1e58b62cfa212c4cb49d0c5e8163712fab159d8eaa"
+      },
+      "version": "0.25.10"
     },
     {
       "authors": [],
@@ -2721,7 +2849,7 @@
         "x86_64-unknown-linux-gnu"
       ],
       "texts": {
-        "LICENSE.txt": "784cb42e3a8cab0c54945392875f122d96aa74300be708da552b1b546b0a194d",
+        "LICENSE.txt": "f6ce35ac556387493c95af0722af7a2e408b7aad446aa28d59ce447a8e9a52e4",
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
       "version": "0.2.16"
@@ -3008,6 +3136,29 @@
     {
       "authors": [
         {
+          "name": "Radzivon Bartoshyk"
+        }
+      ],
+      "declared_license": "BSD-3-Clause OR Apache-2.0",
+      "name": "moxcms",
+      "repository": "https://github.com/awxkee/moxcms.git",
+      "selected": [
+        "Apache-2.0"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/moxcms/0.8.1/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE.md": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e",
+        "LICENSE.md": "922d4862df60756fa6e10f63e811ceb84ba47a0cf580a5d6202a2dcd574c88d2",
+        "selected:Apache-2.0:76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e"
+      },
+      "version": "0.8.1"
+    },
+    {
+      "authors": [
+        {
           "name": "Caleb Zulawski <caleb.zulawski@gmail.com>"
         }
       ],
@@ -3137,6 +3288,28 @@
         "selected:MIT:3c4e976443f4668282a89550b334d5ccc6e8c575036dbbf9a17396d5d91e362b": "3c4e976443f4668282a89550b334d5ccc6e8c575036dbbf9a17396d5d91e362b"
       },
       "version": "0.2.0"
+    },
+    {
+      "authors": [
+        {
+          "name": "contact@geoffroycouprie.com"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "nom",
+      "repository": "https://github.com/rust-bakery/nom",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/nom/8.0.0/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE": "d93f4f0a2b72a3d6907914fb71ca854a95257f5509871cb71c755bb5b5f9b75c",
+        "selected:MIT:d93f4f0a2b72a3d6907914fb71ca854a95257f5509871cb71c755bb5b5f9b75c": "d93f4f0a2b72a3d6907914fb71ca854a95257f5509871cb71c755bb5b5f9b75c"
+      },
+      "version": "8.0.0"
     },
     {
       "authors": [
@@ -3362,8 +3535,8 @@
         "x86_64-unknown-linux-gnu"
       ],
       "texts": {
-        "LICENSE.txt": "9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663",
-        "selected:MPL-2.0:9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663": "9a9ec3444f8232c7ab9b3c1bfe3be8af0df7fea68448761d502d670b85ea5663"
+        "LICENSE.txt": "cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15",
+        "selected:MPL-2.0:cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15": "cfee81e64d4bfe5226c955c974ee994337e56410e270bc8510e60eb13ea22e15"
       },
       "version": "0.2.0"
     },
@@ -3391,6 +3564,28 @@
         "selected:MIT:58bc3b00f8e1db7666f41707ea18db02026801150f5e39518cd3261d039fb4ed": "58bc3b00f8e1db7666f41707ea18db02026801150f5e39518cd3261d039fb4ed"
       },
       "version": "5.5.0"
+    },
+    {
+      "authors": [
+        {
+          "name": "Jack O'Connor"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "os_pipe",
+      "repository": "https://github.com/oconnor663/os_pipe.rs",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/os_pipe/1.2.3/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE": "d3f7d0d9e19835d750cddd53cba485f1a211c0d5d1f6a8ee184be93fea8fc00e",
+        "selected:MIT:d3f7d0d9e19835d750cddd53cba485f1a211c0d5d1f6a8ee184be93fea8fc00e": "d3f7d0d9e19835d750cddd53cba485f1a211c0d5d1f6a8ee184be93fea8fc00e"
+      },
+      "version": "1.2.3"
     },
     {
       "authors": [
@@ -3501,6 +3696,33 @@
         "selected:MIT:2912fb7ceba860d657ab6546c66659f62a4e1e25f69331e57dc58f3bf89bebc2": "2912fb7ceba860d657ab6546c66659f62a4e1e25f69331e57dc58f3bf89bebc2"
       },
       "version": "2.3.2"
+    },
+    {
+      "authors": [
+        {
+          "name": "bluss"
+        },
+        {
+          "name": "mitchmindtree"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "petgraph",
+      "repository": "https://github.com/petgraph/petgraph",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/petgraph/0.8.3/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f",
+        "assets/images/LICENSE.md": "64bf7faf519fd6861af544bfb923510786393deaddbc02e3eb7085295c0f221d",
+        "selected:MIT:702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f": "702d4a4a3fc6519177dc6235a0547bf292e449f066a220b325a42b6c4d5e4d9f"
+      },
+      "version": "0.8.3"
     },
     {
       "authors": [],
@@ -3730,6 +3952,29 @@
         "selected:MIT:d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b": "d060ac92f08eedce86035797b79ce52b1b5d2acb30c77f92798fea0987c4994b"
       },
       "version": "1.0.18"
+    },
+    {
+      "authors": [
+        {
+          "name": "Radzivon Bartoshyk"
+        }
+      ],
+      "declared_license": "BSD-3-Clause OR Apache-2.0",
+      "name": "pxfm",
+      "repository": "https://github.com/awxkee/pxfm",
+      "selected": [
+        "Apache-2.0"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/pxfm/0.1.30/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE.md": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e",
+        "LICENSE.md": "922d4862df60756fa6e10f63e811ceb84ba47a0cf580a5d6202a2dcd574c88d2",
+        "selected:Apache-2.0:76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e": "76178c1cdc4522e60c2eccd2eca49a1978749a9880e0137e7716e1252fb4a62e"
+      },
+      "version": "0.1.30"
     },
     {
       "authors": [],
@@ -5081,6 +5326,23 @@
     {
       "authors": [],
       "declared_license": "GPL-3.0-only",
+      "name": "tje-netplay",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
       "name": "tje-rom",
       "repository": "https://github.com/mschienbein/toejam-earl-port",
       "selected": [
@@ -5274,6 +5536,31 @@
         "src/spin/LICENSE": "6032ed3eb5f508470b067833248cad8c9b3e6b876b8fd861b01539b39c086441"
       },
       "version": "0.1.36"
+    },
+    {
+      "authors": [
+        {
+          "name": "Allison Hancock <aahancoc@umich.edu>"
+        },
+        {
+          "name": "Matt Brubeck <mbrubeck@limpet.net>"
+        }
+      ],
+      "declared_license": "MIT",
+      "name": "tree_magic_mini",
+      "repository": "https://github.com/mbrubeck/tree_magic/",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/tree_magic_mini/3.2.2/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE": "3261012fd32db523204bb48dee52a95cfaa183e652ad5f45300ae662fdbeae6d",
+        "selected:MIT:3261012fd32db523204bb48dee52a95cfaa183e652ad5f45300ae662fdbeae6d": "3261012fd32db523204bb48dee52a95cfaa183e652ad5f45300ae662fdbeae6d"
+      },
+      "version": "3.2.2"
     },
     {
       "authors": [
@@ -6199,6 +6486,29 @@
     {
       "authors": [
         {
+          "name": "Ivan Molodetskikh <yalterz@gmail.com>"
+        }
+      ],
+      "declared_license": "MIT OR Apache-2.0",
+      "name": "wl-clipboard-rs",
+      "repository": "https://github.com/YaLTeR/wl-clipboard-rs",
+      "selected": [
+        "MIT"
+      ],
+      "source_archive": "https://crates.io/api/v1/crates/wl-clipboard-rs/0.9.4/download",
+      "targets": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "texts": {
+        "LICENSE-APACHE": "df8eef0077ac4cee16204fb572b5ecdeb72641a87a494002a667a2c8c1f06b22",
+        "LICENSE-MIT": "48f02a59c2077c9b90ae4c071e0d8248ff8232476bbffa4121acb4fd1ecf8428",
+        "selected:MIT:48f02a59c2077c9b90ae4c071e0d8248ff8232476bbffa4121acb4fd1ecf8428": "48f02a59c2077c9b90ae4c071e0d8248ff8232476bbffa4121acb4fd1ecf8428"
+      },
+      "version": "0.9.4"
+    },
+    {
+      "authors": [
+        {
           "name": "AltF02 <contact@altf2.dev>"
         },
         {
@@ -6481,13 +6791,13 @@
   ],
   "format": 1,
   "graph": "linux",
-  "notice_sha256": "e70085507a0b2d957d3be490c903c6863556d142829e84a4c65af9688b4b6bbd",
+  "notice_sha256": "59000e30c00230954b80d8963eea8db37f4d775aaaf34cbc006d6208ab90140c",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
-    "rust/COPYRIGHT-library-part-2.txt": "83c0fa836edf72ba84efec2b62bee3b4ba32385bd64364c38781a9af8ad79576",
+    "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
     "rust/licenses/Apache-2.0.txt": "67b95a47d874a5c81bfe39d38a77c1f90f45f33e65090db31c1f92357f0352f7",
     "rust/licenses/BSD-2-Clause.txt": "7e1455b977e2ec0a018aea88e81907ceaa33dbc9c1e8c6a7f13171c7eeae7386",
-    "rust/licenses/CC-BY-SA-4.0.txt": "96ba51e318d556be112ccb779d2c7b52d9d7f94087eccd61c97dbe1641587de4",
+    "rust/licenses/CC-BY-SA-4.0.txt": "09409cb51720ef769fed69593f4e9d15a55ca073880cfa761044094ec928137e",
     "rust/licenses/GCC-exception-3.1.txt": "1f014719a37cfb66593631786d0f1253b4e47491870b119b8647a48de91ecdae",
     "rust/licenses/GPL-2.0-only.txt": "216923bd42dc46cf5a22ea3af391fb199e75e39cce138d94250a55471d255137",
     "rust/licenses/GPL-3.0-or-later.txt": "620c05b2c30aa4c2eb3160dab4762ef35d7803db942043be9382ac1859b8a51c",
@@ -6499,7 +6809,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "75b0a622e4f9cf994c970ccae26fcb5a4d226ba1468f4cce42f37735504bb205",
+  "source_fingerprint": "c4a9c226748425796035d69add3ff1ac2308e94663fd25aa49566789f9597e1d",
   "targets": [
     "x86_64-unknown-linux-gnu"
   ]

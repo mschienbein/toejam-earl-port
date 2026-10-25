@@ -19,7 +19,7 @@ crossbeam-queue = "0.3"
 directories = "6"
 egui = { version = "=0.37.0", features = ["default_fonts"] }
 egui-wgpu = { version = "=0.37.0", default-features = false, features = ["macos-window-resize-jitter-fix"] }
-egui-winit = { version = "=0.37.0", default-features = false, features = ["x11", "wayland"] }
+egui-winit = { version = "=0.37.0", default-features = false, features = ["arboard", "x11", "wayland"] }
 gilrs = "=0.11.2"
 png = "0.18"
 pollster = "0.4"
@@ -35,3 +35,4 @@ tje-rom = { path = "../tje-rom" }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
 tje-mem = { path = "../tje-mem" }
 tje-session = { path = "../tje-session" }
+tje-netplay = { path = "../tje-netplay" }

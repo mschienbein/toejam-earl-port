@@ -5,7 +5,9 @@
 > the following license:
 > 
 > [`tectonic_cfg_support::target_cfg!`]:
-> https://github.com/tectonic-typesetting/tectonic/blob/f2439b936470ad27bdf92882064bc4702ee01899/cfg_support/src/lib.rs#L166
+> https://github.com/tectonic-typesetting/tectonic/blob/f2439b
+> 936470ad27bdf92882064bc4702ee01899/cfg_support/src/lib.rs#L1
+> 66
 > 
 > tectonic_cfg_support is licensed under the MIT License.
 > 

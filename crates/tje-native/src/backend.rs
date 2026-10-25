@@ -36,6 +36,10 @@ pub trait GameBackend {
     fn write_ram(&mut self, write: &RamWrite) -> Result<()>;
     fn snapshot(&self) -> Result<MachineSnapshot>;
     fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()>;
+    /// Simulation profile is part of the peer/save identity, not a video preset.
+    fn profile_id(&self) -> &'static str {
+        "faithful"
+    }
 }
 
 pub struct NativeBackend {
@@ -76,6 +80,10 @@ impl NativeBackend {
     /// leaves all device/instruction observers disabled.
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+    /// Mutable access for opt-in rollback/state adapters, never the offline loop.
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
     }
     pub fn set_trace_enabled(&mut self, enabled: bool) {
         if enabled {
