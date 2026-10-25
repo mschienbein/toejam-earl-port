@@ -150,6 +150,7 @@ fn read_after_write(c: &mut HookContext<'_>) -> Result<Option<u32>> {
 
 fn host(program: &[u16], function: HookFn, marked: bool) -> Host {
     let mut host = synthetic_host(program, &[0x4e73]);
+    host.mode = Mode::Check;
     let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
     symbol.name = "AuthoredDependent";
     symbol.addresses = [CODE; 2];
@@ -735,7 +736,7 @@ fn nearest_stored(c: &mut HookContext<'_>) -> Result<Option<u32>> {
 }
 
 #[test]
-#[ignore = "requires both private ROMs; real dependent producer/consumer and seeded mutants"]
+#[ignore = "HELD: nearest-target own equivalence fixture hits RustMemory Unwritten at entry SP-6 under the readable guard; no Replay replacement or passing claim"]
 fn nearest_target_tracks_real_producer_in_both_revisions() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let (key, slug) = match revision {
@@ -770,7 +771,7 @@ fn nearest_target_tracks_real_producer_in_both_revisions() {
                     DependentProofConfig::default(),
                 )
                 .unwrap();
-            let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+            let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
             let script = Arc::new(
                 InputScript::parse(include_str!("../../examples/start-game.json")).unwrap(),
             );
@@ -830,6 +831,18 @@ fn nearest_target_tracks_real_producer_in_both_revisions() {
                     .at(player)
                     .write(&mut host.context(), 0);
             }
+            let previous = host
+                .checks
+                .dependent_equivalence
+                .get("EarthlingSteerTowardNearestTarget")
+                .map(|evidence| {
+                    (
+                        evidence.calls_proven,
+                        evidence.seeded_probes_completed,
+                        evidence.byte_probes_completed,
+                    )
+                })
+                .unwrap_or_default();
             let result = host.check_fixture(
                 ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET
                     .metadata()
@@ -841,15 +854,15 @@ fn nearest_target_tracks_real_producer_in_both_revisions() {
                 assert_eq!(
                     host.checks.dependent_equivalence["EarthlingSteerTowardNearestTarget"]
                         .calls_proven,
-                    0
+                    previous.0
                 );
             } else {
                 result.unwrap();
                 let evidence =
                     &host.checks.dependent_equivalence["EarthlingSteerTowardNearestTarget"];
-                assert_eq!(evidence.calls_proven, 1);
-                assert_eq!(evidence.seeded_probes_completed, 16);
-                assert_eq!(evidence.byte_probes_completed, 16);
+                assert_eq!(evidence.calls_proven - previous.0, 1);
+                assert_eq!(evidence.seeded_probes_completed - previous.1, 16);
+                assert_eq!(evidence.byte_probes_completed - previous.2, 16);
                 assert_eq!(
                     evidence
                         .last_read_trace

@@ -994,6 +994,7 @@ mod tests {
             ),
         ] {
             let mut host = crate::fixture::tests::synthetic_host(&[0x4e71, 0x4e75], &[0x4e73]);
+            host.mode = crate::Mode::Check;
             let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
             symbol.name = "AuthoredInstantStrict";
             symbol.addresses = [0x100; 2];

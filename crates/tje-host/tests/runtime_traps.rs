@@ -23,20 +23,20 @@ fn rom(revision: Revision) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "private ROMs; labelled real-state zero-divisor exception entries in both revisions"]
+#[ignore = "HELD: unchanged Check bootstrap blocked by SpriteChecks/chooser MissingOriginalFrameWitness; needs sealed nested-witness prerequisite, not replay"]
 fn zero_divisor_enters_actual_vector_five_from_real_states_both_revisions() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut host = Host::new(
             &rom(revision),
-            Mode::Reference,
+            Mode::Check,
             HookRegistry::translated(revision).unwrap(),
         )
         .unwrap();
+        host.set_wait_input_poller(script.clone());
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }
-        host.set_wait_input_poller(script.clone());
         host.settle_fixture_boundary(script.at(host.frame_count()))
             .unwrap();
         let (base_data, base_address, base_status, base_banks) = {
@@ -117,7 +117,7 @@ fn privileged_mask_entries_compare_both_modes_from_real_states_both_revisions() 
     for revision in [Revision::Rev02, Revision::Rev00] {
         let roots = [ids::DISABLE_ALL_INTERRUPTS, ids::ENABLE_ALL_INTERRUPTS];
         let registry = HookRegistry::filtered(revision, &[], &roots).unwrap();
-        let mut host = Host::new(&rom(revision), Mode::Reference, registry).unwrap();
+        let mut host = Host::new(&rom(revision), Mode::Check, registry).unwrap();
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }

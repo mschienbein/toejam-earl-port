@@ -149,7 +149,7 @@ fn named_natural_logic_windows_both_revisions() {
 }
 
 #[test]
-#[ignore = "requires both private cartridges; reference-only advance to frame 10000"]
+#[ignore = "HELD: historical Reference-only frame-10000 comparator fixture; awaiting genuine actual-call replay replacement, not passing evidence"]
 fn generate_speech_wait_after_reference_10000_frames_both_revisions() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
@@ -202,7 +202,7 @@ fn changed_isr_visible_ram(c: &mut HookContext<'_>) -> tje_host::Result<Option<u
 }
 
 #[test]
-#[ignore = "requires both private cartridges"]
+#[ignore = "HELD: historical Reference-bootstrap mutant comparator fixtures; awaiting genuine actual-call replay negatives, not passing evidence"]
 fn seeded_wrong_wait_and_isr_visible_translation_are_rejected() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
@@ -257,7 +257,7 @@ fn dropped_main_write_fails_even_when_final_ram_matches() {
         registry
             .register_execution_contract(contract, ExecutionClass::TimeAware, dropped)
             .unwrap();
-        let mut host = Host::new(&rom(revision), Mode::Reference, registry).unwrap();
+        let mut host = Host::new(&rom(revision), Mode::Check, registry).unwrap();
         // Authored ISA: MOVE.B #1,$FFF800; MOVE.B #0,$FFF800; RTS.
         let words = [0x13fc, 1, 0x00ff, 0xf800, 0x13fc, 0, 0x00ff, 0xf800, 0x4e75];
         for (index, word) in words.into_iter().enumerate() {

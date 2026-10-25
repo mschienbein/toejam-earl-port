@@ -881,9 +881,11 @@ impl Host {
 
     /// ROM-backed function fixture. Does not advance hardware clocks. Useful for
     /// edge cases that the live game never generates (e.g. minimum signed seed).
-    /// Requires a settled live boundary; settle before seeding fixture inputs.
+    /// Requires Check mode and a settled live boundary; settle before seeding inputs.
     pub fn check_call(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
-        self.check_call_inner(address, arguments, false)
+        self.check_fixture_api("check_call", |host| {
+            host.check_call_inner(address, arguments, false)
+        })
     }
 
     fn check_call_inner(
@@ -938,8 +940,11 @@ impl Host {
     /// Differential fixture on a fork of the current live state. Restore CPU and
     /// every device/storage byte afterward, but retain the measured coverage.
     /// This prevents diagnostic writes from filling a frozen VDP FIFO across calls.
+    /// Requires Check mode before any isolation or fixture input effects.
     pub fn check_fixture(&mut self, address: u32, arguments: &[u32]) -> Result<u32> {
-        self.isolated_fixture(|host| host.check_call_inner(address, arguments, true))
+        self.check_fixture_api("check_fixture", |host| {
+            host.isolated_fixture(|host| host.check_call_inner(address, arguments, true))
+        })
     }
 }
 

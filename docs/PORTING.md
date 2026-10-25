@@ -396,6 +396,36 @@ so repeated diagnostic writes cannot fill the live machine's frozen VDP FIFO.
 Use the explicitly state-mutating `check_call` only when the fixture deliberately
 needs the original's post-call state; do not chain frozen FIFO writes without
 clock progress.
+
+All public differential entrypoints—`check_call`, `check_fixture`,
+`check_entry_fixture`, `check_continuation_fixture` and
+`check_clocked_fixture`—require **`Mode::Check`**. Reference and every other
+non-Check mode reject clearly **before** observing a retained prefix, inspecting
+readiness/prepared frames, cloning, seeding arguments/return words or changing
+CPU/device/check accounting. There is no implicit mode switch, lazy guard pool
+or original fallback.
+
+On success **or Result error** in Check mode, each public boundary publishes the
+current readable-stack metrics snapshot, outside ordinary root/RNG hot paths.
+`enabled` reports the available observer snapshot, not an approval latch.
+Publication does not discharge ownership, proof debt or future-frame watches;
+the campaign must still call `finish_future_frame_provenance`, require its
+`ensure_proof_eligible` result and inspect final pending/DMA/debt conditions.
+Wrong-mode rejection has no metric-refresh or check-counter effects.
+
+`settle_fixture_boundary` remains original-only progress, not a differential
+entrypoint. Generic isolated execution remains available to the separate
+Reference-only `measure_original_clocked_fixture` measurement API; that path
+does not acquire translation approval or a readable guard capability.
+
+Historical Reference-bootstrap GenerateSpeech frame-10000 and wrong-wait
+frame-600 comparator fixtures are explicitly **HELD**, not passing evidence or
+expected-error tests. Preserve their cases, old assertions and receipts until
+genuine actual-call replay replacements cover their paths. This is not a claim
+that the known blocked continuous readable session passed. Typed exception and
+nearest-target equivalence fixtures require their own unchanged-trajectory Check
+proof or an explicit blocker; a replay replacement is not implied for them.
+
 The committed `gameplay_10000_frames_both_revisions_and_every_pilot_hook` test
 compares each session to a separate timed reference (whole RAM including stack,
 VDP/pixels, audio bits and write traces), prints natural coverage, then fills
@@ -1731,7 +1761,8 @@ not padded. Both actual check forks run, with no third original replay or fake
 scratch-D0 result. Full live machine and persistent completion authority restore
 on every result; speculative watch observations can reject but never clear LIVE
 debt. This is an injected RTS fixture from a recorded live boundary, not natural
-JSR coverage. The old sentinel-based `check_fixture`/Frozen path is unchanged.
+JSR coverage. The sentinel/Frozen execution path is retained in Check mode;
+every public differential fixture also enforces the Check-only precondition.
 
 The closed root requires a zero encoded count, a work-RAM source and no unowned
 pending DMA/port writes. An owned hardware DMA-start record captures actual
@@ -1872,6 +1903,9 @@ stack bounds a lower USP can require extra SSP-spill equality; it cannot waive
 user-frame corruption. Device/RAM ordering and dependency probes retain the same
 execution class and outcome boundary; no instruction bound is raised.
 
+Public prepared-entry and continuation fixtures require Check mode before any
+lookup, frame inspection or isolation; they do not infer approval from metrics.
+
 Use `check_entry_fixture(address)` for deliberately prepared frames, without a
 synthetic return word or implicit settling. `check_continuation_fixture(entry,
 stage, body, saved_frame)` checks a prepared persistent stage without restarting
@@ -1928,7 +1962,7 @@ are errors. Completed snapshots retain audio/hardware writes and normal frame
 counts. Partial-frame audio/write/idle/lag observations remain for the next
 `run_frame`. No translation runs or earns coverage during settling.
 
-`check_call`/`check_fixture` reject unsettled entries **before** injecting slots
+In Check mode, `check_call`/`check_fixture` reject unsettled entries **before** injecting slots
 or a sentinel. They never settle after seeding inputs, when gameplay could consume
 the synthetic mutation. Do not clear IRQs, lift the mask, choose another session,
 replace caller state or increase bounds to evade the original work. Ordinary
