@@ -400,6 +400,9 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
     for animation in 0..26 {
         let duration = ram::g_player_info(r).at(animation).frame_duration();
         saved.offset(animation).write(c, duration.read(c));
+        // CLR.B performs a real discarded pre-read, separate from the saved
+        // duration's semantic read (matching asm:1429-1431).
+        c.discard_u8(duration.address())?;
         duration.write(c, 0);
     }
     c.set_data_register(5, (c.data_register(5) & 0xffff_0000) | 26);
@@ -483,9 +486,10 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
             let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x12c);
             let arguments = [i32::from(object_number.read(c)) as u32];
             call_at(c, ids::FREE_ENTITY, &arguments, site)?;
-            ram::g_land_path_animation_entities(r)
-                .at(animation)
-                .write(c, 0);
+            let slot = ram::g_land_path_animation_entities(r).at(animation);
+            // Matching asm:1535 CLR.B: retain the purpose, not a semantic peek.
+            c.discard_u8(slot.address())?;
+            slot.write(c, 0);
         }
         if !marked_banks_share_level(c) {
             break;

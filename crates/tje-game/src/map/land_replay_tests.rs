@@ -514,3 +514,63 @@ fn reservation_wraps_the_short_entity_offset_before_adding_the_object_base() {
         assert_eq!(c.sp, 0xff7f00);
     }
 }
+
+#[test]
+fn marked_land_clr_bytes_keep_their_discarded_reads_separate_from_semantic_reads() {
+    for r in Revision::ALL {
+        let mut c = Machine::new(r);
+        c.controlled = true;
+        c.seed_args(&[0, 5, 7]);
+        ram::g_player1_map_level(r).write(&mut c, 1);
+        ram::g_player2_map_level(r).write(&mut c, 2);
+        for n in 0..26 {
+            ram::g_player_info(r)
+                .at(n)
+                .frame_duration()
+                .write(&mut c, (n + 1) as i8);
+        }
+        c.clear();
+        map_animate_marked_land_paths(&mut c).unwrap();
+        for n in 0..26 {
+            let p = ram::g_player_info(r).at(n).frame_duration().address();
+            let events: Vec<_> = c
+                .trace
+                .borrow()
+                .iter()
+                .filter(|event| match event {
+                    Access::Read(_, a) | Access::Discard(_, a) | Access::Write(_, a, _) => *a == p,
+                })
+                .cloned()
+                .collect();
+            assert_eq!(
+                &events[..3],
+                &[
+                    Access::Read(1, p),
+                    Access::Discard(1, p),
+                    Access::Write(1, p, 0)
+                ]
+            );
+            assert_eq!(events.last(), Some(&Access::Write(1, p, (n + 1) as u32)));
+        }
+        for n in 0..8 {
+            let p = ram::g_land_path_animation_entities(r).at(n).address();
+            let events: Vec<_> = c
+                .trace
+                .borrow()
+                .iter()
+                .filter(|event| match event {
+                    Access::Read(_, a) | Access::Discard(_, a) | Access::Write(_, a, _) => *a == p,
+                })
+                .cloned()
+                .collect();
+            assert_eq!(
+                events,
+                vec![
+                    Access::Read(1, p),
+                    Access::Discard(1, p),
+                    Access::Write(1, p, 0)
+                ]
+            );
+        }
+    }
+}
