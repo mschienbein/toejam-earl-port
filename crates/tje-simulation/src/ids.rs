@@ -74,7 +74,11 @@ macro_rules! resource_id {
         pub struct $name($width);
         impl $name {
             pub const fn new(value: $width) -> Option<Self> {
-                if value < $limit { Some(Self(value)) } else { None }
+                if value < $limit {
+                    Some(Self(value))
+                } else {
+                    None
+                }
             }
             pub const fn get(self) -> $width {
                 self.0

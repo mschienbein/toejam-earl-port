@@ -89,7 +89,9 @@ impl PhaseClock {
     }
     /// Validates everything before changing admission or the latched input.
     pub fn admit(&mut self, phase: Phase, input: InputFrame) -> Result<Admission> {
-        input.validate().map_err(|_| Error::State("invalid phase input"))?;
+        input
+            .validate()
+            .map_err(|_| Error::State("invalid phase input"))?;
         if !self.setup_complete {
             return Err(Error::State("world phase entered before setup commit"));
         }
@@ -102,10 +104,18 @@ impl PhaseClock {
         if phase != self.next {
             return Err(Error::State("world phase entered out of relative order"));
         }
-        if self.input.is_some_and(|previous| input.frame <= previous.frame) {
-            return Err(Error::State("world phases require increasing hardware frames"));
+        if self
+            .input
+            .is_some_and(|previous| input.frame <= previous.frame)
+        {
+            return Err(Error::State(
+                "world phases require increasing hardware frames",
+            ));
         }
-        let epoch = self.epoch.checked_add(1).ok_or(Error::Capacity("phase epoch"))?;
+        let epoch = self
+            .epoch
+            .checked_add(1)
+            .ok_or(Error::Capacity("phase epoch"))?;
         self.last[phase.index()] = Some(input.frame);
         self.input = Some(input);
         self.next = phase.next();
@@ -132,8 +142,12 @@ impl PhaseClock {
             }
             return Ok(());
         }
-        let input = self.input.ok_or(Error::State("phase input latch is absent"))?;
-        input.validate().map_err(|_| Error::State("invalid saved phase input"))?;
+        let input = self
+            .input
+            .ok_or(Error::State("phase input latch is absent"))?;
+        input
+            .validate()
+            .map_err(|_| Error::State("invalid saved phase input"))?;
         let count = self.epoch.min(4) as usize;
         let mut latest = None;
         for offset in 0..4 {
@@ -141,7 +155,9 @@ impl PhaseClock {
             let frame = self.last[index];
             if offset >= count {
                 if frame.is_some() {
-                    return Err(Error::State("phase admitted before its first schedule slot"));
+                    return Err(Error::State(
+                        "phase admitted before its first schedule slot",
+                    ));
                 }
                 continue;
             }
@@ -165,19 +181,35 @@ mod tests {
     #[test]
     fn original_schedule_and_duplicate_entry_are_saved() {
         let mut clock = PhaseClock::default();
-        assert!(clock.admit(Phase::PresentationA, InputFrame::neutral(7)).is_err());
+        assert!(
+            clock
+                .admit(Phase::PresentationA, InputFrame::neutral(7))
+                .is_err()
+        );
         clock.complete_setup().unwrap();
-        for (index, phase) in [Phase::PresentationA, Phase::Population, Phase::PresentationB, Phase::Players]
-            .into_iter().cycle().take(12).enumerate()
+        for (index, phase) in [
+            Phase::PresentationA,
+            Phase::Population,
+            Phase::PresentationB,
+            Phase::Players,
+        ]
+        .into_iter()
+        .cycle()
+        .take(12)
+        .enumerate()
         {
             let input = InputFrame::neutral(index as u64 + 7);
-            assert!(matches!(clock.admit(phase, input).unwrap(), Admission::Step(_)));
+            assert!(matches!(
+                clock.admit(phase, input).unwrap(),
+                Admission::Step(_)
+            ));
             let saved = clock.clone();
             assert_eq!(clock.admit(phase, input).unwrap(), Admission::Repeated);
             assert_eq!(clock, saved);
             clock.validate().unwrap();
             let encoded = bincode::encode_to_vec(&clock, bincode::config::standard()).unwrap();
-            let (decoded, consumed): (PhaseClock, _) = bincode::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            let (decoded, consumed): (PhaseClock, _) =
+                bincode::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
             assert_eq!(consumed, encoded.len());
             assert_eq!(clock, decoded);
         }
@@ -187,10 +219,20 @@ mod tests {
     fn invalid_admission_does_not_change_the_latch() {
         let mut clock = PhaseClock::default();
         clock.complete_setup().unwrap();
-        clock.admit(Phase::PresentationA, InputFrame::neutral(11)).unwrap();
+        clock
+            .admit(Phase::PresentationA, InputFrame::neutral(11))
+            .unwrap();
         let before = clock.clone();
-        assert!(clock.admit(Phase::Population, InputFrame::neutral(11)).is_err());
-        assert!(clock.admit(Phase::Players, InputFrame::neutral(12)).is_err());
+        assert!(
+            clock
+                .admit(Phase::Population, InputFrame::neutral(11))
+                .is_err()
+        );
+        assert!(
+            clock
+                .admit(Phase::Players, InputFrame::neutral(12))
+                .is_err()
+        );
         let changed = InputFrame::new(11, [0x100, 0, 0, 0], [0; 4]).unwrap();
         assert!(clock.admit(Phase::PresentationA, changed).is_err());
         assert_eq!(clock, before);

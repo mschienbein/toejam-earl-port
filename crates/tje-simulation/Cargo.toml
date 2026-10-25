@@ -19,3 +19,7 @@ tje-mem = { path = "../tje-mem" }
 tje-world = { path = "../tje-world" }
 tje-four-player = { path = "../tje-four-player" }
 tje-engine-runtime = { path = "../tje-engine-runtime", optional = true, default-features = false }
+
+[dev-dependencies]
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
+tje-native-platform = { path = "../tje-native-platform", default-features = false }
