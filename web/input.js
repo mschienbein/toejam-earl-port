@@ -17,8 +17,9 @@ export function validKeyboardCode(code) {
 
 export function defaultPlayer(player) {
   return {
-    keys: { ...Object.fromEntries(ACTIONS.map((action, index) => [action, DEFAULT_KEYS[player][index]])), jam: player === 0 ? 'KeyV' : 'KeyN' },
+    keys: { ...Object.fromEntries(ACTIONS.map((action, index) => [action, DEFAULT_KEYS[player]?.[index] ?? ''])), jam: player < 2 ? (player === 0 ? 'KeyV' : 'KeyN') : '' },
     gamepad: {
+      enabled: player < 2,
       device: null, // Automatic assignment; explicit choices pin browser id + slot.
       bindings: {
         up: [button(12), axis(1, -1)], down: [button(13), axis(1, 1)],
@@ -56,6 +57,7 @@ export function normalizePlayer(value, player) {
   else if (typeof device?.id === 'string' && device.id.length <= 1024 && Number.isInteger(device.index) && device.index >= 0 && device.index <= 255) {
     result.gamepad.device = { id: device.id, index: device.index };
   }
+  result.gamepad.enabled = player < 2 || value?.gamepad?.enabled === true;
   return result;
 }
 
@@ -91,6 +93,26 @@ export function selectGamepads(pads, players) {
   return selected;
 }
 
+// Enhanced seats reserve identities across disconnection. A different pad never
+// inherits a hero because the browser returned it earlier in the next poll.
+export function selectLocalGamepads(pads, players, reservations) {
+  const selected = [null, null, null, null];
+  for (let seat = 0; seat < 4; seat++) {
+    const device = players[seat].gamepad.device;
+    if (device === 'none') continue;
+    if (device !== null) reservations[seat] = { ...device };
+    const reserved = reservations[seat];
+    if (reserved) selected[seat] = pads.find(pad => pad.id === reserved.id && pad.index === reserved.index && !selected.includes(pad)) ?? null;
+  }
+  for (let seat = 0; seat < 4; seat++) {
+    if (players[seat].gamepad.device !== null || reservations[seat]) continue;
+    const pad = pads.filter(pad => !selected.includes(pad) && !reservations.some(device => device?.id === pad.id && device.index === pad.index))
+      .sort((a, b) => a.index - b.index)[0];
+    if (pad) { reservations[seat] = { id: pad.id, index: pad.index }; selected[seat] = pad; }
+  }
+  return selected;
+}
+
 export function keyLabel(code) {
   return code.replace(/^Key/, '').replace(/^Digit/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
 }
@@ -101,8 +123,12 @@ export function bindingLabel(sources) {
 }
 
 export class Inputs {
-  constructor(players, readPads = () => navigator.getGamepads?.() ?? []) {
+  constructor(players, readPads = () => navigator.getGamepads?.() ?? [], extraPlayers = null) {
     this.players = players;
+    this.extraPlayers = extraPlayers;
+    this.localSelected = [null, null, null, null];
+    this.localReservations = [null, null, null, null];
+    this.localAssignmentEpoch = 0;
     this.readPads = readPads;
     this.held = new Set();
     this.available = [];
@@ -116,14 +142,33 @@ export class Inputs {
     window.addEventListener('blur', () => this.clear());
   }
 
+  player(seat) { return seat < 2 ? this.players[seat] : this.extraPlayers[seat - 2]; }
+
+  assignLocal(seat, device) {
+    const player = this.player(seat);
+    const old = player.gamepad.device ?? this.localReservations[seat];
+    for (let other = 0; other < 4; other++) {
+      if (other === seat || !device || device === 'none') continue;
+      const binding = this.player(other).gamepad.device ?? this.localReservations[other];
+      if (binding?.id === device.id && binding.index === device.index) {
+        this.player(other).gamepad.device = old ?? 'none';
+        this.localReservations[other] = old && old !== 'none' ? { ...old } : null;
+      }
+    }
+    player.gamepad.device = device;
+    this.localReservations[seat] = device && device !== 'none' ? { ...device } : null;
+    this.localAssignmentEpoch++;
+    this.clear();
+  }
+
   key(event, down) {
     const editing = event.target instanceof Element && event.target.closest('input,select,textarea,button,summary,a,[contenteditable]');
     if ((editing || event.ctrlKey || event.altKey || event.metaKey) && down) return;
     let bound = false;
-    for (let player = 0; player < 2; player++) {
-      if (Object.values(this.players[player].keys).includes(event.code)) {
+    for (let player = 0; player < (this.extraPlayers ? 4 : 2); player++) {
+      if (Object.values(this.player(player).keys).includes(event.code)) {
         bound = true;
-        if (down && !event.repeat) this.keyEvents[player]++;
+        if (down && !event.repeat && player < 2) this.keyEvents[player]++;
       }
     }
     if (!bound) return;
@@ -157,6 +202,7 @@ export class Inputs {
     }
     this.pads = this.available.length;
     this.selected = selectGamepads(this.available, this.players);
+    if (this.extraPlayers) this.localSelected = selectLocalGamepads(this.available, [this.players[0], this.players[1], this.extraPlayers[0], this.extraPlayers[1]], this.localReservations);
   }
 
   poll(p2Connected) {
@@ -169,5 +215,18 @@ export class Inputs {
     }
     this.last[2] = p2Connected || !!this.selected[1];
     return this.last;
+  }
+
+  // Separate enhanced wire words. Faithful poll() and recordings stay two-pad.
+  pollLocal(participants = 15) {
+    if (!this.extraPlayers) throw new Error('Four-seat controls are not configured.');
+    return Array.from({ length: 4 }, (_, seat) => {
+      const player = this.player(seat);
+      if (!(participants & (1 << seat)) || !player.gamepad.enabled) return 0;
+      let mask = gamepadMask(this.localSelected[seat], player.gamepad.bindings);
+      for (let bit = 0; bit < ACTIONS.length; bit++) if (this.held.has(player.keys[ACTIONS[bit]])) mask |= 1 << bit;
+      const connected = !!this.localSelected[seat] || Object.values(player.keys).some(Boolean);
+      return connected ? mask | 0x100 : 0;
+    });
   }
 }

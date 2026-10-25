@@ -70,6 +70,18 @@ impl RuntimePalettes {
     }
 }
 
+/// Per-instance transform for live CRAM words; preserves reserved bits and the
+/// transparent/neutral/dark outline policy used by the runtime preview palettes.
+pub fn variant_word(word: u16, transparent: bool, variant: PaletteVariant) -> u16 {
+    let rgb = [
+        ((word >> 1) & 7) as u8,
+        ((word >> 5) & 7) as u8,
+        ((word >> 9) & 7) as u8,
+    ];
+    let [r, g, b] = transform(rgb, transparent, variant);
+    (word & !0x0eee) | (u16::from(r) << 1) | (u16::from(g) << 5) | (u16::from(b) << 9)
+}
+
 fn decode(word: u16, transparent: bool, variant: PaletteVariant) -> Color {
     let rgb = [
         ((word >> 1) & 7) as u8,

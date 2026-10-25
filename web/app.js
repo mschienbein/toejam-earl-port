@@ -549,7 +549,7 @@ async function boot() {
   }
   if (!game.has_enhanced_mode()) $('extended-view-notice').textContent = 'This build is faithful-only. Extended view requires TJE_ENHANCED=1.';
   reports.frontend.backend = game.backend();
-  inputs = new Inputs(settings.players);
+  inputs = new Inputs(settings.players, undefined, game.has_enhanced_mode() ? settings.enhancedPlayers : null);
   conveniences = new Conveniences(settings, {
     command: action => { void convenienceAction(action); },
     persist: persistSettings,

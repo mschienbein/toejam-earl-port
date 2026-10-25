@@ -100,8 +100,10 @@ states; `From<GenesisInputs>` supplies disconnected seats three/four. Enhanced
 `step` / `play_frame` accept either. Only the first two pads reach original
 hardware, unchanged. All four are available through `enhanced::Context::inputs`
 and are included in enhanced snapshots; faithful mode ignores extra seats and
-delegates exactly to the original two-pad API. This foundation does not add a
-four-seat frontend controller-binding UI or change original input RAM.
+delegates exactly to the original two-pad API. Native/browser enhanced builds
+also provide separate, default-disabled seat-three/four binding preparation
+controls and strict four-pad conversion; this does not select a gameplay profile
+or change original input RAM. Faithful recordings/netplay remain two-pad.
 
 Use `mode.snapshot(engine)`, `snapshot_into(engine, image)` and
 `restore(engine, image)` for enhanced saves/rewind/rollback. Native and browser

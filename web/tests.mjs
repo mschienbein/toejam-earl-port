@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { defaultPlayer, gamepadMask, Inputs, normalizePlayer, selectGamepads, validKeyboardCode } from './input.js';
+import { defaultPlayer, gamepadMask, Inputs, normalizePlayer, selectGamepads, selectLocalGamepads, validKeyboardCode } from './input.js';
 import { defaultSettings, readSettings, saveSettings, SETTINGS_KEY, SETTINGS_VERSION } from './storage.js';
 import { AudioStream } from './audio.js';
 import { checkDependencies } from './check-dependencies.mjs';
@@ -424,4 +424,53 @@ test('fast-forward is clocked at four times game rate rather than monitor refres
   assert.equal(extra.tick(10020, 60).fast, false);
   extra.release();
   assert.equal(extra.held.size, 0);
+});
+
+test('enhanced local seats reserve four sources through reordering, disconnect, reconnect and explicit swaps', () => {
+  const players = Array.from({ length: 4 }, (_, seat) => defaultPlayer(seat));
+  const pads = players.map((_, seat) => ({ ...standardPad(), id: `Owned pad ${seat}`, index: seat }));
+  const reservations = [null, null, null, null];
+  assert.deepEqual(selectLocalGamepads(pads.toReversed(), players, reservations), pads);
+  assert.deepEqual(selectLocalGamepads([pads[3], pads[1], pads[2]], players, reservations), [null, pads[1], pads[2], pads[3]]);
+  const newcomer = { ...standardPad(), id: 'Unassigned pad', index: 4 };
+  assert.equal(selectLocalGamepads([newcomer, ...pads.slice(1)], players, reservations)[0], null);
+  assert.deepEqual(selectLocalGamepads([newcomer, ...pads.toReversed()], players, reservations), pads);
+});
+
+test('four enhanced pad words, keyboard focus and bindings remain outside faithful records', () => {
+  const oldWindow = globalThis.window, oldElement = globalThis.Element;
+  class Target { constructor(editing = false) { this.editing = editing; } closest() { return this.editing; } }
+  const listeners = new Map();
+  globalThis.window = { addEventListener: (type, fn) => listeners.set(type, fn) };
+  globalThis.Element = Target;
+  try {
+    const settings = defaultSettings();
+    settings.enhancedPlayers.forEach(player => { player.gamepad.enabled = true; });
+    const pads = Array.from({ length: 4 }, (_, seat) => ({ ...standardPad(), id: `Pad ${seat}`, index: seat }));
+    for (let seat = 0; seat < 4; seat++) pads[seat].buttons[[12, 13, 14, 15][seat]].pressed = true;
+    const inputs = new Inputs(settings.players, () => pads, settings.enhancedPlayers);
+    inputs.samplePads();
+    assert.deepEqual(inputs.pollLocal(), [0x101, 0x102, 0x104, 0x108]);
+    assert.deepEqual(inputs.poll(true), [1, 2, true]);
+    inputs.readPads = () => pads.slice(1);
+    inputs.samplePads();
+    assert.deepEqual(inputs.pollLocal(), [0x100, 0x102, 0x104, 0x108]);
+    inputs.assignLocal(3, { id: 'Pad 1', index: 1 });
+    inputs.samplePads();
+    assert.equal(inputs.localSelected[3], pads[1]);
+    assert.equal(inputs.localSelected[1], pads[3]);
+    assert.equal(inputs.localAssignmentEpoch, 1);
+    settings.enhancedPlayers[0].keys.a = 'KeyQ';
+    const event = editing => ({ code: 'KeyQ', target: new Target(editing), preventDefault() {}, repeat: false });
+    inputs.key(event(true), true);
+    assert.equal(inputs.pollLocal()[2], 0x104);
+    inputs.key(event(false), true);
+    assert.equal(inputs.pollLocal()[2], 0x114);
+    listeners.get('blur')();
+    assert.equal(inputs.pollLocal()[2], 0x104);
+    assert.equal(inputs.pollLocal(3)[2], 0);
+    const store = memoryStorage(); saveSettings(settings, store);
+    assert.deepEqual(readSettings(store).settings.enhancedPlayers, settings.enhancedPlayers);
+    assert.equal(defaultSettings().enhancedPlayers[0].gamepad.enabled, false);
+  } finally { globalThis.window = oldWindow; globalThis.Element = oldElement; }
 });

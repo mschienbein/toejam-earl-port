@@ -241,22 +241,37 @@ impl NativeBackend {
 }
 
 pub fn genesis_inputs(controllers: Controllers) -> GenesisInputs {
-    use GenesisButton::*;
-    const BUTTONS: [GenesisButton; 8] = [Up, Down, Left, Right, A, B, C, Start];
-    let pads: [GenesisController; 2] = std::array::from_fn(|index| {
-        let mut controller = if controllers.connected[index] {
-            GenesisController::new(GenesisControllerType::ThreeButton)
-        } else {
-            GenesisController::None
-        };
-        for (button, pressed) in BUTTONS.into_iter().zip(controllers.buttons[index]) {
-            controller.set_field(button, pressed);
-        }
-        controller
+    let pads = std::array::from_fn::<_, 2, _>(|index| {
+        controller(controllers.connected[index], controllers.buttons[index])
     });
     GenesisInputs {
         p1: pads[0],
         p2: pads[1],
+    }
+}
+
+fn controller(connected: bool, buttons: [bool; 8]) -> GenesisController {
+    use GenesisButton::*;
+    let mut controller = if connected {
+        GenesisController::new(GenesisControllerType::ThreeButton)
+    } else {
+        GenesisController::None
+    };
+    for (button, pressed) in [Up, Down, Left, Right, A, B, C, Start]
+        .into_iter()
+        .zip(buttons)
+    {
+        controller.set_field(button, pressed);
+    }
+    controller
+}
+
+#[cfg(feature = "enhanced-mode")]
+pub fn enhanced_inputs(
+    local: crate::input::LocalControllers,
+) -> tje_engine_runtime::enhanced::EnhancedInputs {
+    tje_engine_runtime::enhanced::EnhancedInputs {
+        pads: std::array::from_fn(|seat| controller(local.connected[seat], local.buttons[seat])),
     }
 }
 

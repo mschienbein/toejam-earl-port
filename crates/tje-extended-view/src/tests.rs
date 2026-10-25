@@ -297,3 +297,97 @@ fn invalid_storage_and_map_selectors_fail_without_aliasing_other_tables() {
         Err(RenderError::UnloadedLevel(-1))
     );
 }
+
+#[test]
+fn borrowed_owned_world_source_shares_stock_decode_and_accepts_dynamic_bounds() {
+    struct Cells {
+        width: i32,
+        height: i32,
+    }
+    impl TerrainSource for Cells {
+        fn cell(&self, x: i32, y: i32) -> Option<u16> {
+            ((0..self.width).contains(&x) && (0..self.height).contains(&y)).then_some(3)
+        }
+        fn exterior(&self) -> Option<u16> {
+            None
+        }
+    }
+    for revision in Revision::ALL {
+        let (mut memory, mut vram) =
+            fixture(revision, |bytes| fill_metatile(bytes, revision, 3, 7));
+        vram[7 * 32..8 * 32].fill(0x12);
+        for y in 0..26 {
+            for x in 0..19 {
+                ram::g_player1_level_map(revision)
+                    .at(y)
+                    .at(x)
+                    .write(&mut memory, 3);
+            }
+        }
+        let renderer = MapRenderer::new(&memory, &vram).unwrap();
+        let view = WorldView::committed(&memory, Viewport::Primary).unwrap();
+        let mut stock = vec![IndexedPixel::default(); 400 * 224];
+        let mut owned = stock.clone();
+        renderer
+            .render_terrain(view, ViewMode::Widescreen, &mut stock)
+            .unwrap();
+        renderer
+            .render_terrain_from(
+                &Cells {
+                    width: 19,
+                    height: 26,
+                },
+                [88, 64],
+                [400, 224],
+                0,
+                &mut owned,
+            )
+            .unwrap();
+        assert_eq!(stock, owned);
+        let expanded = Cells {
+            width: 64,
+            height: 64,
+        };
+        assert_eq!(
+            renderer.terrain_tile_from(&expanded, 64 * 16, 64 * 8, 0),
+            Ok(7)
+        );
+        assert_eq!(
+            renderer.terrain_tile_from(&expanded, 65 * 16, 64 * 8, 0),
+            Ok(0)
+        );
+        assert_eq!(renderer.terrain_tile_from(&expanded, -1, -1, 0), Ok(0));
+    }
+}
+
+#[test]
+fn shared_piece_decoder_bounds_dimensions_and_reuses_caller_storage() {
+    use presentation::Piece;
+    use resources::{MAX_PIECE_BYTES, decode_piece_into};
+    let rom = [0x12; MAX_PIECE_BYTES];
+    let mut output = [0; MAX_PIECE_BYTES];
+    let piece = Piece {
+        width: 4,
+        height: 4,
+        format: 64,
+        ..Piece::default()
+    };
+    decode_piece_into(&rom, piece, &mut output).unwrap();
+    assert_eq!(output, rom);
+    assert!(decode_piece_into(&rom, Piece { width: 0, ..piece }, &mut []).is_err());
+    assert!(decode_piece_into(&rom, Piece { width: 5, ..piece }, &mut output).is_err());
+    assert!(decode_piece_into(&rom[..511], piece, &mut output).is_err());
+    assert!(decode_piece_into(&rom, piece, &mut output[..511]).is_err());
+    assert!(
+        decode_piece_into(
+            &rom,
+            Piece {
+                source: u32::MAX,
+                ..piece
+            },
+            &mut output
+        )
+        .is_err()
+    );
+    assert!(resources::frame_pieces(&rom, u32::MAX, &mut [Piece::default(); 12]).is_err());
+}
