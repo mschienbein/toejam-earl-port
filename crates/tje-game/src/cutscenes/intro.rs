@@ -9,6 +9,7 @@ pub fn intro_begin_large_player_scene(
 ) -> Result<Option<u32>> {
     let revision = context.revision();
     let background = arguments[0] as i16;
+    let saved_d2 = context.data_register(2);
     call(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
     ram::g_scene_background_pair_index(revision).write(context, background as i8);
     call(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
@@ -17,6 +18,16 @@ pub fn intro_begin_large_player_scene(
     ram::g_mode2_reg_softcopy(revision).write(context, mode);
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
     context.write_device_u16(0xc00004, u16::from(mode) | 0x8104);
+    // Final MOVE.L (SP)+,D2 restores the entry register and defines N/Z/V/C.
+    let flags = if saved_d2 == 0 {
+        0x04
+    } else if saved_d2 & 0x8000_0000 != 0 {
+        0x08
+    } else {
+        0
+    };
+    let status = context.status_register();
+    context.set_status_register((status & !0x000f) | flags);
     Ok(None)
 }
 
@@ -57,6 +68,58 @@ pub(super) fn increment(context: &mut dyn Context, word: Address<i16>) -> i16 {
     value
 }
 
+/// G/build/accept/c038-final/a/{rev02,rev00}/obj/c_intro.s: each
+/// countdown-driven switch reloads the state after ADDQ.W's memory write.
+/// Do not reuse the arithmetic result: the original performs another bus read.
+fn increment_and_reload(context: &mut dyn Context, word: Address<i16>) -> i16 {
+    increment(context, word);
+    word.read(context)
+}
+
+/// G accepted c_intro.o: dense switches load a signed PC-relative ROM word
+/// before jumping. Rust owns the equivalent match, but must retain that
+/// semantic read; out-of-range states take the compiler's bounds branches.
+fn read_switch_entry(
+    context: &mut dyn Context,
+    owner: crate::FunctionId,
+    offset: u32,
+    upper: i16,
+    state: i16,
+) {
+    if (1..=upper).contains(&state) {
+        let address = owner
+            .metadata()
+            .address(context.revision())
+            .wrapping_add(offset)
+            .wrapping_add(u32::from((state - 1) as u16) * 2);
+        let _ = Address::<i16>::new(address).read(context);
+    }
+}
+
+/// G accepted c_intro.o: each part ends with CMPI.W/SNE/NEG.B/EXT.W/EXT.L.
+/// NEG.B produces X=1 only for an interrupted scene; the final EXT clears
+/// N/V/C and sets Z for D0=0. SR control bits are never changed.
+fn scene_result(context: &mut dyn Context, state: Address<i16>) -> Result<Option<u32>> {
+    let interrupted = state.read(context) != -1;
+    let status = context.status_register();
+    context.set_status_register((status & !0x001f) | if interrupted { 0x10 } else { 0x04 });
+    Ok(Some(u32::from(interrupted)))
+}
+
+/// G accepted c_intro.s: CLR reads its memory operand before writing zero.
+/// The pre-read is discarded, not an extra semantic input to the Rust body.
+fn clear_word(context: &mut dyn Context, word: Address<i16>) -> Result<()> {
+    context.discard_u16(word.address())?;
+    word.write(context, 0);
+    Ok(())
+}
+
+fn clear_byte(context: &mut dyn Context, address: u32) -> Result<()> {
+    context.discard_u8(address)?;
+    context.write_u8(address, 0);
+    Ok(())
+}
+
 /// G/src/cutscenes/intro.c:524 (`IntroPart5`).
 /// TimeAware: driving poses, scrolling, input and sound are interleaved with
 /// shared VBlank/music service; countdown and local positions wrap as words.
@@ -90,7 +153,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_intro_earl_driving_bank3(revision).address(), 3],
     )?;
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 42);
     let mut driving_pose = 1_i16;
     let mut scroll_direction = 0_i16;
@@ -115,7 +178,8 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 42);
-        let next = increment(context, state);
+        let next = increment_and_reload(context, state);
+        read_switch_entry(context, ids::INTRO_PART5, 0x156, 11, next);
         match next {
             1 => {
                 call(
@@ -243,7 +307,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:628 (`IntroPart6`).
@@ -254,7 +318,7 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let countdown = ram::g_cutscene_script_countdown(revision);
     call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
     call(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 42);
     let mut scroll_position = 0_i16;
     context.write_vdp_command(0x7c02_0003);
@@ -283,7 +347,9 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 4);
-        match increment(context, state) {
+        let next = increment_and_reload(context, state);
+        read_switch_entry(context, ids::INTRO_PART6, 0xe0, 10, next);
+        match next {
             1 | 7 => {
                 call(
                     context,
@@ -364,7 +430,7 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:711 (`IntroPart7`).
@@ -383,7 +449,7 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         &[rom::palette_intro_earl_driving_bank0(revision).address(), 0],
     )?;
     let mut shake_phase = 0_i16;
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 34);
     let mut driving_pose = 1_i16;
     let mut scroll_position = 0_i16;
@@ -409,7 +475,10 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             camera_y.write(context, value);
             shake_phase = 1;
         }
-        ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
+        clear_byte(
+            context,
+            ram::g_sprite_graphics_upload_pending(revision).address(),
+        )?;
         call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
         call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
         if shake_phase != 0 {
@@ -434,7 +503,9 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 34);
-        match increment(context, state) {
+        let next = increment_and_reload(context, state);
+        read_switch_entry(context, ids::INTRO_PART7, 0x18a, 7, next);
+        match next {
             1 => {
                 call(
                     context,
@@ -497,8 +568,8 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call(context, ids::INTRO_RELEASE_ASTEROID_ENTITY, &[])?;
     call(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
     call(context, ids::INTRO_RELEASE_DRIVING_PARTS, &[])?;
-    camera_x.write(context, 0);
-    camera_y.write(context, 0);
+    clear_word(context, camera_x)?;
+    clear_word(context, camera_y)?;
     context.write_vdp_command(0x4000_0010);
     context.write_vdp_data(camera_y.read(context) as u16);
     context.write_vdp_command(0x7c00_0003);
@@ -506,7 +577,7 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(camera_x.read(context) as u16);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:819 (`IntroPart8`).
@@ -515,7 +586,7 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let revision = context.revision();
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 4);
     call(
         context,
@@ -555,7 +626,7 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     while state.read(context) != -1 && !start_pressed(context)? {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
         if decrement(context, countdown) == 0 {
-            match increment(context, state) {
+            match increment_and_reload(context, state) {
                 1 => {
                     // G's preserved A3 holds the background-draw function; the
                     // collision constructor consumes it on allocation failure.
@@ -584,10 +655,10 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     }
     set_display(context, false);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    ram::g_shared_tile_sprite_copies_enabled(revision).write(context, 0);
+    clear_word(context, ram::g_shared_tile_sprite_copies_enabled(revision))?;
     call(context, ids::DRAW_STARFIELD_PLANE, &[])?;
     call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:866 (`IntroPart9`).
@@ -614,7 +685,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank2(revision).address(), 2],
     )?;
-    state.write(context, 0);
+    clear_word(context, state)?;
     let mut scroll_position = 0_i16;
     countdown.write(context, 42);
     call(context, ids::INTRO_POSITION_FALLING_ROCKETSHIP, &[170, 141])?;
@@ -629,7 +700,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 85);
-        if increment(context, state) == 2 {
+        if increment_and_reload(context, state) == 2 {
             state.write(context, -1);
         }
     }
@@ -639,7 +710,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_command(0x4002_0010);
     context.write_vdp_data(scroll_position as u16);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:112 and corresponding release loops; the compiler
@@ -693,7 +764,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let owner = ids::INTRO_PART1;
     call(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
     let mut advance_scene = false;
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 51);
     actor.write(context, 1);
     while start_pressed(context)? {
@@ -714,7 +785,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             )?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
-            if advance_mask.read(context) != 0 {
+            if mask != 0 {
                 advance_scene = true;
             }
             if advance_mask.read(context) == 0 {
@@ -727,6 +798,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         increment(context, state);
         actor.write(context, 1);
         let next = state.read(context);
+        read_switch_entry(context, owner, 0xd6, 39, next);
         match next {
             1 | 3 => {
                 call(
@@ -814,7 +886,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                actor.write(context, 0);
+                clear_word(context, actor)?;
                 countdown.write(context, 51);
             }
             8 => {
@@ -834,7 +906,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 )?;
                 caption(context, owner, 0x5b6, 78, 54, false)?;
                 countdown.write(context, 34);
-                actor.write(context, 0);
+                clear_word(context, actor)?;
             }
             10 => {
                 call(
@@ -1085,7 +1157,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                     ],
                 )?;
                 countdown.write(context, 34);
-                actor.write(context, 0);
+                clear_word(context, actor)?;
             }
             35 => {
                 call(
@@ -1152,7 +1224,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     )?;
     call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:912 (`IntroPart10`).
@@ -1177,7 +1249,9 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     state.write(context, 1);
     while state.read(context) != -1 && !start_pressed(context)? {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-        match state.read(context) {
+        let next = state.read(context);
+        read_switch_entry(context, ids::INTRO_PART10, 0x9e, 6, next);
+        match next {
             1 => {
                 scene_y = scene_y.wrapping_add(1);
                 call(
@@ -1218,7 +1292,7 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     call(context, ids::CUTSCENE_RELEASE_PLANET_ENTITY, &[])?;
     call(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:314 (`IntroPart2`).
@@ -1237,7 +1311,7 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         &[rom::palette_ship_line3(revision).address(), 2],
     )?;
     call(context, ids::INTRO_CREATE_HIDDEN_FRAME_ENTITIES, &[])?;
-    state.write(context, 0);
+    clear_word(context, state)?;
     countdown.write(context, 17);
     let mut advance_period = 0_i16;
     while state.read(context) != -1 && !start_pressed(context)? {
@@ -1249,8 +1323,8 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             )?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
-            if advance_mask.read(context) != 0 {
-                countdown.write(context, 0);
+            if mask != 0 {
+                clear_word(context, countdown)?;
             }
             if advance_mask.read(context) == 0 {
                 break;
@@ -1260,7 +1334,9 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 85);
-        match increment(context, state) {
+        let next = increment_and_reload(context, state);
+        read_switch_entry(context, owner, 0x96, 10, next);
+        match next {
             1 => {
                 caption(context, owner, 0x1cc, 160, 30, false)?;
                 call(context, ids::INTRO_REVEAL_FRAME_ENTITIES, &[])?;
@@ -1311,7 +1387,7 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank2(revision).address(), 2],
     )?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:383 (`IntroPart3`).
@@ -1325,11 +1401,14 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART3;
     call(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
-    ram::g_requested_music_selection(revision).write(context, 0);
+    clear_byte(
+        context,
+        ram::g_requested_music_selection(revision).address(),
+    )?;
     countdown.write(context, 17);
     actor.write(context, 1);
     let mut advance_scene = false;
-    state.write(context, 0);
+    clear_word(context, state)?;
     while state.read(context) != -1 && !start_pressed(context)? {
         loop {
             let enabled = actor.read(context) as i32 as u32;
@@ -1340,7 +1419,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             )?;
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
-            if advance_mask.read(context) != 0 {
+            if mask != 0 {
                 advance_scene = true;
             }
             if advance_mask.read(context) == 0 {
@@ -1352,7 +1431,9 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
         increment(context, state);
         actor.write(context, 1);
-        match state.read(context) {
+        let next = state.read(context);
+        read_switch_entry(context, owner, 0xa4, 8, next);
+        match next {
             1 => {
                 call(
                     context,
@@ -1467,7 +1548,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     )?;
     call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:455 (`IntroPart4`).
@@ -1502,7 +1583,7 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     countdown.write(context, 85);
-    state.write(context, 0);
+    clear_word(context, state)?;
     let mut scroll_position = 0_i16;
     let mut exhaust_phase = 0_i16;
     while state.read(context) != -1 && !start_pressed(context)? {
@@ -1530,8 +1611,8 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             scroll_position = scroll_position.wrapping_add(1);
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
-            if advance_mask.read(context) != 0 {
-                countdown.write(context, 0);
+            if mask != 0 {
+                clear_word(context, countdown)?;
             }
             if advance_mask.read(context) == 0 {
                 break;
@@ -1541,7 +1622,9 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             continue;
         }
         countdown.write(context, 85);
-        match increment(context, state) {
+        let next = increment_and_reload(context, state);
+        read_switch_entry(context, owner, 0x156, 5, next);
+        match next {
             1 => {
                 caption(context, owner, 0x238, 160, 30, false)?;
             }
@@ -1567,17 +1650,17 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call(context, ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES, &[])?;
     call(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    Ok(Some(u32::from(state.read(context) != -1)))
+    scene_result(context, state)
 }
 
 /// G/src/cutscenes/intro.c:35-44,71-80: zero scroll mirrors before each port
 /// transaction, keeping X/Y read order and both planes' distinct command words.
-fn reset_scroll(context: &mut dyn Context) {
+fn reset_scroll(context: &mut dyn Context) -> Result<()> {
     let revision = context.revision();
     let x = ram::g_camera1_pending_x(revision);
     let y = ram::g_camera1_pending_y(revision);
-    x.write(context, 0);
-    y.write(context, 0);
+    clear_word(context, x)?;
+    clear_word(context, y)?;
     context.write_vdp_command(0x4000_0010);
     context.write_vdp_data(y.read(context) as u16);
     context.write_vdp_command(0x7c00_0003);
@@ -1586,6 +1669,7 @@ fn reset_scroll(context: &mut dyn Context) {
     context.write_vdp_data(y.read(context) as u16);
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(x.read(context) as u16);
+    Ok(())
 }
 
 /// G/src/cutscenes/intro.c:26 (`IntroVideo`).
@@ -1593,11 +1677,14 @@ fn reset_scroll(context: &mut dyn Context) {
 /// before display transitions and final cleanup. Font/palette data stays in ROM.
 pub fn intro_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    ram::g_requested_music_selection(revision).write(context, 0);
+    clear_byte(
+        context,
+        ram::g_requested_music_selection(revision).address(),
+    )?;
     call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, false);
-    ram::g_music_animation_channel(revision).write(context, 0);
-    reset_scroll(context);
+    clear_byte(context, ram::g_music_animation_channel(revision).address())?;
+    reset_scroll(context)?;
     call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
     ram::g_camera_tile_attributes(revision).write(context, 0x8000);
     context.write_vdp_command(0x7000_0002);
@@ -1656,9 +1743,15 @@ pub fn intro_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
     call(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
     call(context, ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE, &[])?;
-    reset_scroll(context);
+    reset_scroll(context)?;
+    let status = context.status_register();
+    context.set_status_register((status & !0x000f) | if interrupted { 0 } else { 0x04 });
     Ok(Some(u32::from(interrupted)))
 }
+
+#[cfg(test)]
+#[path = "intro_access_tests.rs"]
+mod access_tests;
 
 #[cfg(test)]
 mod tests {
