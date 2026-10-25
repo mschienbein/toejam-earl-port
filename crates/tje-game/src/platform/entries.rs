@@ -109,10 +109,14 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         *register = i32::from(context.read_u16(cursor) as i16) as u32;
         cursor = cursor.wrapping_add(2);
     }
+    // startup.s:32: memory-to-register MOVEM has a terminal unused word read.
+    context.discard_u16(cursor)?;
     for register in &mut addresses[..5] {
         *register = context.read_u32(cursor);
         cursor = cursor.wrapping_add(4);
     }
+    // startup.s:33: retain the second MOVEM's distinct terminal read.
+    context.discard_u16(cursor)?;
     let version = context.read_device_u8(addresses[1].wrapping_sub(0x10ff)) & 0xf;
     if version != 0 {
         write_device_long(context, addresses[1].wrapping_add(0x2f00), 0x5345_4741);
@@ -218,6 +222,8 @@ pub fn start(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         restored = restored.wrapping_add(4);
         context.set_address_register(index, value);
     }
+    // startup.s:94: effective-address cursor survives loading A6 itself.
+    context.discard_u16(restored)?;
     context.set_status_register(0x2700);
     exits::tail(ids::START, ids::GAME_PROGRAM)
 }

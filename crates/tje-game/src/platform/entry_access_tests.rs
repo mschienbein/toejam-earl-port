@@ -8,6 +8,8 @@ use tje_mem::{AddressSpace, Bus, Revision};
 enum Access {
     MemoryWord(u32, u16),
     MemoryByte(u32, u8),
+    DiscardedWord(u32, u16),
+    DiscardedByte(u32, u8),
     DeviceWord(u32, u16),
     DeviceByte(u32, u8),
     WriteWord(u32, u16),
@@ -25,6 +27,7 @@ struct AccessContext {
     warm_ab: u16,
     warm_c: u16,
     bus_busy: bool,
+    complete_fill: bool,
 }
 
 impl AccessContext {
@@ -59,6 +62,7 @@ impl AccessContext {
             warm_ab: 0,
             warm_c: 0,
             bus_busy: true,
+            complete_fill: false,
         }
     }
 }
@@ -109,6 +113,20 @@ impl tje_mem::Platform for AccessContext {
     }
 }
 impl Platform for AccessContext {
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        let value = self.memory.read_u8(address);
+        self.trace
+            .borrow_mut()
+            .push(Access::DiscardedByte(address, value));
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        let value = self.memory.read_u16(address);
+        self.trace
+            .borrow_mut()
+            .push(Access::DiscardedWord(address, value));
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         let value = match address {
             0xa10001 => 0,
@@ -163,6 +181,9 @@ impl Platform for AccessContext {
     }
     fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
         self.trace.borrow_mut().push(Access::Wait(request));
+        if self.complete_fill && request.condition == WaitCondition::VdpFillComplete {
+            return Ok(());
+        }
         // Intentional unit boundary, not a production readiness implementation.
         Err(Error::Platform("authored wait boundary".into()))
     }
@@ -295,4 +316,86 @@ fn warm_skip_keeps_control_reads_in_order_and_does_not_touch_cold_state() {
             assert_eq!(*context.trace.borrow(), expected);
         }
     }
+}
+
+#[test]
+fn manual_startup_movem_reads_keep_terminal_word_purposes_and_order() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = AccessContext::new(revision);
+        context.bus_busy = false;
+        context.complete_fill = true;
+        let setup = rom_symbol(revision, "SetupValues").unwrap().address;
+        let expected_supervisor = context.banks.supervisor;
+        let result = start(&mut context, &[]);
+        let Err(Error::ControlTransfer(transfer)) = result else {
+            panic!("complete authored cold input must request GameProgram tail");
+        };
+        assert_eq!(transfer.entry, ids::START);
+        assert_eq!(
+            transfer.exit,
+            exits::Exit::Tail {
+                target: ids::GAME_PROGRAM
+            }
+        );
+        assert_eq!(context.data, [0; 8]);
+        assert_eq!(context.address, [0; 7]);
+        assert_eq!(context.sr, 0x2700);
+        assert_eq!(context.banks.user, 0);
+        assert_eq!(context.banks.supervisor, expected_supervisor);
+        let trace = context.trace.borrow();
+        let first = trace
+            .iter()
+            .position(|access| *access == Access::MemoryWord(setup, 0x8000))
+            .unwrap();
+        assert_eq!(
+            &trace[first..first + 6],
+            &[
+                Access::MemoryWord(setup, 0x8000),
+                Access::MemoryWord(setup + 2, 3),
+                Access::MemoryWord(setup + 4, 0x0100),
+                Access::DiscardedWord(setup + 6, 0x00a0),
+                Access::MemoryWord(setup + 6, 0x00a0),
+                Access::MemoryWord(setup + 8, 0),
+            ]
+        );
+        assert_eq!(trace[first + 14], Access::DiscardedWord(setup + 26, 0x4041));
+        assert_eq!(trace[first + 15], Access::DeviceByte(0xa10001, 0));
+        // The authored setup uses D6=3: four backwards clear longs. A6's
+        // original non-postincrement MOVEM EA is FFFFFFF0, terminal EA=2C.
+        let terminal = 0_u32.wrapping_sub(16).wrapping_add(60);
+        let discards: Vec<_> = trace
+            .iter()
+            .filter_map(|access| {
+                if let Access::DiscardedWord(address, _) = access {
+                    Some(*address)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(discards, [setup + 6, setup + 26, terminal]);
+        assert_eq!(trace.last(), Some(&Access::DiscardedWord(terminal, 0)));
+        let end = trace.len() - 1;
+        for word in 0..30_u32 {
+            assert_eq!(
+                trace[end - 30 + word as usize],
+                Access::MemoryWord(0_u32.wrapping_sub(16).wrapping_add(word * 2), 0)
+            );
+        }
+    }
+}
+
+#[test]
+fn owned_context_discard_operations_never_record_semantic_or_split_word_reads() {
+    let mut context = AccessContext::new(Revision::Rev02);
+    let setup = rom_symbol(Revision::Rev02, "SetupValues").unwrap().address;
+    context.discard_u8(setup).unwrap();
+    context.discard_u16(setup).unwrap();
+    assert_eq!(
+        *context.trace.borrow(),
+        [
+            Access::DiscardedByte(setup, 0x80),
+            Access::DiscardedWord(setup, 0x8000),
+        ]
+    );
 }
