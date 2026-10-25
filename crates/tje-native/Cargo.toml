@@ -30,6 +30,7 @@ wgpu = "=30.0.1"
 winit = { version = "=0.30.13", features = ["serde"] }
 tje-display = { path = "../tje-display", features = ["cli"] }
 tje-engine-cranelift = { path = "../tje-engine-cranelift", default-features = false, features = ["devices"] }
+tje-engine-runtime = { path = "../tje-engine-runtime" }
 tje-rom = { path = "../tje-rom" }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
 tje-mem = { path = "../tje-mem" }

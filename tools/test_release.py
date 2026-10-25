@@ -223,7 +223,7 @@ class ReleaseTests(unittest.TestCase):
         snippets.joinpath("cache.js").write_text("export const read = 1;\n")
         snippets.joinpath("unreferenced.js").write_text("must never be copied")
         web.joinpath("pkg", "tje_web_bg.wasm").write_bytes(b"\0asm\x01\0\0\0")
-        for name in ("tests.mjs", "cartridge.bin", "private-save.json"):
+        for name in ("tests.mjs", "cartridge.bin", "private-save.json", "slot-1.tje-state"):
             web.joinpath(name).write_text("must never be copied")
         web.joinpath("pkg", "unexpected.bin").write_text("must never be copied")
         site = self.root / "site"
@@ -235,6 +235,7 @@ class ReleaseTests(unittest.TestCase):
               mock.patch.object(release.notices, "package_files", return_value=legal)):
             artifact = release.package_web("v1.2.3", self.output, site)
         expected = set(release.WEB_FILES) | {
+            "convenience.js",
             "pkg/tje_web.js", "pkg/tje_web_bg.wasm", ".nojekyll", "icon.png",
             "pkg/snippets/engine/src/browser.js", "pkg/snippets/engine/src/cache.js",
             *legal.keys(),

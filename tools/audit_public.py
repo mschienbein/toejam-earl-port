@@ -67,13 +67,14 @@ DATA_URI = re.compile(
     rb"data:([^,\s\"'<>]*),"
     rb"([^\s\"'<>]+)", re.I)
 PRIVATE_DIRS = {"build", "asm", "orig", ".cache", "scratch", "target", "roms",
-                "__pycache__", ".venv", "node_modules"}
+                "__pycache__", ".venv", "node_modules", "save-states"}
 ASSET_SUFFIXES = {
     ".bin", ".gen", ".smd", ".sgd", ".rom", ".zip", ".7z", ".gz", ".xz", ".rar", ".bz2", ".tar", ".zlib", ".lib",
     ".o", ".obj", ".a", ".so", ".dll", ".exe", ".elf", ".pyc", ".pdf", ".ieee", ".695",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".svg",
     ".wav", ".mp3", ".ogg", ".flac", ".aiff", ".aif", ".vgm", ".vgz", ".mid",
     ".mp4", ".webm", ".mov", ".ttf", ".woff", ".woff2",
+    ".tje-state",
 }
 # Whitespace-only windows are also ordinary source indentation.
 PADDING = b" " * 16

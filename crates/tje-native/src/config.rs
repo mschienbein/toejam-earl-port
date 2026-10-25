@@ -90,6 +90,15 @@ impl Hotkeys {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConvenienceSettings {
+    pub save_states: bool,
+    pub rewind: bool,
+    pub fast_forward: bool,
+    pub slot: u8,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
@@ -109,6 +118,7 @@ pub struct Settings {
     pub gamepad_devices: Vec<crate::input::SavedPad>,
     pub players: [PlayerBindings; 2],
     pub hotkeys: Hotkeys,
+    pub convenience: ConvenienceSettings,
 }
 
 impl Default for Settings {
@@ -128,6 +138,7 @@ impl Default for Settings {
             gamepad_devices: Vec::new(),
             players: [PlayerBindings::one(), PlayerBindings::two()],
             hotkeys: Hotkeys::default(),
+            convenience: ConvenienceSettings::default(),
         }
     }
 }
@@ -196,6 +207,7 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<()> {
+        ensure!(self.convenience.slot < 5, "save-state slot must be 1..5");
         ensure!(
             self.gamepad_devices.len() <= 32,
             "at most 32 gamepad slot identities can be saved"

@@ -4,6 +4,7 @@ use genesis_config::{
     GenesisButton, GenesisController, GenesisControllerType, GenesisEmulatorConfig, GenesisInputs,
 };
 use tje_engine_cranelift::{CacheConfig, CompileProgress, CompileStats, Engine, load_engine};
+use tje_engine_runtime::MachineSnapshot;
 use tje_mem::Bus;
 use tje_rom::{Revision, Rom};
 use tje_session::RamWrite;
@@ -33,11 +34,14 @@ pub trait GameBackend {
     fn status(&self) -> Status;
     /// Documented input-session recipes can write work RAM before a frame.
     fn write_ram(&mut self, write: &RamWrite) -> Result<()>;
+    fn snapshot(&self) -> Result<MachineSnapshot>;
+    fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()>;
 }
 
 pub struct NativeBackend {
     engine: Engine,
     revision: Revision,
+    sample_rate: u32,
 }
 
 impl NativeBackend {
@@ -48,11 +52,18 @@ impl NativeBackend {
     ) -> Result<Self> {
         let revision = rom.revision();
         let engine = load_engine(rom, &GenesisEmulatorConfig::default(), cache, progress)?;
-        Ok(Self { engine, revision })
+        Ok(Self {
+            engine,
+            revision,
+            sample_rate: 48_000,
+        })
     }
 
     pub fn revision(&self) -> Revision {
         self.revision
+    }
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
     pub fn rom_bytes(&self) -> &[u8] {
         self.engine.devices().memory().rom()
@@ -96,6 +107,16 @@ pub fn genesis_inputs(controllers: Controllers) -> GenesisInputs {
 }
 
 impl GameBackend for NativeBackend {
+    fn snapshot(&self) -> Result<MachineSnapshot> {
+        Ok(self.engine.snapshot()?)
+    }
+    fn restore(&mut self, snapshot: &MachineSnapshot) -> Result<()> {
+        self.engine.restore(snapshot)?;
+        if self.engine.devices().audio_sample_rate() != self.sample_rate {
+            self.engine.set_audio_sample_rate(self.sample_rate)?;
+        }
+        Ok(())
+    }
     fn advance(&mut self, controllers: Controllers) -> Result<&[[f64; 2]]> {
         self.engine.devices_mut().clear_trace();
         Ok(self.engine.play_frame(genesis_inputs(controllers))?)
@@ -113,7 +134,9 @@ impl GameBackend for NativeBackend {
         self.engine.target_fps()
     }
     fn set_audio_sample_rate(&mut self, sample_rate: u32) -> Result<()> {
-        Ok(self.engine.set_audio_sample_rate(sample_rate)?)
+        self.engine.set_audio_sample_rate(sample_rate)?;
+        self.sample_rate = sample_rate;
+        Ok(())
     }
     fn reset(&mut self) {
         self.engine.reset();

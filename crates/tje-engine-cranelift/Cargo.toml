@@ -19,6 +19,10 @@ required-features = ["devices"]
 name = "synthetic_capacity"
 required-features = ["devices"]
 
+[[example]]
+name = "snapshot_sessions"
+required-features = ["devices"]
+
 [dependencies]
 cranelift-codegen = { version = "=0.137.0", default-features = false, features = ["std", "host-arch"] }
 cranelift-control = "=0.137.0"

@@ -436,6 +436,10 @@ class ResourceBudgetTests(GitAuditCase):
 
 
 class DecoderTests(unittest.TestCase):
+    def test_machine_save_states_are_private_regardless_of_payload_encoding(self) -> None:
+        for path in ("slot-1.tje-state", "SLOT.TJE-STATE", "save-states/slot.txt"):
+            self.assertTrue(audit.path_reasons(path, 16, "100644"), path)
+
     def test_binary_length_guard_does_not_depend_on_entropy(self) -> None:
         for size in (64, 96, 192):
             binary = bytes(size)

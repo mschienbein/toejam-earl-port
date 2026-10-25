@@ -8,3 +8,5 @@
 *.smd
 __pycache__/
 *.pyc
+*.tje-state
+/save-states/

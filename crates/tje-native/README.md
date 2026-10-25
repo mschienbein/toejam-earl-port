@@ -123,6 +123,32 @@ are west/south/east, with D-pad/left stick and Start. Hotkeys: Escape pause, F5
 reset, F6 scale, F7 filter, F8 vsync, F9 recording, F11 fullscreen,
 PageUp/PageDown volume.
 
+### Optional save states, rewind and fast-forward
+
+Settings → Extras contains three independent switches, all **off by default**.
+Enable local save states for five slots per ROM: **F2** saves, **F3** loads and
+**F4** selects the next slot; the overlay also has slot/save/load controls.
+Files live in the data directory's `save-states/<ROM SHA-1>/slot-N.tje-state`.
+Writes replace a slot only after its private temporary file is synced. Unknown
+formats, corrupt states and another ROM are rejected without changing the game.
+These files contain copyrighted runtime RAM and must never be shared or committed.
+
+Enable rewind, then hold **Backspace** or use the overlay checkpoint button.
+The ring samples every three frames, evicting oldest images within a **64 MiB
+image-allocation budget** (plus bounded ring bookkeeping). Releasing rewind
+continues a new branch; reset/import/load/disabling rewind discards old history.
+Enable fast-forward, then hold **Tab**, or toggle 4x speed in the overlay.
+Fast-forward executes every original frame but mutes output and flushes old
+queued audio. Existing custom game/hotkey mappings take precedence over these
+shortcuts; overlay controls remain available.
+
+Load/rewind are unavailable during input recording or input replay. After a
+load/rewind, automatic input-only playtest reports are intentionally omitted
+until hard reset: subsequent inputs alone cannot reproduce the restored RAM.
+Snapshots never go into reports. Output sample rate adapts to the current audio
+device when loading a state made with a different rate; the core restore API
+itself restores the saved resampler and all exact pending audio unchanged.
+
 Recording is input-only. F9 starts from a hard reset; F9/reset/import/exit saves
 under the data directory's `sessions/`. Settings, focus pauses and manual pauses
 add no game/recording frames. Recorded controller state is the same state sent to

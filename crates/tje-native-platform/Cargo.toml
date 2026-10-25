@@ -11,6 +11,8 @@ default = []
 game-adapter = ["dep:tje-game"]
 
 [dependencies]
+bincode = "2"
+sha1 = "0.10"
 tje-game = { path = "../tje-game", optional = true }
 tje-mem = { path = "../tje-mem" }
 genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core", default-features = false }
@@ -21,7 +23,6 @@ ti-sn76489 = { path = "../../vendor/jgenesis/backend/ti-sn76489" }
 z80-emu = { path = "../../vendor/jgenesis/cpu/z80-emu" }
 
 [dev-dependencies]
-bincode = "2"
 tje-host = { path = "../tje-host" }
 m68000-emu = { path = "../../vendor/jgenesis/cpu/m68000-emu" }
 

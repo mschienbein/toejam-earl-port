@@ -37,6 +37,62 @@ on a backend or scheduler. The device layer does not depend on the 68000 decoder
 or semantic executor. The only core dependency on the reference CPU crate is a
 **dev-dependency** for ROM-free timing checks.
 
+## Opt-in machine snapshots
+
+`Engine<B>::snapshot()` captures a `MachineSnapshot`; `snapshot_into` reuses an
+existing image allocation. `restore(&image)` keeps the immutable compiled backend
+and cartridge, with no reset, MMIO read, queue drain or device-clock movement.
+The canonical image contains all 25 CPU words, work/Z80 RAM, the entire VDP
+(including its backing frame), YM2612, SN76489, Z80, audio resampler and exact
+pending samples, deferred writes, controller latches, reset/IRQ/wait phases,
+master clocks and frame counters. Optional proof journals are not game state:
+restore clears them while retaining observer enablement.
+
+Format 2 has an eight-byte `TJESTATE` magic, little-endian version, actual ROM
+SHA-1, frame count, CPU words, execution-profile SHA-1, fixed-integer little-endian
+hardware encoding and a SHA-1 corruption checksum. `MachineSnapshot::from_bytes`
+rejects unknown versions and corruption; restore rejects another ROM, execution
+profile or compiled CPU divider before mutation. Bump `SNAPSHOT_VERSION` whenever
+any encoded hardware schema changes; there is intentionally no best-effort
+migration of machine images.
+`as_bytes`/`into_bytes` expose the private file representation; `state_hash` is a
+deterministic image digest, not peer authentication.
+
+Ordinary capture/restore methods bind the `faithful` profile.
+`snapshot_with_profile(&str)`, `snapshot_into_with_profile(&mut image, &str)` and
+`restore_with_profile(&image, &str)` let stateless enhanced drivers supply a
+version/config-bound identifier without changing the machine image type.
+They do not capture host sidecars or authorize cross-profile migration.
+
+Images contain copyrighted runtime state, unlike public controller sessions.
+Keep them only in private local storage, never in reports, source control or
+distributed caches. `RewindBuffer` evicts oldest images against an allocation
+budget and removes the abandoned future branch when rewinding. Capture and the
+ROM fingerprint are lazy: default faithful playback does neither. Future
+enhanced modes with host-owned state must add an atomic profile/config/sidecar
+envelope, not silently restore base-machine RAM into another profile.
+
+Both frontends expose five private local save slots, rewind and 4x muted
+fast-forward as independent default-off settings. Desktop controls live under
+Settings → Extras (F2/F3/F4, hold Backspace/Tab); the browser's Convenience extras
+panel uses F2/F3/F4, hold Backspace/backtick while the canvas is focused, leaving
+Tab navigation intact. Browser slots use the separate local
+`tje-private-save-states` IndexedDB database, keyed by ROM SHA-1 and slot; neither
+cartridge forgetting nor a settings reset deletes intentionally saved slots.
+The native `.tje-state` files are likewise retained when forgetting a cartridge.
+Disable rewind to free its 64 MiB-bounded history. A load/rewind invalidates
+input-only power-on reports until hard reset, rather than exporting a false
+replay or adding copyrighted snapshot bytes to a report.
+
+`snapshot_sessions` (native Cranelift example) runs complete recorded sessions,
+captures three checkpoints, compares each restored continuation's complete
+machine/frame/audio hashes and measures 100 warm captures/restores. Its private
+metadata-only receipt feeds `web/verify-snapshots.mjs`, which checks browser
+straight runs against those native hashes, restored continuations, rejection
+without mutation, rewind branches, five persisted slots across reload and the
+actual frontend controls. Build the observation-only browser package with
+`web/build-replay.sh`; generated Wasm and all evidence belong under `scratch/`.
+
 ## First launch and metadata
 
 After the ordinary ROM importer identifies REV 02 or REV 00, call

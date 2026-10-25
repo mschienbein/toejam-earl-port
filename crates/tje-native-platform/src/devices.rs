@@ -24,6 +24,8 @@ mod z80_capacity_tests;
 #[cfg(test)]
 mod discard_tests;
 
+mod snapshot;
+
 pub use genesis_core::native::RamWrite;
 pub use genesis_core::native::{DeviceWrite, Origin, TimedWrite};
 
@@ -525,6 +527,7 @@ pub struct DeviceRuntime {
     input_clock_remainder: u64,
     audio_sample_rate: u32,
     config: GenesisEmulatorConfig,
+    snapshot_rom_hash: std::sync::OnceLock<[u8; 20]>,
 }
 
 impl DeviceRuntime {
@@ -571,6 +574,7 @@ impl DeviceRuntime {
             audio: AudioBuffer(Vec::with_capacity(1024)),
             audio_sample_rate: 48_000,
             config: config.clone(),
+            snapshot_rom_hash: std::sync::OnceLock::new(),
         };
         devices.reserve_startup_buffers();
         devices
@@ -620,6 +624,7 @@ impl DeviceRuntime {
             audio_sample_rate: 48_000,
             config: state.config,
             input_clock_remainder: state.native_input_remainder,
+            snapshot_rom_hash: std::sync::OnceLock::new(),
         };
         devices.reserve_startup_buffers();
         Ok(devices)
@@ -698,6 +703,9 @@ impl DeviceRuntime {
     }
     pub fn audio_samples(&self) -> &[[f64; 2]] {
         &self.audio.0
+    }
+    pub fn audio_sample_rate(&self) -> u32 {
+        self.audio_sample_rate
     }
     pub fn clear_audio(&mut self) {
         self.audio.0.clear();

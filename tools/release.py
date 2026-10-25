@@ -36,7 +36,7 @@ PLATFORMS = {
 }
 WEB_FILES = (
     "index.html", "app.js", "audio.js", "audio-worklet.js", "input.js",
-    "storage.js", "controls.js", "reporting.js", "style.css",
+    "storage.js", "controls.js", "reporting.js", "convenience.js", "style.css",
 )
 KNOWN_ROM_SHA1 = frozenset((
     "85e8d0a4fac591b25b77c35680ac4175976f251b",

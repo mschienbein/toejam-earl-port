@@ -166,7 +166,8 @@ export class Reports {
     this.engine = this.pixels = null;
     this.crashed = false;
   }
-  reset() { this.ring?.reset(); this.engine = this.pixels = null; this.crashed = false; }
+  reset() { if (this.rom && !this.ring) this.ring = new InputRing(this.rom.revision); else this.ring?.reset(); this.engine = this.pixels = null; this.crashed = false; }
+  invalidateTimeline() { this.ring = null; this.pixels = null; }
   unload() { this.ring = this.rom = this.engine = this.pixels = null; }
   begin(p1, p2, connected) { this.ring?.begin(p1, p2, connected); }
   complete(engine) { this.ring?.complete(); this.engine = engine; }

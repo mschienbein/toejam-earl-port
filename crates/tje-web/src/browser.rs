@@ -6,7 +6,7 @@ use genesis_config::GenesisEmulatorConfig;
 use js_sys::{Function, Object, Reflect};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tje_engine_core::metadata::{compile_program_with_divider, game_metadata};
-use tje_engine_runtime::Engine;
+use tje_engine_runtime::{Engine, MachineSnapshot, RewindBuffer};
 use tje_engine_wasmgen::{BrowserBackend, ENGINE_VERSION};
 use tje_mem::{AddressSpace, ram};
 use tje_native_platform::DeviceRuntime;
@@ -142,6 +142,7 @@ pub struct WebGame {
     cartridge: Option<CompiledCartridge>,
     audio: Vec<f32>,
     sample_rate: u32,
+    rewind: Option<RewindBuffer>,
 }
 
 #[wasm_bindgen]
@@ -155,6 +156,7 @@ impl WebGame {
             cartridge: None,
             audio: Vec::with_capacity(4096),
             sample_rate: 48_000,
+            rewind: None,
         })
     }
 
@@ -163,6 +165,9 @@ impl WebGame {
         self.sample_rate = cartridge.sample_rate;
         self.cartridge = Some(cartridge);
         self.audio.clear();
+        if let Some(rewind) = &mut self.rewind {
+            rewind.clear();
+        }
         revision
     }
 
@@ -175,6 +180,9 @@ impl WebGame {
             .map(|cartridge| cartridge.revision.sha1().to_owned());
         self.cartridge = None;
         self.audio.clear();
+        if let Some(rewind) = &mut self.rewind {
+            rewind.clear();
+        }
         identity
     }
 
@@ -198,11 +206,85 @@ impl WebGame {
         Ok(())
     }
 
+    /// Private ROM-derived bytes, never an input recording or bug-report field.
+    pub fn snapshot(&self) -> Result<Vec<u8>, JsValue> {
+        let cartridge = self
+            .cartridge
+            .as_ref()
+            .ok_or_else(|| js_error("import a ROM first"))?;
+        Ok(cartridge.engine.snapshot().map_err(js_error)?.into_bytes())
+    }
+
+    pub fn restore(&mut self, bytes: Vec<u8>) -> Result<(), JsValue> {
+        let image = MachineSnapshot::from_bytes(bytes).map_err(js_error)?;
+        let rate = self.sample_rate;
+        let cartridge = self.cartridge_mut()?;
+        cartridge.engine.restore(&image).map_err(js_error)?;
+        if cartridge.engine.devices().audio_sample_rate() != rate {
+            cartridge
+                .engine
+                .set_audio_sample_rate(rate)
+                .map_err(js_error)?;
+        }
+        self.audio.clear();
+        if let Some(rewind) = &mut self.rewind {
+            rewind.clear();
+        }
+        Ok(())
+    }
+
+    pub fn state_hash(&self) -> Result<Vec<u8>, JsValue> {
+        let cartridge = self
+            .cartridge
+            .as_ref()
+            .ok_or_else(|| js_error("import a ROM first"))?;
+        Ok(cartridge
+            .engine
+            .snapshot()
+            .map_err(js_error)?
+            .state_hash()
+            .to_vec())
+    }
+
+    pub fn set_rewind(&mut self, enabled: bool) {
+        if enabled {
+            self.rewind
+                .get_or_insert_with(|| RewindBuffer::new(64 * 1024 * 1024));
+        } else {
+            self.rewind = None;
+        }
+    }
+
+    pub fn rewind(&mut self) -> Result<bool, JsValue> {
+        let Some(cartridge) = &mut self.cartridge else {
+            return Ok(false);
+        };
+        let Some(image) = self
+            .rewind
+            .as_mut()
+            .and_then(|ring| ring.pop_before(cartridge.engine.frame_count()))
+        else {
+            return Ok(false);
+        };
+        cartridge.engine.restore(&image).map_err(js_error)?;
+        if cartridge.engine.devices().audio_sample_rate() != self.sample_rate {
+            cartridge
+                .engine
+                .set_audio_sample_rate(self.sample_rate)
+                .map_err(js_error)?;
+        }
+        self.audio.clear();
+        Ok(true)
+    }
+
     pub fn reset(&mut self) -> Result<(), JsValue> {
         self.cartridge_mut()?.engine.reset();
         #[cfg(feature = "replay-observer")]
         self.cartridge_mut()?.engine.devices_mut().enable_trace();
         self.audio.clear();
+        if let Some(rewind) = &mut self.rewind {
+            rewind.clear();
+        }
         Ok(())
     }
 
@@ -225,6 +307,11 @@ impl WebGame {
         for &[left, right] in samples {
             self.audio.push(left as f32);
             self.audio.push(right as f32);
+        }
+        if let Some(rewind) = &mut self.rewind
+            && cartridge.engine.frame_count().is_multiple_of(3)
+        {
+            rewind.push(cartridge.engine.snapshot().map_err(js_error)?);
         }
         Ok(())
     }

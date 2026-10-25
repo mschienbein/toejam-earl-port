@@ -211,8 +211,18 @@ impl Reporter {
         if let Ok(mut state) = self.0.state.lock() {
             if let Some(ring) = &mut state.ring {
                 ring.reset();
+            } else if let Some(revision) = state.rom {
+                state.ring = Some(InputRing::new(revision));
             }
             state.engine = None;
+            state.pixels.clear();
+        }
+    }
+    /// A restored/rewound timeline cannot be replayed from power-on using only
+    /// subsequent inputs. Keep diagnostics, but never export a false replay.
+    pub fn invalidate_timeline(&self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.ring = None;
             state.pixels.clear();
         }
     }

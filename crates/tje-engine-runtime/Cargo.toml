@@ -13,6 +13,8 @@ devices = ["dep:tje-native-platform", "dep:genesis-config", "dep:jgenesis-common
 call-window-proofs = ["devices"]
 
 [dependencies]
+bincode = "2"
+sha1 = "0.10"
 tje-engine-core = { path = "../tje-engine-core" }
 tje-game = { path = "../tje-game" }
 tje-mem = { path = "../tje-mem" }
@@ -23,5 +25,4 @@ jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common", optio
 
 [dev-dependencies]
 m68000-emu = { path = "../../vendor/jgenesis/cpu/m68000-emu" }
-bincode = "2"
 genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core" }

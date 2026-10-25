@@ -4,6 +4,7 @@ import { Inputs } from './input.js';
 import { ControlSettings } from './controls.js';
 import { cartridgeStore, readSettings, saveSettings } from './storage.js';
 import { Reports } from './reporting.js';
+import { Conveniences } from './convenience.js';
 
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
@@ -16,6 +17,7 @@ let game;
 let wasm;
 let inputs;
 let controls;
+let conveniences;
 let starting = false;
 let resumeOnVisible = false;
 let playbackVersion = 0;
@@ -76,6 +78,7 @@ function pause(message = 'Paused. Click Play to resume.', resumeWhenVisible = fa
   if (running) activeSeconds += (performance.now() - activeSince) / 1000;
   running = false;
   inputs?.clear();
+  conveniences?.release();
   $('play').textContent = 'Play / enable audio';
   $('play').setAttribute('aria-pressed', 'false');
   pauseTask = audio.pause().catch(error => {
@@ -166,19 +169,31 @@ function frame(now) {
     inputs?.samplePads();
     reports.frontend.ticks++;
     controls?.update();
+    conveniences?.updateControls();
     if (!running) return;
     if (audio.context.state !== 'running') {
       void pause('Audio was interrupted; trying to resume. Click Play if another gesture is required.', true).then(tryAutomaticResume);
       return;
     }
-    audio.syncClock(now);
+    const speed = conveniences.tick(now, game.target_fps());
+    if (speed.changed) audio.begin(!speed.fast && !speed.rewind);
+    if (speed.rewind) {
+      if (game.rewind()) {
+        reports.invalidateTimeline();
+        reports.engine = JSON.parse(game.report_state());
+        videoDirty = true;
+      }
+      if (videoDirty) { renderVideo(); videoDirty = false; rememberReportFrame(); }
+      return;
+    }
+    if (!speed.fast) audio.syncClock(now);
     // A long tab/OS stall pauses real time, never skips emulated game logic.
-    if (audio.needed() > audio.context.sampleRate * 0.25) {
+    if (!speed.fast && audio.needed() > audio.context.sampleRate * 0.25) {
       audio.begin(true);
       stalls++;
     }
     let steps = 0;
-    while (audio.needed() > 0 && steps < 6) {
+    while (speed.fast ? steps < speed.budget : audio.needed() > 0 && steps < 6) {
       steps++;
       const [p1, p2, p2Connected] = inputs.poll(settings.p2);
       const started = performance.now();
@@ -192,7 +207,7 @@ function frame(now) {
       histogram[Math.min(100, Math.ceil(elapsed))]++;
       measuredFrames++;
       // memory.buffer is looked up after every step: wasm memory can grow.
-      audio.push(new Float32Array(wasm.memory.buffer, game.audio_ptr(), game.audio_len()));
+      if (!speed.fast) audio.push(new Float32Array(wasm.memory.buffer, game.audio_ptr(), game.audio_len()));
     }
     if ((steps > 0 || videoDirty) && renderVideo()) {
       presented++;
@@ -243,6 +258,8 @@ async function loadCartridge(bytes, name, origin) {
     revision = game.install(cartridge);
     source = origin;
     loaded = true;
+    conveniences.reset();
+    conveniences.configure();
     reports.start(JSON.parse(game.report_identity()));
     reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
@@ -334,6 +351,22 @@ async function startPlayback(automatic = false) {
   }
 }
 
+async function convenienceAction(action) {
+  if (!loaded || busy || reports.crashed) return;
+  busy = true;
+  try {
+    if (action === 'load' || action === 'rewind') await pause('Paused for local state restore. Click Play to resume.');
+    if (await conveniences.perform(action)) {
+      reports.invalidateTimeline();
+      reports.engine = JSON.parse(game.report_state());
+      videoDirty = true;
+      resize();
+    }
+  } catch (error) {
+    conveniences.notice(`Local state action rejected: ${error.message ?? error}. The current machine was kept if restore failed.`);
+  } finally { busy = false; conveniences.updateControls(); }
+}
+
 $('play').addEventListener('click', () => {
   if (busy || !loaded) return;
   if (running) void pause();
@@ -347,6 +380,7 @@ $('reset').addEventListener('click', async () => {
     await pause();
     reports.reset();
     game.reset();
+    conveniences.reset();
     reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
     resize();
@@ -489,6 +523,12 @@ async function boot() {
   if (!game) throw new Error(`No graphics backend is available. ${failures.join('; ')}`);
   reports.frontend.backend = game.backend();
   inputs = new Inputs(settings.players);
+  conveniences = new Conveniences(settings, {
+    command: action => { void convenienceAction(action); },
+    persist: persistSettings,
+    available: () => loaded && !busy && !reports.crashed,
+    game: () => game,
+  });
   controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
   new ResizeObserver(resize).observe($('screen'));
   status(`Checking private cartridge storage. Graphics: ${game.backend()}.`, 'loading');

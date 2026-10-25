@@ -5,7 +5,7 @@ export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', p2: false, players: [defaultPlayer(0), defaultPlayer(1)] };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', p2: false, players: [defaultPlayer(0), defaultPlayer(1)], convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
 }
 
 export function normalizeSettings(value) {
@@ -22,6 +22,8 @@ export function normalizeSettings(value) {
   if (['off', 'smooth', 'crt', 'crt-curved'].includes(value?.displayShader)) result.displayShader = value.displayShader;
   result.p2 = value?.p2 === true;
   result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
+  for (const key of ['saveStates', 'rewind', 'fastForward']) result.convenience[key] = value?.convenience?.[key] === true;
+  if (Number.isInteger(value?.convenience?.slot) && value.convenience.slot >= 0 && value.convenience.slot < 5) result.convenience.slot = value.convenience.slot;
   return result;
 }
 

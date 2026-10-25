@@ -1,4 +1,5 @@
 mod audio;
+mod convenience;
 mod loading;
 mod overlay;
 mod recording;
@@ -137,6 +138,7 @@ struct App {
     completed: bool,
     error: Option<anyhow::Error>,
     recorder: Recorder,
+    convenience: convenience::Convenience,
     revision: Option<tje_rom::Revision>,
     overlay: Overlay,
     devices: Vec<String>,
@@ -327,6 +329,7 @@ impl App {
             completed: false,
             error: None,
             recorder: Recorder::default(),
+            convenience: convenience::Convenience::default(),
             revision: None,
             overlay,
             devices: Vec::new(),
@@ -474,6 +477,7 @@ impl App {
                 self.reports
                     .complete_frame(&backend.status(), backend.video());
                 self.backend = Some(backend);
+                self.convenience.clear();
                 if let Some(replay) = &mut self.replay {
                     replay.restart();
                 }
@@ -502,6 +506,7 @@ impl App {
         );
         self.stop_recording()?;
         self.backend = None;
+        self.convenience.clear();
         self.replay = None;
         self.revision = None;
         self.reports.unload();
@@ -589,6 +594,7 @@ impl App {
 
     fn apply_settings(&mut self) -> Result<()> {
         self.settings.validate()?;
+        self.convenience.configure(&self.settings.convenience);
         let next = LiveSettings::from(&self.settings);
         if let Some(window) = &self.window {
             if next.fullscreen != self.applied.fullscreen {
@@ -658,6 +664,85 @@ impl App {
         Ok(())
     }
 
+    fn rewind_once(&mut self) -> Result<()> {
+        ensure!(
+            self.replay.is_none() && !self.recorder.active(),
+            "rewind is unavailable during input replay or recording"
+        );
+        if let Some(backend) = &mut self.backend
+            && self.convenience.rewind(backend.as_mut())?
+        {
+            self.reports.invalidate_timeline();
+            self.reports
+                .complete_frame(&backend.status(), backend.video());
+            self.video.as_mut().unwrap().upload(backend.video());
+            if let Some(audio) = &self.audio {
+                audio.flush();
+            }
+        }
+        Ok(())
+    }
+
+    fn convenience_command(&mut self, command: convenience::Command) {
+        use convenience::Command;
+        let result = (|| -> Result<()> {
+            ensure!(
+                self.replay.is_none(),
+                "convenience controls are unavailable during input replay"
+            );
+            match command {
+                Command::NextSlot => {
+                    self.settings.convenience.slot = (self.settings.convenience.slot + 1) % 5;
+                    self.save_settings();
+                }
+                Command::ToggleSpeed => self.convenience.toggle_speed(),
+                Command::Rewind => self.rewind_once()?,
+                Command::Save | Command::Load => {
+                    let backend = self.backend.as_mut().context("import a cartridge first")?;
+                    let revision = self.revision.context("import a cartridge first")?;
+                    let slot = self.settings.convenience.slot;
+                    if matches!(command, Command::Save) {
+                        convenience::save(
+                            &self.storage.directory,
+                            revision,
+                            slot,
+                            &backend.snapshot()?,
+                        )?;
+                        self.overlay.message =
+                            Some(format!("Saved local state in slot {}.", slot + 1));
+                    } else {
+                        ensure!(
+                            !self.recorder.active(),
+                            "loading a state is unavailable while recording"
+                        );
+                        let image = convenience::load(&self.storage.directory, revision, slot)?;
+                        backend.restore(&image)?;
+                        self.convenience.clear();
+                        self.reports.invalidate_timeline();
+                        self.reports
+                            .complete_frame(&backend.status(), backend.video());
+                        self.video.as_mut().unwrap().upload(backend.video());
+                        if let Some(audio) = &self.audio {
+                            audio.flush();
+                        }
+                        self.overlay.message = Some(format!(
+                            "Loaded local slot {}. Input-only reports resume after a hard reset.",
+                            slot + 1
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.overlay
+                .show_error(format!("Convenience action rejected: {error:#}"));
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
     fn key(&mut self, key: KeyCode, pressed: bool) -> Result<()> {
         if !self.input.key(key, pressed) {
             return Ok(());
@@ -698,6 +783,10 @@ impl App {
         if self.backend.is_none() || self.loading.is_some() {
             return Ok(());
         }
+        if let Some(command) = convenience::shortcut(&self.settings, key) {
+            self.convenience_command(command);
+            return Ok(());
+        }
         let hotkeys = &self.settings.hotkeys;
         let settings_changed = [
             hotkeys.fullscreen,
@@ -718,6 +807,7 @@ impl App {
             }
             self.stop_recording()?;
             self.reports.reset();
+            self.convenience.clear();
             if let Some(backend) = &mut self.backend {
                 backend.reset();
                 self.reports
@@ -736,6 +826,7 @@ impl App {
                 self.stop_recording()?;
             } else if let (Some(backend), Some(revision)) = (&mut self.backend, self.revision) {
                 self.reports.reset();
+                self.convenience.clear();
                 backend.reset();
                 self.reports
                     .complete_frame(&backend.status(), backend.video());
@@ -812,70 +903,97 @@ impl App {
             self.loading.is_some(),
             self.backend.is_some(),
         );
-        if !self.is_paused()
-            && let Some(backend) = &mut self.backend
+        let rewinding = !self.is_paused()
+            && self.replay.is_none()
+            && !self.recorder.active()
+            && self.convenience.rewinding(&self.settings, &self.input);
+        if rewinding {
+            self.rewind_once()?;
+        }
+        let fast = self.replay.is_none() && self.convenience.fast(&self.settings, &self.input);
+        if (fast || rewinding)
+            && let Some(audio) = &self.audio
         {
-            let controllers = if let Some(replay) = &self.replay {
-                replay
-                    .controllers()
-                    .context("input replay ended before its advertised frame count")?
-            } else {
-                self.input.controllers(&self.settings.players)
-            };
-            self.reports.begin_frame(std::array::from_fn(|index| {
-                tje_session::encode_pad(controllers.connected[index], controllers.buttons[index])
-            }));
-            let samples = if let Some(replay) = &mut self.replay {
-                replay
-                    .advance(backend.as_mut())?
-                    .context("input replay ended before its advertised frame count")?
-                    .audio
-            } else {
-                backend.advance(controllers)?
-            };
-            self.audio.as_ref().unwrap().push(samples);
-            self.recorder.frame(controllers)?;
-            self.total_frames += 1;
-            self.video.as_mut().unwrap().upload(backend.video());
-            self.reports
-                .complete_frame(&backend.status(), backend.video());
-            #[cfg(debug_assertions)]
-            if self.debug_crash_frame == Some(backend.status().frame) {
-                panic!(
-                    "Forced native playtest crash at frame {}",
-                    backend.status().frame
-                );
+            audio.flush();
+        }
+        for _ in 0..if fast { 4 } else { 1 } {
+            if self.completed || rewinding {
+                break;
             }
-            if self.total_frames == 1
-                || self.total_frames.is_multiple_of(300)
-                || self.args.capture_frame.contains(&self.total_frames)
+            if !self.is_paused()
+                && let Some(backend) = &mut self.backend
             {
-                let status = backend.status();
-                println!(
-                    "FRAME total={} backend={} pc={:06X} master_clock={} players={:?} elapsed={:.3}",
-                    self.total_frames,
-                    status.frame,
-                    status.pc,
-                    status.master_clock,
-                    status.players,
-                    self.started.elapsed().as_secs_f64()
-                );
-            }
-            if self.args.capture_frame.contains(&self.total_frames) {
-                let path = self
+                let controllers = if let Some(replay) = &self.replay {
+                    replay
+                        .controllers()
+                        .context("input replay ended before its advertised frame count")?
+                } else {
+                    self.input.controllers(&self.settings.players)
+                };
+                self.reports.begin_frame(std::array::from_fn(|index| {
+                    tje_session::encode_pad(
+                        controllers.connected[index],
+                        controllers.buttons[index],
+                    )
+                }));
+                let samples = if let Some(replay) = &mut self.replay {
+                    replay
+                        .advance(backend.as_mut())?
+                        .context("input replay ended before its advertised frame count")?
+                        .audio
+                } else {
+                    backend.advance(controllers)?
+                };
+                if !fast {
+                    self.audio.as_ref().unwrap().push(samples);
+                }
+                self.recorder.frame(controllers)?;
+                self.total_frames += 1;
+                self.video.as_mut().unwrap().upload(backend.video());
+                self.reports
+                    .complete_frame(&backend.status(), backend.video());
+                if self.replay.is_none() && !self.recorder.active() {
+                    self.convenience
+                        .capture(backend.as_ref(), &self.settings.convenience)?;
+                }
+                #[cfg(debug_assertions)]
+                if self.debug_crash_frame == Some(backend.status().frame) {
+                    panic!(
+                        "Forced native playtest crash at frame {}",
+                        backend.status().frame
+                    );
+                }
+                if self.total_frames == 1
+                    || self.total_frames.is_multiple_of(300)
+                    || self.args.capture_frame.contains(&self.total_frames)
+                {
+                    let status = backend.status();
+                    println!(
+                        "FRAME total={} backend={} pc={:06X} master_clock={} players={:?} elapsed={:.3}",
+                        self.total_frames,
+                        status.frame,
+                        status.pc,
+                        status.master_clock,
+                        status.players,
+                        self.started.elapsed().as_secs_f64()
+                    );
+                }
+                if self.args.capture_frame.contains(&self.total_frames) {
+                    let path = self
+                        .args
+                        .capture_dir
+                        .as_ref()
+                        .unwrap()
+                        .join(format!("frame-{:06}.png", self.total_frames));
+                    capture(&path, backend.video())?;
+                    println!("CAPTURE {}", path.display());
+                }
+                self.completed = self
                     .args
-                    .capture_dir
-                    .as_ref()
-                    .unwrap()
-                    .join(format!("frame-{:06}.png", self.total_frames));
-                capture(&path, backend.video())?;
-                println!("CAPTURE {}", path.display());
+                    .run_frames
+                    .is_some_and(|frames| self.total_frames >= frames);
+                self.completed |= self.replay.as_ref().is_some_and(Replay::finished);
             }
-            self.completed = self
-                .args
-                .run_frames
-                .is_some_and(|frames| self.total_frames >= frames);
-            self.completed |= self.replay.as_ref().is_some_and(Replay::finished);
         }
         self.completed |= self.args.run_ticks.is_some_and(|ticks| self.tick >= ticks);
         if let Some(window) = &self.window
@@ -924,6 +1042,9 @@ impl App {
         }
         if actions.settings_changed || actions.restore_defaults {
             self.save_settings();
+        }
+        if let Some(command) = actions.convenience {
+            self.convenience_command(command);
         }
         if actions.refresh_devices {
             self.refresh_devices();

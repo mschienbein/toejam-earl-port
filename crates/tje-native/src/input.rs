@@ -355,6 +355,9 @@ impl Input {
     pub fn clear_keys(&mut self) {
         self.keys.clear();
     }
+    pub fn held(&self, key: KeyCode) -> bool {
+        self.keys.contains(&key)
+    }
     pub fn saved_devices(&self) -> Vec<SavedPad> {
         self.slots
             .entries

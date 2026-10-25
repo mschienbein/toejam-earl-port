@@ -9,6 +9,7 @@
     "serve": "node serve.mjs",
     "verify": "node verify.mjs",
     "verify:replay": "node verify-replay.mjs",
+    "verify:snapshots": "node verify-snapshots.mjs",
     "verify:reports": "node verify-reports.mjs",
     "test": "node --test tests.mjs report-tests.mjs"
   },

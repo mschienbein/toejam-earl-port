@@ -6,6 +6,7 @@ import { defaultPlayer, gamepadMask, Inputs, normalizePlayer, selectGamepads, va
 import { defaultSettings, readSettings, saveSettings, SETTINGS_KEY, SETTINGS_VERSION } from './storage.js';
 import { AudioStream } from './audio.js';
 import { checkDependencies } from './check-dependencies.mjs';
+import { Conveniences, shortcutAvailable, stateSlot } from './convenience.js';
 
 function standardPad() {
   return { id: 'Test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
@@ -351,4 +352,38 @@ test('shipping and observer wasm graphs exclude the 68000, host and browser orac
     { graph: 'shipping', interpreterFree: true },
     { graph: 'observation-only', interpreterFree: true },
   ]);
+});
+
+test('convenience extras are opt-in, persisted strictly and never steal a custom key', async () => {
+  const settings = defaultSettings();
+  assert.deepEqual(settings.convenience, { saveStates: false, rewind: false, fastForward: false, slot: 0 });
+  assert.equal(shortcutAvailable(settings, 'F2'), true);
+  settings.players[0].keys.a = 'F2';
+  assert.equal(shortcutAvailable(settings, 'F2'), false);
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  settings.convenience = { saveStates: true, rewind: true, fastForward: true, slot: 4 };
+  saveSettings(settings, storage);
+  assert.deepEqual(readSettings(storage).settings.convenience, settings.convenience);
+  await assert.rejects(stateSlot('put', 'not-a-ROM', 0, new Uint8Array()), /identity/);
+  await assert.rejects(stateSlot('get', '0'.repeat(40), 5), /identity/);
+});
+
+test('fast-forward is clocked at four times game rate rather than monitor refresh', () => {
+  const extra = Object.create(Conveniences.prototype);
+  Object.assign(extra, { settings: defaultSettings(), held: new Set(), speedLatched: true, mode: 'normal', fastClock: 0 });
+  assert.deepEqual(extra.tick(1000, 60), { rewind: false, fast: false, budget: 0, changed: false });
+  extra.settings.convenience.fastForward = true;
+  const first = extra.tick(1000, 60).budget;
+  assert(first >= 3 && first <= 4, 'the fractional clock remainder is retained');
+  const next = extra.tick(1000 + 1000 / 120, 60);
+  assert.equal(next.fast, true);
+  assert(next.budget >= 2 && next.budget <= 3, '120 Hz display gets about two game frames per presentation');
+  assert(extra.tick(10000, 60).budget <= 24, 'a long tab stall cannot create unbounded work');
+  extra.settings.convenience.rewind = true;
+  extra.held.add('Backspace');
+  assert.equal(extra.tick(10010, 60).rewind, true);
+  assert.equal(extra.tick(10020, 60).fast, false);
+  extra.release();
+  assert.equal(extra.held.size, 0);
 });

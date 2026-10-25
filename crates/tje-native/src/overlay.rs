@@ -23,6 +23,7 @@ pub struct Actions {
     pub dismiss: bool,
     pub forget_rom: bool,
     pub reporting: crate::reports::Actions,
+    pub convenience: Option<crate::convenience::Command>,
 }
 
 pub struct Frame {
@@ -222,11 +223,13 @@ impl Overlay {
                             ui.selectable_value(&mut self.tab, 0, "Video / audio");
                             ui.selectable_value(&mut self.tab, 1, "Controls");
                             ui.selectable_value(&mut self.tab, 2, "Cartridge / help");
+                            ui.selectable_value(&mut self.tab, 3, "Extras");
                         });
                         ui.separator();
                         match self.tab {
                             0 => self.general(ui, settings, &info, &mut actions),
                             1 => self.controls(ui, settings, info.input, &mut actions),
+                            3 => { actions.settings_changed |= crate::convenience::controls(ui, &mut settings.convenience, info.has_game && info.replay.is_none(), info.recording, &mut actions.convenience); }
                             _ => {
                                 if info.loading.is_none() {
                                     self.import_ui(ui, &mut actions, info.storage.rom_path().is_file());

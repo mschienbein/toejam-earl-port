@@ -54,6 +54,23 @@
       <p id="metrics" class="small"></p>
       <p id="settings-notice" class="small" role="status"></p>
     </section>
+    <details id="convenience-settings">
+      <summary>Convenience extras — default off</summary>
+      <label><input id="enable-save-states" type="checkbox"> Local save states (F2 save / F3 load / F4 next slot)</label>
+      <label><input id="enable-rewind" type="checkbox"> Rewind — hold Backspace (64 MiB ring)</label>
+      <label><input id="enable-fast-forward" type="checkbox"> Fast-forward — hold backtick (4x, muted)</label>
+      <div class="toolbar">
+        <label for="state-slot">Save slot <select id="state-slot"><option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option></select></label>
+        <button id="save-state" type="button" disabled>Save state (F2)</button>
+        <button id="load-state" type="button" disabled>Load state (F3)</button>
+        <button id="rewind-state" type="button" disabled>Rewind one checkpoint</button>
+        <button id="fast-forward" type="button" aria-pressed="false" disabled>Toggle 4x speed</button>
+      </div>
+      <p id="convenience-notice" role="status" aria-live="polite"></p>
+      <p class="small">Five private slots per ROM in local IndexedDB; no uploads. Save states contain copyrighted runtime RAM and must never be published.
+        Loading a state or rewinding disables power-on input reports until Reset. Rewind samples every 3 frames and evicts old checkpoints.
+        Existing custom key mappings win; Tab continues to move focus. Hold shortcuts work only while the game canvas has focus.</p>
+    </details>
     <details id="control-settings">
       <summary>Controls and remapping</summary>
       <p id="controls-summary">Default player 1: arrow keys, Z / X / C, Enter. Default player 2: W / S / A / D, J / K / L, Right Shift.
