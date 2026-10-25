@@ -229,3 +229,54 @@ fn wipe_preserves_allocator_d4_and_materializes_retained_wait_arguments() {
         }
     }
 }
+
+#[test]
+fn wipe_compound_polls_keep_short_circuit_reads_and_yield_before_final_test() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for allocation in [false, true] {
+            let mut machine = Machine::new(revision);
+            let first = ram::g_player_info(revision).at(0);
+            let second = first.offset(1);
+            for entity in [first, second] {
+                entity
+                    .draw_flags()
+                    .write(&mut machine.memory, if allocation { 1 } else { 3 });
+                entity
+                    .sprite_ready()
+                    .write(&mut machine.memory, if allocation { 1 } else { 0 });
+            }
+            animate_split_screen_wipe(&mut machine, &[]).unwrap();
+            let accesses = machine.main_accesses();
+            assert_eq!(
+                accesses
+                    .iter()
+                    .filter(|access| **access == Access::Yield)
+                    .count(),
+                if allocation { 2 } else { 1 }
+            );
+            if allocation {
+                for entity in [first, second] {
+                    let flag = entity.draw_flags().address();
+                    assert!(accesses.windows(3).any(|window| window
+                        == [Access::Read(flag, 1), Access::Yield, Access::Read(flag, 1),]));
+                }
+            } else {
+                assert!(accesses.windows(4).any(|window| window
+                    == [
+                        Access::Read(first.sprite_ready().address(), 1),
+                        Access::Yield,
+                        Access::Read(first.sprite_ready().address(), 1),
+                        Access::Read(second.sprite_ready().address(), 1),
+                    ]));
+                assert_eq!(
+                    machine
+                        .calls
+                        .iter()
+                        .filter(|call| call.id == ids::UPDATE_AND_QUEUE_ENTITY_SPRITES)
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+}

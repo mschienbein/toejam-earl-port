@@ -222,6 +222,9 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
                     CallSite::relative(caller, revision, 0x30),
                 )?;
             }
+            // Compound allocation poll: retain the address reload, CLR,
+            // allocation and conditional release before its next BTST.
+            context.poll_yield()?;
         }
         let next = (context.data_register(3) as i16).wrapping_add(1);
         set_word(context, 3, next);
@@ -253,6 +256,9 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
         )?;
         upload.release(context)?;
         wait.release(context)?;
+        // Compound readiness poll, not an aligned/frame-counter proxy. The
+        // next iteration still owns both original short-circuited byte reads.
+        context.poll_yield()?;
     }
     let wait = OutgoingArguments::push(context, &[1])?;
     wait.call(

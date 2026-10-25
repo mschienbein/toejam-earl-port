@@ -8,6 +8,7 @@ pub(crate) enum Access {
     Read(u32, u8),
     Discard(u32, u8),
     Write(u32, u8, u32),
+    Yield,
 }
 #[derive(Debug)]
 pub(crate) struct Call {
@@ -56,6 +57,7 @@ impl Machine {
                 Access::Read(address, _)
                 | Access::Discard(address, _)
                 | Access::Write(address, _, _) => *address >= 0xff8000,
+                Access::Yield => true,
             })
             .cloned()
             .collect()
@@ -106,6 +108,10 @@ impl tje_mem::Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn poll_yield(&mut self) -> Result<()> {
+        self.accesses.get_mut().push(Access::Yield);
+        Ok(())
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.accesses.get_mut().push(Access::Discard(address, 1));
         let _ = self.memory.read_u8(address);
