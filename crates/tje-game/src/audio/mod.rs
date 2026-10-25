@@ -28,6 +28,7 @@ pub mod templates;
 mod upload;
 
 /// Available Rust entries owned by this subsystem.
+/// Upload admission: corpus-d754b68-final-nine.json, 83 inputs in both ROMs.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MUSIC_RESTORE_INITIAL_STATE,
@@ -89,15 +90,17 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::MUSIC_PROCESS_TEMPLATE_RESTART_HOOK,
         function: templates::music_process_template_restart_hook,
     },
+    crate::Translation {
+        id: ids::LOAD_SOUND_DRIVER_TO_Z80,
+        function: upload::load_sound_driver_to_z80,
+    },
 ];
 
 /// The VM and mailbox routines wait for ClockedStrict/TimingSource integration:
 /// main-thread YM/BUSACK/lock reads, 24/124 DBRA delays and IRQ cadence remain
 /// exact obligations. Their readable data/control bodies are not timing proof.
-/// Upload is Functional but awaits both-revision proof and CorpusCheck approval.
 pub static PENDING: &[crate::FunctionId] = &[
     ids::MUSIC_UPDATE_SEQUENCER,
-    ids::LOAD_SOUND_DRIVER_TO_Z80,
     ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
     ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
     ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
@@ -111,10 +114,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MUSIC_UPDATE_SEQUENCER,
         function: templates::music_update_sequencer,
-    },
-    crate::Translation {
-        id: ids::LOAD_SOUND_DRIVER_TO_Z80,
-        function: upload::load_sound_driver_to_z80,
     },
     crate::Translation {
         id: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,

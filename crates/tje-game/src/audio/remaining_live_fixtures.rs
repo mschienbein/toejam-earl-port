@@ -1,13 +1,13 @@
-//! Opt-in pending-upload proof; the five mailbox entries are not RTS hooks here.
+//! Opt-in production-upload regression; the five mailbox entries are not RTS hooks here.
 
 use std::sync::Arc;
-use tje_game::{Context, Platform, audio, ids, open_bus::OpenBusSource};
+use tje_game::{Context, Platform, ids, open_bus::OpenBusSource};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::Revision;
 
 #[test]
 #[ignore = "requires both private retail ROMs"]
-fn pending_upload_matches_both_rom_revisions_and_real_reset_denial() {
+fn production_upload_matches_both_rom_revisions_and_real_reset_denial() {
     let script = Arc::new(
         InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap(),
     );
@@ -18,11 +18,7 @@ fn pending_upload_matches_both_rom_revisions_and_real_reset_denial() {
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
         let id = ids::LOAD_SOUND_DRIVER_TO_Z80;
-        let entry = audio::PENDING_TRANSLATIONS
-            .iter()
-            .find(|entry| entry.id == id)
-            .unwrap();
-        let registry = HookRegistry::proof(revision, std::slice::from_ref(entry)).unwrap();
+        let registry = HookRegistry::filtered(revision, &[], &[id]).unwrap();
         let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
         host.set_wait_input_poller(script.clone());
         for frame in 0..1300 {

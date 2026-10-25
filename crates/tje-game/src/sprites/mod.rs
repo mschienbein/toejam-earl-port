@@ -92,6 +92,7 @@ pub fn chain_hook(
 }
 
 /// Available Rust entries owned by this subsystem.
+/// Links admission: corpus-d754b68-final-nine.json, 83 inputs in both ROMs.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: crate::ids::UPDATE_ATTACHED_ENTITY_POSITION,
@@ -245,36 +246,27 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: crate::ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
         function: dma_upload::upload_queued_sprite_graphics,
     },
-];
-
-/// Reviewed bodies/entries not yet eligible for production replacement.
-pub static PENDING: &[crate::FunctionId] = &[
-    // Source-backed frame bodies await all affected caller migrations and compositional proof.
-    crate::ids::ALLOCATE_SPRITE_SLOTS,
-    crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
-    crate::ids::ALLOCATE_SPRITE_SLOT,
-    // Original/Rust IRQ counts match, but VBlank interleaving still changes the
-    // projected logic timeline; await explicit clock-region/scheduler contracts.
-    crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
-];
-
-/// Explicit proof candidates, never consulted by production dispatch.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
-        function: queue_update::update_and_queue_entity_sprites,
-    },
     crate::Translation {
         id: crate::ids::BUILD_VIEWPORT_SPRITE_LINKS,
         function: rendering::build_viewport_sprite_links,
     },
 ];
 
-/// Frame-sensitive entries become production only after both-revision proof.
-pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+/// Reviewed bodies/entries not yet eligible for production replacement.
+pub static PENDING: &[crate::FunctionId] = &[
+    // Original/Rust IRQ counts match, but VBlank interleaving still changes the
+    // projected logic timeline; await explicit clock-region/scheduler contracts.
+    crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+];
 
-/// Canonical proof bodies; no adapter preloads unused scalar argument slots.
-pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+/// Explicit proof candidates, never consulted by production dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
+    function: queue_update::update_and_queue_entity_sprites,
+}];
+
+/// Canonical frames admitted by corpus-d754b68-final-nine.json: 83 inputs, both ROMs.
+pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: crate::ids::ALLOCATE_SPRITE_SLOTS,
         function: slots::allocate_sprite_slots,
@@ -284,6 +276,9 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         function: slots::allocate_sprite_slot,
     },
 ];
+
+/// No canonical framed sprite candidate remains pending.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 pub static ATOMIC_CAPABLE: &[crate::FunctionId] = &[

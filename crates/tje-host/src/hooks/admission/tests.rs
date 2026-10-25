@@ -71,7 +71,7 @@ fn rejects_before_rom_import(registry: HookRegistry) {
 fn canonical_pending_tables_are_check_only_through_every_proof_constructor() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let values = tje_game::core::PENDING_TRANSLATIONS;
-        let framed = tje_game::sprites::PENDING_FRAMED_TRANSLATIONS;
+        let framed = tje_game::player::PENDING_FRAMED_TRANSLATIONS;
         assert!(!values.is_empty() && !framed.is_empty());
         let selected = [values[0].id];
         for registry in [
@@ -144,7 +144,7 @@ fn bounded_entries_and_manual_value_registration_cannot_launder_bodies() {
             HookRegistry::from_entries(
                 revision,
                 &[],
-                tje_game::sprites::PENDING_FRAMED_TRANSLATIONS,
+                tje_game::player::PENDING_FRAMED_TRANSLATIONS,
             )
             .unwrap(),
             HookRegistry::from_entries(revision, CHANGED_VALUES, &[]).unwrap(),
@@ -181,7 +181,7 @@ fn bounded_entries_and_manual_value_registration_cannot_launder_bodies() {
 #[test]
 fn manual_framed_registration_keeps_global_canonical_identity_separate_from_overlay_identity() {
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let pending = tje_game::sprites::PENDING_FRAMED_TRANSLATIONS;
+        let pending = tje_game::player::PENDING_FRAMED_TRANSLATIONS;
         let mut registry = HookRegistry::proof_filtered_with_frames(
             revision,
             SAME_FUNCTION_VALUES,

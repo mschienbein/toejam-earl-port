@@ -45,6 +45,7 @@ use crate::core::test_support as producer_test_context;
 mod replay_access_tests;
 
 /// Available Rust entries owned by this subsystem.
+/// Boogie/Lemonade admission: corpus-d754b68-final-nine.json, 83 inputs in both ROMs.
 pub static TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::STOP_PLAYER,
@@ -214,29 +215,27 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
         id: ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION,
         function: directional_animation::player_apply_directional_movement_animation,
     },
+    crate::Translation {
+        id: ids::AI_BOOGIE_TOUCH,
+        function: reactions::ai_boogie_touch,
+    },
+    crate::Translation {
+        id: ids::LEMONADE_ABILITY,
+        function: levels::lemonade_ability,
+    },
 ];
 
-/// Frame migrations awaiting a checker prerequisite, not missing frame bodies.
-/// Chooser/filter retain the physical killed-high-byte read until differential
-/// perturbation can discharge it. Falling passes its real local array to the
-/// still-original MakePlayerFall and must wait for nested-original read auditing.
-pub static FRAME_BLOCKED: &[crate::FunctionId] = &[
-    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
-    ids::SPRITE_CHECKS,
-    ids::CHECK_PLAYER_FALLING,
-];
+/// Falling still passes its real local array to the original MakePlayerFall;
+/// nested-original read auditing remains a prerequisite for its pending body.
+pub static FRAME_BLOCKED: &[crate::FunctionId] = &[ids::CHECK_PLAYER_FALLING];
 
 /// The full final-life body now propagates typed reset exits. Its UI game-over
 /// callee is still pending separate admission; both returning and reset paths
 /// are checked by the joint lane harness before production promotion.
 pub static TERMINAL_BLOCKED: &[crate::FunctionId] = &[ids::PLAYER_FINALIZE_LAST_LIFE_EXIT];
 
-/// No ctx-only frame target is published before its complete caller cohort is
-/// prepared and jointly proven; value-only dispatch must never preload it.
-pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
-
-/// Canonical ctx-only frame candidates load only the source-used slots.
-pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+/// Canonical frames admitted by corpus-d754b68-final-nine.json: 83 inputs, both ROMs.
+pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
         function: directional::player_choose_directional_movement,
@@ -245,6 +244,10 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::SPRITE_CHECKS,
         function: directional::sprite_checks,
     },
+];
+
+/// Canonical ctx-only frame candidates load only the source-used slots.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::PLAYER_APPLY_PHASED_JUMP_INPUT,
         function: jump::player_apply_phased_jump_input,
@@ -319,8 +322,6 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
 /// still required. These entries are never part of the production dispatcher.
 pub static PENDING: &[crate::FunctionId] = &[
     ids::KILL_THE_PLAYER, // Both revisions: ordered device-write trace mismatch.
-    ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, // Framed; killed-high-byte perturbation proof pending.
-    ids::SPRITE_CHECKS,   // Framed; transitive chooser perturbation proof pending.
     ids::CHECK_PLAYER_FALLING, // Framed; nested-original local-read audit and timing proof pending.
     ids::PLAYER_START_FALLING, // Both revisions: original terrain-priority wait did not return.
     ids::PLAYER_UPDATE_TERRAIN_SINKING, // Both revisions: ordered device-write trace mismatch.
@@ -332,9 +333,7 @@ pub static PENDING: &[crate::FunctionId] = &[
     ids::HULA_ABILITY,    // Both revisions: device-write trace mismatch.
     ids::HOTTUB_ABILITY,  // Both revisions: device-write trace mismatch.
     ids::CHICKEN_ABILITY, // Both revisions: device-write trace mismatch.
-    ids::AI_BOOGIE_TOUCH, // Both revisions: device-write trace mismatch.
     ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY, // Both revisions: device-write trace mismatch.
-    ids::LEMONADE_ABILITY, // Both revisions: device-write trace mismatch.
     ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, // Both revisions: original call did not return.
     ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL, // Both revisions: original call did not return.
     ids::MAKE_PLAYER_FALL, // Both revisions: logical VDP state mismatch.
@@ -348,14 +347,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::CHECK_PLAYER_FALLING,
         function: falling_check::check_player_falling,
-    },
-    crate::Translation {
-        id: ids::AI_BOOGIE_TOUCH,
-        function: reactions::ai_boogie_touch,
-    },
-    crate::Translation {
-        id: ids::LEMONADE_ABILITY,
-        function: levels::lemonade_ability,
     },
     crate::Translation {
         id: ids::PROCESS_PLAYERS,
