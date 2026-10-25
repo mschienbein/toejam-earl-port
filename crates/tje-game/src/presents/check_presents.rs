@@ -5,11 +5,36 @@ use tje_game::{Context, FunctionId, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Revision, ram};
 
+mod replay_fixtures;
+mod session_fixtures;
 mod time_fixtures;
 
 fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
     host.check_fixture(id.metadata().address(host.revision()), arguments)
         .unwrap_or_else(|error| panic!("{} {arguments:08x?}: {error}", id.metadata().name));
+}
+
+fn replay_roots(requested: &str) -> Vec<FunctionId> {
+    let roots: Vec<_> = tje_game::presents::PENDING
+        .iter()
+        .filter(|translation| requested == "all" || translation.id.metadata().name == requested)
+        .map(|translation| translation.id)
+        .collect();
+    assert!(
+        !roots.is_empty(),
+        "unknown requested replay root {requested}"
+    );
+    roots
+}
+
+fn replay_registry(revision: Revision, requested: &str) -> HookRegistry {
+    HookRegistry::proof_replayed_environment(
+        revision,
+        tje_game::presents::PENDING,
+        &[],
+        &replay_roots(requested),
+    )
+    .unwrap()
 }
 
 fn candidate_hook(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
@@ -245,6 +270,10 @@ fn wave2_fixtures(host: &mut Host) {
 
 fn main() {
     let args: Vec<_> = env::args().collect();
+    if args.get(3).is_some_and(|argument| argument == "session") {
+        session_fixtures::run(&args);
+        return;
+    }
     let root = Path::new(&args[1]);
     let evidence = Path::new(&args[2]);
     fs::create_dir_all(evidence).unwrap();
@@ -281,7 +310,7 @@ fn main() {
         };
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
         let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
-        let time_mode = args.get(3).is_some_and(|argument| argument == "time");
+        let time_mode = args.get(3).is_some_and(|argument| argument == "replay");
         let expiry_register_mode = args.get(3).is_some_and(|argument| {
             matches!(
                 argument.as_str(),
@@ -310,16 +339,7 @@ fn main() {
             )
             .unwrap()
         } else if time_mode {
-            let requested = args
-                .get(5)
-                .map(String::as_str)
-                .unwrap_or("PresentTryEndActivePowerup");
-            let candidate = tje_game::presents::PENDING
-                .iter()
-                .chain(tje_game::presents::TRANSLATIONS)
-                .find(|translation| translation.id.metadata().name == requested)
-                .expect("unknown requested TimeAware fixture root");
-            HookRegistry::proof(revision, std::slice::from_ref(candidate)).unwrap()
+            replay_registry(revision, args.get(5).map(String::as_str).unwrap_or("all"))
         } else {
             registry(revision)
         };
@@ -459,11 +479,9 @@ fn main() {
             } else if frame_mode {
                 placement_frame_fixtures(&mut host);
             } else if time_mode {
-                let id = tje_game::functions()
-                    .find(|function| host.checks.by_function.contains_key(function.name))
-                    .unwrap()
-                    .id;
-                time_fixtures::run(&mut host, id);
+                for id in replay_roots(args.get(5).map(String::as_str).unwrap_or("all")) {
+                    time_fixtures::run(&mut host, id);
+                }
             } else {
                 fixtures(&mut host);
                 wave2_fixtures(&mut host);

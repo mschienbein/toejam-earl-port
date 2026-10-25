@@ -184,12 +184,12 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
         .y()
         .read(context)
         .wrapping_sub(ram::g_camera2_pending_y(revision).read(context));
-    if (telephone.level().read(context) == ram::g_player1_map_level(revision).read(context)
+    if (ram::g_player1_map_level(revision).read(context) == telephone.level().read(context)
         && i32::from(first_x) + 20 > 0
         && first_x < 340
         && i32::from(first_y) + 20 > 0
         && first_y < 244)
-        || (telephone.level().read(context) == ram::g_player2_map_level(revision).read(context)
+        || (ram::g_player2_map_level(revision).read(context) == telephone.level().read(context)
             && ram::g_split_screen_enabled(revision).read(context) != 0
             && i32::from(second_x) + 20 > 0
             && second_x < 340
@@ -203,12 +203,11 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 &[telephone.address()],
             )?;
         }
-    } else {
+    } else if telephone.object().read(context) != 0 {
         let number = telephone.object().read(context);
-        if number != 0 {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
-            telephone.object().write(context, 0);
-        }
+        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        context.discard_u8(telephone.object().address())?; // CLR.B.
+        telephone.object().write(context, 0);
     }
     let activated = ram::g_telephone_activated(revision).at(index);
     if activated.read(context) == 0 {
@@ -218,14 +217,18 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 .at(player_number)
                 .read(context)
                 >= 0
-                && player.level().read(context) == telephone.level().read(context)
+                && telephone.level().read(context) == player.level().read(context)
                 && ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
-                && (i32::from(telephone.x().read(context)) - i32::from(player.x().read(context)))
-                    .wrapping_abs()
-                    < 320
-                && (i32::from(telephone.y().read(context)) - i32::from(player.y().read(context)))
-                    .wrapping_abs()
-                    < 224
+                && {
+                    let dx = i32::from(telephone.x().read(context))
+                        - i32::from(player.x().read(context));
+                    (call(context, ids::ABS, &[dx as u32])? as i32) < 320
+                }
+                && {
+                    let dy = i32::from(telephone.y().read(context))
+                        - i32::from(player.y().read(context));
+                    (call(context, ids::ABS, &[dy as u32])? as i32) < 224
+                }
             {
                 activated.write(context, 1);
                 ram::g_telephone_rings_left(revision)
@@ -265,19 +268,18 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 delay.write(context, 1);
             }
         } else {
-            let number = telephone.object().read(context);
-            if number != 0 {
+            if telephone.object().read(context) != 0 {
+                let number = telephone.object().read(context);
                 call(context, ids::FREE_ENTITY, &[number as u32])?;
+                context.discard_u8(telephone.object().address())?; // CLR.B.
                 telephone.object().write(context, 0);
-                let args = [
-                    index as u32,
-                    telephone.x().read(context) as u32,
-                    (i32::from(telephone.y().read(context)) + 1) as u32,
-                    0,
-                    telephone.level().read(context) as u32,
-                ];
+                let level = telephone.level().read(context);
+                let y = i32::from(telephone.y().read(context)) + 1;
+                let x = telephone.x().read(context);
+                let args = [index as u32, x as u32, y as u32, 0, level as u32];
                 call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
             }
+            context.discard_u8(telephone.level().address())?; // CLR.B.
             telephone.level().write(context, 0);
         }
     }
@@ -288,20 +290,27 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 .at(player_number)
                 .read(context)
                 >= 0
-                && player.level().read(context) == telephone.level().read(context)
-                && (i32::from(telephone.x().read(context)) - i32::from(player.x().read(context)))
-                    .wrapping_abs()
-                    < 16
-                && (i32::from(telephone.y().read(context)) - i32::from(player.y().read(context)))
-                    .wrapping_abs()
-                    < 8
+                && telephone.level().read(context) == player.level().read(context)
+                && {
+                    let dx = i32::from(telephone.x().read(context))
+                        - i32::from(player.x().read(context));
+                    (call(context, ids::ABS, &[dx as u32])? as i32) < 16
+                }
+                && {
+                    let dy = i32::from(telephone.y().read(context))
+                        - i32::from(player.y().read(context));
+                    (call(context, ids::ABS, &[dy as u32])? as i32) < 8
+                }
             {
                 let number = telephone.object().read(context);
                 call(context, ids::FREE_ENTITY, &[number as u32])?;
+                context.discard_u8(telephone.object().address())?; // CLR.B.
                 telephone.object().write(context, 0);
                 ram::g_map_reveal_mode(revision).write(context, 1);
                 call(context, ids::DRAW_GAME_MAP, &[player_number as u32])?;
+                context.discard_u16(ram::g_map_reveal_mode(revision).address())?; // CLR.W.
                 ram::g_map_reveal_mode(revision).write(context, 0);
+                context.discard_u8(telephone.level().address())?; // CLR.B.
                 telephone.level().write(context, 0);
                 break;
             }

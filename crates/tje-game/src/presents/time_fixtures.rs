@@ -4,7 +4,13 @@ use tje_game::{Context, FunctionId, ids};
 use tje_host::Host;
 use tje_mem::{Ptr, ram};
 
-fn common(host: &mut Host) {
+pub(super) fn labelled(host: &mut Host, id: FunctionId, arguments: &[u32], label: &str) {
+    eprintln!("fixture {} {label} {arguments:08x?}", id.metadata().name);
+    host.check_fixture(id.metadata().address(host.revision()), arguments)
+        .unwrap_or_else(|error| panic!("{} {label} {arguments:08x?}: {error}", id.metadata().name));
+}
+
+pub(super) fn common(host: &mut Host) {
     let r = host.revision();
     prepare_effect_fixture(host);
     let mut c = host.context();
@@ -80,6 +86,7 @@ fn common(host: &mut Host) {
 }
 
 pub fn run(host: &mut Host, id: FunctionId) {
+    crate::replay_fixtures::run(host, id);
     let r = host.revision();
     match id {
         ids::PRESENT_TRY_END_ACTIVE_POWERUP => crate::powerup_end_time_fixtures(host),
@@ -116,7 +123,12 @@ pub fn run(host: &mut Host, id: FunctionId) {
                         ram::g_player_promotion_display_entities(r)
                             .at(index)
                             .write(&mut host.context(), existing);
-                        fixture(host, id, &[index as u32, promotion, 0x10]);
+                        labelled(
+                            host,
+                            id,
+                            &[index as u32, promotion, 0x10],
+                            &format!("promotion-{promotion}-existing-{existing}-player-{index}"),
+                        );
                     }
                 }
             }
@@ -139,7 +151,14 @@ pub fn run(host: &mut Host, id: FunctionId) {
                         ram::g_cached_random_values(r)
                             .at(0)
                             .write(&mut host.context(), 2);
-                        fixture(host, id, &[ram::g_player_info(r).at(index).address(), 0x10]);
+                        labelled(
+                            host,
+                            id,
+                            &[ram::g_player_info(r).at(index).address(), 0x10],
+                            &format!(
+                                "promotion-{promotion}-duration-{duration}-cache-wrap-player-{index}"
+                            ),
+                        );
                     }
                 }
             }
@@ -159,7 +178,12 @@ pub fn run(host: &mut Host, id: FunctionId) {
                     ram::g_player_burp_timers(r)
                         .at(index)
                         .write(&mut host.context(), timer);
-                    fixture(host, id, &[index as u32]);
+                    labelled(
+                        host,
+                        id,
+                        &[index as u32],
+                        &format!("burps-timer-{timer}-player-{index}"),
+                    );
                 }
             }
         }
@@ -173,7 +197,7 @@ pub fn run(host: &mut Host, id: FunctionId) {
                 for present in range {
                     common(host);
                     if id == ids::SETUP_SELECTED_PRESENT {
-                        fixture(
+                        labelled(
                             host,
                             id,
                             &[
@@ -182,9 +206,15 @@ pub fn run(host: &mut Host, id: FunctionId) {
                                 present,
                                 0x10,
                             ],
+                            &format!("setup-present-{present}-player-{index}"),
                         );
                     } else {
-                        fixture(host, id, &[index as u32, present]);
+                        labelled(
+                            host,
+                            id,
+                            &[index as u32, present],
+                            &format!("open-present-{present}-player-{index}"),
+                        );
                     }
                 }
             }
@@ -246,7 +276,12 @@ pub fn run(host: &mut Host, id: FunctionId) {
                 ram::g_player_processed_input(r)
                     .at(0)
                     .write(&mut host.context(), 0x40);
-                fixture(host, id, &[ram::g_player_info(r).at(0).address(), terrain]);
+                labelled(
+                    host,
+                    id,
+                    &[ram::g_player_info(r).at(0).address(), terrain],
+                    &format!("fresh-action-terrain-{terrain:02x}"),
+                );
             }
             common(host);
             let effect = ram::g_player_info(r).at(6);
@@ -263,17 +298,23 @@ pub fn run(host: &mut Host, id: FunctionId) {
             ram::g_player_active_terrain_effect_entities(r)
                 .at(0)
                 .write(&mut host.context(), 6);
-            fixture(host, id, &[ram::g_player_info(r).at(0).address(), 0x10]);
+            labelled(
+                host,
+                id,
+                &[ram::g_player_info(r).at(0).address(), 0x10],
+                "grown-effect-owner-nearby",
+            );
         }
         ids::PLAYER_TELEPORT_THROUGH_DOORWAY => {
             for index in 0..2 {
                 common(host);
                 ram::g_camera1_pending_x(r).write(&mut host.context(), -10000);
                 ram::g_camera1_pending_y(r).write(&mut host.context(), -10000);
-                fixture(
+                labelled(
                     host,
                     id,
                     &[index as u32, ram::g_player_info(r).at(index).address()],
+                    &format!("forced-redraw-player-{index}"),
                 );
             }
         }
@@ -295,7 +336,12 @@ pub fn run(host: &mut Host, id: FunctionId) {
                 ram::g_doorway_player_contact_flags(r)
                     .at(0)
                     .write(&mut host.context(), 0);
-                fixture(host, id, &[0]);
+                labelled(
+                    host,
+                    id,
+                    &[0],
+                    &format!("doorway-state-{state}-player-centered"),
+                );
             }
         }
         ids::CHECK_FOR_TELEPHONE => {
@@ -315,7 +361,7 @@ pub fn run(host: &mut Host, id: FunctionId) {
                 ram::g_telephone_time_to_ring(r)
                     .at(0)
                     .write(&mut host.context(), delay);
-                fixture(host, id, &[0]);
+                labelled(host, id, &[0], &format!("ring-delay-{delay}"));
             }
         }
         ids::PROCESS_PRESENTS | ids::MAP_UPDATE_ITEMS_AND_PRESENTS => {
@@ -330,7 +376,7 @@ pub fn run(host: &mut Host, id: FunctionId) {
                 item.kind().write(&mut host.context(), -1);
                 item.object().write(&mut host.context(), 0);
             }
-            fixture(host, id, &[]);
+            labelled(host, id, &[], "all-effects-inactive");
             common(host);
             ram::g_player_burps_left(r)
                 .at(0)
@@ -338,7 +384,7 @@ pub fn run(host: &mut Host, id: FunctionId) {
             ram::g_player_burp_timers(r)
                 .at(0)
                 .write(&mut host.context(), -1);
-            fixture(host, id, &[]);
+            labelled(host, id, &[], "burp-start-chain");
         }
         _ => panic!("no TimeAware fixture for {}", id.metadata().name),
     }

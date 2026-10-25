@@ -99,7 +99,8 @@ fn terrain_effects_body(
             .at(index)
             .read(context)
             != 0
-        || matches!(player.sprite_state().read(context), 5 | 6)
+        || player.sprite_state().read(context) == 5
+        || player.sprite_state().read(context) == 6
     {
         if active.read(context) != 0 {
             call_at(
@@ -212,6 +213,7 @@ fn terrain_effects_body(
             &[number as u32],
             CallSite::relative(caller, revision, 0x1ea),
         )?;
+        context.discard_u8(one_shot.address())?; // CLR.B after FreeEntity.
         one_shot.write(context, 0);
     }
     Ok(None)

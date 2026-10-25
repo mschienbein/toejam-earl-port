@@ -560,7 +560,11 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
         if promotion != 11
             && terrain < 0x80
             && player.height().read(context) <= 0
-            && !matches!(player.sprite_state().read(context), 5 | 6 | 79 | 78 | 77)
+            && player.sprite_state().read(context) != 5
+            && player.sprite_state().read(context) != 6
+            && player.sprite_state().read(context) != 79
+            && player.sprite_state().read(context) != 78
+            && player.sprite_state().read(context) != 77
             && player.animation_group_mask().read(context) & 0x7785bf60 == 0
         {
             let sprite = if promotion == 17 { 71 } else { 70 };
@@ -580,6 +584,7 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
             }
         } else if promotion == 16 {
             call(context, ids::PLAY_SOUND, &[18, 40])?;
+            context.discard_u8(ram::g_player_health(revision).at(index).address())?; // CLR.B.
             ram::g_player_health(revision).at(index).write(context, 0);
         }
         if promotion == 11 {
@@ -683,17 +688,18 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
         } else if display.sprite_state().read(context) == 11 {
             let cache_index = ram::g_random_cache_index(revision);
             let next = if cache_index.read(context) == 58 {
+                cache_index.write(context, 0);
                 0
             } else {
-                cache_index.read(context).wrapping_add(1)
+                cache_index.write(context, cache_index.read(context).wrapping_add(1));
+                cache_index.read(context)
             };
-            cache_index.write(context, next);
-            if ram::g_cached_random_values(revision)
+            // The compiler uses BTST.B on the low byte of this cached word.
+            let random_low = ram::g_cached_random_values(revision)
                 .at(i32::from(next))
-                .read(context)
-                & 2
-                != 0
-            {
+                .address()
+                + 1;
+            if context.read_u8(random_low) & 2 != 0 {
                 let phase = i16::from(display.frame().read(context)) % 14;
                 if phase == 12 || (phase > 1 && phase < 11 && phase != 7) {
                     call(
@@ -713,7 +719,9 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
                 ram::g_hud_redraw_pending(revision).write(context, 1);
             }
         } else if display.sprite_state().read(context) == 16 {
-            if !matches!(player.sprite_state().read(context), 5 | 6) {
+            if player.sprite_state().read(context) != 5 && player.sprite_state().read(context) != 6
+            {
+                context.discard_u8(ram::g_player_health(revision).at(index).address())?; // CLR.B.
                 ram::g_player_health(revision).at(index).write(context, 0);
                 let text = tje_mem::rom_symbol(revision, "GameText_0168DC")
                     .expect("catalogued promotion text")
@@ -735,12 +743,13 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
                 &[rom::sfx_yeah_all_right(revision).address(), 90, 0],
             )?;
         }
-        if matches!(player.sprite_state().read(context), 71 | 70) {
+        if player.sprite_state().read(context) == 71 || player.sprite_state().read(context) == 70 {
             let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
             call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         }
         let number = handle.read(context);
         call(context, ids::FREE_ENTITY, &[number as u32])?;
+        context.discard_u8(handle.address())?; // CLR.B after FreeEntity.
         handle.write(context, 0);
         if promotion_complete
             && (i32::from(ram::g_player_rank(revision).at(index).read(context)) - 2) % 3 == 0
@@ -764,28 +773,21 @@ pub fn player_teleport_through_doorway(
     let revision = context.revision();
     let index = i32::from(arguments[0] as i16);
     let player = Address::<ObjectState>::new(arguments[1]);
-    let (camera_x, camera_y) = if ram::g_player_lives(revision).at(0).read(context) >= 0
+    // Both camera-one words are fetched before the alternate-view predicate.
+    let mut camera_x = ram::g_camera1_pending_x(revision).read(context);
+    let mut camera_y = ram::g_camera1_pending_y(revision).read(context);
+    if ram::g_player_lives(revision).at(0).read(context) >= 0
         && index == 1
         && ram::g_split_screen_enabled(revision).read(context) != 0
     {
-        (
-            ram::g_camera2_pending_x(revision).read(context),
-            ram::g_camera2_pending_y(revision).read(context),
-        )
-    } else {
-        (
-            ram::g_camera1_pending_x(revision).read(context),
-            ram::g_camera1_pending_y(revision).read(context),
-        )
-    };
+        camera_x = ram::g_camera2_pending_x(revision).read(context);
+        camera_y = ram::g_camera2_pending_y(revision).read(context);
+    }
     loop {
         call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[index as u32])?;
-        let args = [
-            player.address(),
-            player.x().read(context) as u32,
-            player.y().read(context) as u32,
-            2,
-        ];
+        let y = player.y().read(context);
+        let x = player.x().read(context);
+        let args = [player.address(), x as u32, y as u32, 2];
         if call(
             context,
             ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
@@ -844,6 +846,7 @@ pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> R
         && ram::g_player_inventory_open(revision).at(1).read(context) == 0
     {
         call(context, ids::FREE_ENTITY, &[number as u32])?;
+        context.discard_u8(handle.address())?; // CLR.B after FreeEntity.
         handle.write(context, 0);
         return Ok(None);
     }
@@ -851,31 +854,28 @@ pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> R
     if contact.read(context) & 4 != 0 {
         let index = i32::from((contact.read(context) & 3).wrapping_sub(1));
         let player = ram::g_player_info(revision).at(index);
-        if player.y().read(context) < object.y().read(context) {
+        let doorway_y = object.y().read(context);
+        if doorway_y > player.y().read(context) {
             call(
                 context,
                 ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
                 &[index as u32, player.address()],
             )?;
-            let args = [
-                index as u32,
-                player.x().read(context) as u32,
-                (i32::from(player.y().read(context)) + 1) as u32,
-                5,
-                player.level().read(context) as u32,
-            ];
+            let level = player.level().read(context);
+            let y = i32::from(player.y().read(context)) + 1;
+            let x = player.x().read(context);
+            let args = [index as u32, x as u32, y as u32, 5, level as u32];
             call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
         }
     }
     let mut active = 0_i8;
+    context.discard_u8(contact.address())?; // CLR.B before rebuilding contact flags.
     contact.write(context, 0);
     for index in 0..2 {
         let player = ram::g_player_info(revision).at(index);
-        let args = [
-            player.address(),
-            (i32::from(player.y().read(context)) >> 3) as u32,
-            (i32::from(player.x().read(context)) >> 3) as u32,
-        ];
+        let column = i32::from(player.x().read(context)) >> 3;
+        let row = i32::from(player.y().read(context)) >> 3;
+        let args = [player.address(), row as u32, column as u32];
         if call(context, ids::PRESENT_FIND_DOORWAY_OWNER_AT_TILE, &args)? as i32 == owner + 1 {
             contact.write(context, (index + 1) as i8);
             if i32::from(player.x().read(context)) > i32::from(object.x().read(context)) - 6

@@ -22,7 +22,8 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
             )?;
         } else if ram::g_player_powerups(revision).at(index).read(context) == 1
             && ram::g_player_fall_states(revision).at(index).read(context) == 0
-            && player.animation_group_mask().read(context) & 0x20 != 0
+            // MCC68K emits BTST.B at the low byte, not a longword mask read.
+            && context.read_u8(player.animation_group_mask().address() + 3) & 0x20 != 0
             && present != 1
         {
             call(context, ids::STOP_PLAYER, &[player.address()])?;
@@ -88,19 +89,25 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
     } else {
         -1
     };
-    let groups = player.animation_group_mask().read(context);
     let refresh = if revision == Revision::Rev02 {
         0x0004c81c | 0x8000000
     } else {
         0x0004c81c
     };
     if sprite != -1
-        && groups & 0x20000000 == 0
-        && (matches!(player.sprite_state().read(context), 0 | 4 | 76 | 3 | 7)
-            || groups & (0x400000 | 0x20000000 | refresh) != 0)
+        && player.animation_group_mask().read(context) & 0x20000000 == 0
+        && (player.sprite_state().read(context) == 0
+            || player.sprite_state().read(context) == 4
+            || player.animation_group_mask().read(context) & (0x400000 | 0x20000000) != 0
+            || player.sprite_state().read(context) == 76
+            || player.sprite_state().read(context) == 3
+            || player.sprite_state().read(context) == 7
+            || player.animation_group_mask().read(context) & refresh != 0)
     {
         call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+        context.discard_u16(player.velocity_x().address())?; // CLR.W.
         player.velocity_x().write(context, 0);
+        context.discard_u16(player.velocity_y().address())?; // CLR.W.
         player.velocity_y().write(context, 0);
     }
     Ok(None)
@@ -117,7 +124,8 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
         .at(index)
         .read(context)
         != 0
-        || matches!(player.sprite_state().read(context), 5 | 6)
+        || player.sprite_state().read(context) == 5
+        || player.sprite_state().read(context) == 6
     {
         return Ok(Some(1));
     }
@@ -175,10 +183,11 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
                 .expect("catalogued rain text")
                 .address;
             call(context, ids::GENERATE_SPEECH, &[index as u32, text, 1])?;
-            if matches!(player.sprite_state().read(context), 0 | 4 | 76)
-                || player.animation_group_mask().read(context)
-                    & (0x400000 | 0x20000000 | 0x0830400c)
-                    != 0
+            if player.sprite_state().read(context) == 0
+                || player.sprite_state().read(context) == 4
+                || player.animation_group_mask().read(context) & (0x400000 | 0x20000000) != 0
+                || player.sprite_state().read(context) == 76
+                || player.animation_group_mask().read(context) & 0x0830400c != 0
             {
                 call(context, ids::SET_SPRITE, &[player.address(), 1])?;
                 call(context, ids::STOP_PLAYER, &[player.address()])?;

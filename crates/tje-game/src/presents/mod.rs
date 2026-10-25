@@ -41,6 +41,9 @@ fn predecrement_i16(bus: &mut (impl tje_mem::Bus + ?Sized), counter: Address<i16
 }
 
 #[cfg(test)]
+mod replay_prep_tests;
+
+#[cfg(test)]
 mod tests;
 
 /// Available Rust entries owned by this subsystem.
