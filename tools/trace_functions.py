@@ -184,6 +184,46 @@ class TraceRow:
     blocker: str
 
 
+def catalog_entries(modules: dict[str, list[Any]], expected_count: int) -> list[CatalogEntry]:
+    """Parse identities only from structurally loaded, reachable metadata modules."""
+    constants = {}
+    for node in modules["metadata::ids"]:
+        if node.type == "const_item":
+            value = node.child_by_field_name("value")
+            arguments = value.child_by_field_name("arguments")
+            index = integer(arguments.named_children[0])
+            if index in constants:
+                raise TraceError(f"duplicate metadata numeric identity: {index}")
+            constants[index] = text(node.child_by_field_name("name"))
+    entries = []
+    for module, nodes in modules.items():
+        if not module.startswith("metadata::part_"):
+            continue
+        for item in nodes:
+            if item.type != "static_item" or text(item.child_by_field_name("name")) != "FUNCTIONS":
+                continue
+            for node, _ in array_entries(item):
+                values = fields(node)
+                index = integer(values["id"].child_by_field_name("arguments").named_children[0])
+                string = lambda key: json.loads(text(values[key]))
+                classification = string("classification")
+                if classification not in KINDS:
+                    raise TraceError(f"unknown metadata classification: {classification}")
+                entries.append(CatalogEntry(
+                    index, constants[index], string("inventory_id"), string("name"),
+                    KINDS[classification], string("subsystem"), string("source"),
+                    integer(values["source_line"]),
+                    tuple(integer(child) for child in values["addresses"].named_children),
+                    string("kind") == "fragment",
+                ))
+    entries.sort(key=lambda entry: entry.index)
+    if ([entry.index for entry in entries] != list(range(expected_count))
+            or set(constants) != set(range(expected_count))
+            or len({entry.inventory_id for entry in entries}) != expected_count):
+        raise TraceError(f"expected exactly {expected_count} unique contiguous catalogue entries")
+    return entries
+
+
 class Sources:
     """Only declared non-test modules; imports resolve registry aliases/re-exports."""
 
@@ -310,46 +350,9 @@ class Sources:
             raise TraceError(f"expected one function for {qualified}, found {len(matches)}")
         return matches[0]
 
-    def catalog(self, expected_count: int) -> list[CatalogEntry]:
-        constants = {}
-        for node in self.modules["metadata::ids"]:
-            if node.type == "const_item":
-                value = node.child_by_field_name("value")
-                arguments = value.child_by_field_name("arguments")
-                index = integer(arguments.named_children[0])
-                if index in constants:
-                    raise TraceError(f"duplicate metadata numeric identity: {index}")
-                constants[index] = text(node.child_by_field_name("name"))
-        entries = []
-        for module, nodes in self.modules.items():
-            if not module.startswith("metadata::part_"):
-                continue
-            for item in nodes:
-                if item.type != "static_item" or text(item.child_by_field_name("name")) != "FUNCTIONS":
-                    continue
-                for node, _ in array_entries(item):
-                    values = fields(node)
-                    index = integer(values["id"].child_by_field_name("arguments").named_children[0])
-                    string = lambda key: json.loads(text(values[key]))
-                    classification = string("classification")
-                    if classification not in KINDS:
-                        raise TraceError(f"unknown metadata classification: {classification}")
-                    entries.append(CatalogEntry(
-                        index, constants[index], string("inventory_id"), string("name"),
-                        KINDS[classification], string("subsystem"), string("source"),
-                        integer(values["source_line"]),
-                        tuple(integer(child) for child in values["addresses"].named_children),
-                        string("kind") == "fragment",
-                    ))
-        entries.sort(key=lambda entry: entry.index)
-        if ([entry.index for entry in entries] != list(range(expected_count))
-                or set(constants) != set(range(expected_count))
-                or len({entry.inventory_id for entry in entries}) != expected_count):
-            raise TraceError(f"expected exactly {expected_count} unique contiguous catalogue entries")
-        return entries
 
     def rows(self, expected_count: int = CATALOGUED_ENTRIES) -> list[TraceRow]:
-        catalog = self.catalog(expected_count)
+        catalog = catalog_entries(self.modules, expected_count)
         known = {entry.constant for entry in catalog}
         production: dict[str, Registration] = {}
         pending: dict[str, Registration] = {}
