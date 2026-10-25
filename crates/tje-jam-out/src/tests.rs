@@ -137,16 +137,25 @@ fn unsafe_pose_does_not_modify_world_or_original_rng() {
             assert!(!eligible(&bus, revision, 0));
         }
         ram::g_player1_terrain_underfoot(revision).write(&mut bus, 0x10);
-        for powerup in [0, 1, 2, 3, 4, 5] {
+        let actor = ram::g_player_info(revision).at(0);
+        actor.velocity_x().write(&mut bus, 1);
+        for powerup in [-1, 0, 1, 2, 3, 4, 5, 7] {
             ram::g_player_powerups(revision)
                 .at(0)
                 .write(&mut bus, powerup);
-            assert!(!eligible(&bus, revision, 0), "active powerup {powerup}");
+            assert!(
+                !eligible(&bus, revision, 0),
+                "active power motion {powerup}"
+            );
         }
-        ram::g_player_powerups(revision).at(0).write(&mut bus, -1);
+        // A carried power is not itself motion: ordinary idle/zero velocity
+        // remains cosmetic even with carried Hi-Tops.
+        actor.velocity_x().write(&mut bus, 0);
+        assert!(eligible(&bus, revision, 0));
+        actor.sprite_state().write(&mut bus, 4);
         assert!(
-            eligible(&bus, revision, 0),
-            "PRESENT_NONE is -1, not Icarus wings (0)"
+            !eligible(&bus, revision, 0),
+            "Icarus pose wins even without velocity"
         );
     }
 }
@@ -262,6 +271,20 @@ fn audio_arbiter_preserves_original_owners_and_never_accumulates_latency() {
         [Instrument::None; 2],
         "bank changes and authored scenes own their service slots"
     );
+}
+
+#[test]
+fn jam_pcm_does_not_starve_an_available_fm_route() {
+    let mut state = State::new(enabled());
+    state.seats[0].pending = Instrument::Bass;
+    state.seats[1].pending = Instrument::Snare;
+    assert_eq!(
+        state.arbitrate(1, true, false, true),
+        [Instrument::None, Instrument::Snare]
+    );
+    assert_eq!(state.accepted_pcm, 0);
+    assert_eq!(state.accepted_fm, 1);
+    assert_eq!(state.dropped_requests, 1);
 }
 
 #[test]

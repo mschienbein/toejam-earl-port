@@ -243,11 +243,18 @@ fn audio_slot(context: &mut dyn Context, selection: bool) -> Result<()> {
     let frame = context.frame_count();
     let owner = owns_music(context)?;
     let revision = context.revision();
-    let original_idle = ram::g_pending_pcm_sample(revision).read(context) == 0
-        && ram::g_pending_psg_effect(revision).read(context) < 0
-        && ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0
-        && ram::g_psg_effect_status(revision).read(context) == 0;
-    let fm_idle = original_idle
+    let pcm_busy = ram::g_pending_pcm_sample(revision).read(context) != 0
+        || ram::g_pcm_effect_cooldown_ticks(revision).read(context) != 0;
+    let psg_busy = ram::g_pending_psg_effect(revision).read(context) >= 0
+        || ram::g_psg_effect_status(revision).read(context) != 0;
+    let original_idle = !pcm_busy && !psg_busy;
+    // MIN is the Jam-only request priority; every original request outranks it.
+    // A still-playing Jam sample must not masquerade as an essential game cue
+    // and starve Earl's independent FM route after alternating pad polling.
+    let normal_pcm_busy =
+        pcm_busy && ram::g_sound_effect_priority(revision).read(context) != i16::MIN;
+    let fm_idle = !normal_pcm_busy
+        && !psg_busy
         && ram::g_pending_fm_effect(revision).read(context) < 0
         && ram::g_fm_effect_template_status(revision).read(context) == 0;
     let requests = context.sidecars_mut().get_mut::<State>()?.arbitrate(

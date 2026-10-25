@@ -352,6 +352,8 @@ impl State {
 
 /// Conservative eligibility: only ordinary, grounded, stationary idle players.
 /// The presentation never modifies these conditions or restores saved velocity.
+/// A carried present is not itself motion: e.g. idle Hi-Tops use the ordinary
+/// idle actor. Canonical power poses, velocity and acceleration still win.
 pub fn eligible<B: Bus + ?Sized>(bus: &B, revision: Revision, seat: i32) -> bool {
     let actor = ram::g_player_info(revision).at(seat);
     let terrain = if seat == 0 {
@@ -365,7 +367,6 @@ pub fn eligible<B: Bus + ?Sized>(bus: &B, revision: Revision, seat: i32) -> bool
         && ram::g_player_health(revision).at(seat).read(bus) > 0
         && ram::g_player_inventory_open(revision).at(seat).read(bus) == 0
         && ram::g_player_elevator_flags(revision).at(seat).read(bus) == 0
-        && ram::g_player_powerups(revision).at(seat).read(bus) == -1
         && ram::g_player_fall_states(revision).at(seat).read(bus) == 0
         && matches!(terrain, 0x10 | 0x30 | 0x40 | 0x50)
         && actor.draw_flags().read(bus) & 0x89 == 1

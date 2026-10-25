@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tje_engine_cranelift::{CacheConfig, Engine, load_engine};
 use tje_engine_runtime::enhanced::{EnhancedInputs, EnhancedMode};
 use tje_jam_out::{PROFILE, Settings, State, configure, presentation};
-use tje_mem::Revision;
+use tje_mem::{Revision, ram};
 use tje_rom::Rom;
 use tje_session::{CONNECTED, Session};
 
@@ -186,7 +186,14 @@ fn private_jam_demo_both_revisions_and_snapshot_replay() {
         );
         assert!(
             state.accepted_fm > 0,
-            "{revision:?}: no FM performance request accepted"
+            "{revision:?}: no FM performance request accepted; pending={} status={} pcm-cooldown={} priority={} psg-status={} pcm-accepted={} dropped={}",
+            ram::g_pending_fm_effect(revision).read(a.devices().memory()),
+            ram::g_fm_effect_template_status(revision).read(a.devices().memory()),
+            ram::g_pcm_effect_cooldown_ticks(revision).read(a.devices().memory()),
+            ram::g_sound_effect_priority(revision).read(a.devices().memory()),
+            ram::g_psg_effect_status(revision).read(a.devices().memory()),
+            state.accepted_pcm,
+            state.dropped_requests
         );
         println!(
             "JAM_DEMO {revision:?} frames=480 poses={visible:?} pcm={} fm={} dropped={} video={} audio={} poses_hash={}",
