@@ -2,7 +2,7 @@
 //! in scratch/W0World/replay-prep.md. This is not a game runtime module.
 use genesis_config::{GenesisButton, GenesisController, GenesisControllerType, GenesisInputs};
 use std::{env, fs, path::Path, sync::Arc};
-use tje_game::{FunctionId, Translation, camera, ids};
+use tje_game::{FramedTranslation, FunctionId, Translation, camera, ids};
 use tje_host::{
     CheckFailurePolicy, Host, Mode, execution::WaitInputPoller, hooks::HookRegistry,
     input::InputScript,
@@ -11,30 +11,6 @@ use tje_mem::{Bus, Revision, ram};
 use tje_session::Session;
 
 const CANDIDATES: &[Translation] = &[
-    Translation {
-        id: ids::TRY_UPDATE_CAMERA_Y,
-        function: camera::try_update_camera_y,
-    },
-    Translation {
-        id: ids::TRY_UPDATE_CAMERA_X,
-        function: camera::try_update_camera_x,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_UP,
-        function: camera::move_camera_up,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_DOWN,
-        function: camera::move_camera_down,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_LEFT,
-        function: camera::move_camera_left,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_RIGHT,
-        function: camera::move_camera_right,
-    },
     Translation {
         id: ids::UPDATE_CAMERA_FOLLOWING,
         function: camera::update_camera_following,
@@ -46,6 +22,32 @@ const CANDIDATES: &[Translation] = &[
     Translation {
         id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
         function: camera::animate_players_into_split_views,
+    },
+];
+const FRAMED_CANDIDATES: &[FramedTranslation] = &[
+    FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: camera::try_update_camera_y,
+    },
+    FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: camera::try_update_camera_x,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_UP,
+        function: camera::move_camera_up,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: camera::move_camera_down,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: camera::move_camera_left,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: camera::move_camera_right,
     },
 ];
 
@@ -406,7 +408,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             "rev00"
         };
-        let registry = HookRegistry::proof_replayed_environment(revision, CANDIDATES, &[], &[])?;
+        let registry =
+            HookRegistry::proof_replayed_environment(revision, CANDIDATES, FRAMED_CANDIDATES, &[])?;
         let mut host = Host::new(
             &fs::read(root.join(format!("roms/{name}.bin")))?,
             Mode::Check,

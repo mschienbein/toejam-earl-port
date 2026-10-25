@@ -291,7 +291,8 @@ fn flush_keeps_wait_argument_through_disable_and_upload_in_both_revisions() {
                 } else {
                     ids::TRY_UPDATE_CAMERA_X
                 };
-                flush(&mut machine, camera, vertical).unwrap();
+                machine.memory.write_u32(Machine::SP + 4, camera as u32);
+                flush(&mut machine, vertical).unwrap();
                 assert_eq!(
                     machine.calls.iter().map(|call| call.id).collect::<Vec<_>>(),
                     [
@@ -422,10 +423,10 @@ fn movers_preserve_word_access_sequence_and_prepare_the_selected_flush() {
                 } else {
                     ram::g_camera2_pending_tile_directions(revision)
                 };
-                assert_eq!(
-                    move_pixel(&mut machine, camera, direction).unwrap(),
-                    Some(0)
-                );
+                machine
+                    .memory
+                    .write_u32(Machine::SP + 4, camera as i32 as u32);
+                assert_eq!(move_pixel(&mut machine, direction).unwrap(), Some(0));
                 assert_eq!(position.read(&machine.memory), expected);
                 assert_eq!(directions.read(&machine.memory), bit);
                 let call = &machine.calls[0];
@@ -463,6 +464,83 @@ fn movers_preserve_word_access_sequence_and_prepare_the_selected_flush() {
                 assert_eq!(machine.data, data);
                 assert_eq!(machine.address, addresses);
                 assert_eq!(machine.sp, Machine::SP);
+            }
+        }
+    }
+}
+
+#[test]
+fn framed_camera_arguments_are_consumed_after_movem_at_compiled_widths() {
+    let flushes: [crate::FramedTranslationFn; 2] = [try_update_camera_y, try_update_camera_x];
+    let movers: [crate::FramedTranslationFn; 4] = [
+        move_camera_up,
+        move_camera_down,
+        move_camera_left,
+        move_camera_right,
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for function in flushes {
+            for camera in [0_u32, 1, 0x01000000, 0x01000001] {
+                let mut machine = Machine::new(revision);
+                machine.memory.write_u32(Machine::SP + 4, camera);
+                function(&mut machine).unwrap();
+                let accesses = machine.accesses.borrow();
+                let argument = Access::Read(Machine::SP + 4, 4);
+                let position = accesses
+                    .iter()
+                    .position(|access| *access == argument)
+                    .unwrap();
+                assert_eq!(
+                    position, 6,
+                    "argument must follow all six MOVEM word writes"
+                );
+                assert!(
+                    accesses[..position]
+                        .iter()
+                        .all(|access| matches!(access, Access::Write(_, 2, _)))
+                );
+                assert_eq!(
+                    accesses
+                        .iter()
+                        .filter(|access| **access == argument)
+                        .count(),
+                    1
+                );
+                assert_eq!(machine.calls[0].d2, camera, "int argument must not narrow");
+            }
+        }
+        for function in movers {
+            for camera in [0_u16, 1, 0x8000, 0xffff] {
+                let mut machine = Machine::new(revision);
+                machine
+                    .memory
+                    .write_u32(Machine::SP + 4, 0xa5a50000 | u32::from(camera));
+                function(&mut machine).unwrap();
+                let accesses = machine.accesses.borrow();
+                let argument = Access::Read(Machine::SP + 6, 2);
+                let position = accesses
+                    .iter()
+                    .position(|access| *access == argument)
+                    .unwrap();
+                assert_eq!(position, 6, "word argument must follow MOVEM12");
+                assert!(
+                    accesses[..position]
+                        .iter()
+                        .all(|access| matches!(access, Access::Write(_, 2, _)))
+                );
+                assert_eq!(
+                    accesses
+                        .iter()
+                        .filter(|access| **access == argument)
+                        .count(),
+                    1
+                );
+                assert!(!accesses.iter().any(|access| matches!(access,
+                    Access::Read(address, _) if *address == Machine::SP + 4)));
+                assert!(
+                    accesses[position + 1..]
+                        .contains(&Access::Read(ram::g_player_lives(revision).address(), 1))
+                );
             }
         }
     }

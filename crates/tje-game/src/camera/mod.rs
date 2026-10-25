@@ -84,19 +84,6 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// Complete TimeAware bodies whose real-ISR timing proofs remain blocked.
 /// This table is deliberately not part of the production dispatcher or registry.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    // REV 00 cooperation frame 47366: semantic Z80 RAM read A0004A is 4 in
-    // the original and 255 in Rust (trace 194). Await the Z80 timing schedule;
-    // this phase-dependent read is not an eligible YM BUSY stutter.
-    crate::Translation {
-        id: ids::TRY_UPDATE_CAMERA_X,
-        function: try_update_camera_x,
-    },
-    // REV 02 dentist-variant frame 9987: semantic Z80 RAM read A0004A is 2 in
-    // the original and 1 in Rust (trace 200); same Z80 phase blocker as X.
-    crate::Translation {
-        id: ids::TRY_UPDATE_CAMERA_Y,
-        function: try_update_camera_y,
-    },
     // Both-revision frame-10000 caller-envelope fixtures disagree on a semantic
     // Z80 A0004A read (1 versus 3), even with equal completed ISR counts.
     crate::Translation {
@@ -109,28 +96,48 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS,
         function: animate_players_into_split_views,
     },
-    // Full cooperation corpus: interrupt timing inside these calls admits an
-    // extra original HBlank IRQ. Await the timing schedule/commutation projection
-    // before re-proving them; short start-game fixtures are not sufficient.
-    crate::Translation {
-        id: ids::MOVE_CAMERA_UP,
-        function: move_camera_up,
-    },
-    crate::Translation {
-        id: ids::MOVE_CAMERA_DOWN,
-        function: move_camera_down,
-    },
-    crate::Translation {
-        id: ids::MOVE_CAMERA_LEFT,
-        function: move_camera_left,
-    },
-    crate::Translation {
-        id: ids::MOVE_CAMERA_RIGHT,
-        function: move_camera_right,
-    },
+    // Full cooperation corpus: an extra original HBlank IRQ occurs inside the
+    // call. Await the timing schedule/commutation projection and corpus proof.
     crate::Translation {
         id: ids::UPDATE_CAMERA_FOLLOWING,
         function: update_camera_following,
+    },
+];
+
+/// Argument-bearing candidates read the real compiled slots lazily. This is a
+/// pending body-form change only, not production or replay-proof approval.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    // REV 00 cooperation frame 47366: semantic Z80 RAM read A0004A is 4 in
+    // the original and 255 in Rust (trace 194). Await the Z80 timing schedule;
+    // this phase-dependent read is not an eligible YM BUSY stutter.
+    crate::FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: try_update_camera_x,
+    },
+    // REV 02 dentist-variant frame 9987: semantic Z80 RAM read A0004A is 2 in
+    // the original and 1 in Rust (trace 200); same Z80 phase blocker as X.
+    crate::FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: try_update_camera_y,
+    },
+    // Full cooperation corpus: interrupt timing inside these calls admits an
+    // extra original HBlank IRQ. Await the timing schedule/commutation projection
+    // before re-proving them; short start-game fixtures are not sufficient.
+    crate::FramedTranslation {
+        id: ids::MOVE_CAMERA_UP,
+        function: move_camera_up,
+    },
+    crate::FramedTranslation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: move_camera_down,
+    },
+    crate::FramedTranslation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: move_camera_left,
+    },
+    crate::FramedTranslation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: move_camera_right,
     },
 ];
 

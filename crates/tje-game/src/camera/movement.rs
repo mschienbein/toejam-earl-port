@@ -6,17 +6,20 @@ use crate::{
 use tje_mem::ram;
 
 /// G/src/camera/camera_tiles_and_scroll.c:551 (`TryUpdateCameraY`).
-pub fn try_update_camera_y(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    flush(context, args[0] as i32, true)
+pub fn try_update_camera_y(context: &mut dyn Context) -> Result<Option<u32>> {
+    flush(context, true)
 }
 /// G/src/camera/camera_tiles_and_scroll.c:570 (`TryUpdateCameraX`).
-pub fn try_update_camera_x(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    flush(context, args[0] as i32, false)
+pub fn try_update_camera_x(context: &mut dyn Context) -> Result<Option<u32>> {
+    flush(context, false)
 }
-fn flush(context: &mut dyn Context, camera: i32, vertical: bool) -> Result<Option<u32>> {
+fn flush(context: &mut dyn Context, vertical: bool) -> Result<Option<u32>> {
     // c_camera_tiles_and_scroll.s:1208/1238: D2-D3/A2 survive the flush,
     // including its outgoing Wait argument through both following calls.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x0c, 0x04))?;
+    // MOVE.L 16(SP),D2 follows MOVEM12: read the full int slot here,
+    // never through a legacy eager-u32 entry adapter before the prologue.
+    let camera = frame.argument_slot(0).read(context) as i32;
     let result = flush_body(context, camera, vertical);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
@@ -101,24 +104,26 @@ enum Direction {
 }
 
 /// G/src/camera/camera_tiles_and_scroll.c:589 (`MoveCameraUp`).
-pub fn move_camera_up(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    move_pixel(context, args[0] as i16, Direction::Up)
+pub fn move_camera_up(context: &mut dyn Context) -> Result<Option<u32>> {
+    move_pixel(context, Direction::Up)
 }
 /// G/src/camera/camera_tiles_and_scroll.c:627 (`MoveCameraDown`).
-pub fn move_camera_down(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    move_pixel(context, args[0] as i16, Direction::Down)
+pub fn move_camera_down(context: &mut dyn Context) -> Result<Option<u32>> {
+    move_pixel(context, Direction::Down)
 }
 /// G/src/camera/camera_tiles_and_scroll.c:665 (`MoveCameraLeft`).
-pub fn move_camera_left(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    move_pixel(context, args[0] as i16, Direction::Left)
+pub fn move_camera_left(context: &mut dyn Context) -> Result<Option<u32>> {
+    move_pixel(context, Direction::Left)
 }
 /// G/src/camera/camera_tiles_and_scroll.c:703 (`MoveCameraRight`).
-pub fn move_camera_right(context: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    move_pixel(context, args[0] as i16, Direction::Right)
+pub fn move_camera_right(context: &mut dyn Context) -> Result<Option<u32>> {
+    move_pixel(context, Direction::Right)
 }
-fn move_pixel(context: &mut dyn Context, camera: i16, direction: Direction) -> Result<Option<u32>> {
+fn move_pixel(context: &mut dyn Context, direction: Direction) -> Result<Option<u32>> {
     // All four compiled movers save D2/A2/A3 before consulting either player.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x04, 0x0c))?;
+    // MOVE.W 18(SP),D0 follows MOVEM12: only entrySP+6 is consumed.
+    let camera = frame.argument_word(0).read(context);
     let result = move_pixel_body(context, camera, direction);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result

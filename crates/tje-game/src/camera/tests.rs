@@ -135,7 +135,12 @@ fn corpus_interrupt_timing_failures_remain_pending_and_unregistered() {
         ids::TRY_UPDATE_CAMERA_X,
         ids::TRY_UPDATE_CAMERA_Y,
     ] {
-        assert!(PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(
+            PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id)
+                || PENDING_FRAMED_TRANSLATIONS
+                    .iter()
+                    .any(|entry| entry.id == id)
+        );
         assert!(!TRANSLATIONS.iter().any(|entry| entry.id == id));
         assert!(
             crate::Dispatcher::hybrid()
@@ -144,5 +149,26 @@ fn corpus_interrupt_timing_failures_remain_pending_and_unregistered() {
                 .is_none()
         );
         assert_eq!(crate::execution_class(id), Some(ExecutionClass::TimeAware));
+    }
+}
+
+#[test]
+fn argument_taking_camera_candidates_have_only_lazy_framed_pending_bodies() {
+    for id in [
+        ids::TRY_UPDATE_CAMERA_Y,
+        ids::TRY_UPDATE_CAMERA_X,
+        ids::MOVE_CAMERA_UP,
+        ids::MOVE_CAMERA_DOWN,
+        ids::MOVE_CAMERA_LEFT,
+        ids::MOVE_CAMERA_RIGHT,
+    ] {
+        assert!(
+            PENDING_FRAMED_TRANSLATIONS
+                .iter()
+                .any(|entry| entry.id == id)
+        );
+        assert!(!PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(!TRANSLATIONS.iter().any(|entry| entry.id == id));
+        assert!(id.metadata().abi.argument_count > 0);
     }
 }

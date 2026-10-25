@@ -59,30 +59,6 @@ const TIME_PROOF: &[Translation] = &[
         function: camera::update_camera_following,
     },
     Translation {
-        id: ids::TRY_UPDATE_CAMERA_Y,
-        function: camera::try_update_camera_y,
-    },
-    Translation {
-        id: ids::TRY_UPDATE_CAMERA_X,
-        function: camera::try_update_camera_x,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_UP,
-        function: camera::move_camera_up,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_DOWN,
-        function: camera::move_camera_down,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_LEFT,
-        function: camera::move_camera_left,
-    },
-    Translation {
-        id: ids::MOVE_CAMERA_RIGHT,
-        function: camera::move_camera_right,
-    },
-    Translation {
         id: ids::ANIMATE_SPLIT_SCREEN_WIPE,
         function: camera::animate_split_screen_wipe,
     },
@@ -125,6 +101,30 @@ const TIME_FRAMED_PROOF: &[FramedTranslation] = &[
         id: ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
         function: elevator::elevator_advance_riders_to_next_level,
     },
+    FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_Y,
+        function: camera::try_update_camera_y,
+    },
+    FramedTranslation {
+        id: ids::TRY_UPDATE_CAMERA_X,
+        function: camera::try_update_camera_x,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_UP,
+        function: camera::move_camera_up,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_DOWN,
+        function: camera::move_camera_down,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_LEFT,
+        function: camera::move_camera_left,
+    },
+    FramedTranslation {
+        id: ids::MOVE_CAMERA_RIGHT,
+        function: camera::move_camera_right,
+    },
 ];
 
 // Dependency-closed timed batch which does not contain the known blocked
@@ -138,32 +138,35 @@ const TIME_READY_PROOF: &[Translation] = &[
         function: camera::update_camera_following,
     },
     Translation {
+        id: ids::ELEVATOR_RIDE_V_BLANK,
+        function: elevator::elevator_ride_v_blank,
+    },
+];
+
+const TIME_READY_FRAMED_PROOF: &[FramedTranslation] = &[
+    FramedTranslation {
         id: ids::TRY_UPDATE_CAMERA_Y,
         function: camera::try_update_camera_y,
     },
-    Translation {
+    FramedTranslation {
         id: ids::TRY_UPDATE_CAMERA_X,
         function: camera::try_update_camera_x,
     },
-    Translation {
+    FramedTranslation {
         id: ids::MOVE_CAMERA_UP,
         function: camera::move_camera_up,
     },
-    Translation {
+    FramedTranslation {
         id: ids::MOVE_CAMERA_DOWN,
         function: camera::move_camera_down,
     },
-    Translation {
+    FramedTranslation {
         id: ids::MOVE_CAMERA_LEFT,
         function: camera::move_camera_left,
     },
-    Translation {
+    FramedTranslation {
         id: ids::MOVE_CAMERA_RIGHT,
         function: camera::move_camera_right,
-    },
-    Translation {
-        id: ids::ELEVATOR_RIDE_V_BLANK,
-        function: elevator::elevator_ride_v_blank,
     },
 ];
 
@@ -830,7 +833,8 @@ fn main() {
         } else if selection == "transition" {
             HookRegistry::proof(revision, TRANSITION_PROOF).unwrap()
         } else if timed {
-            HookRegistry::proof(revision, TIME_READY_PROOF).unwrap()
+            HookRegistry::proof_with_frames(revision, TIME_READY_PROOF, TIME_READY_FRAMED_PROOF)
+                .unwrap()
         } else if selection == "functional" {
             HookRegistry::proof(revision, FUNCTIONAL_PROOF).unwrap()
         } else {
