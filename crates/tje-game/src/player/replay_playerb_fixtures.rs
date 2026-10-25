@@ -14,7 +14,7 @@ mod replay_playerb_cases;
 
 static ROOTS: LazyLock<Vec<FunctionId>> = LazyLock::new(|| {
     let names = std::env::var("PLAYERB_FUNCTIONS").unwrap_or_else(|_| {
-        "HulaAbility,PlayerUpdateWhirlwindAndRecovery,Player_Youch,HottubAbility,PlayerApplyPhasedJumpInput,PlayerUpdatePhasedJumpMotion".into()
+        "HulaAbility,PlayerUpdateWhirlwindAndRecovery,Player_Youch,HottubAbility,ChickenAbility,PlayerApplyPhasedJumpInput,PlayerUpdatePhasedJumpMotion".into()
     });
     if names == "all" {
         return replay_playerb_cases::FUNCTIONS.to_vec();
@@ -69,12 +69,11 @@ fn registry(revision: Revision) -> HookRegistry {
                 ROOTS.iter().all(|id| matches!(
                     *id,
                     ids::LEMONADE_ABILITY
-                        | ids::CHICKEN_ABILITY
                         | ids::AI_BOOGIE_TOUCH
                         | ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT
                         | ids::SPRITE_CHECKS
                 )),
-                "strict harness mode is for the five frozen candidates, not a substitute replay proof"
+                "strict harness mode is for the four frozen candidates, not a substitute replay proof"
             );
             HookRegistry::proof_with_frames(revision, &VALUES, &FRAMED).unwrap()
         }

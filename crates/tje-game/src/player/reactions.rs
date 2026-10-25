@@ -302,49 +302,84 @@ pub(super) fn hula_ability(context: &mut dyn Context) -> Result<Option<u32>> {
 }
 
 /// G/src/player/earthling_damage_reactions.c:435 (`ChickenAbility`).
-pub(super) fn chicken_ability(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
-    let number = i32::from(arguments[0] as i16);
-    let earthling = Address::<EarthlingState>::new(arguments[1]);
-    let player = super::indexing::player_by_word_index(context.revision(), number);
-    let dx =
-        (i32::from(player.x().read(context)) - i32::from(earthling.x().read(context))).abs() as i16;
-    let dy =
-        (i32::from(player.y().read(context)) - i32::from(earthling.y().read(context))).abs() as i16;
-    if dx < 25 && dy < 15 {
-        call(
-            context,
-            ids::PLAYER_YOUCH,
-            &[number as u32, earthling.address()],
-        )?;
-    }
-    if u32::from(super::poses::next_random(context)) % 100 < 92
-        || i32::from(earthling.state().read(context)) & 252 == 8
-        || (dy < 50 && dx < 75)
-        || call(
-            context,
-            ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT,
-            &[player.address(), number as u32],
-        )? == 0
-    {
-        return Ok(None);
-    }
-    let next = if dx < dy {
-        if player.y().read(context) < earthling.y().read(context) {
-            8
-        } else {
-            9
-        }
-    } else if player.x().read(context) < earthling.x().read(context) {
-        10
-    } else {
-        11
-    };
-    call_void(
+pub(super) fn chicken_ability(context: &mut dyn Context) -> Result<Option<u32>> {
+    // G/build/{rev00,rev02}/asm/c_earthling_damage_reactions.s:1074-1193:
+    // MOVEM D2-D5/A2-A4, then the player word at entry SP+6 and the
+    // earthling pointer at entry SP+8. No eager read of the player's high word.
+    with_frame(
         context,
-        ids::SET_EARTHLING_STATE,
-        &[earthling.address(), next],
-    )?;
-    Ok(None)
+        FrameLayout::movem(0, 0x3c, 0x1c),
+        |context, stack| {
+            let number = i32::from(stack.argument_word(0).read(context));
+            let earthling = Address::<EarthlingState>::new(stack.argument_slot(1).read(context));
+            let revision = context.revision();
+            let player = super::indexing::player_by_word_index(revision, number);
+            let difference =
+                i32::from(player.x().read(context)) - i32::from(earthling.x().read(context));
+            let dx = call_from(
+                context,
+                ids::CHICKEN_ABILITY,
+                ids::ABS,
+                &[difference as u32],
+                0x34,
+            )? as i16;
+            let difference =
+                i32::from(player.y().read(context)) - i32::from(earthling.y().read(context));
+            let dy = call_from(
+                context,
+                ids::CHICKEN_ABILITY,
+                ids::ABS,
+                &[difference as u32],
+                0x4e,
+            )? as i16;
+            if dx < 25 && dy < 15 {
+                call_from(
+                    context,
+                    ids::CHICKEN_ABILITY,
+                    ids::PLAYER_YOUCH,
+                    &[number as u32, earthling.address()],
+                    0x6a,
+                )?;
+            }
+            let index = advance_random_index(context);
+            // DIVU cannot overflow: the numerator is a zero-extended word.
+            let random = ram::g_cached_random_values(revision)
+                .at(i32::from(index))
+                .read(context);
+            if random % 100 < 92
+                || i32::from(earthling.state().read(context)) & 252 == 8
+                || (dy < 50 && dx < 75)
+                || call_from(
+                    context,
+                    ids::CHICKEN_ABILITY,
+                    ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT,
+                    &[player.address(), number as u32],
+                    0xd8,
+                )? == 0
+            {
+                return Ok(None);
+            }
+            let next = if dx < dy {
+                if earthling.y().read(context) > player.y().read(context) {
+                    8
+                } else {
+                    9
+                }
+            } else if earthling.x().read(context) > player.x().read(context) {
+                10
+            } else {
+                11
+            };
+            call_from_void(
+                context,
+                ids::CHICKEN_ABILITY,
+                ids::SET_EARTHLING_STATE,
+                &[earthling.address(), next],
+                0x114,
+            )?;
+            Ok(None)
+        },
+    )
 }
 
 /// G/src/player/earthling_damage_reactions.c:467 (`AI_BoogieTouch`).

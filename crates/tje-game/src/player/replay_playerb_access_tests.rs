@@ -20,6 +20,7 @@ struct Callee {
     id: FunctionId,
     arguments: Vec<u32>,
     entry_sp: u32,
+    return_pc: u32,
 }
 
 struct AccessContext {
@@ -113,6 +114,7 @@ impl AccessContext {
             ids::GET_RANDOM_NUMBER => self.random.pop_front().expect("scripted RNG call"),
             ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT
             | ids::GET_ACTIVE_PRESENT_SPRITE
+            | ids::PLAYER_YOUCH
             | ids::SET_SPRITE
             | ids::SET_EARTHLING_STATE
             | ids::GENERATE_SPEECH
@@ -127,6 +129,7 @@ impl AccessContext {
             id,
             arguments,
             entry_sp: self.sp,
+            return_pc: self.memory.read_u32(self.sp),
         });
         self.status = 0x2010;
         {
@@ -258,7 +261,9 @@ fn context(revision: Revision, root: FunctionId, tail: &[u32]) -> AccessContext 
     let player = ram::g_player_info(revision).at(0).address();
     let earthling = ram::g_earthling_banks(revision).at(0).at(0).address();
     let arguments = match root {
-        ids::PLAYER_YOUCH | ids::HULA_ABILITY | ids::HOTTUB_ABILITY => vec![0, earthling],
+        ids::PLAYER_YOUCH | ids::HULA_ABILITY | ids::HOTTUB_ABILITY | ids::CHICKEN_ABILITY => {
+            vec![0, earthling]
+        }
         ids::PLAYER_APPLY_PHASED_JUMP_INPUT => vec![player, 0, tail[0], tail[1]],
         _ => vec![player, tail[0]],
     };
@@ -583,4 +588,154 @@ fn arithmetic_helpers_preserve_control_bits_and_68000_overflow_flags() {
     assert_eq!(c.status, 0x2011);
     frames::logic_flags(&mut c, 0x80, 8);
     assert_eq!(c.status, 0x2018);
+}
+
+#[test]
+fn chicken_reads_only_the_source_argument_lanes_before_its_first_field_access() {
+    let entry = super::PENDING_FRAMED_TRANSLATIONS
+        .iter()
+        .find(|entry| entry.id == ids::CHICKEN_ABILITY)
+        .expect("ChickenAbility must use a canonical framed pending entry");
+    assert!(
+        !super::PENDING_TRANSLATIONS
+            .iter()
+            .any(|entry| entry.id == ids::CHICKEN_ABILITY)
+    );
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for number in 0..2 {
+            for high_word in [0xa55a_u32, 0xffff] {
+                let mut c = context(revision, ids::CHICKEN_ABILITY, &[]);
+                let p = ram::g_player_info(revision).at(number);
+                p.x().write(&mut c.memory, 512);
+                p.y().write(&mut c.memory, 512);
+                c.frame
+                    .argument_slot(0)
+                    .write(&mut c.memory, (high_word << 16) | number as u32);
+                let saved_sp = c.sp;
+                let saved_data = c.data;
+                let saved_address = c.address;
+                assert_eq!((entry.function)(&mut c).unwrap(), None);
+                let argument_reads: Vec<_> = c.accesses.borrow().iter().filter(|event| {
+                    matches!(event, Access::Read(address, _) if (saved_sp + 4..saved_sp + 12).contains(address))
+                }).cloned().collect();
+                assert_eq!(
+                    argument_reads,
+                    vec![
+                        Access::Read(saved_sp + 6, 16),
+                        Access::Read(saved_sp + 8, 16),
+                        Access::Read(saved_sp + 10, 16),
+                    ]
+                );
+                assert!(
+                    c.at(saved_sp + 4).is_empty(),
+                    "unused high word was observed"
+                );
+                let reads: Vec<_> = c
+                    .accesses
+                    .borrow()
+                    .iter()
+                    .filter(|event| matches!(event, Access::Read(_, _)))
+                    .take(4)
+                    .cloned()
+                    .collect();
+                assert_eq!(
+                    reads,
+                    vec![
+                        Access::Read(saved_sp + 6, 16),
+                        Access::Read(saved_sp + 8, 16),
+                        Access::Read(saved_sp + 10, 16),
+                        Access::Read(p.x().address(), 16),
+                    ]
+                );
+                assert_eq!(c.ids(), vec![ids::ABS, ids::ABS, ids::PLAYER_YOUCH]);
+                assert_eq!(
+                    c.calls[2].arguments,
+                    vec![
+                        number as u32,
+                        ram::g_earthling_banks(revision).at(0).at(0).address()
+                    ]
+                );
+                for (call, offset) in c.calls.iter().zip([0x34, 0x4e, 0x6a]) {
+                    assert_eq!(
+                        call.return_pc,
+                        ids::CHICKEN_ABILITY.metadata().address(revision) + offset
+                    );
+                }
+                assert_eq!(c.sp, saved_sp);
+                assert_eq!(c.data[2..], saved_data[2..]);
+                assert_eq!(c.address[2..], saved_address[2..]);
+            }
+        }
+    }
+}
+
+#[test]
+fn chicken_distant_target_keeps_rng_reread_and_earthling_first_facing_reads() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (x, y, next, vertical) in [(700, 650, 10, false), (600, 700, 8, true)] {
+            let mut c = context(revision, ids::CHICKEN_ABILITY, &[]);
+            let p = ram::g_player_info(revision).at(0);
+            let e = ram::g_earthling_banks(revision).at(0).at(0);
+            e.x().write(&mut c.memory, x);
+            e.y().write(&mut c.memory, y);
+            let index = ram::g_random_cache_index(revision);
+            index.write(&mut c.memory, 57);
+            ram::g_cached_random_values(revision)
+                .at(58)
+                .write(&mut c.memory, 99);
+            reactions::chicken_ability(&mut c).unwrap();
+            assert_eq!(
+                c.ids(),
+                vec![
+                    ids::ABS,
+                    ids::ABS,
+                    ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT,
+                    ids::SET_EARTHLING_STATE,
+                ]
+            );
+            assert_eq!(c.calls[3].arguments, vec![e.address(), next]);
+            assert_eq!(
+                c.calls[2].return_pc,
+                ids::CHICKEN_ABILITY.metadata().address(revision) + 0xd8
+            );
+            assert_eq!(
+                c.calls[3].return_pc,
+                ids::CHICKEN_ABILITY.metadata().address(revision) + 0x114
+            );
+            assert_eq!(
+                c.at(index.address()),
+                vec![
+                    Access::Read(index.address(), 16),
+                    Access::Read(index.address(), 16),
+                    Access::Write(index.address(), 16, 58),
+                    Access::Read(index.address(), 16),
+                ]
+            );
+            let coordinates = [
+                p.x().address(),
+                e.x().address(),
+                p.y().address(),
+                e.y().address(),
+            ];
+            let reads: Vec<_> = c.accesses.borrow().iter().filter(|event| {
+                matches!(event, Access::Read(address, _) if coordinates.contains(address))
+            }).cloned().collect();
+            let (source, target) = if vertical {
+                (e.y().address(), p.y().address())
+            } else {
+                (e.x().address(), p.x().address())
+            };
+            assert_eq!(
+                reads,
+                vec![
+                    Access::Read(p.x().address(), 16),
+                    Access::Read(e.x().address(), 16),
+                    Access::Read(p.y().address(), 16),
+                    Access::Read(e.y().address(), 16),
+                    Access::Read(source, 16),
+                    Access::Read(target, 16),
+                ]
+            );
+        }
+    }
 }

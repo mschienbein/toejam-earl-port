@@ -269,6 +269,10 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
         function: reactions::player_update_whirlwind_and_recovery,
     },
+    crate::FramedTranslation {
+        id: ids::CHICKEN_ABILITY,
+        function: reactions::chicken_ability,
+    },
 ];
 
 /// Complete bodies not yet admitted to production: both-revision proofs are
@@ -324,10 +328,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
         function: falling::player_resolve_descending_terrain,
-    },
-    crate::Translation {
-        id: ids::CHICKEN_ABILITY,
-        function: reactions::chicken_ability,
     },
     crate::Translation {
         id: ids::AI_BOOGIE_TOUCH,
