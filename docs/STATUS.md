@@ -1,5 +1,56 @@
 # Status (current entry first)
 
+## 2026-10-24 (night): replay proof tier in preparation; both natural endings recorded
+
+Branch `integrate/p0`. 460 of 648 functions are proven and registered; 188 are written and held.
+
+The held functions mostly finish in zero time where the original takes real time, so interrupts
+and the Z80 see a different machine state partway through. A new check-only proof tier, the
+**replayed environment**, is being built for them:
+
+- A function's own ordered bus accesses must match the original's exactly, with reads served from
+  the original's recording.
+- Calls into other catalogued functions are satisfied by the original's actual call, from JSR to
+  RTS, after the inputs that call consumes are checked. Every callee is proven on its own.
+- Stack bookkeeping is checked where it is observed: locals read back, bytes a callee reads, and
+  registers at exit.
+- Timing stays proven by the engine's whole-session replays.
+
+To prepare, every held body was compared with the matching compiler output at the level of
+individual reads and writes. This covered read order and width, repeated reads, the discarded
+read in each CLR, and the exact polling loops. The audit also found and fixed real semantic
+differences, each with a regression test:
+
+- the generic enemy's chance comparisons were unsigned where the original's are signed;
+- an elevator step restored a saved byte where the original passes the player pointer in D3;
+- the SEGA logo had an invented wait in its palette loop;
+- part 11 of the intro used the wrong sequence pointer;
+- the player falling check used the wrong local-variable offsets;
+- the startup code polled a word bit where the original polls a byte bit.
+
+New shared support: discarded bus reads that keep their purpose tag, RAM wait predicates that own
+every poll, a yield marker for compound polling loops, exact-width host writes, and a register and
+condition-code dependency analysis from the engine's decoder.
+
+Recorded sessions: 83 input-only recordings, 4,152,667 frames. Both revisions now have a natural
+campaign that collects all ten ship pieces across all 27 levels and plays the ending and complete
+credits, with no cheats or pauses. Each recording replays exactly between two independent
+reference runs. They reach 638 of the 648 functions in each revision. The two audio retry paths
+were never reached in a bounded search of 48,384 forked runs; labelled fixtures exercise them on
+real states by setting the Z80 busy byte for 112 Z80 ticks.
+
+Engine: native and browser replay the first 82 recordings (3,634,662 frames) with no differences;
+the REV 00 campaign is being checked. The release workflow builds Windows, universal macOS and
+Linux packages. The packaged Linux and Windows builds were tested with both ROMs, and one defect
+(two frames run after a fatal error) is fixed.
+
+Next:
+
+- the replayed-environment core, then one proof campaign over the whole corpus;
+- a stronger profile for the interrupt, reset and Z80-bus routines;
+- promotion of the ten functions in the current confirmation run;
+- release builds and final reviews.
+
 ## 2026-10-24: timing bridge integrated; 461 of 648 functions proven, all 648 written
 
 Branch `integrate/p0`.
