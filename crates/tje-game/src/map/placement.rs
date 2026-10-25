@@ -73,10 +73,11 @@ fn try_position(
 /// MOVEM D2-D7/A2-A5. Failed exhaustive searches deliberately consume the old
 /// coordinate words at A6-16/A6-14; an all-marked map retains nontermination.
 /// Return-PC offsets below are from the matching linked listings in both ROMs.
-pub fn set_position_on_new_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn set_position_on_new_level(c: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(c, FrameLayout::link(16, 0xfc, 0x3c))?;
     let r = c.revision();
-    let mut player = args[0] as i32;
+    // Matching listing:292, MOVE.L 8(A6),D2 precedes the height-local store.
+    let mut player = frame.argument_slot(0).read(c) as i32;
     frame.local::<i16>(-8).write(c, 2);
     if ram::g_player_lives(r).at(0).read(c) < 0 {
         player = 1;

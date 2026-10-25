@@ -59,10 +59,11 @@ fn release_arguments(c: &mut dyn Context, slots: u32) -> Result<()> {
 /// prologue is LINK A6,#-640 then MOVEM D2-D3/A2-A4 in both revisions. All
 /// pointer/DMA calls retain the original SP and linked return PC. Input waits
 /// use the real VBlank/input services, never an invented dismissal or ready bit.
-pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn draw_game_map(c: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(c, FrameLayout::link(640, 0x0c, 0x1c))?;
     let r = c.revision();
-    let player = i32::from(args[0] as i16);
+    // Matching listing:1560, MOVE.W 10(A6),D2.
+    let player = i32::from(frame.argument_word(0).read(c));
     let sprites = frame.local::<HardwareSprite>(-640);
     let mut map_number = i16::from(player == 1 && ram::g_split_screen_enabled(r).read(c) != 0);
     c.set_data_register(

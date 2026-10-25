@@ -480,9 +480,10 @@ fn main() -> Result {
                 .copied()
                 .collect()
         });
-    let registry = HookRegistry::proof_filtered(
+    let registry = HookRegistry::proof_filtered_with_frames(
         revision,
         BODIES.as_slice(),
+        map::PENDING_FRAMED_TRANSLATIONS,
         selected.as_deref().unwrap_or_default(),
     )?;
     let mut checked = Host::new(&bytes, Mode::Check, registry.clone())?;

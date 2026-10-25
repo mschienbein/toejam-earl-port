@@ -4,11 +4,12 @@ use tje_mem::{arithmetic::expr_div_u32, ram, rom};
 
 /// G/src/map/level_generation_and_changes.c:536 (`ChangeLevel`).
 /// Rejection intentionally returns without restoring the exchanged RNG state.
-pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn change_level(c: &mut dyn Context) -> Result<Option<u32>> {
     // Both matching c_level_generation_and_changes.s:2302-2303.
     let frame = LocalFrame::enter(c, FrameLayout::link(8, 0x7c, 0x1c))?;
     let r = c.revision();
-    let player = args[0] as i16;
+    // Matching listing:2304, MOVE.W 10(A6),D4, not an eager long load.
+    let player = frame.argument_word(0).read(c);
     let requested = ram::g_requested_map_level(r);
     let seed = ram::g_level_seeds(r)
         .at(i32::from(requested.read(c)))
@@ -271,12 +272,13 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
 }
 
 /// G/src/map/level_generation_and_changes.c:656 (`MapLoadPlayerLevel`).
-pub fn map_load_player_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn map_load_player_level(c: &mut dyn Context) -> Result<Option<u32>> {
     // Both matching listings: MOVEM D2-D4/A2, no LINK/local allocation.
     let frame = LocalFrame::enter(c, FrameLayout::movem(0, 0x1c, 0x04))?;
     let r = c.revision();
-    let mut player = args[0] as i16;
-    let level = args[1] as i16;
+    // Matching listing:2687-2688 loads player.W, then level.W before the branch.
+    let mut player = frame.argument_word(0).read(c);
+    let level = frame.argument_word(1).read(c);
     if level >= 26 {
         if i16::from(ram::g_player1_map_level(r).read(c)) != level {
             call_at_void(

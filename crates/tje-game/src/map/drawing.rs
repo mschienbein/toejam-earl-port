@@ -132,8 +132,12 @@ pub fn map_draw_elevator(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32
 }
 
 /// G/src/map/map_drawing_and_controller.c:410 (`DrawMapCharacters`).
-pub fn draw_map_characters(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
-    let sprites = Address::<HardwareSprite>::new(args[0]);
+pub fn draw_map_characters(c: &mut dyn Context) -> Result<Option<u32>> {
+    // Matching listing:1421, MOVE.L 8(SP),A2 after the private A2 save.
+    let entry = c
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    let sprites = Address::<HardwareSprite>::new(entry.argument_slot(0).read(c));
     call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     if ram::g_frame_counter(c.revision()).read(c) & 24 != 0 {
         for p in 0..3 {
@@ -150,11 +154,15 @@ pub fn draw_map_characters(c: &mut dyn Context, args: &[u32]) -> Result<Option<u
 }
 
 /// G/src/map/map_drawing_and_controller.c:443 (`MapUploadCoverAnimationFrame`).
-pub fn map_upload_cover_animation_frame(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn map_upload_cover_animation_frame(c: &mut dyn Context) -> Result<Option<u32>> {
     let r = c.revision();
-    let sprites = Address::<HardwareSprite>::new(args[0]);
-    let number = i32::from(args[1] as i16);
-    let first = args[2] as i16;
+    // Matching listing:1452-1454 loads pointer.L, frame.W, first-tiles.W in order.
+    let entry = c
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    let sprites = Address::<HardwareSprite>::new(entry.argument_slot(0).read(c));
+    let number = i32::from(entry.argument_word(1).read(c));
+    let first = entry.argument_word(2).read(c);
     let frame = rom::spr_map_tile_uncover(r)
         .at_word_index(number as i16)
         .read(c)

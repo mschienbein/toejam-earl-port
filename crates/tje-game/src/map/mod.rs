@@ -384,44 +384,10 @@ pub static PENDING: &[crate::FunctionId] = &[
 
 /// Opt-in proof hooks only; production never registers this table.
 /// Keeping body references here also exercises the ordinary library target.
-pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: ids::MAP_INITIALIZE_SCREEN_SPRITES,
-        function: map_initialize_screen_sprites,
-    },
-    crate::Translation {
-        id: ids::DRAW_MAP_CHARACTERS,
-        function: draw_map_characters,
-    },
-    crate::Translation {
-        id: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
-        function: map_upload_cover_animation_frame,
-    },
-    crate::Translation {
-        id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
-        function: map_assign_transition_chain,
-    },
-    crate::Translation {
-        id: ids::CHANGE_LEVEL,
-        function: change_level,
-    },
-    crate::Translation {
-        id: ids::MAP_LOAD_PLAYER_LEVEL,
-        function: map_load_player_level,
-    },
-];
-
-/// Bodies requiring residual/dependent-equivalence or clock contracts stay unregistered.
-pub static FRAME_PENDING_TRANSLATIONS: &[crate::Translation] = &[
-    crate::Translation {
-        id: ids::SET_POSITION_ON_NEW_LEVEL,
-        function: set_position_on_new_level,
-    },
-    crate::Translation {
-        id: ids::DRAW_GAME_MAP,
-        function: draw_game_map,
-    },
-];
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[crate::Translation {
+    id: ids::MAP_ASSIGN_TRANSITION_CHAIN,
+    function: map_assign_transition_chain,
+}];
 
 /// Canonical real-frame candidates; pending status grants no production hook.
 pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
@@ -452,6 +418,34 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::PROCESS_LAND,
         function: process_land,
+    },
+    crate::FramedTranslation {
+        id: ids::CHANGE_LEVEL,
+        function: change_level,
+    },
+    crate::FramedTranslation {
+        id: ids::MAP_LOAD_PLAYER_LEVEL,
+        function: map_load_player_level,
+    },
+    crate::FramedTranslation {
+        id: ids::MAP_INITIALIZE_SCREEN_SPRITES,
+        function: map_initialize_screen_sprites,
+    },
+    crate::FramedTranslation {
+        id: ids::DRAW_MAP_CHARACTERS,
+        function: draw_map_characters,
+    },
+    crate::FramedTranslation {
+        id: ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+        function: map_upload_cover_animation_frame,
+    },
+    crate::FramedTranslation {
+        id: ids::DRAW_GAME_MAP,
+        function: draw_game_map,
+    },
+    crate::FramedTranslation {
+        id: ids::SET_POSITION_ON_NEW_LEVEL,
+        function: set_position_on_new_level,
     },
 ];
 

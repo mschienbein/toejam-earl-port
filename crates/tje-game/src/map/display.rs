@@ -246,10 +246,14 @@ pub fn map_draw_background_and_terrain(c: &mut dyn Context, args: &[u32]) -> Res
 
 /// G/src/map/map_drawing_and_controller.c:297 (`MapInitializeScreenSprites`).
 /// ORIGINAL BUG: the second failed allocation is not retried after stronger recovery.
-pub fn map_initialize_screen_sprites(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
+pub fn map_initialize_screen_sprites(c: &mut dyn Context) -> Result<Option<u32>> {
     use tje_mem::{Address, HardwareSprite};
     let r = c.revision();
-    let sprites = Address::<HardwareSprite>::new(args[0]);
+    // Matching listing:975, the pointer is one long load at entry SP+4.
+    let entry = c
+        .frame_state()
+        .ok_or(crate::call_frame::FrameError::Unavailable)?;
+    let sprites = Address::<HardwareSprite>::new(entry.argument_slot(0).read(c));
     let mut first = call(c, ids::ALLOCATE_SPRITE_TILE_RUN, &[8])? as u16;
     if first == 0 {
         call_void(c, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, &[0])?;

@@ -26,6 +26,7 @@ struct RootMachine {
     load_rejections: u8,
     input: VecDeque<u32>,
     pending_samples: RefCell<Option<(u32, VecDeque<u8>)>>,
+    framed_map_callees: bool,
 }
 impl RootMachine {
     fn new(r: Revision) -> Self {
@@ -44,7 +45,22 @@ impl RootMachine {
             load_rejections: 0,
             input: VecDeque::from([0, 0x20, 0]),
             pending_samples: RefCell::new(None),
+            framed_map_callees: false,
         }
+    }
+    fn invoke(&mut self, id: FunctionId, arguments: &[u32]) -> Result<Option<u32>> {
+        // Authored caller setup, not an eager argument-reading adapter. Only
+        // the canonical ctx-only body reads these slots, through the traced bus.
+        for (index, &value) in arguments.iter().enumerate() {
+            self.inner
+                .memory
+                .write_u32(self.frame.entry_sp + 4 + index as u32 * 4, value);
+        }
+        let entry = PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or(Error::Untranslated(id))?;
+        crate::TranslatedEntry::Framed(entry).invoke_prepared(self)
     }
     fn clear_accesses(&self) {
         self.accesses.borrow_mut().clear();
@@ -284,7 +300,11 @@ impl Context for RootMachine {
         Ok(())
     }
     fn dispatcher(&self) -> Dispatcher {
-        Dispatcher::hybrid_with(&[])
+        if self.framed_map_callees {
+            Dispatcher::hybrid_with_frames(&[], PENDING_FRAMED_TRANSLATIONS)
+        } else {
+            Dispatcher::hybrid_with(&[])
+        }
     }
     fn execution_class(&self) -> ExecutionClass {
         ExecutionClass::TimeAware
@@ -351,7 +371,7 @@ fn change_level_reads_requested_before_each_bank_and_restores_the_local_rng_word
             ram::g_player2_map_level(r).write(&mut c, second);
             ram::g_saved_map_level(r).write(&mut c, saved);
             c.clear_accesses();
-            assert_eq!(change_level(&mut c, &[player]).unwrap(), Some(0));
+            assert_eq!(c.invoke(ids::CHANGE_LEVEL, &[player]).unwrap(), Some(0));
             let reads = c.reads();
             for bank in [
                 ram::g_player1_map_level(r),
@@ -381,7 +401,7 @@ fn procedural_generation_reloads_count_and_reads_anchor_x_before_y() {
         ram::g_player2_map_level(r).write(&mut c, 1);
         ram::g_saved_map_level(r).write(&mut c, -1);
         c.clear_accesses();
-        assert_eq!(change_level(&mut c, &[0]).unwrap(), Some(0));
+        assert_eq!(c.invoke(ids::CHANGE_LEVEL, &[0]).unwrap(), Some(0));
         let reads = c.reads();
         let count = (0xff7000 - 6, 2);
         assert_eq!(reads.iter().filter(|&&read| read == count).count(), 7);
@@ -427,7 +447,8 @@ fn cover_unpack_reads_format_then_height_then_width_and_keeps_queue_byte_rmws() 
         bytes[0x600e..0x6010].copy_from_slice(&[4, 5]);
         let mut c = RootMachine::with_rom(r, bytes);
         let sprites = ram::g_saved_level_map(r).address();
-        map_upload_cover_animation_frame(&mut c, &[sprites, 0, 0]).unwrap();
+        c.invoke(ids::MAP_UPLOAD_COVER_ANIMATION_FRAME, &[sprites, 0, 0])
+            .unwrap();
         let reads = c.reads();
         for base in [0x6004, 0x600e] {
             let start = reads
@@ -465,7 +486,7 @@ fn placement_reads_local_producers_and_push_order_without_replacing_old_outputs(
             c.write_i16(base - 16, 1234);
             c.write_i16(base - 14, 567);
             c.clear_accesses();
-            set_position_on_new_level(&mut c, &[2]).unwrap();
+            c.invoke(ids::SET_POSITION_ON_NEW_LEVEL, &[2]).unwrap();
             let reads = c.reads();
             let attempts = if success { 1 } else { 504 };
             assert_eq!(
@@ -515,7 +536,7 @@ fn map_display_reads_mode_before_releasing_the_retained_dma_batch() {
         let idle = ram::g_player_idle_ticks(r).at(0);
         idle.write(&mut c, 0x1234);
         c.clear_accesses();
-        draw_game_map(&mut c, &[0]).unwrap();
+        c.invoke(ids::DRAW_GAME_MAP, &[0]).unwrap();
         assert_zero_prereads(&c, idle.address(), 2, usize::from(r == Revision::Rev02));
         assert_eq!(idle.read(&c), if r == Revision::Rev02 { 0 } else { 0x1234 });
         let accesses = c.accesses.borrow();
@@ -541,7 +562,8 @@ fn map_sprite_recovery_keeps_missing_third_allocation_and_unwritten_x_fields() {
                 sprites.offset(index).x().write(&mut c, 0x1234);
             }
             c.clear_accesses();
-            map_initialize_screen_sprites(&mut c, &[sprites.address()]).unwrap();
+            c.invoke(ids::MAP_INITIALIZE_SCREEN_SPRITES, &[sprites.address()])
+                .unwrap();
             let calls = c.calls();
             assert_eq!(
                 calls
@@ -588,9 +610,10 @@ fn marker_blink_waits_then_reads_only_visible_y_words() {
                 sprites.offset(index).y().write(&mut c, 200 + index as i16);
             }
             c.clear_accesses();
-            draw_map_characters(&mut c, &[sprites.address()]).unwrap();
+            c.invoke(ids::DRAW_MAP_CHARACTERS, &[sprites.address()])
+                .unwrap();
             assert_eq!(c.calls(), vec![(ids::WAIT_FOR_NEXT_V_BLANK, vec![1])]);
-            let mut expected = vec![(ram::g_frame_counter(r).address(), 2)];
+            let mut expected = vec![(0xff7004, 4), (ram::g_frame_counter(r).address(), 2)];
             if counter != 0 {
                 expected.extend((0..3).map(|index| (sprites.offset(index).y().address(), 2)));
             }
@@ -622,7 +645,7 @@ fn player_level_loader_keeps_dead_player_override_retry_and_final_short_circuit(
         let mut c = RootMachine::new(r);
         ram::g_player_lives(r).at(0).write(&mut c, -1);
         c.load_rejections = 1;
-        map_load_player_level(&mut c, &[1, 2]).unwrap();
+        c.invoke(ids::MAP_LOAD_PLAYER_LEVEL, &[1, 2]).unwrap();
         assert_eq!(
             c.calls(),
             vec![
@@ -635,9 +658,9 @@ fn player_level_loader_keeps_dead_player_override_retry_and_final_short_circuit(
         assert_eq!(ram::g_player1_map_level(r).read(&c), -1);
         c.clear_accesses();
         ram::g_player1_map_level(r).write(&mut c, 26);
-        map_load_player_level(&mut c, &[1, 26]).unwrap();
+        c.invoke(ids::MAP_LOAD_PLAYER_LEVEL, &[1, 26]).unwrap();
         assert!(c.calls().is_empty());
-        map_load_player_level(&mut c, &[1, 27]).unwrap();
+        c.invoke(ids::MAP_LOAD_PLAYER_LEVEL, &[1, 27]).unwrap();
         assert_eq!(c.calls(), vec![(ids::LOAD_FINAL_LEVEL, vec![27])]);
         assert_eq!(c.inner.address[7], 0xff7000);
     }
@@ -705,7 +728,7 @@ fn rejected_generation_returns_one_without_restoring_the_rng() {
         ram::g_player1_map_level(r).write(&mut c, 1);
         ram::g_player2_map_level(r).write(&mut c, 1);
         ram::g_saved_map_level(r).write(&mut c, -1);
-        assert_eq!(change_level(&mut c, &[0]).unwrap(), Some(1));
+        assert_eq!(c.invoke(ids::CHANGE_LEVEL, &[0]).unwrap(), Some(1));
         assert_eq!(
             c.calls()
                 .iter()
@@ -762,7 +785,7 @@ fn level_pending_wait_owns_all_byte_samples_including_the_final_zero() {
             ram::g_saved_map_level(r).write(&mut c, -1);
             c.pending_samples(samples);
             c.clear_accesses();
-            assert_eq!(change_level(&mut c, &[0]).unwrap(), Some(0));
+            assert_eq!(c.invoke(ids::CHANGE_LEVEL, &[0]).unwrap(), Some(0));
             assert_pending_polls(&c, samples, false);
         }
     }
@@ -774,7 +797,7 @@ fn map_pending_wait_keeps_the_outer_test_without_duplicating_inner_polls() {
         for samples in [&[0][..], &[0x80, 0], &[0xff, 0x80, 1, 0]] {
             let mut c = RootMachine::new(r);
             c.pending_samples(samples);
-            draw_game_map(&mut c, &[0]).unwrap();
+            c.invoke(ids::DRAW_GAME_MAP, &[0]).unwrap();
             assert_pending_polls(&c, samples, true);
             let first_call = c.calls().into_iter().next().unwrap();
             assert_eq!(
@@ -786,5 +809,170 @@ fn map_pending_wait_keeps_the_outer_test_without_duplicating_inner_polls() {
                 }
             );
         }
+    }
+}
+
+#[test]
+fn lazy_map_entries_read_only_the_compiled_argument_widths_in_source_order() {
+    for r in Revision::ALL {
+        let sprites = ram::g_saved_level_map(r).address();
+        for (id, arguments, expected) in [
+            (ids::CHANGE_LEVEL, vec![0xa5a5_0000], vec![(0xff7006, 2)]),
+            (
+                ids::MAP_LOAD_PLAYER_LEVEL,
+                vec![0xaaaa_0001, 0xbbbb_001a],
+                vec![(0xff7006, 2), (0xff700a, 2)],
+            ),
+            (
+                ids::MAP_INITIALIZE_SCREEN_SPRITES,
+                vec![sprites],
+                vec![(0xff7004, 4)],
+            ),
+            (ids::DRAW_MAP_CHARACTERS, vec![sprites], vec![(0xff7004, 4)]),
+            (
+                ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+                vec![sprites, 0xaaaa_0000, 0xbbbb_0000],
+                vec![(0xff7004, 4), (0xff700a, 2), (0xff700e, 2)],
+            ),
+            (ids::DRAW_GAME_MAP, vec![0xa5a5_0000], vec![(0xff7006, 2)]),
+            (
+                ids::SET_POSITION_ON_NEW_LEVEL,
+                vec![0xa5a5_0002],
+                vec![(0xff7004, 4)],
+            ),
+        ] {
+            let mut c = RootMachine::new(r);
+            ram::g_requested_map_level(r).write(&mut c, 1);
+            ram::g_player1_map_level(r).write(
+                &mut c,
+                if id == ids::MAP_LOAD_PLAYER_LEVEL {
+                    26
+                } else {
+                    1
+                },
+            );
+            // This source override happens after the full player.L read, so
+            // even a poisoned long player input follows a returning real path.
+            if id == ids::SET_POSITION_ON_NEW_LEVEL {
+                ram::g_player_lives(r).at(0).write(&mut c, -1);
+            }
+            c.clear_accesses();
+            c.invoke(id, &arguments).unwrap();
+            let reads = c.reads();
+            assert_eq!(
+                &reads[..expected.len()],
+                expected.as_slice(),
+                "{}",
+                id.metadata().name
+            );
+            let argument_reads: Vec<_> = reads
+                .into_iter()
+                .filter(|(address, _)| (0xff7004..0xff7014).contains(address))
+                .collect();
+            assert_eq!(argument_reads, expected, "{}", id.metadata().name);
+            let accesses = c.accesses.borrow();
+            if let Some(first_call) = accesses
+                .iter()
+                .position(|access| matches!(access, Access::Call(_, _)))
+            {
+                for &(address, width) in &expected {
+                    let load = accesses
+                        .iter()
+                        .position(|access| *access == Access::Read(address, width))
+                        .unwrap();
+                    assert!(
+                        load < first_call,
+                        "argument load moved beyond the compiled prologue"
+                    );
+                }
+            }
+            if id == ids::SET_POSITION_ON_NEW_LEVEL {
+                let load = accesses
+                    .iter()
+                    .position(|access| *access == Access::Read(0xff7004, 4))
+                    .unwrap();
+                let height = accesses
+                    .iter()
+                    .position(|access| *access == Access::Write(0xff7000 - 12, 2, 2))
+                    .unwrap();
+                assert!(
+                    load < height,
+                    "player.L must be read before height initialization"
+                );
+            }
+            assert_eq!(c.inner.address[7], 0xff7000);
+        }
+    }
+}
+
+#[test]
+fn argument_bearing_map_pending_entries_have_no_legacy_value_adapter() {
+    for id in [
+        ids::CHANGE_LEVEL,
+        ids::MAP_LOAD_PLAYER_LEVEL,
+        ids::MAP_INITIALIZE_SCREEN_SPRITES,
+        ids::DRAW_MAP_CHARACTERS,
+        ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
+        ids::DRAW_GAME_MAP,
+        ids::SET_POSITION_ON_NEW_LEVEL,
+    ] {
+        assert!(!PENDING_TRANSLATIONS.iter().any(|entry| entry.id == id));
+        let entry = PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .find(|entry| entry.id == id)
+            .unwrap();
+        let mut c = RootMachine::new(Revision::Rev02);
+        assert!(matches!(
+            crate::TranslatedEntry::Framed(entry).invoke_values(&mut c, &[0]),
+            Err(Error::Frame(crate::call_frame::FrameError::PreparedEntryRequired(found))) if found == id
+        ));
+        assert!(c.accesses.borrow().is_empty());
+    }
+}
+
+#[test]
+fn level_loader_dispatches_the_canonical_framed_change_level_callee() {
+    for r in Revision::ALL {
+        let mut c = RootMachine::new(r);
+        c.framed_map_callees = true;
+        ram::g_player1_map_level(r).write(&mut c, 1);
+        c.invoke(ids::MAP_LOAD_PLAYER_LEVEL, &[0, 1]).unwrap();
+        let calls = c.calls();
+        assert!(!calls.iter().any(|(id, _)| *id == ids::CHANGE_LEVEL));
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|(id, _)| *id == ids::STACK_BASED_RANDOM)
+                .count(),
+            2
+        );
+        assert_eq!(c.inner.address[7], 0xff7000);
+    }
+}
+
+#[test]
+fn map_screen_prepared_sites_accept_canonical_framed_map_callees() {
+    for r in Revision::ALL {
+        let mut c = RootMachine::new(r);
+        c.framed_map_callees = true;
+        // One idle map-controller iteration also reaches DrawMapCharacters.
+        c.input = VecDeque::from([0, 0, 0x20, 0]);
+        c.invoke(ids::DRAW_GAME_MAP, &[0]).unwrap();
+        let calls = c.calls();
+        assert!(!calls.iter().any(|(id, _)| matches!(
+            *id,
+            ids::MAP_INITIALIZE_SCREEN_SPRITES
+                | ids::DRAW_MAP_CHARACTERS
+                | ids::MAP_UPLOAD_COVER_ANIMATION_FRAME
+        )));
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|(id, _)| *id == ids::SPRITE_UNPACK_RLE)
+                .count(),
+            4
+        );
+        assert_eq!(ram::g_map_screen_next_sprite_index(r).read(&c), 7);
+        assert_eq!(c.inner.address[7], 0xff7000);
     }
 }
