@@ -958,6 +958,8 @@ class VendorProvenanceTests(GitAuditCase):
             "backend/genesis-core/src/reference_proof/reset.rs",
             "backend/genesis-core/src/reference_proof/reset_tests.rs",
             "backend/genesis-core/src/reference_proof/read_context.rs",
+            "backend/genesis-core/src/ram_dma_observer.rs",
+            "backend/genesis-components/src/ram_dma_observer.rs",
         }))
         unknown = "backend/genesis-core/src/reference_proof/unchecked.rs"
         for spec in [

@@ -8,6 +8,8 @@ rust-version.workspace = true
 default-run = "tje-host"
 
 [features]
+default = ["ram-dma-observer"]
+ram-dma-observer = ["genesis-core/ram-dma-observer"]
 reference-proof-hooks = ["genesis-core/reference-proof-hooks"]
 
 [dependencies]

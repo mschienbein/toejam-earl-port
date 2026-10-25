@@ -106,8 +106,11 @@ Local changes are marked `TJE hybrid`, `TJE standalone cutover`, `TJE timing sur
   prefetch/marker and original entry-fault handling. It executes no opcode,
   advances no device clock, invents no retirement receipt and never repairs an
   original snapshot. The caller binds source fault context; real partial or
-  double-fault state is retained on failure. Authored tests compare full25-word
-  CPU state and physical bus ordering against an original DIVU-zero instruction.
+  double-fault state is retained on failure. Explicit fault site and saved PC
+  differ for DIVU (next PC) and first-opcode SR privilege failure (opcode PC).
+  Authored tests compare full 25-word CPU state and physical bus ordering against
+  original DIVU-zero and ORI/ANDI-to-SR privilege faults, including unconsumed
+  immediates and real entry faults. True CCR forms remain unprivileged.
   Ordinary CPU execution is unchanged; see the CPU README.
 
 Additional `TJE hybrid` check-contract extensions (disabled by default):
@@ -120,6 +123,7 @@ Additional `TJE hybrid` check-contract extensions (disabled by default):
 - `backend/genesis-components/src/vdp/{debug,fifo,sprites,cramdots}.rs`: cold, bounded read-only field diagnostics for the existing full/logical VDP comparison scopes. Register indices, control/FIFO/DMA latches and memory addresses are reported with both values; no equality, timing, FIFO, memory or device-access behavior is changed.
 - `backend/genesis-components/src/ym2612.rs`: `hybrid_settle_write_busy` settles only the fixed register-write BUSY countdown for functional check forks; no timer, oscillator, status-read or sample algorithm is replaced.
 - `backend/genesis-core/src/bus.rs`: expose the existing pure `Z80Signals::busack` query plus read-only `bus_requested`/`reset_asserted` field accessors for host drive-mask/seed-receipt inspection. Visibility/inlining only; the signal formula, fields, read values and normal timing are unchanged.
+- `backend/genesis-components/src/ram_dma_observer.rs` and `backend/genesis-core/src/ram_dma_observer.rs`: neutral, default-off `ram-dma-observer` callbacks for actual RAM commits, before-fetch semantic RAM/DMA reads, and actual DMA command ownership. Opaque queued-control tokens retain the issuer of the real second command word; transfer leases survive a Rust return and retire as completed, cancelled, reset-invalidated, or discarded. They grant no operand, source proof, reset/fixture capability, or CPU authority. Observer callbacks/tokens do not clone or serialize; the feature adds no fields to shipping feature-off peripheral layouts. Existing FIFO/queue/device ordering, source reads, timing and `ReadPurpose` are unchanged.
 
 No constructor or ordinary timing path enables functional mode. The live machine
 and time-aware waits use unmodified FIFO/DMA/BUSY timing. Function-level logical

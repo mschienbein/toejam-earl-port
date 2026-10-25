@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::execution::{CallCeilingScope, ExecutionClass};
+use crate::stack_read::{LocalWidth, UninitializedLocalRead, Unsupported, UnsupportedReason};
 use crate::{Dispatcher, FramedTranslation, FunctionId, call_frame::FrameState};
 use std::cell::RefCell;
 use tje_mem::{AddressSpace, Bus, Revision};
@@ -16,6 +17,31 @@ struct PreparedCall {
     return_pc: u32,
     arguments: [u32; 2],
     count: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MovementAccess {
+    Explicit(u16),
+    Read(u16),
+    Write(u16),
+}
+
+struct ResidualProbe {
+    address: u32,
+    reject: bool,
+    declarations: Vec<UninitializedLocalRead>,
+    accesses: RefCell<Vec<MovementAccess>>,
+}
+
+impl ResidualProbe {
+    fn new(address: u32, reject: bool) -> Self {
+        Self {
+            address,
+            reject,
+            declarations: Vec::with_capacity(1),
+            accesses: RefCell::new(Vec::with_capacity(6)),
+        }
+    }
 }
 
 struct Machine {
@@ -30,6 +56,8 @@ struct Machine {
     allocations: Vec<(u32, u32)>,
     discarded: Vec<(u8, u32)>,
     state_read_stacks: RefCell<Vec<u32>>,
+    residual: Option<ResidualProbe>,
+    fail_bounce_entry: bool,
 }
 
 impl Machine {
@@ -46,6 +74,8 @@ impl Machine {
             allocations: Vec::with_capacity(1),
             discarded: Vec::with_capacity(4),
             state_read_stacks: RefCell::new(Vec::with_capacity(3)),
+            residual: None,
+            fail_bounce_entry: false,
         }
     }
 
@@ -72,7 +102,16 @@ impl Bus for Machine {
         if address == ram::g_cutscene_script_state(self.memory.revision()).address() {
             self.state_read_stacks.borrow_mut().push(self.sp);
         }
-        self.memory.read_u16(address)
+        let value = self.memory.read_u16(address);
+        if let Some(probe) = &self.residual
+            && address == probe.address
+        {
+            probe
+                .accesses
+                .borrow_mut()
+                .push(MovementAccess::Read(value));
+        }
+        value
     }
     fn read_u32(&self, address: u32) -> u32 {
         self.memory.read_u32(address)
@@ -82,6 +121,14 @@ impl Bus for Machine {
     }
     fn write_u16(&mut self, address: u32, value: u16) {
         self.memory.write_u16(address, value);
+        if let Some(probe) = &self.residual
+            && address == probe.address
+        {
+            probe
+                .accesses
+                .borrow_mut()
+                .push(MovementAccess::Write(value));
+        }
     }
     fn write_u32(&mut self, address: u32, value: u32) {
         self.memory.write_u32(address, value);
@@ -171,6 +218,54 @@ impl Context for Machine {
         Dispatcher::hybrid_with_frames(&[], PROBES)
     }
 
+    fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
+        let Some(probe) = &mut self.residual else {
+            return Err(Unsupported::unavailable(read).into());
+        };
+        assert_eq!(read.owner, ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE);
+        assert_eq!(read.frame, self.frame);
+        assert_eq!(read.address(), probe.address);
+        assert_eq!((read.offset, read.width), (-6, LocalWidth::Word));
+        assert!(read.address() >= self.sp && read.address() + 2 <= self.frame.entry_sp);
+        assert!(read.citation.contains("1193-1194"));
+        probe.declarations.push(read);
+        if probe.reject {
+            return Err(Unsupported::paired(
+                read.owner,
+                read.frame.entry_sp,
+                read,
+                UnsupportedReason::MissingOriginalFrameWitness,
+            )
+            .into());
+        }
+        let value = self.memory.read_u16(read.address());
+        probe
+            .accesses
+            .borrow_mut()
+            .push(MovementAccess::Explicit(value));
+        Ok(u32::from(value))
+    }
+
+    fn call_original_entry(&mut self, id: FunctionId, _: ExecutionClass) -> Result<u32> {
+        if self.fail_bounce_entry && id == ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE {
+            let read = self.frame.uninitialized_local(
+                id,
+                -6,
+                LocalWidth::Word,
+                "controlled child failure; no original witness is supplied",
+            );
+            return Err(Unsupported::paired(
+                id,
+                self.frame.entry_sp,
+                read,
+                UnsupportedReason::MissingOriginalFrameWitness,
+            )
+            .into());
+        }
+        self.sp += 4;
+        Ok(0)
+    }
+
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
         assert!(self.frame.is_prepared_for(id));
         assert_eq!(self.frame.entry_sp, self.sp);
@@ -201,12 +296,13 @@ impl Context for Machine {
         Ok(())
     }
 
-    fn call_original_entry_void(&mut self, id: FunctionId, _: ExecutionClass) -> Result<()> {
-        assert_eq!(id, ids::CLEAR_LOWER_VRAM_TILEMAP);
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
         assert_eq!(self.frame.entry_sp, self.sp);
-        // Dialogue's cadence arguments remain present during the following
-        // no-argument clear call, until the original ADDQ.L #8 at 0x528.
-        self.capture(id, 2);
+        if id == ids::CLEAR_LOWER_VRAM_TILEMAP {
+            // Dialogue retains cadence arguments until original ADDQ.L #8.
+            self.capture(id, 2);
+        }
+        self.call_original_void_with_execution(id, &[], class)?;
         self.sp += 4;
         Ok(())
     }
@@ -386,5 +482,115 @@ fn ending_callers_prepare_source_frames_and_retained_slots_in_both_revisions() {
                 assert_eq!(machine.allocations[0].1, 1);
             }
         }
+    }
+}
+
+#[test]
+fn movement_declares_only_the_first_rmw_input_then_reads_own_written_words() {
+    const SP: u32 = 0xff7f00;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision, SP);
+        machine.residual = Some(ResidualProbe::new(SP - 6, false));
+        for old in [0_u16, 0x7fff, 0x8000, 0xfffe, 0xffff] {
+            machine.memory.write_u16(SP - 6, old);
+            machine.discarded.clear();
+            let probe = machine.residual.as_mut().unwrap();
+            probe.declarations.clear();
+            probe.accesses.get_mut().clear();
+            let frame = LocalFrame::enter(&mut machine, FrameLayout::link(4, 0x7c, 0x1c)).unwrap();
+            let word = frame.local::<i16>(-2);
+            let mut first = true;
+            let next = old.wrapping_add(1);
+            assert_eq!(
+                increment_movement_frame(&mut machine, word, &mut first).unwrap(),
+                next as i16
+            );
+            assert!(!first);
+            let again = next.wrapping_add(1);
+            assert_eq!(
+                increment_movement_frame(&mut machine, word, &mut first).unwrap(),
+                again as i16
+            );
+            let probe = machine.residual.as_ref().unwrap();
+            assert_eq!(probe.declarations.len(), 1);
+            assert_eq!(
+                probe.accesses.borrow().as_slice(),
+                &[
+                    MovementAccess::Explicit(old),
+                    MovementAccess::Write(next),
+                    MovementAccess::Read(next),
+                    MovementAccess::Read(next),
+                    MovementAccess::Write(again),
+                    MovementAccess::Read(again),
+                ]
+            );
+            frame.leave(&mut machine).unwrap();
+        }
+    }
+}
+
+#[test]
+fn rejected_first_movement_input_neither_fetches_nor_initializes_the_word() {
+    const SP: u32 = 0xff7f00;
+    let mut machine = Machine::new(Revision::Rev02, SP);
+    machine.memory.write_u16(SP - 6, 0x8123);
+    machine.residual = Some(ResidualProbe::new(SP - 6, true));
+    let frame = LocalFrame::enter(&mut machine, FrameLayout::link(4, 0x7c, 0x1c)).unwrap();
+    let mut first = true;
+    let error =
+        increment_movement_frame(&mut machine, frame.local::<i16>(-2), &mut first).unwrap_err();
+    assert_eq!(
+        error.unsupported_stack_read().unwrap().reason,
+        UnsupportedReason::MissingOriginalFrameWitness
+    );
+    assert!(error.preserves_call_frame());
+    assert!(first);
+    assert_eq!(machine.memory.read_u16(SP - 6), 0x8123);
+    let probe = machine.residual.as_ref().unwrap();
+    assert_eq!(probe.declarations.len(), 1);
+    assert!(probe.accesses.borrow().is_empty());
+    assert_eq!(machine.sp, frame.save_base());
+}
+
+#[test]
+fn bouncing_wrapper_keeps_the_allocated_frame_on_missing_first_input_witness() {
+    const SP: u32 = 0xff7f00;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision, SP);
+        machine.memory.write_u16(SP - 6, 0xa123);
+        machine.residual = Some(ResidualProbe::new(SP - 6, true));
+        let error = ending_play_bouncing_rocketship_scene(&mut machine, &[]).unwrap_err();
+        let failure = error.unsupported_stack_read().unwrap();
+        assert_eq!(failure.root, ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE);
+        assert_eq!(
+            failure.reason,
+            UnsupportedReason::MissingOriginalFrameWitness
+        );
+        assert_eq!(machine.sp, SP - 40);
+        assert_eq!(machine.address[6], SP - 4);
+        assert_eq!(machine.memory.read_u16(SP - 6), 0xa123);
+        let probe = machine.residual.as_ref().unwrap();
+        assert_eq!(probe.declarations.len(), 1);
+        assert!(probe.accesses.borrow().is_empty());
+    }
+}
+
+#[test]
+fn sequence_wrapper_never_repairs_a_frame_preserving_failed_child() {
+    const SP: u32 = 0xff7f00;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision, SP);
+        machine.fail_bounce_entry = true;
+        let error = play_ending_sequence(&mut machine, &[]).unwrap_err();
+        let failure = error.unsupported_stack_read().unwrap();
+        assert_eq!(failure.root, ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE);
+        assert_eq!(
+            failure.reason,
+            UnsupportedReason::MissingOriginalFrameWitness
+        );
+        // Parent saves12, retains40argument bytes, then pushes the actual RA.
+        assert_eq!(failure.entry_sp, SP - 56);
+        assert_eq!(machine.sp, failure.entry_sp);
+        assert_eq!(machine.frame.entry_sp, failure.entry_sp);
     }
 }

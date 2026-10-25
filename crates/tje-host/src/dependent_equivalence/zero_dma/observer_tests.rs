@@ -198,9 +198,11 @@ fn cr01_omitted_store_never_gains_admission_from_the_zero_only_descriptor() {
         for class in [ExecutionClass::Functional, ExecutionClass::TimeAware] {
             let mut strict = cr01(revision, class, false);
             let error = strict.run_frame(Default::default()).unwrap_err();
-            assert!(
-                error.to_string().contains("uninitialized stack read"),
-                "{revision:?} {class:?}: {error}"
+            let failure = error.typed_stack_read().unwrap();
+            assert_eq!(failure.reader, tje_game::stack_read::Reader::VdpDma);
+            assert_eq!(
+                failure.reason,
+                tje_game::stack_read::UnsupportedReason::Unwritten
             );
             assert_eq!(strict.checks.calls, 2);
             assert_eq!(strict.checks.mismatches, 1);

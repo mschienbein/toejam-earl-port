@@ -3,9 +3,11 @@
 use super::{frames, hottub, jump, reactions};
 use crate::call_frame::FrameState;
 use crate::execution::ExecutionClass;
+use crate::stack_read::{Guard, LocalWidth, Reader, UninitializedLocalRead};
 use crate::{Context, Dispatcher, FunctionId, Result, ids};
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::sync::Arc;
 use tje_mem::{AddressSpace, Bus, Platform, Revision, ram};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +35,8 @@ struct AccessContext {
     sp: u32,
     frame: FrameState,
     random: VecDeque<u32>,
+    guard: Arc<Guard>,
+    declared_locals: Vec<(UninitializedLocalRead, u8, u32)>,
 }
 
 impl AccessContext {
@@ -53,6 +57,8 @@ impl AccessContext {
             sp,
             frame: FrameState::new(sp),
             random: VecDeque::new(),
+            guard: Arc::new(Guard::default()),
+            declared_locals: Vec::new(),
         }
     }
 
@@ -122,6 +128,7 @@ impl AccessContext {
             | ids::PLAY_SOUND
             | ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG
             | ids::PLAYER_START_FALLING
+            | ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION
             | ids::PLAYER_APPLY_PHASED_JUMP_INPUT => 0,
             _ => panic!("unexpected callee {}", id.metadata().name),
         };
@@ -144,10 +151,12 @@ impl AccessContext {
 
 impl Bus for AccessContext {
     fn read_u8(&self, address: u32) -> u8 {
+        self.guard.read(address, 1, Reader::RustMemory);
         self.accesses.borrow_mut().push(Access::Read(address, 8));
         self.memory.read_u8(address)
     }
     fn read_u16(&self, address: u32) -> u16 {
+        self.guard.read(address, 2, Reader::RustMemory);
         self.accesses.borrow_mut().push(Access::Read(address, 16));
         self.memory.read_u16(address)
     }
@@ -159,12 +168,14 @@ impl Bus for AccessContext {
             .borrow_mut()
             .push(Access::Write(address, 8, u32::from(value)));
         self.memory.write_u8(address, value);
+        self.guard.commit(address, 1, true);
     }
     fn write_u16(&mut self, address: u32, value: u16) {
         self.accesses
             .borrow_mut()
             .push(Access::Write(address, 16, u32::from(value)));
         self.memory.write_u16(address, value);
+        self.guard.commit(address, 2, true);
     }
     fn write_u32(&mut self, address: u32, value: u32) {
         self.write_u16(address, (value >> 16) as u16);
@@ -192,6 +203,8 @@ impl crate::Platform for AccessContext {
     fn write_device_u16(&mut self, address: u32, _: u16) {
         panic!("unexpected device write {address:06x}")
     }
+    // As in HookContext::read_bus_tagged, a tagged discarded bus read has
+    // no exposed operand; it is recorded, not treated as a semantic fetch.
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.accesses.borrow_mut().push(Access::Discard(address, 8));
         Ok(())
@@ -238,6 +251,20 @@ impl Context for AccessContext {
     fn set_frame_state(&mut self, value: FrameState) -> Result<()> {
         self.frame = value;
         Ok(())
+    }
+    fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
+        let address = self.guard.explicit_local(read, self.frame, self.sp)?;
+        let mask = self.guard.unwritten_mask(address, read.width.bytes());
+        let value = match read.width {
+            LocalWidth::Byte => u32::from(self.memory.read_u8(address)),
+            LocalWidth::Word => u32::from(self.memory.read_u16(address)),
+            LocalWidth::Long => self.memory.read_u32(address),
+        };
+        self.accesses
+            .borrow_mut()
+            .push(Access::Read(address, read.width.bytes() * 8));
+        self.declared_locals.push((read, mask, value));
+        Ok(value)
     }
     fn execution_class(&self) -> ExecutionClass {
         ExecutionClass::TimeAware
@@ -737,5 +764,100 @@ fn chicken_distant_target_keeps_rng_reread_and_earthling_first_facing_reads() {
                 ]
             );
         }
+    }
+}
+
+fn chooser_residue_context(revision: Revision, high: u8, axes: i8) -> AccessContext {
+    // Keep the test stack below the game's globals, as on the real machine.
+    let mut c = AccessContext::new(revision, &[]);
+    c.prepare();
+    c.sp = 0xff7000;
+    c.frame = FrameState::new(c.sp);
+    c.memory.write_u32(c.sp, 0x1000);
+    let p = ram::g_player_info(revision).at(0);
+    for (index, argument) in [p.address(), 0, 1, 0x10].into_iter().enumerate() {
+        c.frame
+            .argument_slot(index as i32)
+            .write(&mut c.memory, argument);
+    }
+    p.sprite_state().write(&mut c.memory, 28);
+    p.animation_group_mask().write(&mut c.memory, 0x80);
+    p.animation_motion_axes().write(&mut c.memory, axes);
+    c.memory.write_u16(c.sp - 10, (u16::from(high) << 8) | 0x5a);
+    c
+}
+
+#[test]
+fn chooser_declares_only_the_original_mixed_mode_word_without_initializing_its_high_byte() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for high in [0x00, 0x55, 0xaa, 0xff] {
+            for axes in [i8::MIN, -1, 0, 3, i8::MAX] {
+                let mut c = chooser_residue_context(revision, high, axes);
+                let guard = Arc::clone(&c.guard);
+                let entry_sp = c.sp;
+                let saved_data = c.data;
+                let saved_address = c.address;
+                let result = guard
+                    .run_root(ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, entry_sp, || {
+                        super::directional::player_choose_directional_movement(&mut c)
+                    })
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result, None);
+                assert!(guard.failure().is_none());
+                assert_eq!(c.declared_locals.len(), 1);
+                let (read, missing, value) = c.declared_locals[0];
+                assert_eq!(read.owner, ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT);
+                assert_eq!(read.frame.entry_sp, entry_sp);
+                assert_eq!((read.offset, read.width), (-10, LocalWidth::Word));
+                assert!(read.citation.contains("286-289"));
+                assert_eq!(missing, 1, "only the old high byte is an entry input");
+                assert_eq!(value, (u32::from(high) << 8) | u32::from(axes as u8));
+                assert_eq!(
+                    c.at(entry_sp - 10),
+                    vec![
+                        Access::Read(entry_sp - 10, 16),
+                        Access::Write(entry_sp - 10, 16, u32::from(axes as i16 as u16)),
+                    ]
+                );
+                assert_eq!(
+                    c.at(entry_sp - 9),
+                    vec![Access::Write(entry_sp - 9, 8, u32::from(axes as u8)),]
+                );
+                assert_eq!(c.memory.read_u16(entry_sp - 10), axes as i16 as u16);
+                assert_eq!(guard.unwritten_mask(entry_sp - 10, 2), 0);
+                assert_eq!(c.sp, entry_sp);
+                assert_eq!(c.data[2..], saved_data[2..]);
+                assert_eq!(c.address[2..], saved_address[2..]);
+                assert!(c.calls.is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn chooser_mode_word_without_an_explicit_declaration_still_trips_the_guard() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = chooser_residue_context(revision, 0xaa, 3);
+        let guard = Arc::clone(&c.guard);
+        let entry_sp = c.sp;
+        let failure = guard
+            .run_root(ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT, entry_sp, || {
+                let frame = crate::call_frame::LocalFrame::enter(
+                    &mut c,
+                    crate::call_frame::FrameLayout::link(8, 0x7c, 0),
+                )
+                .unwrap();
+                frame.local::<i8>(-5).write(&mut c, 3);
+                let _ = frame.local::<i16>(-6).read(&c);
+            })
+            .unwrap_err();
+        assert_eq!(failure.root, ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT);
+        assert_eq!(failure.address, entry_sp - 10);
+        assert_eq!(failure.width, 2);
+        assert_eq!(
+            failure.reason,
+            crate::stack_read::UnsupportedReason::Unwritten
+        );
     }
 }

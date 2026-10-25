@@ -79,7 +79,16 @@ fn choose_direction(
     stack
         .local::<i8>(-5)
         .write(context, player.animation_motion_axes().read(context));
-    let raw_mode = mode.read(context);
+    // Both matching c_sprite_checks_and_movement.s:286-289 write only
+    // A6-5, read the mixed word at A6-6 (entry SP-10), then EXT.W kills
+    // its unwritten high byte. Declare that physical input; do not invent
+    // a high-byte store or reduce the original word read to a byte read.
+    let raw_mode = context.read_uninitialized_local(stack.entry().uninitialized_local(
+        ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
+        -10,
+        crate::stack_read::LocalWidth::Word,
+        "G/build/{rev00,rev02}/asm/c_sprite_checks_and_movement.s:286-289; LINK -8; MOVE.B 21(A0),-5(A6); MOVE.W -6(A6),D2; EXT.W D2; own entry SP-10 word",
+    ))? as i16;
     mode.write(context, i16::from(raw_mode as i8));
     if player.animation_group_mask().read(context) & 0x80 != 0 {
         if (current == 28 && input & 1 != 0)

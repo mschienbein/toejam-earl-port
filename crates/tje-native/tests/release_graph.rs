@@ -54,6 +54,7 @@ fn shipping_release_graph_contains_no_68000_or_development_fallback() {
             "browser-proof",
             "call-window-proofs",
             "enhanced-mode",
+            "ram-dma-observer",
         ] {
             assert!(
                 !graph.contains(forbidden),

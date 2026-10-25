@@ -35,9 +35,9 @@ impl SynchronousTrap {
     }
 }
 
-/// Bind the source-produced state before any exception-entry effect. The
-/// changed runtime registers are explicit; untouched D/A remain the context's
-/// own values and are compared under the transfer's full-register contract.
+/// Source-produced state before any exception-entry effect. Runtime prefixes
+/// change these registers; privileged first-opcode paths change none. Untouched
+/// D/A remain context-owned and are compared by the full-register contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExceptionPreparedState {
     pub data: [u32; 3],
@@ -45,7 +45,9 @@ pub struct ExceptionPreparedState {
     pub stack_pointer: u32,
     pub stack_banks: StackBanks,
     pub status: u16,
-    pub saved_d2: u32,
+    /// Some only for the reviewed runtime prefix's actual RAM store; privilege
+    /// first-opcode paths have no prologue/save and require None.
+    pub saved_d2: Option<u32>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExceptionRequest {
@@ -72,6 +74,18 @@ pub const fn runtime_divide_fault_offset(entry: FunctionId) -> Option<i32> {
         None
     }
 }
+
+/// G src/asm/interrupts.s:34 (`DisableAllInterrupts`),42 (`EnableAllInterrupts`).
+/// These first opcodes privilege-fault before consuming the immediate operand.
+pub const fn privileged_status_opcode(entry: FunctionId) -> Option<u16> {
+    if entry.0 == ids::DISABLE_ALL_INTERRUPTS.0 {
+        Some(0x007c)
+    } else if entry.0 == ids::ENABLE_ALL_INTERRUPTS.0 {
+        Some(0x027c)
+    } else {
+        None
+    }
+}
 impl ExceptionRequest {
     pub fn runtime_divide(
         entry: FunctionId,
@@ -86,6 +100,23 @@ impl ExceptionRequest {
             site,
             saved_pc: site.address(revision).wrapping_add(2),
             trap: SynchronousTrap::DivideByZero,
+            prepared,
+        })
+    }
+    pub fn privileged_status(
+        entry: FunctionId,
+        revision: Revision,
+        prepared: ExceptionPreparedState,
+    ) -> Option<Self> {
+        privileged_status_opcode(entry)?;
+        let site = ControlSite {
+            entry,
+            byte_offset: 0,
+        };
+        Some(Self {
+            site,
+            saved_pc: site.address(revision),
+            trap: SynchronousTrap::PrivilegeViolation,
             prepared,
         })
     }
@@ -105,11 +136,25 @@ impl ExceptionRequest {
         if active != self.prepared.stack_pointer {
             return Err(ControlDataError::Exception);
         }
-        // This raw source shape describes ONLY the reviewed four DIVU sites.
-        // Other standard kinds cannot borrow it; success is not live authority.
+        // The two privilege paths have NO runtime prefix, D2 save, flag
+        // changes, or next-PC save. A source shape is still not live authority.
+        if self.trap == SynchronousTrap::PrivilegeViolation {
+            return if privileged_status_opcode(self.site.entry).is_some()
+                && self.site.byte_offset == 0
+                && self.saved_pc == self.site.address(revision)
+                && self.prepared.status & 0x2000 == 0
+                && self.prepared.saved_d2.is_none()
+            {
+                Ok(())
+            } else {
+                Err(ControlDataError::Exception)
+            };
+        }
+        // All other kinds must satisfy the reviewed four DIVU-site shape.
         if self.trap != SynchronousTrap::DivideByZero
             || runtime_divide_fault_offset(self.site.entry) != Some(self.site.byte_offset)
             || self.saved_pc != self.site.address(revision).wrapping_add(2)
+            || self.prepared.saved_d2.is_none()
             || self.prepared.data[2] != 0
             || self.prepared.data[1] > 0xffff
             || self.prepared.status & 0xf != 0

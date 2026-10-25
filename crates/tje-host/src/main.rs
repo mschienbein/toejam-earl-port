@@ -102,6 +102,25 @@ fn save_snapshot(
     Ok(())
 }
 
+#[derive(Serialize)]
+struct GuardSummary {
+    unsupported_stack_read: Option<tje_host::UnsupportedStackRead>,
+    unknown_origin_proof_debt: u64,
+}
+impl GuardSummary {
+    fn capture(
+        error: Option<&tje_host::HostError>,
+        metrics: &tje_host::ReadableGuardMetrics,
+    ) -> Self {
+        Self {
+            unsupported_stack_read: error
+                .and_then(tje_host::HostError::typed_stack_read)
+                .map(Into::into),
+            unknown_origin_proof_debt: metrics.unknown_origin_proof_debt,
+        }
+    }
+}
+
 fn proof_status(run_failed: bool, mismatches: u64, provenance: ProvenanceSummary) -> &'static str {
     if run_failed
         || mismatches != 0
@@ -191,9 +210,12 @@ fn main() -> Result<()> {
         .map(|frame| &host.measurements.idle_draws_per_frame[frame as usize..]);
     let draws = game_draws.unwrap_or(&[]);
     let idle_total: u64 = draws.iter().sum();
+    let guard = GuardSummary::capture(run_error.as_ref(), &host.checks.readable_stack_guard);
     let summary = serde_json::json!({
         "revision": revision.name(),
         "error": run_error.as_ref().map(ToString::to_string),
+        "unsupported_stack_read": guard.unsupported_stack_read,
+        "unknown_origin_proof_debt": guard.unknown_origin_proof_debt,
         "proof_status": proof_status(run_error.is_some(), host.checks.mismatches, provenance),
         "future_frame_provenance": provenance,
         "mode": format!("{:?}", arguments.mode), "frames": host.frame_count(),
@@ -322,6 +344,62 @@ mod tests {
         assert_eq!(
             proof_status(true, 0, ProvenanceSummary::default()),
             "failed"
+        );
+    }
+    #[test]
+    fn summary_retains_the_typed_top_level_guard_cause_through_probe_wrappers() {
+        use tje_game::{
+            ids,
+            stack_read::{Guard, Reader},
+        };
+        let guard = Guard::default();
+        let cause = guard
+            .run_root(ids::GET_RANDOM_NUMBER, 0xff8000, || {
+                guard.read(0xef7ff8, 2, Reader::RustMemory);
+            })
+            .unwrap_err();
+        let error = tje_host::HostError::DependencyProbe {
+            cause: Box::new(tje_host::HostError::Translation(cause.into())),
+        };
+        let summary = GuardSummary::capture(Some(&error), &Default::default());
+        let value = serde_json::to_value(summary).unwrap();
+        let read = &value["unsupported_stack_read"];
+        assert_eq!(read["root"], "GetRandomNumber");
+        assert_eq!(read["entry_sp"], 0xff8000);
+        assert_eq!(read["raw_address"], 0xef7ff8);
+        assert_eq!(read["address"], 0xff7ff8);
+        assert_eq!(read["width"], 2);
+        assert_eq!(read["reader"], "rust_memory");
+        assert_eq!(read["reason"], "unwritten_stack_read");
+        let ordinary = tje_host::HostError::Metadata("authored ordinary error".into());
+        assert!(
+            GuardSummary::capture(Some(&ordinary), &Default::default())
+                .unsupported_stack_read
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn summary_unknown_origin_debt_is_independent_of_failures_and_retired_ownership() {
+        let metrics = tje_game::stack_read::DmaMetrics {
+            unknown_origin_proof_debt: 3,
+            active: 0,
+            queued: 0,
+            failed: 0,
+            ..Default::default()
+        };
+        let metrics = tje_host::ReadableGuardMetrics::from(metrics);
+        let value = serde_json::to_value(GuardSummary::capture(None, &metrics)).unwrap();
+        assert_eq!(value["unknown_origin_proof_debt"], 3);
+        assert!(value["unsupported_stack_read"].is_null());
+        let check_metrics = serde_json::to_value(metrics).unwrap();
+        assert_eq!(check_metrics["unknown_origin_proof_debt"], 3);
+        assert_eq!(check_metrics["active_owned_dma"], 0);
+        assert_eq!(check_metrics["queued_owned_commands"], 0);
+        assert_eq!(check_metrics["dma_failed"], 0);
+        assert_eq!(
+            serde_json::to_value(GuardSummary::capture(None, &Default::default())).unwrap()["unknown_origin_proof_debt"],
+            0
         );
     }
 }

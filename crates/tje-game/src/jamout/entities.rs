@@ -37,6 +37,7 @@ pub fn create_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<O
     let revision = context.revision();
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
     let result: Result<Option<u32>> = (|| {
+        let mut lead_tile_written = false;
         context.set_address_register(3, ram::g_jam_toejam_entities(revision).address());
         context.set_address_register(4, ram::g_jam_earl_entities(revision).address());
         for earl in [false, true] {
@@ -112,11 +113,29 @@ pub fn create_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<O
                     if slot == 0 {
                         let tile = object.tile().read(context);
                         frame.local::<u16>(-2).write(context, tile);
+                        lead_tile_written = true;
                         let parent = handles.at(slot).read(context) as u8;
                         let previous = context.data_register(3);
                         context.set_data_register(3, (previous & 0xffffff00) | u32::from(parent));
                     } else {
-                        let tile = frame.local::<u16>(-2).read(context);
+                        // Both c_jamout.s:1155/1204 read A6-2 even if no
+                        // successful lead has stored it. A real lead store
+                        // ends this input lifetime, including across characters.
+                        let tile = if lead_tile_written {
+                            frame.local::<u16>(-2).read(context)
+                        } else {
+                            let citation = if earl {
+                                "G/build/{rev00,rev02}/asm/c_jamout.s:1164-1204; failed lead skips 1198; MOVE.W -2(A6),44(A2); LINK -4; own entry SP-6 word"
+                            } else {
+                                "G/build/{rev00,rev02}/asm/c_jamout.s:1115-1155; failed lead skips 1149; MOVE.W -2(A6),44(A2); LINK -4; own entry SP-6 word"
+                            };
+                            context.read_uninitialized_local(frame.entry().uninitialized_local(
+                                ids::JAM_OUT_CREATE_CHARACTER_COPIES,
+                                -6,
+                                crate::stack_read::LocalWidth::Word,
+                                citation,
+                            ))? as u16
+                        };
                         object.tile().write(context, tile);
                         let parent = context.data_register(3) as i8;
                         object.owner().write(context, parent);

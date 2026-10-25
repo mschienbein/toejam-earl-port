@@ -18,17 +18,50 @@ mod video;
 pub use video::dma_copy_words_to_vram_framed;
 
 /// G/src/asm/interrupts.s:33 (`DisableAllInterrupts`).
-/// ORI to SR changes only IPL; every D/A register and all CCR bits survive.
+/// In supervisor mode only IPL changes; a user entry faults before the operand.
 pub fn disable_all_interrupts(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    context.set_status_register(context.status_register() | 0x0700);
+    let status = context.status_register();
+    if status & 0x2000 == 0 {
+        return privilege_fault(context, crate::ids::DISABLE_ALL_INTERRUPTS, status);
+    }
+    context.set_status_register(status | 0x0700);
     Ok(None)
 }
 
 /// G/src/asm/interrupts.s:41 (`EnableAllInterrupts`).
-/// ANDI to SR clears only IPL, without changing registers or condition codes.
+/// In supervisor mode only IPL changes; a user entry faults before the operand.
 pub fn enable_all_interrupts(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    context.set_status_register(context.status_register() & 0xf8ff);
+    let status = context.status_register();
+    if status & 0x2000 == 0 {
+        return privilege_fault(context, crate::ids::ENABLE_ALL_INTERRUPTS, status);
+    }
+    context.set_status_register(status & 0xf8ff);
     Ok(None)
+}
+
+/// G/src/asm/interrupts.s:34,42: no instruction retires and no source prologue
+/// runs before the first privileged opcode faults. Preserve every input bit.
+fn privilege_fault(
+    context: &mut dyn Context,
+    entry: crate::FunctionId,
+    status: u16,
+) -> Result<Option<u32>> {
+    let prepared = crate::control::ExceptionPreparedState {
+        data: [
+            context.data_register(0),
+            context.data_register(1),
+            context.data_register(2),
+        ],
+        address: [context.address_register(0), context.address_register(1)],
+        stack_pointer: context.stack_pointer()?,
+        stack_banks: context.stack_banks()?,
+        status,
+        saved_d2: None,
+    };
+    let request =
+        crate::control::ExceptionRequest::privileged_status(entry, context.revision(), prepared)
+            .ok_or(crate::Error::Untranslated(entry))?;
+    crate::exits::exception(entry, request)
 }
 
 /// G/src/asm/controllers.s:12 (`GetCtrl1Input`).

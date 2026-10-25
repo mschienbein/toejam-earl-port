@@ -38,15 +38,23 @@ fn store_zero(context: &mut HookContext<'_>) -> crate::Result<Option<u32>> {
     Ok(None)
 }
 fn read_then_error(context: &mut HookContext<'_>) -> crate::Result<Option<u32>> {
-    let _value = context.read_u16(SLOT);
+    // Exercise an actual original read, which is exempt from Rust ownership
+    // but still belongs to the persistent future-read journal.
+    context.call_original_with_execution_contract(
+        &metadata(0x800, "AuthoredOriginalFutureReader"),
+        ExecutionClass::Atomic,
+        &[],
+    )?;
     Err(crate::HostError::Metadata(
         "authored read then error".into(),
     ))
 }
 fn dma(context: &mut HookContext<'_>) -> crate::Result<Option<u32>> {
-    for command in DMA {
-        context.bus().write_word(0xc00004, command);
-    }
+    context.call_original_with_execution_contract(
+        &metadata(0x900, "AuthoredOriginalFutureDma"),
+        tje_game::Context::execution_class(context),
+        &[],
+    )?;
     Ok(None)
 }
 fn metadata(address: u32, name: &'static str) -> FunctionMetadata {
@@ -87,6 +95,17 @@ fn authored_host(
         for (index, word) in words.iter().enumerate() {
             rom[address + 2 * index..address + 2 * index + 2].copy_from_slice(&word.to_be_bytes());
         }
+    }
+    for (index, word) in [0x3039_u16, 0x00ff, 0x7ffa, 0x4e75].into_iter().enumerate() {
+        rom[0x800 + 2 * index..0x802 + 2 * index].copy_from_slice(&word.to_be_bytes());
+    }
+    let mut original_dma = Vec::new();
+    for command in DMA {
+        original_dma.extend([0x33fc, command, 0x00c0, 4]);
+    }
+    original_dma.push(0x4e75);
+    for (index, word) in original_dma.into_iter().enumerate() {
+        rom[0x900 + 2 * index..0x902 + 2 * index].copy_from_slice(&word.to_be_bytes());
     }
     let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
     host.emulator = GenesisEmulator::create(
@@ -450,7 +469,9 @@ fn speculative_dma_normalization_and_read_before_error_invalidate_the_inherited_
         host.settle_fixture_boundary(Default::default()).unwrap();
         let error = host.check_fixture(CONSUMER, &[]).unwrap_err();
         assert!(
-            error.to_string().contains("authored read then error"),
+            error
+                .to_string()
+                .contains("future private-frame provenance rejected"),
             "{error}"
         );
         assert_eq!(host.checks.mismatches, 1);
@@ -781,6 +802,8 @@ fn a_read_before_a_later_clock_ceiling_error_still_invalidates_the_earlier_produ
             crate::execution::PhysicalObservers {
                 provenance: Some(&branch),
                 capture: None,
+                readable: None,
+                original_root: None,
             },
         )
     });
@@ -866,6 +889,8 @@ fn missing_inputs_and_partial_recipe_errors_keep_actual_progress_and_drain_parti
                 crate::execution::PhysicalObservers {
                     provenance: Some(&branch),
                     capture: None,
+                    readable: None,
+                    original_root: None,
                 },
             )
         });
@@ -901,6 +926,8 @@ fn missing_inputs_and_partial_recipe_errors_keep_actual_progress_and_drain_parti
                     crate::execution::PhysicalObservers {
                         provenance: Some(&branch),
                         capture: None,
+                        readable: None,
+                        original_root: None,
                     },
                 )
             });

@@ -288,6 +288,9 @@ pub struct GenesisBus {
     /// TJE reference proof: actual read context, never a source/readiness grant.
     #[cfg(feature = "reference-proof-hooks")]
     pub reference_read_contexts: Option<Vec<crate::reference_proof::ReadContext>>,
+    /// Passive callbacks are omitted from encoding and reset on every clone.
+    #[cfg(feature = "ram-dma-observer")]
+    ram_dma_observer: crate::ram_dma_observer::ObserverSlot,
     /// TJE native: all-origin actual work-RAM commits, separate from CPU issues.
     pub native_ram_writes: Option<Vec<crate::native::RamWrite>>,
     /// TJE hybrid: chronological RAM/device audit for time-progressing calls.
@@ -333,6 +336,8 @@ impl GenesisBus {
             native_cpu_accesses,
             #[cfg(feature = "reference-proof-hooks")]
             reference_read_contexts,
+            #[cfg(feature = "ram-dma-observer")]
+                ram_dma_observer: _,
             native_ram_writes,
             hybrid_cpu_accesses,
             hybrid_exception_boundaries,
@@ -403,6 +408,8 @@ impl GenesisBus {
             native_cpu_accesses,
             #[cfg(feature = "reference-proof-hooks")]
             reference_read_contexts,
+            #[cfg(feature = "ram-dma-observer")]
+                ram_dma_observer: _,
             native_ram_writes,
             hybrid_cpu_accesses,
             hybrid_exception_boundaries,
@@ -470,6 +477,8 @@ impl GenesisBus {
             native_cpu_accesses: _,
             #[cfg(feature = "reference-proof-hooks")]
                 reference_read_contexts: _,
+            #[cfg(feature = "ram-dma-observer")]
+                ram_dma_observer: _,
             native_ram_writes: _,
             hybrid_cpu_accesses: _,
             hybrid_exception_boundaries: _,
@@ -549,6 +558,8 @@ impl GenesisBus {
             native_cpu_accesses: None,
             #[cfg(feature = "reference-proof-hooks")]
             reference_read_contexts: None,
+            #[cfg(feature = "ram-dma-observer")]
+            ram_dma_observer: Default::default(),
             native_ram_writes: None,
             hybrid_cpu_accesses: None,
             hybrid_exception_boundaries: None,
@@ -558,6 +569,23 @@ impl GenesisBus {
             hybrid_functional_violation: None,
             m68k_reset: true,
         }
+    }
+
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn replace_ram_dma_observer(
+        &mut self,
+        observer: Option<std::sync::Arc<dyn crate::ram_dma_observer::Observer>>,
+    ) -> crate::ram_dma_observer::ObserverSlot {
+        self.ram_dma_observer.replace(observer)
+    }
+
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn restore_ram_dma_observer(&mut self, previous: crate::ram_dma_observer::ObserverSlot) {
+        self.ram_dma_observer.restore(previous);
+    }
+    #[cfg(feature = "ram-dma-observer")]
+    pub fn observe_external_ram_commit(&self, address: u32, word: bool) {
+        self.ram_dma_observer.ram_committed(address, word, crate::ram_dma_observer::Actor::Unknown);
     }
 
     pub fn enable_native_write_trace(&mut self) {
@@ -816,6 +844,10 @@ impl GenesisBus {
         address: u32,
         purpose: m68000_emu::ReadPurpose,
     ) -> u16 {
+        #[cfg(feature = "ram-dma-observer")]
+        if address & 0xffffff >= 0xe00000 && purpose == m68000_emu::ReadPurpose::Semantic {
+            self.ram_dma_observer.before_semantic_ram_read(address, WORD);
+        }
         #[cfg(feature = "reference-proof-hooks")]
         if let Some(survey) = &mut self.timing_survey {
             survey.reference_proof.cpu_access();
@@ -1017,11 +1049,7 @@ impl GenesisBus {
                 let byte = if WORD { value.msb() } else { value as u8 };
 
                 // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                <Self as z80_emu::BusInterface>::write_memory(
-                    self,
-                    (address & 0x7FFF) as u16,
-                    byte,
-                );
+                self.write_z80_memory((address & 0x7FFF) as u16, byte, actor);
             }
             0xA10000..=0xA1001F => {
                 // I/O ports, even addresses mirror odd addresses
@@ -1061,10 +1089,24 @@ impl GenesisBus {
                 }
             }
             0xC00000..=0xC0001F => {
+                #[cfg(feature = "ram-dma-observer")]
+                self.ram_dma_observer.set_dispatch_actor(match actor {
+                    WriteActor::M68k => crate::ram_dma_observer::Actor::M68k,
+                    WriteActor::Z80 => crate::ram_dma_observer::Actor::Z80,
+                });
                 self.write_vdp_psg::<WORD>(address, value);
             }
             0xE00000..=0xFFFFFF => {
                 self.memory.write_main_ram::<WORD>(address, value);
+                #[cfg(feature = "ram-dma-observer")]
+                self.ram_dma_observer.ram_committed(
+                    address,
+                    WORD,
+                    match actor {
+                        WriteActor::M68k => crate::ram_dma_observer::Actor::M68k,
+                        WriteActor::Z80 => crate::ram_dma_observer::Actor::Z80,
+                    },
+                );
                 if let Some(trace) = &mut self.native_ram_writes {
                     trace.push(crate::native::RamWrite::new(address, WORD, value));
                 }
@@ -1079,6 +1121,67 @@ impl GenesisBus {
         }
     }
 
+    #[inline]
+    fn write_z80_memory(&mut self, address: u16, value: u8, actor: WriteActor) {
+        log::trace!("Z80 bus write at {address:04X}");
+        self.timing_audio_access(address, true, value);
+
+        match address {
+            0x0000..=0x3FFF => {
+                // Z80 RAM (mirrored at $2000-$3FFF)
+                #[cfg(feature = "reference-proof-hooks")]
+                if address & 0x1fff == 0x41
+                    && let Some(survey) = &mut self.timing_survey
+                {
+                    survey
+                        .reference_proof
+                        .check_unclaimed(&mut self.memory, self.cycles.m68k_mclk_cycles);
+                }
+                self.memory.write_audio_ram(address, value);
+                #[cfg(feature = "reference-proof-hooks")]
+                if address & 0x1fff == 0x41
+                    && let Some(survey) = &mut self.timing_survey
+                {
+                    survey
+                        .reference_proof
+                        .physical_audio_write(&mut self.memory, self.cycles.m68k_mclk_cycles);
+                }
+            }
+            0x4000..=0x5FFF => {
+                self.timing_write_ym(address, value);
+            }
+            0x6000..=0x60FF => {
+                self.z80_bank.write_bit(value.bit(0));
+            }
+            0x6100..=0x7EFF | 0x7F20..=0x7FFF => {
+                // Unused / invalid addresses
+                // TODO writes to $7F20-$7FFF should halt the system
+            }
+            0x7F00..=0x7F1F => {
+                // VDP addresses
+                self.cycles.record_z80_68k_bus_access();
+                #[cfg(feature = "ram-dma-observer")]
+                self.ram_dma_observer.set_dispatch_actor(match actor {
+                    WriteActor::M68k => crate::ram_dma_observer::Actor::M68k,
+                    WriteActor::Z80 => crate::ram_dma_observer::Actor::Z80,
+                });
+                self.write_vdp_psg::<false>(address.into(), value.into());
+            }
+            0x8000..=0xFFFF => {
+                self.cycles.record_z80_68k_bus_access();
+
+                let m68k_addr = self.z80_bank.map_to_68k_address(address);
+                if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
+                    self.apply_write::<false>(m68k_addr, value.into(), actor);
+                } else {
+                    // TODO this should lock up the system
+                    log::error!(
+                        "Z80 attempted to write to its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}, value={value:02X}"
+                    );
+                }
+            }
+        }
+    }
     fn read_io_register(&mut self, address: u32) -> u8 {
         match address {
             // Version register
@@ -1145,6 +1248,8 @@ impl GenesisBus {
     }
 
     pub(crate) fn write_vdp_psg<const WORD: bool>(&mut self, address: u32, value: u16) {
+        #[cfg(feature = "ram-dma-observer")]
+        let observer_actor = self.ram_dma_observer.take_dispatch_actor();
         // Byte-size VDP writes duplicate the byte into a word
         let vdp_word = if WORD { value } else { (value & 0xFF) | (value << 8) };
 
@@ -1196,6 +1301,12 @@ impl GenesisBus {
                 });
                 let was_dma = self.vdp.timing_dma_active();
                 let pending_before = self.observe_active_dma_port_write();
+                #[cfg(feature = "ram-dma-observer")]
+                self.vdp.write_control_observed(
+                    vdp_word,
+                    self.ram_dma_observer.command_origin(observer_actor),
+                );
+                #[cfg(not(feature = "ram-dma-observer"))]
                 self.vdp.write_control(vdp_word);
                 self.observe_deferred_dma_port_write(pending_before);
                 if !was_dma && self.vdp.timing_dma_active() {
@@ -1521,59 +1632,7 @@ impl z80_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn write_memory(&mut self, address: u16, value: u8) {
-        log::trace!("Z80 bus write at {address:04X}");
-        self.timing_audio_access(address, true, value);
-
-        match address {
-            0x0000..=0x3FFF => {
-                // Z80 RAM (mirrored at $2000-$3FFF)
-                #[cfg(feature = "reference-proof-hooks")]
-                if address & 0x1fff == 0x41
-                    && let Some(survey) = &mut self.timing_survey
-                {
-                    survey
-                        .reference_proof
-                        .check_unclaimed(&mut self.memory, self.cycles.m68k_mclk_cycles);
-                }
-                self.memory.write_audio_ram(address, value);
-                #[cfg(feature = "reference-proof-hooks")]
-                if address & 0x1fff == 0x41
-                    && let Some(survey) = &mut self.timing_survey
-                {
-                    survey
-                        .reference_proof
-                        .physical_audio_write(&mut self.memory, self.cycles.m68k_mclk_cycles);
-                }
-            }
-            0x4000..=0x5FFF => {
-                self.timing_write_ym(address, value);
-            }
-            0x6000..=0x60FF => {
-                self.z80_bank.write_bit(value.bit(0));
-            }
-            0x6100..=0x7EFF | 0x7F20..=0x7FFF => {
-                // Unused / invalid addresses
-                // TODO writes to $7F20-$7FFF should halt the system
-            }
-            0x7F00..=0x7F1F => {
-                // VDP addresses
-                self.cycles.record_z80_68k_bus_access();
-                self.write_vdp_psg::<false>(address.into(), value.into());
-            }
-            0x8000..=0xFFFF => {
-                self.cycles.record_z80_68k_bus_access();
-
-                let m68k_addr = self.z80_bank.map_to_68k_address(address);
-                if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
-                    self.apply_write::<false>(m68k_addr, value.into(), WriteActor::Z80);
-                } else {
-                    // TODO this should lock up the system
-                    log::error!(
-                        "Z80 attempted to write to its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}, value={value:02X}"
-                    );
-                }
-            }
-        }
+        self.write_z80_memory(address, value, WriteActor::Z80);
     }
 
     #[inline]

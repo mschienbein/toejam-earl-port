@@ -130,19 +130,15 @@ fn dma_only_sequential_consumer_rejects_the_omitted_producer_in_both_revisions()
                 let error = check.run_frame(Default::default()).unwrap_err();
                 assert_eq!(check.checks.calls, 2, "{revision:?} {class:?}: {error}");
                 assert_eq!(check.checks.mismatches, 1);
-                // Two physical bytes, each witnessed at original/Rust checkpoints.
-                assert_eq!(check.checks.uninitialized_stack_reads.len(), 4);
-                assert!(
-                    check
-                        .checks
-                        .uninitialized_stack_reads
-                        .iter()
-                        .all(|site| { site.address == SOURCE || site.address == SOURCE + 1 })
+                let failure = error.typed_stack_read().unwrap();
+                assert_eq!(failure.reader, tje_game::stack_read::Reader::VdpDma);
+                assert_eq!(failure.address, SOURCE);
+                assert_eq!(
+                    failure.reason,
+                    tje_game::stack_read::UnsupportedReason::Unwritten
                 );
-                assert!(
-                    error.to_string().contains("uninitialized stack read:"),
-                    "{error}"
-                );
+                assert!(check.checks.uninitialized_stack_reads.is_empty());
+                assert_eq!(check.checks.stack_dependency_reruns, 0);
             }
             // Original-only audit still witnesses the physical producer through
             // DMA. The unapproved authored replacement is now rejected instead
@@ -316,18 +312,28 @@ fn timeaware_endpoint_normalization_is_inside_both_root_audits() {
                 CheckSide::Original {
                     boundary: ReferenceBoundary::returned(CALL_SENTINEL, sp + 4),
                     outcome: tje_game::exits::EntryOutcome::Returned(None),
+                    explicit_inputs: false,
                 },
             ] {
                 let mut fork = check.emulator.partial_clone();
-                let run = check
-                    .run_check_side(
-                        &mut fork,
-                        &hook,
-                        side,
-                        crate::call_clock::ClockRunPurpose::Baseline,
-                        crate::future_frame_watch::ObservationOrigin::CheckFork,
-                    )
-                    .unwrap();
+                let result = check.run_check_side(
+                    &mut fork,
+                    &hook,
+                    side,
+                    crate::call_clock::ClockRunPurpose::Baseline,
+                    crate::future_frame_watch::ObservationOrigin::CheckFork,
+                );
+                if !initialized && matches!(side, CheckSide::Rust) {
+                    let error = result
+                        .err()
+                        .expect("unwritten Rust DMA must stop before fetch");
+                    let failure = error.typed_stack_read().unwrap();
+                    assert_eq!(failure.reader, tje_game::stack_read::Reader::VdpDma);
+                    assert_eq!(failure.address, SOURCE);
+                    assert!(fork.hybrid_bus().hybrid_cpu_accesses.is_none());
+                    continue;
+                }
+                let run = result.unwrap();
                 assert_eq!(
                     run.audit.uninitialized_reads.len(),
                     if initialized { 0 } else { 2 },

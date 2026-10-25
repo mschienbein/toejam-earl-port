@@ -960,7 +960,9 @@ fn open_present_branches_on_live_states() {
             &[ids::OPEN_EARTHLING_PRESENT],
         )
         .unwrap();
-        let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
+        // Check mode installs the real RAM/DMA stack-guard observer pool;
+        // Reference mode cannot admit strict readable fixtures.
+        let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
         let script =
             InputScript::parse(include_str!("../../../tje-host/examples/start-game.json")).unwrap();
         for frame in 0..1300 {
@@ -969,7 +971,30 @@ fn open_present_branches_on_live_states() {
         host.settle_fixture_boundary(script.at(host.frame_count()))
             .unwrap();
         present_fixtures(&mut host);
+        host.finish_future_frame_provenance()
+            .ensure_proof_eligible()
+            .unwrap();
         assert_eq!(host.checks.mismatches, 0);
+        assert!(host.checks.uninitialized_stack_reads.is_empty());
+        assert!(host.checks.readable_stack_guard.enabled);
+        assert_eq!(host.checks.readable_stack_guard.pending_proof_boundaries, 0);
+        assert_eq!(host.checks.readable_stack_guard.active_owned_dma, 0);
+        assert_eq!(host.checks.readable_stack_guard.queued_owned_commands, 0);
+        assert_eq!(
+            host.checks.readable_stack_guard.unknown_origin_proof_debt,
+            0
+        );
+        assert!(!host.checks.declared_stack_inputs.is_empty());
+        assert!(host.checks.declared_stack_inputs.iter().all(|input| {
+            input.root == "OpenEarthlingPresent"
+                && input.offset == -10
+                && input.logical_width == 2
+                && input.physical_width == 2
+                && input.unwritten_mask == 1
+                && input.original_site
+                    == ids::OPEN_EARTHLING_PRESENT.metadata().address(revision) + 0x20
+        }));
+        assert!(host.checks.by_function["OpenEarthlingPresent"].calls_checked > 0);
         println!(
             "OPEN_PRESENT {revision:?} {}",
             serde_json::to_string(&host.checks).unwrap()
