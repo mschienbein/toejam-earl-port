@@ -227,7 +227,7 @@ impl ImportSpec {
     pub fn identity(&self) -> [u8; 32] {
         self.provenance().identity()
     }
-    fn provenance(&self) -> ImportedFloorSpec {
+    pub fn provenance(&self) -> ImportedFloorSpec {
         struct HashWriter(Sha256);
         impl std::io::Write for HashWriter {
             fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
