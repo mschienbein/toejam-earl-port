@@ -13,6 +13,7 @@ enum Event {
     Write(u32, u8, u32),
     Call(FunctionId, Vec<u32>, i16),
     Wait(execution::WaitRequest),
+    Yield,
 }
 
 struct ScriptedContext {
@@ -44,6 +45,20 @@ impl ScriptedContext {
                 Event::Call(id, arguments, state) if *id == function => {
                     Some((arguments.clone(), *state))
                 }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn counter_poll_sequence(&self) -> Vec<char> {
+        let counter = ram::g_frame_counter(self.memory.revision()).address();
+        self.events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Read(address, 2) if *address == counter => Some('R'),
+                Event::Wait(_) => Some('W'),
+                Event::Yield => Some('Y'),
                 _ => None,
             })
             .collect()
@@ -134,6 +149,24 @@ impl crate::Platform for ScriptedContext {
 
     fn wait_until(&mut self, request: execution::WaitRequest) -> Result<()> {
         self.events.borrow_mut().push(Event::Wait(request));
+        let execution::WaitCondition::Ram {
+            address,
+            width: execution::RamWidth::Word,
+            mask,
+            value,
+            comparison: execution::WaitComparison::NotEqual,
+        } = request.condition
+        else {
+            panic!("logo must use its exact word-not-equal RAM predicate");
+        };
+        assert_eq!(address, ram::g_frame_counter(self.revision()).address());
+        assert_eq!(mask, u32::from(u16::MAX));
+        while u32::from(self.read_u16(address)) & mask == value {}
+        Ok(())
+    }
+
+    fn poll_yield(&mut self) -> Result<()> {
+        self.events.borrow_mut().push(Event::Yield);
         Ok(())
     }
 }
@@ -209,6 +242,13 @@ fn logo_palette_deadline_repolls_without_inventing_frame_waits() {
         let start = if revision == Revision::Rev02 { 0 } else { 20 };
         context.counter_reads = Some(RefCell::new(VecDeque::from([
             9,
+            9,
+            9,
+            if revision == Revision::Rev02 {
+                10
+            } else {
+                start
+            },
             start,
             start,
             start,
@@ -218,6 +258,8 @@ fn logo_palette_deadline_repolls_without_inventing_frame_waits() {
             start + 3,
             start + 120,
             start + 120,
+            start + 120,
+            start + 121,
         ])));
         sega_video(&mut context, &[]).unwrap();
         assert!(context.counter_reads.as_ref().unwrap().borrow().is_empty());
@@ -234,8 +276,48 @@ fn logo_palette_deadline_repolls_without_inventing_frame_waits() {
         assert_eq!(
             waits,
             [
-                execution::WaitRequest::vblank_frame(counter, 9),
-                execution::WaitRequest::vblank_frame(counter, start + 120),
+                execution::WaitRequest::ram_word_not_equal(counter, u16::MAX, 9),
+                execution::WaitRequest::ram_word_not_equal(counter, u16::MAX, start + 120),
+            ]
+        );
+        assert_eq!(
+            context.counter_poll_sequence(),
+            [
+                'R', 'W', 'R', 'R', 'R', // Entry snapshot; all three entry polls.
+                'R', 'R', // Palette/start snapshots.
+                'R', 'R', 'Y', // First compound iteration: no palette advance.
+                'R', 'R', 'R',
+                'Y', // Second iteration: counter is read again for palette_time.
+                'R', // Final deadline test exits without yielding.
+                'R', 'W', 'R', 'R', // Exit snapshot; failed and satisfying exit polls.
+            ]
+        );
+        let events = context.events.borrow();
+        let yields: Vec<_> = events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| matches!(event, Event::Yield).then_some(index))
+            .collect();
+        assert_eq!(yields.len(), 2);
+        assert_eq!(
+            &events[yields[0] - 2..=yields[0]],
+            [
+                Event::Read(counter, 2),
+                Event::Read(counter, 2),
+                Event::Yield,
+            ]
+        );
+        let source = ram::g_sega_palette_upload_source(revision).address();
+        assert_eq!(
+            &events[yields[1] - 6..=yields[1]],
+            [
+                Event::Read(counter, 2),
+                Event::Read(counter, 2),
+                Event::Read(counter, 2),
+                Event::Read(source, 4),
+                Event::Write(source, 4, rom::sega_logo_pal(revision).address() + 32),
+                Event::Write(ram::g_sega_palette_upload_pending(revision).address(), 2, 1),
+                Event::Yield,
             ]
         );
         assert_eq!(
@@ -274,19 +356,36 @@ fn logo_palette_deadline_repolls_without_inventing_frame_waits() {
 fn logo_first_rocket_pass_keeps_all_steps_and_release_callee_extend() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut context = ScriptedContext::new(revision);
-        let mut reads = VecDeque::from([9, 0, 0, 120, 120, 120]);
-        let mut palette_time = 120_u16;
-        for timestamp in 121_u16..=450 {
-            reads.extend([timestamp, timestamp]);
-            if timestamp >= palette_time + 3 {
-                reads.push_back(timestamp);
-                palette_time = timestamp;
+        let start = if revision == Revision::Rev02 { 0 } else { 10 };
+        let mut reads = VecDeque::from([
+            9,
+            9,
+            10, // Entry snapshot and two primitive-owned polls.
+            start,
+            start,
+            start + 120, // Palette/start snapshots; deadline already reached.
+            start + 120,
+            start + 120,
+            start + 121, // Pre-rocket snapshot and wait.
+            start + 121, // Palette time after scene setup.
+        ]);
+        let mut expected_polls = vec!['R', 'W', 'R', 'R', 'R', 'R', 'R', 'R', 'W', 'R', 'R', 'R'];
+        let mut palette_time = start + 121;
+        for frame in start + 121..=start + 450 {
+            reads.extend([frame, frame, frame + 1, frame + 1]);
+            expected_polls.extend(['R', 'W', 'R', 'R', 'R']);
+            if frame + 1 >= palette_time + 3 {
+                reads.push_back(frame + 1);
+                expected_polls.push('R');
+                palette_time = frame + 1;
             }
         }
-        reads.push_back(451);
+        reads.extend([start + 451, start + 451, start + 452]);
+        expected_polls.extend(['R', 'W', 'R', 'R']);
         context.counter_reads = Some(RefCell::new(reads));
         sega_video(&mut context, &[]).unwrap();
         assert!(context.counter_reads.as_ref().unwrap().borrow().is_empty());
+        assert_eq!(context.counter_poll_sequence(), expected_polls);
         let positions = context.calls(ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR);
         assert_eq!(positions.len(), 330);
         assert_eq!(positions.last(), Some(&(vec![(-50_i32) as u32, 150], 0)));

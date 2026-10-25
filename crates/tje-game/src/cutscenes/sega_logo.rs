@@ -1,5 +1,5 @@
 use super::large_player_parts::entity_at;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, execution::WaitRequest, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/sega_logo.c:24 (`SegaLogoClearVideoPlanes`).
@@ -99,9 +99,9 @@ fn advance_palette(context: &mut dyn Context, palette_time: &mut u16, palette_fr
 }
 
 /// G/src/cutscenes/sega_logo.c:36 (`SEGAVideo`).
-/// TimeAware: empty frame-equality polls suspend on real IRQ completion, while
-/// the palette deadline loop retains its repeated counter observations. REV 02
-/// alone resets the counter; no extra waits or idle RNG draws are inserted.
+/// TimeAware: RAM equality waits own all their polls, including the final read.
+/// The compound palette loop retains its literal accesses and yields only at
+/// the spin boundary. REV 02 alone resets the counter; no idle RNG is added.
 pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let counter = ram::g_frame_counter(revision);
@@ -142,7 +142,11 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     ram::g_sega_palette_upload_pending(revision).write(context, 1);
     ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 1);
     let frame = counter.read(context);
-    context.wait_vblank_frame(counter.address(), frame)?;
+    context.wait_until(WaitRequest::ram_word_not_equal(
+        counter.address(),
+        u16::MAX,
+        frame,
+    ))?;
     let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
     ram::g_mode2_reg_softcopy(revision).write(context, mode);
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
@@ -156,11 +160,16 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let mut palette_frame = 0_i16;
     while u32::from(counter.read(context)) < u32::from(start_time) + 120 {
         advance_palette(context, &mut palette_time, &mut palette_frame);
+        context.poll_yield()?;
     }
     let rocket_pass_needed = ram::g_sega_rocket_pass_shown(revision).read(context) == 0;
     if rocket_pass_needed {
         let frame = counter.read(context);
-        context.wait_vblank_frame(counter.address(), frame)?;
+        context.wait_until(WaitRequest::ram_word_not_equal(
+            counter.address(),
+            u16::MAX,
+            frame,
+        ))?;
         context.discard_u16(ram::g_sega_v_blank_sprite_updates_enabled(revision).address())?;
         ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 0);
         context.discard_u16(ram::g_sega_palette_upload_pending(revision).address())?;
@@ -184,7 +193,11 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         while character_x > -50 {
             call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
             let frame = counter.read(context);
-            context.wait_vblank_frame(counter.address(), frame)?;
+            context.wait_until(WaitRequest::ram_word_not_equal(
+                counter.address(),
+                u16::MAX,
+                frame,
+            ))?;
             if character_x == 257 {
                 call(
                     context,
@@ -213,7 +226,11 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         ram::g_sega_rocket_pass_shown(revision).write(context, 1);
     }
     let frame = counter.read(context);
-    context.wait_vblank_frame(counter.address(), frame)?;
+    context.wait_until(WaitRequest::ram_word_not_equal(
+        counter.address(),
+        u16::MAX,
+        frame,
+    ))?;
     let callback = ram::g_v_blank_func(revision).address();
     context.discard_u16(callback)?;
     context.discard_u16(callback + 2)?;
