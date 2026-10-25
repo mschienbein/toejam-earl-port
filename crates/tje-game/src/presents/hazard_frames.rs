@@ -6,12 +6,9 @@ use tje_mem::{Address, EarthlingState, LevelItem, ObjectState, ram};
 /// TimeAware: the hurt handler can enter speech. LINK -20; MOVEM D2-D4/A2-A3;
 /// only the original source fields at A6-20, -19, -14 and -12 are initialized.
 /// Player_Youch's return PC is object offset 0x666 - function start 0x5c0.
-pub fn player_check_level_item_hazards(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn player_check_level_item_hazards(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(20, 0x1c, 0x0c))?;
-    let result = level_hazards_body(context, arguments, &frame);
+    let result = level_hazards_body(context, &frame);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
@@ -23,14 +20,11 @@ pub fn player_check_level_item_hazards(
     result
 }
 
-fn level_hazards_body(
-    context: &mut dyn Context,
-    arguments: &[u32],
-    frame: &LocalFrame,
-) -> Result<Option<u32>> {
+fn level_hazards_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option<u32>> {
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
-    let items = Address::<LevelItem>::new(arguments[1]);
+    // MOVE.W 10(A6),D2; MOVE.L 12(A6),D3 after LINK/MOVEM.
+    let index = i32::from(frame.argument_word(0).read(context));
+    let items = Address::<LevelItem>::new(frame.argument_slot(1).read(context));
     let player = super::word_indexed_player(revision, index);
     context.set_status_register(
         (context.status_register() & !0x10) | (u16::from(index as u16 & 0x0200 != 0) << 4),

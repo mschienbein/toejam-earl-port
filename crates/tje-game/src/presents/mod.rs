@@ -259,6 +259,22 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
         function: expiry::present_try_end_active_powerup,
     },
+    crate::FramedTranslation {
+        id: ids::EAT_YUMMY_FOOD,
+        function: items::eat_yummy_food,
+    },
+    crate::FramedTranslation {
+        id: ids::EAT_YUCKY_FOOD,
+        function: items::eat_yucky_food,
+    },
+    crate::FramedTranslation {
+        id: ids::EAT_FUDGE_SUNDAE,
+        function: items::eat_fudge_sundae,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+        function: hazard_frames::player_check_level_item_hazards,
+    },
 ];
 
 /// Complete candidate bodies held outside production dispatch until their
@@ -272,20 +288,8 @@ pub static PENDING: &[crate::Translation] = &[
     // until the integrated bodies pass the whole committed corpus in both
     // revisions; bodies and classes are unchanged.
     crate::Translation {
-        id: ids::EAT_YUMMY_FOOD,
-        function: items::eat_yummy_food,
-    },
-    crate::Translation {
-        id: ids::EAT_YUCKY_FOOD,
-        function: items::eat_yucky_food,
-    },
-    crate::Translation {
         id: ids::REDUCE_PRESENT_TIMER,
         function: items::reduce_present_timer,
-    },
-    crate::Translation {
-        id: ids::EAT_FUDGE_SUNDAE,
-        function: items::eat_fudge_sundae,
     },
     crate::Translation {
         id: ids::PERFORM_PROMOTION,
@@ -322,10 +326,6 @@ pub static PENDING: &[crate::Translation] = &[
     crate::Translation {
         id: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
         function: items::map_update_items_and_presents,
-    },
-    crate::Translation {
-        id: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
-        function: hazard_frames::player_check_level_item_hazards,
     },
     crate::Translation {
         id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,

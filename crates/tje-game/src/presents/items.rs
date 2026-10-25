@@ -1,4 +1,4 @@
-use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
+use crate::call_frame::{CallSite, FrameError, FrameLayout, LocalFrame, OutgoingArguments};
 use crate::{Context, FunctionId, Result, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, LevelItem, ram, rom};
 
@@ -22,9 +22,9 @@ pub fn present_release_dropped_entities(
 
 /// G/src/presents/item_updates.c:131 (`EatYummyFood`).
 /// TimeAware: GenerateSpeech can wait for the sprite-upload interrupt.
-pub fn eat_yummy_food(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn eat_yummy_food(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
+    let index = food_player(context)?;
     let health = ram::g_player_health(revision).at(index);
     health.write(context, health.read(context).wrapping_add(8));
     let text = tje_mem::rom_symbol(revision, "GameText_0152F0")
@@ -42,9 +42,9 @@ pub fn eat_yummy_food(context: &mut dyn Context, arguments: &[u32]) -> Result<Op
 
 /// G/src/presents/item_updates.c:139 (`EatYuckyFood`).
 /// TimeAware: GenerateSpeech can wait for the sprite-upload interrupt.
-pub fn eat_yucky_food(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn eat_yucky_food(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
+    let index = food_player(context)?;
     let health = ram::g_player_health(revision).at(index);
     health.write(context, health.read(context).wrapping_sub(8));
     let text = tje_mem::rom_symbol(revision, "GameText_015324")
@@ -129,8 +129,8 @@ fn reduce_timer_body(context: &mut dyn Context) -> Result<Option<u32>> {
 
 /// G/src/presents/item_updates.c:147 (`EatFudgeSundae`).
 /// TimeAware: dialogue can wait for an interrupt-owned graphics upload.
-pub fn eat_fudge_sundae(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
-    let index = i32::from(arguments[0] as i16);
+pub fn eat_fudge_sundae(context: &mut dyn Context) -> Result<Option<u32>> {
+    let index = food_player(context)?;
     let health = ram::g_player_health(context.revision()).at(index);
     health.write(context, health.read(context).wrapping_add(12));
     item_call(
@@ -141,6 +141,13 @@ pub fn eat_fudge_sundae(context: &mut dyn Context, arguments: &[u32]) -> Result<
         0x24,
     )?;
     Ok(None)
+}
+
+/// c_item_updates.s:239,260,282: MOVE.W 6(SP),D1 before any health access.
+/// These leaf entries have no prologue, and never load the unused high word.
+fn food_player(context: &dyn Context) -> Result<i32> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
+    Ok(i32::from(frame.argument_word(0).read(context)))
 }
 
 /// G/src/presents/item_updates.c:156 (`PlayerCollectNearbyItems`).

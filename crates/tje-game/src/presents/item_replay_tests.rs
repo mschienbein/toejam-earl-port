@@ -386,11 +386,9 @@ fn hazards_call_abs_before_distance_rejection_instead_of_inlining_it() {
         item.kind().write(&mut fixture.memory, 83);
         item.object().write(&mut fixture.memory, 1);
         item.x().write(&mut fixture.memory, 124);
-        super::super::hazard_frames::player_check_level_item_hazards(
-            &mut fixture,
-            &[0, items.address()],
-        )
-        .unwrap();
+        fixture.memory.write_u32(ENTRY_SP + 4, 0);
+        fixture.memory.write_u32(ENTRY_SP + 8, items.address());
+        super::super::hazard_frames::player_check_level_item_hazards(&mut fixture).unwrap();
         assert_eq!(fixture.memory.read_u16(ABS_COUNT), 1);
         assert_eq!(fixture.sp, ENTRY_SP);
         assert_eq!(fixture.status & 0x1f, 4);
@@ -516,6 +514,123 @@ fn expiry_pending_entry_lazily_reads_only_the_compiled_player_word() {
                     "the slot must be consumed after saves, before terrain/powerup reads",
                 );
                 assert_eq!(fixture.data[0], i32::from(player_number) as u32);
+                assert_eq!(fixture.sp, ENTRY_SP);
+            }
+        }
+    }
+}
+
+#[test]
+fn food_pending_entries_consume_only_the_player_word_before_health() {
+    for (id, delta) in [
+        (ids::EAT_YUMMY_FOOD, 8_i8),
+        (ids::EAT_YUCKY_FOOD, -8_i8),
+        (ids::EAT_FUDGE_SUNDAE, 12_i8),
+    ] {
+        let entry = crate::presents::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("food entry must be framed");
+        assert!(!crate::presents::PENDING.iter().any(|entry| entry.id == id));
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            for index in [-1_i16, 0, 1] {
+                for high in [0_u16, 0x8000, 0xffff] {
+                    let mut fixture = Fixture::new(revision);
+                    // No child implementation is supplied: the caller's reads
+                    // and health store are tested before fail-closed dispatch.
+                    fixture.dispatcher = Dispatcher::hybrid_with(&[]);
+                    let health = ram::g_player_health(revision).at(i32::from(index));
+                    health.write(&mut fixture.memory, 127);
+                    fixture.memory.write_u32(
+                        ENTRY_SP + 4,
+                        (u32::from(high) << 16) | u32::from(index as u16),
+                    );
+                    fixture.clear_trace();
+                    (entry.function)(&mut fixture).expect_err(
+                        "no original/translated speech child is provided by this fixture",
+                    );
+                    assert_eq!(health.read(&fixture.memory), 127_i8.wrapping_add(delta));
+                    let trace = fixture.accesses.borrow();
+                    let reads: Vec<_> = trace
+                        .iter()
+                        .copied()
+                        .filter(|access| matches!(access, Access::Byte(_) | Access::Word(_)))
+                        .collect();
+                    assert_eq!(
+                        &reads[..2],
+                        &[Access::Word(ENTRY_SP + 6), Access::Byte(health.address()),]
+                    );
+                    let incoming: Vec<_> = reads
+                        .into_iter()
+                        .filter(|access| match access {
+                            Access::Byte(address) | Access::Word(address) => {
+                                (ENTRY_SP + 4..ENTRY_SP + 8).contains(address)
+                            }
+                            _ => false,
+                        })
+                        .collect();
+                    assert_eq!(incoming, [Access::Word(ENTRY_SP + 6)]);
+                    assert_eq!(fixture.sp, ENTRY_SP);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn hazard_pending_entry_loads_player_word_then_both_pointer_beats() {
+    let id = ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS;
+    let entry = crate::presents::PENDING_FRAMED_TRANSLATIONS
+        .iter()
+        .find(|entry| entry.id == id)
+        .expect("hazard entry must be framed");
+    assert!(!crate::presents::PENDING.iter().any(|entry| entry.id == id));
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for index in [-512_i16, 0, 1, 512] {
+            for high in [0_u16, 0x8000, 0xffff] {
+                let mut fixture = Fixture::new(revision);
+                let player = ram::g_player_info(revision).at_word_index(index);
+                player.height().write(&mut fixture.memory, 1);
+                fixture.memory.write_u32(
+                    ENTRY_SP + 4,
+                    (u32::from(high) << 16) | u32::from(index as u16),
+                );
+                // The source loads this pointer even on its airborne return.
+                fixture.memory.write_u32(ENTRY_SP + 8, 0x1234_5678);
+                fixture.clear_trace();
+                (entry.function)(&mut fixture).unwrap();
+                let trace = fixture.accesses.borrow();
+                let reads: Vec<_> = trace
+                    .iter()
+                    .copied()
+                    .filter(|access| matches!(access, Access::Byte(_) | Access::Word(_)))
+                    .collect();
+                assert_eq!(
+                    &reads[..4],
+                    &[
+                        Access::Word(ENTRY_SP + 6),
+                        Access::Word(ENTRY_SP + 8),
+                        Access::Word(ENTRY_SP + 10),
+                        Access::Word(player.height().address()),
+                    ]
+                );
+                let incoming: Vec<_> = reads
+                    .into_iter()
+                    .filter(|access| match access {
+                        Access::Byte(address) | Access::Word(address) => {
+                            (ENTRY_SP + 4..ENTRY_SP + 12).contains(address)
+                        }
+                        _ => false,
+                    })
+                    .collect();
+                assert_eq!(
+                    incoming,
+                    [
+                        Access::Word(ENTRY_SP + 6),
+                        Access::Word(ENTRY_SP + 8),
+                        Access::Word(ENTRY_SP + 10),
+                    ]
+                );
                 assert_eq!(fixture.sp, ENTRY_SP);
             }
         }
