@@ -31,11 +31,21 @@ struct CalleeBoundary {
     arguments: Vec<u32>,
     result: Option<u32>,
 }
+#[derive(Debug)]
+struct PreparedBoundary {
+    function: FunctionId,
+    sp: u32,
+    return_pc: u32,
+    words: [u32; 6],
+    access_index: usize,
+}
 struct Probe {
     memory: AddressSpace,
     accesses: RefCell<Vec<Access>>,
     calls: Vec<(FunctionId, Vec<u32>)>,
     address_writes: Vec<(usize, u32)>,
+    prepared_calls: Vec<PreparedBoundary>,
+    stack_changes: Vec<(usize, u32)>,
     data: [u32; 8],
     address: [u32; 8],
     sr: u16,
@@ -59,6 +69,8 @@ impl Probe {
             accesses: RefCell::new(Vec::new()),
             calls: Vec::new(),
             address_writes: Vec::new(),
+            prepared_calls: Vec::new(),
+            stack_changes: Vec::new(),
             data: [0; 8],
             address,
             sr: 0x2000,
@@ -76,6 +88,8 @@ impl Probe {
         self.accesses.get_mut().clear();
         self.calls.clear();
         self.address_writes.clear();
+        self.prepared_calls.clear();
+        self.stack_changes.clear();
         self.waits.clear();
         self.spin_steps.get_mut().clear();
     }
@@ -99,6 +113,16 @@ impl Probe {
             self.frame = previous;
         }
         result
+    }
+    fn record_prepared_call(&mut self, function: FunctionId) {
+        let sp = self.address[7];
+        self.prepared_calls.push(PreparedBoundary {
+            function,
+            sp,
+            return_pc: self.memory.read_u32(sp),
+            words: std::array::from_fn(|index| self.memory.read_u32(sp + 4 + index as u32 * 4)),
+            access_index: self.accesses.borrow().len(),
+        });
     }
     /// Only the isolated catalogue boundary inspects raw caller-written bytes.
     /// Those accesses are not attributed to the caller under test.
@@ -287,6 +311,8 @@ impl Context for Probe {
     }
     fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
         self.address[7] = value;
+        self.stack_changes
+            .push((self.accesses.borrow().len(), value));
         Ok(())
     }
     fn frame_state(&self) -> Option<FrameState> {
@@ -374,6 +400,7 @@ impl Context for Probe {
         Err(Error::Untranslated(id))
     }
     fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.record_prepared_call(id);
         let arguments = self.prepared_arguments(id);
         let result = self.call_original_with_execution(id, &arguments, class);
         if result.is_ok() {
@@ -382,6 +409,7 @@ impl Context for Probe {
         result
     }
     fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        self.record_prepared_call(id);
         let arguments = self.prepared_arguments(id);
         let result = self.call_original_void_with_execution(id, &arguments, class);
         if result.is_ok() {
@@ -1070,5 +1098,122 @@ fn transient_effect_loop_keeps_calls_and_yields_before_each_next_byte_poll() {
                 Access::Write(player.behavior_flags().address(), 1, 1)
             ]
         );
+    }
+}
+
+#[test]
+fn advance_retains_twenty_plus_four_bytes_until_after_the_viewport_btst() {
+    // Both c_active_present_falling_and_respawn.s:1761-1801: MOVEM16,
+    // five retained pushes, JSR+44, entity push, JSR+6e, BTST, LEA24.
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for sp in [0xff7000, 0xffa5ee] {
+            for stop in 0..3 {
+                let mut c = Probe::new(revision);
+                let player = c.seed_player(0);
+                let effect = ram::g_player_info(revision).at(6);
+                effect.draw_flags().write(&mut c, 1);
+                ram::g_player_transient_effect_entities(revision)
+                    .at(0)
+                    .write(&mut c, 6);
+                c.address[7] = sp;
+                c.frame = FrameState::new(sp);
+                c.data[2] = 0x1234_5678;
+                c.rust_callees = false;
+                let boundary = |function, arguments, result| CalleeBoundary {
+                    function,
+                    arguments,
+                    result,
+                };
+                let mut boundaries = VecDeque::from([boundary(
+                    ids::PRESENT_START_TRANSIENT_EFFECT,
+                    vec![0, 512, 101, 9, 1],
+                    if stop == 0 { None } else { Some(0) },
+                )]);
+                if stop != 0 {
+                    boundaries.push_back(boundary(
+                        ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
+                        vec![6],
+                        if stop == 1 { None } else { Some(0) },
+                    ));
+                }
+                if stop == 2 {
+                    boundaries.push_back(boundary(
+                        ids::EARTHLING_RELEASE_LEVEL_BANK,
+                        vec![1],
+                        None,
+                    ));
+                }
+                c.boundaries = Some(boundaries);
+                c.reset_log();
+                let result =
+                    c.invoke_framed(ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, &[player.address(), 0]);
+                let expected_stop = [
+                    ids::PRESENT_START_TRANSIENT_EFFECT,
+                    ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
+                    ids::EARTHLING_RELEASE_LEVEL_BANK,
+                ][stop];
+                assert!(
+                    matches!(result, Err(Error::Untranslated(id)) if id == expected_stop),
+                    "{revision:?} {sp:08x} boundary{stop}"
+                );
+                assert!(c.boundaries.as_ref().unwrap().is_empty());
+                assert_eq!(c.prepared_calls.len(), if stop == 0 { 1 } else { 2 });
+                let present = &c.prepared_calls[0];
+                let caller = ids::PLAYER_ADVANCE_TO_NEXT_LEVEL
+                    .metadata()
+                    .address(revision);
+                assert_eq!(present.function, ids::PRESENT_START_TRANSIENT_EFFECT);
+                assert_eq!(present.sp, sp - 40);
+                assert_eq!(present.return_pc, caller + 0x44);
+                assert_eq!(present.words, [0, 512, 101, 9, 1, 0x1234_5678]);
+                let accesses = c.accesses.borrow();
+                let prefix: Vec<_> = accesses[..present.access_index]
+                    .iter()
+                    .filter(|access| {
+                        matches!(access, Access::Read(address, _) if *address >= player.address() && *address < player.address() + 0x80)
+                            || matches!(access, Access::Write(address, _, _) if (sp - 36..=sp - 20).contains(address))
+                    })
+                    .cloned()
+                    .collect();
+                assert_eq!(
+                    prefix,
+                    [
+                        Access::Read(player.level().address(), 1),
+                        Access::Write(sp - 20, 4, 1),
+                        Access::Read(player.height().address(), 2),
+                        Access::Write(sp - 24, 4, 9),
+                        Access::Read(player.y().address(), 2),
+                        Access::Write(sp - 28, 4, 101),
+                        Access::Read(player.x().address(), 2),
+                        Access::Write(sp - 32, 4, 512),
+                        Access::Write(sp - 36, 4, 0),
+                    ]
+                );
+                if stop != 0 {
+                    let viewport = &c.prepared_calls[1];
+                    assert_eq!(viewport.function, ids::UPDATE_ENTITY_VIEWPORT_SPRITES);
+                    assert_eq!(viewport.sp, sp - 44);
+                    assert_eq!(viewport.return_pc, caller + 0x6e);
+                    assert_eq!(viewport.words, [6, 0, 512, 101, 9, 1]);
+                    let btst = accesses.iter().position(|access| {
+                        *access == Access::Read(effect.draw_flags().address(), 1)
+                    });
+                    let release = c
+                        .stack_changes
+                        .iter()
+                        .find(|(index, value)| *index >= viewport.access_index && *value == sp - 16)
+                        .map(|(index, _)| *index)
+                        .expect("release the complete outgoing area");
+                    if stop == 2 {
+                        assert_eq!(release, btst.expect("the real byte BTST") + 1);
+                    } else {
+                        assert!(btst.is_none(), "a failed callee cannot reach BTST");
+                    }
+                }
+                assert_eq!(c.stack_pointer().unwrap(), sp);
+                assert_eq!(c.data[2], 0x1234_5678);
+                assert_eq!(c.address_register(6), 0xff7300);
+            }
+        }
     }
 }
