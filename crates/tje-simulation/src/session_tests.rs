@@ -35,6 +35,10 @@ impl Resources for Solid {
 }
 
 pub(crate) fn session(seed: u64) -> Session {
+    session_for_roles(seed, Roles::coop(SeatMask::ALL))
+}
+
+fn session_for_roles(seed: u64, roles: Roles) -> Session {
     use tje_world::generation::Phase as Loading;
     let world_config = WorldConfig {
         root_seed: seed,
@@ -42,8 +46,9 @@ pub(crate) fn session(seed: u64) -> Session {
         size: LevelSize::Original,
         density: Density::Original,
     };
-    let coop_config = Config::four_seats(seed);
-    let config = SessionConfig::new(
+    let mut coop_config = Config::four_seats(seed);
+    coop_config.participants = roles.heroes;
+    let mut config = SessionConfig::new(
         world_config.clone(),
         coop_config.clone(),
         tje_world::GeneratorId::ExpandedV1,
@@ -51,6 +56,7 @@ pub(crate) fn session(seed: u64) -> Session {
         &[],
     )
     .unwrap();
+    config.roles = roles;
     let mut world = WorldState::new(world_config).unwrap();
     let level = LevelId::new(2).unwrap();
     world
@@ -87,17 +93,21 @@ pub(crate) fn session(seed: u64) -> Session {
         .arrival
         .center();
     let mut players = CoopState::new(coop_config).unwrap();
-    let arrivals = std::array::from_fn::<_, 4, _>(|index| Arrival {
-        seat: SeatId::ALL[index],
-        level,
-        position: Position {
-            x: x * 256,
-            y: y * 256,
-            elevation: 0,
-        },
-    });
+    let arrivals: Vec<_> = roles
+        .heroes
+        .iter()
+        .map(|seat| Arrival {
+            seat,
+            level,
+            position: Position {
+                x: x * 256,
+                y: y * 256,
+                elevation: 0,
+            },
+        })
+        .collect();
     players.record_arrivals(&arrivals).unwrap();
-    for seat in SeatId::ALL {
+    for seat in roles.heroes.iter() {
         world.set_active(seat.get(), level).unwrap();
     }
     SetupTransaction::prepare(config, world, players, vec![])
@@ -273,6 +283,26 @@ fn roles_never_turn_the_director_into_a_fourth_hero() {
         director: Some(SeatId::ALL[3]),
     };
     roles.validate().unwrap();
+    let mut state = session_for_roles(123, roles);
+    for (frame, phase) in [
+        Phase::PresentationA,
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .clock
+            .admit(phase, InputFrame::neutral(frame as u64))
+            .unwrap();
+    }
+    state.validate().unwrap();
+    let before = state.clone();
+    assert!(state.latch_phase_inputs().is_err());
+    assert_eq!(state, before);
+    assert!(state.hero_actor(SeatId::ALL[3]).is_none());
     assert!(
         Roles {
             heroes: SeatMask::ALL,

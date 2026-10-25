@@ -376,6 +376,11 @@ impl Session {
     /// frame may follow boot/intro, and subsequent latches are four phases apart;
     /// do not reuse the primitive codec's consecutive-from-zero bookkeeping API.
     pub fn latch_phase_inputs(&mut self) -> Result<bool> {
+        if self.config.roles.inputs != self.config.roles.heroes {
+            return Err(Error::Ownership(
+                "non-hero role input requires its separate role-aware phase adapter",
+            ));
+        }
         let input = *self
             .clock
             .input()
