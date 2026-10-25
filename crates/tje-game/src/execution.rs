@@ -79,6 +79,52 @@ impl ExecutionContract {
     }
 }
 
+/// Physical RAM polling width. A long is two ordered word bus transfers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RamWidth {
+    Byte,
+    Word,
+    Long,
+}
+
+impl RamWidth {
+    pub const fn bytes(self) -> u32 {
+        match self {
+            Self::Byte => 1,
+            Self::Word => 2,
+            Self::Long => 4,
+        }
+    }
+    pub const fn mask(self) -> u32 {
+        match self {
+            Self::Byte => 0xff,
+            Self::Word => 0xffff,
+            Self::Long => u32::MAX,
+        }
+    }
+    pub const fn valid(self, address: u32, mask: u32, value: u32) -> bool {
+        let address = address & 0xffffff;
+        address >= 0xe00000
+            && address <= 0x1000000 - self.bytes()
+            && (matches!(self, Self::Byte) || address & 1 == 0)
+            && (mask | value) & !self.mask() == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitComparison {
+    Equal,
+    NotEqual,
+}
+impl WaitComparison {
+    pub const fn satisfied(self, actual: u32, mask: u32, value: u32) -> bool {
+        match self {
+            Self::Equal => actual & mask == value,
+            Self::NotEqual => actual & mask != value,
+        }
+    }
+}
+
 /// Explicitly observable condition. Device reads retain their real side effects;
 /// this is not permission to invent ready bits or erase polling transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +132,15 @@ pub enum WaitCondition {
     RamWordChanged {
         address: u32,
         previous: u16,
+    },
+    /// Read the actual RAM operand at its exact width; the full sample remains
+    /// observable even though this predicate selects particular bits.
+    Ram {
+        address: u32,
+        width: RamWidth,
+        mask: u32,
+        value: u32,
+        comparison: WaitComparison,
     },
     DeviceWord {
         address: u32,
@@ -126,6 +181,70 @@ impl WaitRequest {
     pub const fn vblank_frame(address: u32, previous: u16) -> Self {
         Self::new(WaitCondition::RamWordChanged { address, previous })
     }
+    const fn ram(
+        address: u32,
+        width: RamWidth,
+        mask: u32,
+        value: u32,
+        comparison: WaitComparison,
+    ) -> Self {
+        Self::new(WaitCondition::Ram {
+            address,
+            width,
+            mask,
+            value,
+            comparison,
+        })
+    }
+
+    pub const fn ram_byte_equal(address: u32, mask: u8, value: u8) -> Self {
+        Self::ram(
+            address,
+            RamWidth::Byte,
+            mask as u32,
+            value as u32,
+            WaitComparison::Equal,
+        )
+    }
+    pub const fn ram_byte_not_equal(address: u32, mask: u8, value: u8) -> Self {
+        Self::ram(
+            address,
+            RamWidth::Byte,
+            mask as u32,
+            value as u32,
+            WaitComparison::NotEqual,
+        )
+    }
+    pub const fn ram_word_equal(address: u32, mask: u16, value: u16) -> Self {
+        Self::ram(
+            address,
+            RamWidth::Word,
+            mask as u32,
+            value as u32,
+            WaitComparison::Equal,
+        )
+    }
+    pub const fn ram_word_not_equal(address: u32, mask: u16, value: u16) -> Self {
+        Self::ram(
+            address,
+            RamWidth::Word,
+            mask as u32,
+            value as u32,
+            WaitComparison::NotEqual,
+        )
+    }
+    pub const fn ram_long_equal(address: u32, mask: u32, value: u32) -> Self {
+        Self::ram(address, RamWidth::Long, mask, value, WaitComparison::Equal)
+    }
+    pub const fn ram_long_not_equal(address: u32, mask: u32, value: u32) -> Self {
+        Self::ram(
+            address,
+            RamWidth::Long,
+            mask,
+            value,
+            WaitComparison::NotEqual,
+        )
+    }
 
     pub const fn dma_done() -> Self {
         Self::new(WaitCondition::DeviceWord {
@@ -159,3 +278,6 @@ impl WaitRequest {
         Self::new(WaitCondition::Interrupt)
     }
 }
+
+#[cfg(test)]
+mod ram_tests;

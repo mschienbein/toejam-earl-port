@@ -16,7 +16,9 @@ use genesis_core::{GenesisEmulator, HybridAccess};
 use jgenesis_common::frontend::{EmulatorTrait, TickEffect};
 use m68000_emu::{BusInterface, HybridExecutedInstruction};
 use std::sync::Arc;
-use tje_game::execution::{CallCeilingScope, CallClock, ClockUsage, WaitCondition, WaitRequest};
+use tje_game::execution::{
+    CallCeilingScope, CallClock, ClockUsage, RamWidth, WaitCondition, WaitRequest,
+};
 
 /// Random-access input timeline: identical forks request the same video-frame
 /// sample. A live frontend can implement this with its frame-sampled controller
@@ -504,6 +506,36 @@ fn condition_holds(
             }
             bus.memory.read_main_ram::<true>(address) != previous
         }
+        WaitCondition::Ram {
+            address,
+            width,
+            mask,
+            value,
+            comparison,
+        } => {
+            if !width.valid(address, mask, value) {
+                return Err(HostError::Metadata(
+                    "RAM wait has an invalid address, width or operand bits".into(),
+                ));
+            }
+            let actual = match width {
+                RamWidth::Byte => {
+                    u32::from(bus.read_byte_tagged(address, m68000_emu::ReadPurpose::Semantic))
+                }
+                RamWidth::Word => {
+                    u32::from(bus.read_word_tagged(address, m68000_emu::ReadPurpose::Semantic))
+                }
+                RamWidth::Long => {
+                    let high = bus.read_word_tagged(address, m68000_emu::ReadPurpose::Semantic);
+                    let low = bus.read_word_tagged(
+                        address.wrapping_add(2),
+                        m68000_emu::ReadPurpose::Semantic,
+                    );
+                    (u32::from(high) << 16) | u32::from(low)
+                }
+            };
+            comparison.satisfied(actual, mask, value)
+        }
         WaitCondition::DeviceWord {
             address,
             mask,
@@ -965,6 +997,38 @@ pub(crate) fn run_wait_with_audio(
     audit: bool,
     observers: PhysicalObservers<'_>,
 ) -> Result<ClockRun> {
+    run_suspension_with_audio(emulator, clock, request, samples, audit, observers, false)
+}
+
+/// Yield makes real progress and drains any actually accepted IRQ back to the
+/// parked continuation. It performs no software condition read or assertion.
+pub(crate) fn run_poll_yield_with_audio(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    samples: Vec<[f64; 2]>,
+    audit: bool,
+    observers: PhysicalObservers<'_>,
+) -> Result<ClockRun> {
+    run_suspension_with_audio(
+        emulator,
+        clock,
+        WaitRequest::interrupt(),
+        samples,
+        audit,
+        observers,
+        true,
+    )
+}
+
+fn run_suspension_with_audio(
+    emulator: &mut GenesisEmulator,
+    clock: &mut WaitClock,
+    request: WaitRequest,
+    samples: Vec<[f64; 2]>,
+    audit: bool,
+    observers: PhysicalObservers<'_>,
+    yield_once: bool,
+) -> Result<ClockRun> {
     if emulator.hybrid_bus().hybrid_functional_mode() {
         return Err(HostError::Metadata(
             "a wait requires a time-aware contract".into(),
@@ -973,6 +1037,20 @@ pub(crate) fn run_wait_with_audio(
     if emulator.hybrid_cpu().status_register() & 0x8000 != 0 {
         return Err(HostError::Metadata(
             "trace exceptions are not an interrupt-wait contract".into(),
+        ));
+    }
+    let ram_poll = matches!(request.condition, WaitCondition::Ram { .. });
+    if let WaitCondition::Ram {
+        address,
+        width,
+        mask,
+        value,
+        ..
+    } = request.condition
+        && !width.valid(address, mask, value)
+    {
+        return Err(HostError::Metadata(
+            "RAM wait has an invalid address, width or operand bits".into(),
         ));
     }
     let saved_pc = emulator.hybrid_cpu().pc();
@@ -1037,7 +1115,16 @@ pub(crate) fn run_wait_with_audio(
                 if let Some(branch) = observers.provenance {
                     branch.begin_native(clock.frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
                 }
-                let satisfied = condition_holds(emulator, request.condition, handler_entered)?;
+                // A software RAM poll cannot precede an already owed IRQ or
+                // bus stall. Legacy condition observation remains unchanged.
+                let ram_ready = ram_poll && native_resume_ready(emulator);
+                let satisfied = if yield_once {
+                    run.ticks != 0
+                } else if ram_poll && !ram_ready {
+                    false
+                } else {
+                    condition_holds(emulator, request.condition, handler_entered)?
+                };
                 drain_accesses(
                     emulator,
                     PARK_PC,
@@ -1047,17 +1134,32 @@ pub(crate) fn run_wait_with_audio(
                     &mut run,
                     observers,
                 );
-                if satisfied && native_resume_ready(emulator) {
+                if satisfied
+                    && (if ram_poll {
+                        ram_ready
+                    } else {
+                        native_resume_ready(emulator)
+                    })
+                {
                     return Ok(());
                 }
             }
             if run.ticks >= request.max_ticks {
-                return Err(HostError::Emulator(format!(
-                    "wait condition {:?} was not satisfied after {} real ticks (PC={:06X})",
-                    request.condition,
-                    run.ticks,
-                    emulator.hybrid_cpu().pc()
-                )));
+                let detail = if yield_once {
+                    format!(
+                        "poll_yield did not reach a quiescent continuation after {} real ticks (PC={:06X})",
+                        run.ticks,
+                        emulator.hybrid_cpu().pc()
+                    )
+                } else {
+                    format!(
+                        "wait condition {:?} was not satisfied after {} real ticks (PC={:06X})",
+                        request.condition,
+                        run.ticks,
+                        emulator.hybrid_cpu().pc()
+                    )
+                };
+                return Err(HostError::Emulator(detail));
             }
             timed_tick(emulator, clock, &mut run, &mut audio, observers)?;
         }
@@ -2435,3 +2537,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "execution/ram_wait_tests.rs"]
+mod ram_wait_tests;

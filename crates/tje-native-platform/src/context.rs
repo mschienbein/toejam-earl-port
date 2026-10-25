@@ -8,7 +8,7 @@ use genesis_core::native::PeripheralState;
 use tje_game::call_frame::{CallSite, FrameError, FrameState};
 use tje_game::{
     Context, Dispatcher, Error, FunctionId, Platform, Result,
-    execution::{ExecutionClass, WaitCondition, WaitRequest},
+    execution::{ExecutionClass, RamWidth, WaitCondition, WaitRequest},
     exits::{self, EntryOutcome, Exit, StackBanks},
 };
 use tje_mem::{AddressSpace, Bus, Revision};
@@ -220,10 +220,91 @@ impl NativePlatform {
         }
     }
 
+    fn suspend_ram_or_yield(&mut self, request: Option<WaitRequest>) -> Result<()> {
+        let max_steps = request.map_or(WaitRequest::DEFAULT_MAX_TICKS, |request| request.max_ticks);
+        if let Some(WaitRequest {
+            condition:
+                WaitCondition::Ram {
+                    address,
+                    width,
+                    mask,
+                    value,
+                    ..
+                },
+            ..
+        }) = request
+            && !width.valid(address, mask, value)
+        {
+            return Err(Error::Platform(
+                "RAM wait has an invalid address, width or operand bits".into(),
+            ));
+        }
+        let before_clock = self.devices.clock();
+        let mut steps = 0;
+        loop {
+            let wait = self.devices.wait_pending();
+            let halted = self.devices.cpu_halted();
+            let level = self.devices.pending_interrupt();
+            let irq = level != 0 && u16::from(level) > ((self.registers.status >> 8) & 7);
+            if !wait && !halted && !irq {
+                let done = match request {
+                    Some(request) => self.condition(request.condition, self.accepted_interrupts)?,
+                    None => self.devices.clock() > before_clock,
+                };
+                if done {
+                    return Ok(());
+                }
+            }
+            if steps >= max_steps {
+                return Err(Error::Platform(format!(
+                    "native {} exhausted {max_steps} scheduler steps",
+                    if request.is_some() {
+                        "RAM wait"
+                    } else {
+                        "poll_yield"
+                    },
+                )));
+            }
+            if !wait && !halted && irq {
+                self.service_interrupt()?;
+            } else if wait {
+                self.devices
+                    .take_wait_step(self.program_counter)
+                    .expect("observed actual native wait debt");
+            } else {
+                self.devices.advance_master_clocks(15);
+            }
+            steps += 1;
+        }
+    }
+
     fn condition(&mut self, condition: WaitCondition, interrupts: u64) -> Result<bool> {
         Ok(match condition {
             WaitCondition::RamWordChanged { address, previous } => {
                 self.read_u16(address) != previous
+            }
+            WaitCondition::Ram {
+                address,
+                width,
+                mask,
+                value,
+                comparison,
+            } => {
+                if !width.valid(address, mask, value) {
+                    return Err(Error::Platform(
+                        "RAM wait has an invalid address, width or operand bits".into(),
+                    ));
+                }
+                let actual = match width {
+                    RamWidth::Byte => u32::from(self.devices.read_bus_byte(address)),
+                    RamWidth::Word => u32::from(self.devices.read_bus_word(address)),
+                    RamWidth::Long => {
+                        let high = self.devices.read_bus_word(address);
+                        let low = self.devices.read_bus_word(address.wrapping_add(2));
+                        (u32::from(high) << 16) | u32::from(low)
+                    }
+                };
+                comparison.satisfied(actual, mask, value)
             }
             WaitCondition::DeviceWord {
                 address,
@@ -288,7 +369,23 @@ impl Platform for NativePlatform {
     fn write_device_u16(&mut self, address: u32, value: u16) {
         self.devices.write_immediate_word(address, value);
     }
+    fn poll_yield(&mut self) -> Result<()> {
+        if self.class != ExecutionClass::TimeAware {
+            return Err(Error::Platform(
+                "scheduler yield requires TimeAware execution".into(),
+            ));
+        }
+        self.suspend_ram_or_yield(None)
+    }
     fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        if matches!(request.condition, WaitCondition::Ram { .. }) {
+            if self.class != ExecutionClass::TimeAware {
+                return Err(Error::Platform(
+                    "RAM polling wait requires TimeAware execution".into(),
+                ));
+            }
+            return self.suspend_ram_or_yield(Some(request));
+        }
         let interrupts = self.accepted_interrupts;
         if self.condition(request.condition, interrupts)? {
             return Ok(());
@@ -424,5 +521,149 @@ mod discard_tests {
         assert_eq!(accesses.len(), 2);
         assert_eq!(accesses[1].purpose, Some(2));
         assert_eq!((accesses[1].address, accesses[1].word), (0xc00004, true));
+    }
+
+    #[test]
+    fn native_ram_predicates_and_yield_keep_real_width_and_clock_effects() {
+        let mut rom = vec![0; 256];
+        rom[..4].copy_from_slice(&0xff7ff0_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x40_u32.to_be_bytes());
+        let mut memory = AddressSpace::new(rom, Revision::Rev02);
+        memory.write_u32(0xff1234, 0x56789abc);
+        let mut platform = NativePlatform::new(
+            memory,
+            &[],
+            InterruptHandlers::default(),
+            &GenesisEmulatorConfig::default(),
+        )
+        .unwrap();
+        platform
+            .set_execution_class(ExecutionClass::TimeAware)
+            .unwrap();
+        platform
+            .wait_until(WaitRequest::ram_byte_equal(0xff1235, 255, 0x78))
+            .unwrap();
+        assert_eq!(platform.capture_state().open_bus, 0x7800);
+        platform
+            .wait_until(WaitRequest::ram_word_equal(0xff1234, 65535, 0x5678))
+            .unwrap();
+        assert_eq!(platform.capture_state().open_bus, 0x5678);
+        platform
+            .wait_until(WaitRequest::ram_long_equal(0xff1234, u32::MAX, 0x56789abc))
+            .unwrap();
+        let before = platform.capture_state();
+        assert_eq!(before.open_bus, 0x9abc);
+        platform.poll_yield().unwrap();
+        let after = platform.capture_state();
+        assert!(after.cycles.m68k_mclk_cycles > before.cycles.m68k_mclk_cycles);
+        assert_eq!(
+            after.open_bus, before.open_bus,
+            "yield adds no condition operand"
+        );
+        let mut request = WaitRequest::ram_byte_not_equal(0xff1235, 255, 0x78);
+        request.max_ticks = 2;
+        assert!(platform.wait_until(request).is_err());
+    }
+}
+
+#[cfg(test)]
+mod ram_readiness_tests {
+    use super::*;
+
+    fn platform() -> NativePlatform {
+        let mut rom = vec![0; 256];
+        rom[..4].copy_from_slice(&0xff7ff0_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x40_u32.to_be_bytes());
+        rom[0x40..0x42].copy_from_slice(&0x1234_u16.to_be_bytes());
+        rom[0x42..0x46].copy_from_slice(&[0x4e, 0x71, 0x4e, 0x71]);
+        let memory = AddressSpace::new(rom, Revision::Rev02);
+        let mut platform = NativePlatform::new(
+            memory,
+            &[],
+            InterruptHandlers::default(),
+            &GenesisEmulatorConfig::default(),
+        )
+        .unwrap();
+        platform
+            .set_execution_class(ExecutionClass::TimeAware)
+            .unwrap();
+        platform
+    }
+
+    #[test]
+    fn already_owed_real_irq_precedes_the_first_ready_ram_read() {
+        let mut platform = platform();
+        platform.set_status_register(0x2000);
+        platform.devices.read_bus_word(0x40);
+        platform.write_device_u16(0xc00004, 0x8010);
+        platform.write_device_u16(0xc00004, 0x8a00);
+        // Execute one authored NOP continuation through the production
+        // instruction boundary, including its prefetch. Device-only waits do
+        // not sample IRQ-enable latches; never set those latches by hand.
+        platform.devices.begin_instruction(0x4e71, 0);
+        platform
+            .devices
+            .read_bus_word_tagged(0x44, crate::BusReadPurpose::Prefetch);
+        platform.devices.finish_instruction(0x42, 4);
+        platform.program_counter = 0x44;
+        platform.registers.program_counter = 0x44;
+        for _ in 0..5000 {
+            if platform.devices.pending_interrupt() == 4 {
+                break;
+            }
+            platform.devices.advance_master_clocks(15);
+        }
+        assert_eq!(platform.devices.pending_interrupt(), 4);
+        let before = platform.capture_state();
+        assert_ne!(before.open_bus, 0);
+        let result = platform.wait_until(WaitRequest::ram_byte_equal(0xff1234, 255, 0));
+        assert!(matches!(result, Err(Error::Platform(message))
+            if message.contains("no native translated handler for IRQ4")));
+        assert_eq!(
+            platform.capture_state().open_bus,
+            before.open_bus,
+            "no ready RAM operand may be read ahead of the owed IRQ"
+        );
+        assert_eq!(platform.devices.pending_interrupt(), 4);
+    }
+
+    #[test]
+    fn active_real_bus_halt_must_complete_or_exhaust_before_ready_ram_read() {
+        let mut platform = platform();
+        platform.set_status_register(0x2700);
+        platform.devices.read_bus_word(0x40);
+        for address in (0xff9000..0xff9080).step_by(2) {
+            platform.devices.memory_mut().write_u16(address, 0x5aa5);
+        }
+        for value in [
+            0x8114, 0x8f02, 0x9340, 0x9400, 0x9500, 0x96c8, 0x977f, 0x4000, 0x0080,
+        ] {
+            platform.write_device_u16(0xc00004, value);
+        }
+        for _ in 0..100 {
+            if platform.devices.cpu_halted() {
+                break;
+            }
+            platform.devices.advance_master_clocks(15);
+        }
+        assert!(
+            platform.devices.cpu_halted(),
+            "fixture must start a real halting DMA"
+        );
+        let before = platform.capture_state();
+        let mut request = WaitRequest::ram_byte_equal(0xff1234, 255, 0);
+        request.max_ticks = 0;
+        assert!(platform.wait_until(request).is_err());
+        assert_eq!(
+            platform.capture_state().open_bus,
+            before.open_bus,
+            "exhaustion must not poll through an active bus halt"
+        );
+        assert!(platform.devices.cpu_halted());
+        request.max_ticks = 10000;
+        platform.wait_until(request).unwrap();
+        assert!(!platform.devices.cpu_halted());
+        assert!(!platform.devices.wait_pending());
+        assert!(platform.devices.clock() > before.cycles.m68k_mclk_cycles);
     }
 }

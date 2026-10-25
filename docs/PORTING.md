@@ -401,6 +401,76 @@ dependency. A later semantic read at the same address is still audited.
 after the final restored register, before UNLK, only when a MOVEM mask is
 nonempty. Its operand remains unavailable to game code.
 
+### RAM polling predicates, loop yields and write widths
+
+Use a RAM predicate, not a device-address alias or an invented frame-counter
+read, for an original fixed-address RAM spin. The constructors are
+`WaitRequest::ram_byte_equal(address, mask, value)`,
+`ram_byte_not_equal`, `ram_word_equal`, `ram_word_not_equal`,
+`ram_long_equal` and `ram_long_not_equal`. Byte/word constructors accept byte/
+word masks and values; long constructors accept `u32`. The underlying literal
+is `WaitCondition::Ram { address, width: RamWidth, mask, value, comparison:
+WaitComparison }`, with `Byte`, `Word`, `Long` and `Equal`/`NotEqual` variants.
+Equality means `(actual & mask) == value`; inequality means `!=`.
+
+For example, a fixed `TST.B pending; BNE` spin is:
+
+```rust
+context.wait_until(WaitRequest::ram_byte_equal(pending, 0xff, 0))?;
+```
+
+The wait owns **every poll, including the final satisfying read**. The caller
+must not add an outer flag read or a duplicate final read. A ready-at-entry
+predicate still performs its one original poll. A long poll performs its two
+physical word reads in order; separate byte/word source reads are never
+coalesced into a long. The replay envelope must authenticate the original
+location, width, mask/relation and predicate, not infer them from coincidental
+true/false values. Existing per-request operational ceilings remain failure
+ceilings, not readiness fallbacks.
+
+A compound loop, a short-circuit OR/AND, or an address recomputed from mutable
+slots on each iteration must keep the original ordinary reads, stores and
+branch structure. Mark its iteration boundary with
+`context.poll_yield()?`, rather than inventing an aligned word read or a new
+predicate. For example:
+
+```rust
+while context.read_u8(phase) != 0 {
+    if context.read_u8(inventory) == 0 {
+        break;
+    }
+    context.poll_yield()?;
+}
+```
+
+`poll_yield` is a scheduler marker, **not a wait-predicate assertion**.
+Recorded-environment implementations consume no token and infer no preceding
+false poll from it: the surrounding exact accesses determine the iterations.
+The live Host makes at least one real parked CPU/device step and drains any
+accepted interrupt back to the quiescent continuation; the readable native
+adapter advances its real scheduler and services eligible interrupts. Neither
+promises a source cycle charge. Clockless or timed-source-only adapters may
+reject this optional scheduler capability. Atomic/Functional execution does
+not gain time-progress permission.
+
+Native scheduler helpers observe the VDP's **actual latched** interrupt enables;
+they do not manufacture a CPU instruction boundary by advancing device clocks.
+Cold code that changes IRQ enables requires a genuine native instruction-finish
+handoff (as supplied by the source-timed runtime), or an authenticated captured
+entry state, before relying on those enables. The pending-IRQ regression uses
+one authored NOP continuation to create that fixture boundary; production code
+does not insert a NOP, fake a charge or directly set IRQ/readiness flags.
+These adapter tests do not prove readable-native initialization/IRQ composition.
+
+Program-side Host `Bus::write_u16` issues one actual word write;
+`write_u32` issues the two actual word writes, high then low. This applies to
+both typed views and concrete program HookContext methods. No byte events are
+heuristically merged. If a pinned instruction uses a different word order,
+express that explicit source-backed sequence (as the MOVEM save helper does).
+Inspection/recipe state patches remain external mutations, not fabricated CPU
+word accesses; arbitrary unaligned fixture storage retains its existing byte
+patch behavior.
+
 ### Functional device semantics and their limits
 
 `GenesisBus::hybrid_set_functional_mode(true)` is enabled on check forks only.

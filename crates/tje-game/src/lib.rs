@@ -334,6 +334,13 @@ pub trait Platform: tje_mem::Platform {
         ))
     }
 
+    /// Mark an iteration boundary without asserting a polling predicate.
+    /// Clocked platforms make real progress; recorded-environment checks do
+    /// not consume an access, fabricate readiness or add a timing claim.
+    fn poll_yield(&mut self) -> Result<()> {
+        Err(Error::Platform("scheduler yield is unavailable".into()))
+    }
+
     fn wait_vblank_frame(&mut self, address: u32, previous: u16) -> Result<()> {
         self.wait_until(execution::WaitRequest::vblank_frame(address, previous))
     }

@@ -5,7 +5,8 @@
 //! Check-mode live execution retains the original instruction timing.
 
 use crate::execution::{
-    ClockRun, WaitClock, run_original_timed_with_audio, run_wait, run_wait_with_audio,
+    ClockRun, WaitClock, run_original_timed_with_audio, run_poll_yield_with_audio, run_wait,
+    run_wait_with_audio,
 };
 use crate::{
     HostError, Result,
@@ -893,9 +894,22 @@ impl<'a> HookContext<'a> {
         }
     }
     pub fn write_u16(&mut self, address: u32, value: u16) {
-        let [hi, lo] = value.to_be_bytes();
-        self.write_u8(address, hi);
-        self.write_u8(address.wrapping_add(1), lo);
+        if !self.observe_native_provenance {
+            // Inspection/recipe stores are external byte mutations, not
+            // fabricated CPU word accesses (and may patch unaligned storage).
+            let [hi, lo] = value.to_be_bytes();
+            self.write_u8(address, hi);
+            self.write_u8(address.wrapping_add(1), lo);
+            return;
+        }
+        let physical = address & 0xffffff;
+        assert!(
+            !(0x400000..0xe00000).contains(&physical),
+            "write_u16 is ROM/RAM-only; use Platform for hardware"
+        );
+        self.flush_audit_accesses();
+        // This issues one actual word. No observed bytes are regrouped later.
+        tje_game::Platform::write_device_u16(self, address, value);
     }
     pub fn write_u32(&mut self, address: u32, value: u32) {
         self.write_u16(address, (value >> 16) as u16);
@@ -1228,6 +1242,12 @@ impl tje_mem::Bus for HookContext<'_> {
     fn write_u8(&mut self, address: u32, value: u8) {
         HookContext::write_u8(self, address, value);
     }
+    fn write_u16(&mut self, address: u32, value: u16) {
+        HookContext::write_u16(self, address, value);
+    }
+    fn write_u32(&mut self, address: u32, value: u32) {
+        HookContext::write_u32(self, address, value);
+    }
 }
 impl tje_mem::Platform for HookContext<'_> {
     fn write_vdp_control(&mut self, value: u16) {
@@ -1265,6 +1285,36 @@ impl tje_game::Platform for HookContext<'_> {
         self.check_mmio_contract()?;
         self.read_bus_tagged(address, true, ReadPurpose::Discarded);
         self.check_mmio_contract()
+    }
+
+    fn poll_yield(&mut self) -> tje_game::Result<()> {
+        self.check_mmio_contract()?;
+        self.flush_audit_accesses();
+        let result = (|| {
+            if self.execution_class != ExecutionClass::TimeAware {
+                return Err(tje_game::Error::Platform(
+                    "scheduler yield requires TimeAware execution".into(),
+                ));
+            }
+            self.wait_clock.call_clock.dispatch_step()?;
+            let observe = self.stack_audit.is_some();
+            let observers = self.stack_audit.as_ref().map_or_else(
+                crate::execution::PhysicalObservers::default,
+                StackAuditState::physical_observers,
+            );
+            let run = run_poll_yield_with_audio(
+                self.emulator,
+                &mut self.wait_clock,
+                std::mem::take(&mut self.time_audio),
+                observe,
+                observers,
+            )
+            .map_err(Self::game_platform_error)?;
+            self.merge_clock_run(run);
+            Ok(())
+        })();
+        self.flush_audit_accesses();
+        result.map_err(|error| self.latch_mmio_error(error))
     }
 
     fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
@@ -1990,3 +2040,7 @@ mod timing_call_tests;
 #[cfg(test)]
 #[path = "abi/discard_tests.rs"]
 mod discard_tests;
+
+#[cfg(test)]
+#[path = "abi/width_yield_tests.rs"]
+mod width_yield_tests;
