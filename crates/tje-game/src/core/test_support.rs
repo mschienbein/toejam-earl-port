@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
 use crate::call_frame::{FrameError, FrameState};
+use crate::execution::{RamWidth, WaitCondition, WaitRequest};
 use crate::{Context, Dispatcher, FunctionId, Result};
 use tje_mem::{AddressSpace, Bus, Platform, Revision};
 
@@ -15,6 +16,7 @@ pub(crate) enum Write {
 pub(crate) enum Access {
     Read(u32, u8),
     Discard(u32, u8),
+    Wait(WaitRequest),
     Write(u32, u8, u32),
     Control(u16),
     Data(u16),
@@ -27,6 +29,7 @@ pub(crate) struct TestContext {
     pub accesses: RefCell<Vec<Access>>,
     pub frame: Option<FrameState>,
     pub sp: u32,
+    pub stop_at_calls: bool,
     data: [u32; 8],
     address: [u32; 8],
     status: u16,
@@ -44,6 +47,7 @@ impl TestContext {
             accesses: RefCell::new(Vec::new()),
             frame: None,
             sp: 0xff7f00,
+            stop_at_calls: false,
             data: [0; 8],
             address: [0; 8],
             status: 0x2000,
@@ -106,6 +110,33 @@ impl Platform for TestContext {
     }
 }
 impl crate::Platform for TestContext {
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.record(Access::Wait(request));
+        let WaitCondition::Ram {
+            address,
+            width,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            return Err(crate::Error::Platform("unsupported unit wait".into()));
+        };
+        let actual = match width {
+            RamWidth::Byte => u32::from(self.read_u8(address)),
+            RamWidth::Word => u32::from(self.read_u16(address)),
+            RamWidth::Long => self.read_u32(address),
+        };
+        if comparison.satisfied(actual, mask, value) {
+            Ok(())
+        } else {
+            // Only a genuinely satisfying RAM sample can complete this
+            // fixture's wait. It has no authority to advance emulated time.
+            Err(crate::Error::Platform(
+                "unit context cannot advance an unsatisfied RAM wait".into(),
+            ))
+        }
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.record(Access::Discard(address, 1));
         let _ = self.memory.read_u8(address);
@@ -168,9 +199,16 @@ impl Context for TestContext {
         Ok(())
     }
     fn dispatcher(&self) -> Dispatcher {
-        Dispatcher::hybrid()
+        if self.stop_at_calls {
+            Dispatcher::hybrid_with(&[])
+        } else {
+            Dispatcher::hybrid()
+        }
     }
     fn call_original(&mut self, function: FunctionId, _: &[u32]) -> Result<u32> {
+        if self.stop_at_calls {
+            return Err(crate::Error::Untranslated(function));
+        }
         panic!(
             "unexpected original leaf callee {}",
             function.metadata().name

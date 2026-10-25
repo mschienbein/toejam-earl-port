@@ -1,6 +1,6 @@
 //! Core translation ownership; see docs/PORTING.md.
 
-use crate::execution::ExecutionClass;
+use crate::execution::{ExecutionClass, WaitRequest};
 use crate::{Context, Result};
 use tje_mem::ram;
 
@@ -349,7 +349,13 @@ fn wait_for_next_vblank_count(context: &mut dyn Context, mut count: i16) -> Resu
         while count > 0 {
             let counter = ram::g_frame_counter(revision);
             let previous = counter.read(context);
-            context.wait_vblank_frame(counter.address(), previous)?;
+            // The initial MOVE.W is above; this owns the complete CMP.W loop
+            // at matching c_startup_and_main_loop.s:194-196, terminal read too.
+            context.wait_until(WaitRequest::ram_word_not_equal(
+                counter.address(),
+                0xffff,
+                previous,
+            ))?;
             count -= 1;
         }
     }

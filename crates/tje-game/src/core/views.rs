@@ -1,4 +1,5 @@
 use crate::call_frame::{FrameError, FrameState};
+use crate::execution::WaitRequest;
 use crate::{Context, FunctionId, Result, call, ids};
 use tje_mem::{ObjectState, ram, rom};
 
@@ -58,11 +59,13 @@ pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
         .argument_byte(0)
         .read(context);
     if ram::g_mode2_reg_softcopy(revision).read(context) & 0x40 != 0 {
-        while ram::g_sprite_graphics_upload_pending(revision).read(context) != 0 {
-            let counter = ram::g_frame_counter(revision);
-            let previous = counter.read(context);
-            context.wait_vblank_frame(counter.address(), previous)?;
-        }
+        // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:771-773:
+        // the wait owns every TST.B, including the final zero-valued poll.
+        context.wait_until(WaitRequest::ram_byte_equal(
+            ram::g_sprite_graphics_upload_pending(revision).address(),
+            0xff,
+            0,
+        ))?;
         call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
         context.write_vdp_control(0x9200);
         call(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;

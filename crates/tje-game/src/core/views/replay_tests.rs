@@ -1,5 +1,5 @@
 use super::{
-    clear_display_and_publish, enter_shared_screen, set_display_and_publish,
+    clear_display_and_publish, enter_shared_screen, enter_split_screen, set_display_and_publish,
     update_screen_split_mode,
 };
 use crate::core::test_support::{Access, TestContext};
@@ -160,5 +160,77 @@ fn split_hysteresis_keeps_compiled_level_and_flying_coordinate_read_order() {
             ]);
             assert_eq!(*context.accesses.borrow(), expected);
         }
+    }
+}
+
+#[test]
+fn split_upload_wait_owns_the_byte_poll_including_the_terminal_zero() {
+    use crate::execution::WaitRequest;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for pending_value in [0, 1, u8::MAX] {
+            let mut context = TestContext::new(revision);
+            context.stop_at_calls = true;
+            let frame = context.prepare_entry(crate::ids::ENTER_SPLIT_SCREEN, &[0x100]);
+            let mode = ram::g_mode2_reg_softcopy(revision);
+            let pending = ram::g_sprite_graphics_upload_pending(revision);
+            mode.write(&mut context, 0x40);
+            pending.write(&mut context, pending_value);
+            context.trace_accesses = true;
+            let error = enter_split_screen(&mut context).unwrap_err();
+            if pending_value == 0 {
+                // The real terminal sample succeeds; stop at the actual next
+                // foreign call, without inventing any callee effects.
+                assert!(matches!(
+                    error,
+                    Error::Untranslated(id) if id == crate::ids::DISABLE_BLANKING_GRAPHICS
+                ));
+            } else {
+                // This unit context cannot advance time or manufacture zero.
+                assert!(matches!(error, Error::Platform(_)));
+            }
+            assert_eq!(
+                *context.accesses.borrow(),
+                vec![
+                    Access::Read(frame.argument_byte(0).address(), 1),
+                    Access::Read(mode.address(), 1),
+                    Access::Wait(WaitRequest::ram_byte_equal(pending.address(), 0xff, 0)),
+                    Access::Read(pending.address(), 1),
+                ],
+            );
+        }
+    }
+}
+
+#[test]
+fn split_display_disabled_skips_the_upload_wait_and_all_proxy_reads() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        context.stop_at_calls = true;
+        let frame = context.prepare_entry(crate::ids::ENTER_SPLIT_SCREEN, &[0]);
+        let mode = ram::g_mode2_reg_softcopy(revision);
+        let pending = ram::g_sprite_graphics_upload_pending(revision);
+        mode.write(&mut context, 0);
+        pending.write(&mut context, u8::MAX);
+        context.trace_accesses = true;
+        let error = enter_split_screen(&mut context).unwrap_err();
+        assert!(matches!(error, Error::ExecutionUnavailable { .. }));
+        let accesses = context.accesses.borrow();
+        assert_eq!(
+            &accesses[..2],
+            &[
+                Access::Read(frame.argument_byte(0).address(), 1),
+                Access::Read(mode.address(), 1),
+            ],
+        );
+        let counter = ram::g_frame_counter(revision).address();
+        assert!(
+            accesses
+                .iter()
+                .all(|access| !matches!(access, Access::Wait(_)))
+        );
+        assert!(accesses.iter().all(|access| !matches!(
+            access,
+            Access::Read(address, _) if *address == pending.address() || *address == counter
+        )));
     }
 }

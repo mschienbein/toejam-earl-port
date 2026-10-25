@@ -53,6 +53,7 @@ static FRAMED_BODIES: LazyLock<Vec<FramedTranslation>> = LazyLock::new(|| {
         .filter_map(|&id| {
             tje_game::framed_translations()
                 .chain(tje_game::core::PENDING_FRAMED_TRANSLATIONS)
+                .chain(tje_game::jamout::PENDING_FRAMED_TRANSLATIONS)
                 .find(|entry| entry.id == id)
                 .copied()
         })

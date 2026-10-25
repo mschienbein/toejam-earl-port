@@ -132,3 +132,37 @@ fn vblank_wait_preserves_disabled_and_nonpositive_returns() {
         assert!(wait_for_next_vblank_readable_framed(&mut context).is_err());
     }
 }
+
+#[test]
+fn readable_vblank_uses_one_word_predicate_after_each_initial_counter_load() {
+    use crate::execution::WaitRequest;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for previous in [0, 0x7fff, 0xffff] {
+            let mut context = TestContext::new(revision);
+            let frame = context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[1]);
+            let mode = ram::g_mode2_reg_softcopy(revision);
+            let counter = ram::g_frame_counter(revision);
+            mode.write(&mut context, 0x40);
+            counter.write(&mut context, previous);
+            context.trace_accesses = true;
+            // A real unsatisfied first CMP poll is observed. No synthetic clock
+            // or IRQ is granted merely to finish this unit fixture.
+            let error = wait_for_next_vblank_readable_framed(&mut context).unwrap_err();
+            assert!(matches!(error, crate::Error::Platform(_)));
+            assert_eq!(
+                *context.accesses.borrow(),
+                vec![
+                    Access::Read(frame.argument_word(0).address(), 2),
+                    Access::Read(mode.address(), 1),
+                    Access::Read(counter.address(), 2),
+                    Access::Wait(WaitRequest::ram_word_not_equal(
+                        counter.address(),
+                        0xffff,
+                        previous,
+                    )),
+                    Access::Read(counter.address(), 2),
+                ],
+            );
+        }
+    }
+}
