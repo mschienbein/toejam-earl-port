@@ -29,6 +29,8 @@ pub struct CheckFailure {
     /// Explicit opt-in private runtime evidence, never a distributable game asset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actual_capture: Option<Box<crate::check_capture::CheckCaptureDiagnostic>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_stack_read: Option<crate::UnsupportedStackRead>,
 }
 
 pub(crate) fn bounded_detail(mut detail: String) -> (String, bool) {
@@ -81,9 +83,14 @@ impl Host {
 
     pub(super) fn check_live_hook(&mut self, hook: &Hook) -> Result<()> {
         self.future_observer.natural_checks += 1;
-        let result = self.check_live_hook_inner(hook);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.check_live_hook_inner(hook)
+        }));
         self.future_observer.natural_checks -= 1;
-        result
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     fn check_live_hook_inner(&mut self, hook: &Hook) -> Result<()> {
@@ -146,6 +153,7 @@ impl Host {
                 detail_truncated,
                 vdp_mismatch,
                 actual_capture,
+                unsupported_stack_read: error.unsupported_stack_read(),
             });
         }
         // No frame retry, CPU rewrite, or extra tick here. The caller falls

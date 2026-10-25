@@ -68,7 +68,7 @@ pub(super) fn divide_by_zero(context: &mut dyn Context, entry: FunctionId) -> Re
         stack_pointer: context.stack_pointer()?,
         stack_banks: context.stack_banks()?,
         status: context.status_register(),
-        saved_d2,
+        saved_d2: Some(saved_d2),
     };
     let request = ExceptionRequest::runtime_divide(entry, context.revision(), prepared)
         .ok_or(crate::Error::Untranslated(entry))?;

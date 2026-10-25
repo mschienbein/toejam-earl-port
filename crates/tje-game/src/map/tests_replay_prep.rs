@@ -3,7 +3,8 @@
 use super::*;
 use crate::call_frame::FrameState;
 use crate::execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest};
-use std::{cell::RefCell, collections::VecDeque};
+use crate::stack_read::{Guard, LocalWidth, Reader, UninitializedLocalRead};
+use std::{cell::RefCell, collections::VecDeque, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Access {
@@ -27,6 +28,8 @@ struct RootMachine {
     input: VecDeque<u32>,
     pending_samples: RefCell<Option<(u32, VecDeque<u8>)>>,
     framed_map_callees: bool,
+    guard: Arc<Guard>,
+    declared_locals: Vec<(UninitializedLocalRead, u8, u32)>,
 }
 impl RootMachine {
     fn new(r: Revision) -> Self {
@@ -46,6 +49,8 @@ impl RootMachine {
             input: VecDeque::from([0, 0x20, 0]),
             pending_samples: RefCell::new(None),
             framed_map_callees: false,
+            guard: Arc::new(Guard::default()),
+            declared_locals: Vec::new(),
         }
     }
     fn invoke(&mut self, id: FunctionId, arguments: &[u32]) -> Result<Option<u32>> {
@@ -98,6 +103,7 @@ impl RootMachine {
             ids::LMULT => self.inner.data[0].wrapping_mul(self.inner.data[1]),
             ids::MAP_GENERATE_SEPARATED_ANCHORS => 2,
             ids::MAP_GET_RANDOM_GENERATION_PARAMETER => 25,
+            ids::MAP_FIND_REGION_GROWTH_ORIGIN | ids::MAP_FIND_INTERIOR_GROWTH_ORIGIN => 1,
             ids::MAP_IS_ANCHOR_CONNECTION_MISSING => u32::from(self.reject_generation),
             ids::MAP_TRANSITION_CONTAINS_METATILE => 0,
             ids::ALLOCATE_SPRITE_TILE_RUN => self.allocations.pop_front().unwrap_or(8),
@@ -166,6 +172,7 @@ impl RootMachine {
 }
 impl Bus for RootMachine {
     fn read_u8(&self, address: u32) -> u8 {
+        self.guard.read(address, 1, Reader::RustMemory);
         self.accesses.borrow_mut().push(Access::Read(address, 1));
         if let Some((poll, samples)) = self.pending_samples.borrow_mut().as_mut()
             && address == *poll
@@ -177,10 +184,12 @@ impl Bus for RootMachine {
         self.inner.memory.read_u8(address)
     }
     fn read_u16(&self, address: u32) -> u16 {
+        self.guard.read(address, 2, Reader::RustMemory);
         self.accesses.borrow_mut().push(Access::Read(address, 2));
         self.inner.memory.read_u16(address)
     }
     fn read_u32(&self, address: u32) -> u32 {
+        self.guard.read(address, 4, Reader::RustMemory);
         self.accesses.borrow_mut().push(Access::Read(address, 4));
         self.inner.memory.read_u32(address)
     }
@@ -189,18 +198,21 @@ impl Bus for RootMachine {
             .borrow_mut()
             .push(Access::Write(address, 1, u32::from(value)));
         self.inner.memory.write_u8(address, value);
+        self.guard.commit(address, 1, true);
     }
     fn write_u16(&mut self, address: u32, value: u16) {
         self.accesses
             .borrow_mut()
             .push(Access::Write(address, 2, u32::from(value)));
         self.inner.memory.write_u16(address, value);
+        self.guard.commit(address, 2, true);
     }
     fn write_u32(&mut self, address: u32, value: u32) {
         self.accesses
             .borrow_mut()
             .push(Access::Write(address, 4, value));
         self.inner.memory.write_u32(address, value);
+        self.guard.commit(address, 4, true);
     }
 }
 impl tje_mem::Platform for RootMachine {
@@ -298,6 +310,22 @@ impl Context for RootMachine {
     fn set_frame_state(&mut self, state: FrameState) -> Result<()> {
         self.frame = state;
         Ok(())
+    }
+    fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
+        let address = self
+            .guard
+            .explicit_local(read, self.frame, self.stack_pointer()?)?;
+        let missing = self.guard.unwritten_mask(address, read.width.bytes());
+        let value = match read.width {
+            LocalWidth::Byte => u32::from(self.inner.memory.read_u8(address)),
+            LocalWidth::Word => u32::from(self.inner.memory.read_u16(address)),
+            LocalWidth::Long => self.inner.memory.read_u32(address),
+        };
+        self.accesses
+            .borrow_mut()
+            .push(Access::Read(address, read.width.bytes()));
+        self.declared_locals.push((read, missing, value));
+        Ok(value)
     }
     fn dispatcher(&self) -> Dispatcher {
         if self.framed_map_callees {
@@ -974,5 +1002,135 @@ fn map_screen_prepared_sites_accept_canonical_framed_map_callees() {
         );
         assert_eq!(ram::g_map_screen_next_sprite_index(r).read(&c), 7);
         assert_eq!(c.inner.address[7], 0xff7000);
+    }
+}
+
+#[test]
+fn missing_first_transition_choices_declare_each_word_until_a_real_store() {
+    for revision in Revision::ALL {
+        for residue in [0xffff_u16, 0, 1] {
+            let mut bytes = vec![0; 0x100000];
+            let descriptor = rom::map_transition_descriptors(revision).address() as usize;
+            bytes[descriptor + 2..descriptor + 6].copy_from_slice(&0x1000_u32.to_be_bytes());
+            bytes[descriptor + 6..descriptor + 10].copy_from_slice(&0x1100_u32.to_be_bytes());
+            bytes[0x1000..0x1002].copy_from_slice(&[1, 99]);
+            bytes[0x10f0..0x1110].fill(42);
+            let ordinary = rom::tile_alternative_pointers(revision).address() as usize;
+            bytes[ordinary..ordinary + 4].copy_from_slice(&0x1200_u32.to_be_bytes());
+            bytes[0x1200..0x1202].copy_from_slice(&[1, 7]);
+            let mut c = RootMachine::with_rom(revision, bytes);
+            let map = ram::g_player1_level_map(revision);
+            for column in [0, 1, 3] {
+                map.at(0).at(column).write(&mut c.inner.memory, 0x010c);
+            }
+            let entry_sp = c.frame.entry_sp;
+            c.inner.memory.write_u16(entry_sp - 8, residue);
+            let guard = Arc::clone(&c.guard);
+            guard
+                .run_root(ids::MAP_CHOOSE_METATILE_ALTERNATIVES, entry_sp, || {
+                    map_choose_metatile_alternatives(&mut c, &[])
+                })
+                .unwrap()
+                .unwrap();
+            assert!(guard.failure().is_none());
+            assert_eq!(c.declared_locals.len(), 2);
+            for &(read, missing, value) in &c.declared_locals {
+                assert_eq!(read.owner, ids::MAP_CHOOSE_METATILE_ALTERNATIVES);
+                assert_eq!(read.frame.entry_sp, entry_sp);
+                assert_eq!((read.offset, read.width), (-8, LocalWidth::Word));
+                assert!(read.citation.contains("1518-1566"));
+                assert_eq!((missing, value), (3, u32::from(residue)));
+            }
+            let events: Vec<_> = c
+                .accesses
+                .borrow()
+                .iter()
+                .filter(|event| match event {
+                    Access::Read(address, _) | Access::Write(address, _, _) => {
+                        *address == entry_sp - 8
+                    }
+                    _ => false,
+                })
+                .cloned()
+                .collect();
+            assert_eq!(
+                &events[..3],
+                [
+                    Access::Read(entry_sp - 8, 2),
+                    Access::Read(entry_sp - 8, 2),
+                    Access::Write(entry_sp - 8, 2, 0),
+                ]
+            );
+            assert_eq!(guard.unwritten_mask(entry_sp - 8, 2), 0);
+            assert_eq!(c.stack_pointer().unwrap(), entry_sp);
+            assert_eq!(map.at(0).at(0).read(&c.inner.memory), 42);
+            assert_eq!(map.at(0).at(3).read(&c.inner.memory), 42);
+        }
+    }
+}
+
+#[test]
+fn undeclared_first_transition_choice_still_trips_the_guard() {
+    for revision in Revision::ALL {
+        let mut c = RootMachine::new(revision);
+        let entry_sp = c.frame.entry_sp;
+        c.inner.memory.write_u16(entry_sp - 8, 0x55aa);
+        let guard = Arc::clone(&c.guard);
+        let failure = guard
+            .run_root(ids::MAP_CHOOSE_METATILE_ALTERNATIVES, entry_sp, || {
+                let frame = crate::call_frame::LocalFrame::enter(
+                    &mut c,
+                    crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
+                )
+                .unwrap();
+                frame.local::<i16>(-4).read(&c)
+            })
+            .unwrap_err();
+        assert_eq!(failure.root, ids::MAP_CHOOSE_METATILE_ALTERNATIVES);
+        assert_eq!((failure.address, failure.width), (entry_sp - 8, 2));
+        assert_eq!(
+            failure.reason,
+            crate::stack_read::UnsupportedReason::Unwritten
+        );
+        assert!(c.declared_locals.is_empty());
+    }
+}
+
+#[test]
+fn unsupported_growth_kind_declares_only_the_unwritten_probability_word() {
+    for revision in Revision::ALL {
+        for kind in [0, 0x1000, 0x3000] {
+            let mut c = RootMachine::new(revision);
+            let entry_sp = c.frame.entry_sp;
+            let arguments = [kind, 1, 0, 5, 5];
+            for (index, value) in arguments.into_iter().enumerate() {
+                c.frame
+                    .argument_slot(index as i32)
+                    .write(&mut c.inner.memory, value);
+            }
+            c.inner.memory.write_u16(entry_sp - 18, 17);
+            let guard = Arc::clone(&c.guard);
+            guard
+                .run_root(ids::MAP_GROW_TERRAIN_REGION, entry_sp, || {
+                    map_grow_terrain_region(&mut c, &arguments)
+                })
+                .unwrap()
+                .unwrap();
+            assert!(guard.failure().is_none());
+            if kind == 0 {
+                assert_eq!(c.declared_locals.len(), 1);
+                let (read, missing, value) = c.declared_locals[0];
+                assert_eq!(read.owner, ids::MAP_GROW_TERRAIN_REGION);
+                assert_eq!(read.frame.entry_sp, entry_sp);
+                assert_eq!((read.offset, read.width), (-18, LocalWidth::Word));
+                assert!(read.citation.contains("966-983,1235"));
+                assert_eq!((missing, value), (3, 17));
+                assert_eq!(guard.unwritten_mask(entry_sp - 18, 2), 3);
+            } else {
+                assert!(c.declared_locals.is_empty());
+                assert_eq!(guard.unwritten_mask(entry_sp - 18, 2), 0);
+            }
+            assert_eq!(c.stack_pointer().unwrap(), entry_sp);
+        }
     }
 }

@@ -134,7 +134,19 @@ pub fn map_grow_terrain_region(c: &mut dyn Context, args: &[u32]) -> Result<Opti
                 direction.write(c, next);
             }
             remaining.write(c, remaining.read(c).wrapping_sub(1));
-            let chance = u32::from(stop.read(c));
+            // Both c_random_regions_and_cleanup.s:966-983 initialize A6-14
+            // only for the two terrain kinds used by the original callers.
+            // Other incoming words still reach the physical read at 1235.
+            let chance = if kind == 0x1000 || kind == 0x3000 {
+                u32::from(stop.read(c))
+            } else {
+                c.read_uninitialized_local(frame.entry().uninitialized_local(
+                    ids::MAP_GROW_TERRAIN_REGION,
+                    -18,
+                    crate::stack_read::LocalWidth::Word,
+                    "G/build/{rev00,rev02}/asm/c_random_regions_and_cleanup.s:966-983,1235; non-0x1000/non-0x3000 kind skips A6-14 stores; MOVE.W -14(A6),D3; LINK -16; own entry SP-18 word",
+                ))?
+            };
             if chance > random(c)? % 100 {
                 count.write(c, 0);
                 if minimum > 0 {

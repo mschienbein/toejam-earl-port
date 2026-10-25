@@ -162,6 +162,19 @@ impl Context for TestContext {
         self.sp = value;
         Ok(())
     }
+    fn stack_banks(&self) -> Result<crate::exits::StackBanks> {
+        Ok(if self.sr & 0x2000 != 0 {
+            crate::exits::StackBanks {
+                user: 0xff6000,
+                supervisor: self.sp,
+            }
+        } else {
+            crate::exits::StackBanks {
+                user: self.sp,
+                supervisor: 0xff6000,
+            }
+        })
+    }
     fn frame_state(&self) -> Option<FrameState> {
         Some(self.frame)
     }
@@ -186,7 +199,7 @@ fn interrupt_masks_preserve_all_registers_and_every_ccr_combination() {
         let mut context = TestContext::new(revision);
         let data = context.data;
         let addresses = context.addresses;
-        for control in [0, 0x2000, 0x8000, 0xa000] {
+        for control in [0x2000, 0xa000] {
             for priority in 0..8 {
                 for ccr in 0..32 {
                     let entry_sr = control | (priority << 8) | ccr;
@@ -204,6 +217,60 @@ fn interrupt_masks_preserve_all_registers_and_every_ccr_combination() {
             }
         }
         assert!(context.trace.is_empty());
+    }
+}
+
+#[test]
+fn user_interrupt_masks_request_privilege_before_any_source_effect() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for entry in [
+            crate::ids::DISABLE_ALL_INTERRUPTS,
+            crate::ids::ENABLE_ALL_INTERRUPTS,
+        ] {
+            let body = TRANSLATIONS
+                .iter()
+                .find(|body| body.id == entry)
+                .unwrap()
+                .function;
+            let mut context = TestContext::new(revision);
+            let data = context.data;
+            let addresses = context.addresses;
+            let sp = context.sp;
+            let frame = context.frame;
+            for trace in [0, 0x8000] {
+                for priority in 0..8 {
+                    for ccr in 0..32 {
+                        let status = trace | (priority << 8) | ccr;
+                        context.sr = status;
+                        let error = body(&mut context, &[]).unwrap_err();
+                        let crate::Error::ControlTransfer(transfer) = error else {
+                            panic!("user SR instruction must request its privilege trap");
+                        };
+                        let crate::exits::Exit::Exception { request } = transfer.exit else {
+                            panic!("expected synchronous privilege exception");
+                        };
+                        assert_eq!(transfer.entry, entry);
+                        assert_eq!(
+                            request.trap,
+                            crate::control::SynchronousTrap::PrivilegeViolation
+                        );
+                        assert_eq!(request.saved_pc, entry.metadata().address(revision));
+                        assert_eq!(request.site.byte_offset, 0);
+                        assert_eq!(request.prepared.saved_d2, None);
+                        assert_eq!(request.prepared.status, status);
+                        assert_eq!(request.prepared.stack_pointer, sp);
+                        assert_eq!(request.prepared.stack_banks.user, sp);
+                        request.validate_shape(revision).unwrap();
+                        assert_eq!(context.data, data);
+                        assert_eq!(context.addresses, addresses);
+                        assert_eq!(context.sr, status);
+                        assert_eq!(context.sp, sp);
+                        assert_eq!(context.frame, frame);
+                        assert!(context.trace.is_empty());
+                    }
+                }
+            }
+        }
     }
 }
 

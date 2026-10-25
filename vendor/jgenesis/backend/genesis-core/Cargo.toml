@@ -10,6 +10,8 @@ edition = "2024"
 [features]
 default = ["emulator"]
 emulator = ["dep:m68000-emu", "genesis-components/m68000-timing"]
+# TJE neutral passive RAM/DMA callbacks; no fixture/reset/oracle capability.
+ram-dma-observer = ["genesis-components/ram-dma-observer"]
 # TJE authored reference fixtures only; never enabled by a shipping frontend.
 reference-proof-hooks = [
     "emulator",

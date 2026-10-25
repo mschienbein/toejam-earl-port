@@ -207,14 +207,17 @@ fn sequential_dead_stack_composition_fails_approval() {
             let result = host.run_frame(InputScript::default().at(0));
             if mode == Mode::Check {
                 let error = result.unwrap_err();
-                assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
-                assert!(error.to_string().contains("uninitialized stack read"));
+                let failure = error.typed_stack_read().unwrap();
+                assert_eq!(failure.reader, tje_game::stack_read::Reader::RustMemory);
+                assert_eq!(
+                    failure.reason,
+                    tje_game::stack_read::UnsupportedReason::Unwritten
+                );
                 assert_eq!(host.checks.calls, 2);
                 assert_eq!(host.checks.mismatches, 1);
-                assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                assert!(host.checks.uninitialized_stack_reads.is_empty());
                 assert!(host.checks.nondependent_stack_reads.is_empty());
-                assert_eq!(host.checks.stack_dependency_reruns, 4);
-                assert!(error.to_string().contains("original dependency"), "{error}");
+                assert_eq!(host.checks.stack_dependency_reruns, 0);
             } else {
                 result.unwrap();
                 assert_eq!(host.context().read_u32(0xffe000), 0x12345678);
@@ -249,7 +252,11 @@ fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
         Ok(Some(tje_mem::Address::<u32>::new(address).read(c)))
     }
     for revision in [Revision::Rev02, Revision::Rev00] {
-        for read in [inherent as tje_host::hooks::HookFn, view, facade] {
+        for (read, width) in [
+            (inherent as tje_host::hooks::HookFn, 4),
+            (view, 4),
+            (facade, 2),
+        ] {
             let mut registry = HookRegistry::empty(revision);
             let (a, atomic) = contract("OmittedDeadStore", CODE, false, 0, true);
             registry.register_contract(a, atomic, omitted).unwrap();
@@ -280,16 +287,17 @@ fn rust_only_dead_stack_reads_cannot_hide_behind_a_constant_original_result() {
                 let result = host.run_frame(InputScript::default().at(0));
                 if mode == Mode::Check {
                     let error = result.unwrap_err();
-                    assert!(
-                        error.to_string().contains("uninitialized stack read"),
-                        "{error}"
+                    let failure = error.typed_stack_read().unwrap();
+                    assert_eq!(
+                        failure.reason,
+                        tje_game::stack_read::UnsupportedReason::Unwritten
                     );
+                    assert_eq!(failure.width, width);
                     assert_eq!(host.checks.calls, 2);
                     assert_eq!(host.checks.mismatches, 1);
-                    assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
+                    assert!(host.checks.uninitialized_stack_reads.is_empty());
                     assert!(host.checks.nondependent_stack_reads.is_empty());
-                    assert_eq!(host.checks.stack_dependency_reruns, 2);
-                    assert!(error.to_string().contains("Rust dependency"), "{error}");
+                    assert_eq!(host.checks.stack_dependency_reruns, 0);
                 } else {
                     result.unwrap();
                     assert_eq!(host.context().read_u32(0xffe000), 0x12345678);
@@ -508,12 +516,21 @@ fn prepared_original_and_rust_arguments_share_the_suspended_root_audit() {
                         let result = host.run_frame(InputScript::default().at(0));
                         if mode == Mode::Check && missing {
                             let error = result.unwrap_err();
-                            assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
-                            assert!(error.to_string().contains("Rust dependency"), "{error}");
                             assert_eq!(host.checks.calls, 2);
                             assert_eq!(host.checks.mismatches, 1);
-                            assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
-                            if !rust_abs {
+                            if rust_abs {
+                                let failure = error.typed_stack_read().unwrap();
+                                assert_eq!(
+                                    failure.reason,
+                                    tje_game::stack_read::UnsupportedReason::Unwritten
+                                );
+                                assert_eq!(failure.width, 4);
+                                assert!(host.checks.uninitialized_stack_reads.is_empty());
+                                assert_eq!(host.checks.stack_dependency_reruns, 0);
+                            } else {
+                                assert!(matches!(error, HostError::Mismatch { .. }), "{error}");
+                                assert!(error.to_string().contains("Rust dependency"), "{error}");
+                                assert_eq!(host.checks.uninitialized_stack_reads.len(), 4);
                                 let abs = ids::ABS.metadata();
                                 assert!(host.checks.uninitialized_stack_reads.iter().all(|site| {
                                     (abs.address(revision)
@@ -565,7 +582,7 @@ fn nested_original_read_before_a_later_write_is_not_retroactively_initialized() 
 
 #[test]
 #[ignore = "requires both private ROMs"]
-fn eager_unused_framed_arguments_are_informational_not_dependencies() {
+fn eager_unused_framed_arguments_reject_generic_unwritten_preload() {
     fn caller(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         let frame = LocalFrame::enter(c, FrameLayout::link(4, 0, 0))?;
         let outgoing = OutgoingArguments::existing(c, 0)?;
@@ -591,8 +608,8 @@ fn eager_unused_framed_arguments_are_informational_not_dependencies() {
             .register_execution_contract(symbol, ExecutionClass::TimeAware, caller)
             .unwrap();
         let mut host = Host::new(&bytes(revision), Mode::Check, registry).unwrap();
-        // The real disabled-display fast path never consumes its count. Rust's
-        // eager slot preload may read it, but perturbing it must not change output.
+        // The original fast path never consumes its count. Even a value-discarded
+        // generic Rust preload must fail before serving unowned frame residue.
         tje_mem::ram::g_mode2_reg_softcopy(revision).write(&mut host.context(), 0);
         let wait = ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision);
         code(
@@ -609,10 +626,15 @@ fn eager_unused_framed_arguments_are_informational_not_dependencies() {
                 0x4e75,
             ],
         );
-        host.check_fixture(CODE + 0x80, &[]).unwrap();
-        assert_eq!(host.checks.mismatches, 0);
-        assert!(host.checks.uninitialized_stack_reads.is_empty());
-        assert!(!host.checks.nondependent_stack_reads.is_empty());
-        assert!(host.checks.stack_dependency_reruns >= 2);
+        let error = host.check_fixture(CODE + 0x80, &[]).unwrap_err();
+        let failure = error.typed_stack_read().unwrap();
+        assert_eq!(
+            failure.reason,
+            tje_game::stack_read::UnsupportedReason::Unwritten
+        );
+        assert_eq!(failure.width, 4);
+        assert_eq!((host.checks.calls, host.checks.mismatches), (1, 1));
+        assert!(host.checks.nondependent_stack_reads.is_empty());
+        assert_eq!(host.checks.stack_dependency_reruns, 0);
     }
 }

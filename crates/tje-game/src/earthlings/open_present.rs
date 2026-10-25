@@ -23,9 +23,17 @@ fn open_present(
     frame
         .local::<i8>(-5)
         .write(context, player.entity_index().read(context));
-    // MOVE.W -6(A6),D0; EXT.W D0: retain the physical read but discard its high
-    // byte exactly, then initialize the whole word. No residual is invented.
-    let player_number = i16::from(frame.local::<i16>(-6).read(context) as i8);
+    // Both matching listings c_spawning_and_banks.s:1431-1434 write only A6-5,
+    // then read the mixed word A6-6 (entry SP-10). EXT.W kills its unwritten
+    // high byte; declare that actual read rather than inventing a high-byte store.
+    let player_number = i16::from(context.read_uninitialized_local(
+        frame.entry().uninitialized_local(
+            ids::OPEN_EARTHLING_PRESENT,
+            -10,
+            crate::stack_read::LocalWidth::Word,
+            "G/build/{rev00,rev02}/asm/c_spawning_and_banks.s:1431-1434; LINK -8; MOVE.B 94(A2),-5(A6); MOVE.W -6(A6),D0; EXT.W D0; own entry SP-10 word",
+        ),
+    )? as i8);
     frame.local::<i16>(-6).write(context, player_number);
     let mut terrain = arguments[1] as i16;
     let mut x = 0_i16;

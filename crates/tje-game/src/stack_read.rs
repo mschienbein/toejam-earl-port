@@ -45,6 +45,7 @@ pub enum Reader {
     VdpDma,
     ExplicitLocal,
     RootEntry,
+    DmaBoundary,
 }
 impl Reader {
     pub const fn as_str(self) -> &'static str {
@@ -54,6 +55,7 @@ impl Reader {
             Self::VdpDma => "vdp_dma",
             Self::ExplicitLocal => "explicit_uninitialized_local",
             Self::RootEntry => "root_entry",
+            Self::DmaBoundary => "owned_dma_boundary",
         }
     }
 }
@@ -71,6 +73,11 @@ pub enum UnsupportedReason {
     MissingOriginalFrameWitness,
     PairedInputMismatch,
     UncitedInputDependence,
+    GuardCapacityExhausted,
+    PendingOwnedDma,
+    DiscardedOwnedDma,
+    UnknownDmaOrigin,
+    StaleDmaLease,
 }
 impl UnsupportedReason {
     pub const fn as_str(self) -> &'static str {
@@ -87,6 +94,11 @@ impl UnsupportedReason {
             Self::MissingOriginalFrameWitness => "missing_original_frame_witness",
             Self::PairedInputMismatch => "paired_explicit_input_mismatch",
             Self::UncitedInputDependence => "uncited_overlapping_input_dependence",
+            Self::GuardCapacityExhausted => "guard_capacity_ceiling",
+            Self::PendingOwnedDma => "pending_owned_dma",
+            Self::DiscardedOwnedDma => "discarded_owned_dma",
+            Self::UnknownDmaOrigin => "unknown_dma_origin",
+            Self::StaleDmaLease => "stale_dma_lease",
         }
     }
 }
@@ -165,8 +177,11 @@ impl Unsupported {
     }
 }
 
+mod guard;
+pub use guard::{DmaMetrics, DmaRetirement, GUARD_CAPACITY, Guard, Namespace, OriginalSegment};
+
 #[cfg(test)]
-mod tests {
+mod api_tests {
     use super::*;
     use crate::{Context, Dispatcher, Error, Platform, ids};
     use tje_mem::{Bus, Revision};

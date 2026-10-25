@@ -246,6 +246,7 @@ impl Host {
 
     /// Provisional is pending, never a successful zero-mismatch proof.
     pub fn finish_future_frame_provenance(&mut self) -> ProvenanceSummary {
+        self.record_readable_stack_metrics();
         // This snapshot API reports the recorded rejection through its status;
         // it does not turn an ignored earlier context error into a clean run.
         let _recorded_rejection = self.record_future_frame_rejections();
@@ -554,6 +555,7 @@ impl Host {
                 vdp_mismatch: None,
                 // This invalidates an earlier producer, not the current reader.
                 actual_capture: None,
+                unsupported_stack_read: None,
             });
             first.get_or_insert_with(|| HostError::Mismatch {
                 frame: self.frame,
@@ -1041,6 +1043,8 @@ impl Host {
                 crate::execution::PhysicalObservers {
                     provenance: Some(provenance),
                     capture: None,
+                    readable: None,
+                    original_root: None,
                 },
             )
         } else {

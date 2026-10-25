@@ -12,6 +12,12 @@ pub fn ending_play_descending_rocketship_scene(
     // -2(A6) input in PlayEndingSequence; keep this predecessor frame as well.
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x3c, 0x0c))?;
     let result = descending_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
     if result.is_err() {
         context.set_stack_pointer(frame.save_base())?;
     }
@@ -768,7 +774,7 @@ fn increment(context: &mut dyn Context, word: tje_mem::Address<i16>) {
     word.write(context, next);
 }
 
-/// Matching c_ending.s:694-705,1184-1188,1193-1194: ADDQ.W followed by
+/// Matching c_ending.s:694-705,1184-1188: ADDQ.W followed by
 /// a separate MOVE.W consumes a fresh word read, not a cached RMW result.
 fn increment_word_and_reload<B: tje_mem::Bus + ?Sized>(
     context: &mut B,
@@ -777,6 +783,33 @@ fn increment_word_and_reload<B: tje_mem::Bus + ?Sized>(
     let next = word.read(context).wrapping_add(1);
     word.write(context, next);
     word.read(context)
+}
+
+/// G/src/cutscenes/ending.c:505-508; matching c_ending.s:1193-1194.
+/// Only the first ADDQ.W reads uninitialized -2(A6), i.e. entrySP-6.
+/// The real store initializes that word; its reload and later RMWs are ordinary.
+fn increment_movement_frame(
+    context: &mut dyn Context,
+    word: tje_mem::Address<i16>,
+    first_update: &mut bool,
+) -> Result<i16> {
+    let previous = if *first_update {
+        let frame = context
+            .frame_state()
+            .ok_or(crate::call_frame::FrameError::Unavailable)?;
+        let read = frame.uninitialized_local(
+            ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+            -6,
+            crate::stack_read::LocalWidth::Word,
+            "G/src/cutscenes/ending.c:505-508; c_ending.s:1116-1117,1193-1194: uninitialized WORD -2(A6)=entrySP-6, first ADDQ.W RMW read",
+        );
+        context.read_uninitialized_local(read)? as i16
+    } else {
+        word.read(context)
+    };
+    word.write(context, previous.wrapping_add(1));
+    *first_update = false;
+    Ok(word.read(context))
 }
 
 /// Matching c_ending.s:8,334,440,1171 and c_funkotron_scene.s:277,289:
@@ -812,6 +845,12 @@ pub fn ending_play_bouncing_rocketship_scene(
 ) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0x7c, 0x1c))?;
     let result = bouncing_body(context, &frame);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
     if result.is_err() {
         context.set_stack_pointer(frame.save_base())?;
     }
@@ -936,6 +975,7 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
     clear_word_instruction(context, state.address())?;
     ram::g_cutscene_script_countdown(revision).write(context, 17);
     let movement_frame = frame.local::<i16>(-2);
+    let mut first_movement_update = true;
     while state.read(context) != -1 {
         clear_byte_instruction(
             context,
@@ -983,8 +1023,8 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
         }
         character_y = character_y.wrapping_add(velocity_y);
         set_word_register(context, 2, character_y);
-        // Read the actual residual local word, not an invented initial phase.
-        let phase = increment_word_and_reload(context, movement_frame);
+        // Only the first RMW input is residual; never initialize or waive it.
+        let phase = increment_movement_frame(context, movement_frame, &mut first_movement_update)?;
         if i32::from(phase) % 9 == 0 {
             velocity_y = velocity_y.wrapping_add(acceleration_y);
             set_word_register(context, 4, velocity_y);
@@ -1104,6 +1144,12 @@ fn bouncing_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option
 pub fn play_ending_sequence(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0, 0x1c))?;
     let result = ending_sequence_body(context);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.preserves_call_frame())
+    {
+        return result;
+    }
     if result.is_err() {
         context.set_stack_pointer(frame.save_base())?;
     }

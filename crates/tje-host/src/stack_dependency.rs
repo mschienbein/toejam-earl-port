@@ -21,6 +21,7 @@ pub(super) enum CheckSide {
     Original {
         boundary: ReferenceBoundary,
         outcome: EntryOutcome,
+        explicit_inputs: bool,
     },
     Rust,
 }
@@ -45,6 +46,10 @@ pub(super) struct CheckRun {
     pub audio: Vec<[f64; 2]>,
 }
 
+fn side_error(execution: &std::thread::Result<Result<CheckRun>>) -> Option<&HostError> {
+    execution.as_ref().ok()?.as_ref().err()
+}
+
 impl Host {
     /// Baselines and dependency probes use precisely the same entry execution.
     /// Probe work is deliberately excluded from coverage and gameplay clocks.
@@ -63,6 +68,11 @@ impl Host {
         let entry_frame = clock.frame;
         let dependent = hook.dependent_proof.is_some();
         let route = hook.check_route();
+        let readable = if matches!(side, CheckSide::Rust) {
+            Some(self.readable_stack_for_root(hook.symbol.id, fork.hybrid_cpu().stack_pointer())?)
+        } else {
+            None
+        };
         if let Some(setting) = hook.dependent_proof {
             setting.validate_route(hook)?;
             setting.validate_actual_strict(fork)?;
@@ -97,6 +107,24 @@ impl Host {
             let mut stack =
                 crate::abi::StackAuditState::new(entry_sp, dependent || route.is_strict());
             stack.provenance = provenance;
+            stack.readable_stack = readable.clone();
+            if matches!(
+                side,
+                CheckSide::Original {
+                    explicit_inputs: true,
+                    ..
+                }
+            ) {
+                stack.capture_explicit_inputs();
+                stack.original_root = Some(std::sync::Arc::new(
+                    crate::readable_stack::OriginalRootScope::new(
+                        emulator.hybrid_cpu(),
+                        hook.symbol.id,
+                        hook.symbol.address(revision),
+                        entry_sp,
+                    ),
+                ));
+            }
             if let Some(branch) = &stack.provenance {
                 branch.begin_native(entry_frame, emulator.hybrid_bus().cycles.m68k_mclk_cycles);
             }
@@ -150,139 +178,182 @@ impl Host {
                 || hook
                     .dependent_proof
                     .is_some_and(|setting| setting.captures_all_dma());
+            #[cfg(feature = "ram-dma-observer")]
+            let saved_readable = {
+                let observer = readable.clone().map(|observer| {
+                    observer as std::sync::Arc<dyn genesis_core::ram_dma_observer::Observer>
+                });
+                emulator.hybrid_bus_mut().replace_ram_dma_observer(observer)
+            };
             // Retain the branch on every execution error, including an error
             // after a watched read. No early `?` may discard its rejection.
             let mut stack_slot = Some(stack);
-            let result: Result<CheckRun> = (|| {
-                if route == crate::CheckForkRoute::FrozenFunctional {
-                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-                }
-                if hook
-                    .dependent_proof
-                    .is_some_and(|setting| setting.requires_frozen())
-                    && !emulator.hybrid_bus().hybrid_functional_mode()
-                {
-                    return Err(HostError::Metadata(
-                        "zero-count DMA proof requires the actual frozen Functional fork".into(),
-                    ));
-                }
-                if route.is_strict() {
-                    crate::check_envelope::install_strict_observers(emulator)?;
-                }
-                if let Some(capture) = stack_slot
-                    .as_ref()
-                    .and_then(|stack| stack.capture.as_deref())
-                {
-                    capture.mark_native_journal_scope();
-                    capture.observe_native_batch_parts(
-                        emulator.hybrid_cpu(),
-                        emulator.hybrid_bus(),
-                        clock.frame,
+            let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let execute = || -> Result<CheckRun> {
+                    if route == crate::CheckForkRoute::FrozenFunctional {
+                        emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+                    }
+                    if hook
+                        .dependent_proof
+                        .is_some_and(|setting| setting.requires_frozen())
+                        && !emulator.hybrid_bus().hybrid_functional_mode()
+                    {
+                        return Err(HostError::Metadata(
+                            "zero-count DMA proof requires the actual frozen Functional fork"
+                                .into(),
+                        ));
+                    }
+                    if route.is_strict() {
+                        crate::check_envelope::install_strict_observers(emulator)?;
+                    }
+                    if let Some(capture) = stack_slot
+                        .as_ref()
+                        .and_then(|stack| stack.capture.as_deref())
+                    {
+                        capture.mark_native_journal_scope();
+                        capture.observe_native_batch_parts(
+                            emulator.hybrid_cpu(),
+                            emulator.hybrid_bus(),
+                            clock.frame,
+                        );
+                    }
+                    if hook
+                        .dependent_proof
+                        .is_some_and(|setting| setting.is_clocked_strict())
+                    {
+                        let actual_entry_depth = emulator.hybrid_cpu().hybrid_exception_depth();
+                        emulator
+                            .hybrid_bus_mut()
+                            .hybrid_arm_dma_capture(actual_entry_depth);
+                    }
+                    stack_slot.as_mut().expect("root audit").drain(
+                        emulator.hybrid_bus_mut(),
+                        entry_pc,
+                        &mut audit,
                     );
-                }
-                if hook
-                    .dependent_proof
-                    .is_some_and(|setting| setting.is_clocked_strict())
-                {
-                    let actual_entry_depth = emulator.hybrid_cpu().hybrid_exception_depth();
-                    emulator
-                        .hybrid_bus_mut()
-                        .hybrid_arm_dma_capture(actual_entry_depth);
-                }
-                stack_slot.as_mut().expect("root audit").drain(
-                    emulator.hybrid_bus_mut(),
-                    entry_pc,
-                    &mut audit,
-                );
-                let mut run = match side {
-                    CheckSide::Original { boundary, outcome } => {
-                        let stack = stack_slot.as_mut().expect("root audit");
-                        let (logic_trace, audio) = if route.progresses_time() {
-                            let clock_run = run_original_timed_until(
-                                emulator,
-                                &mut clock,
-                                boundary,
-                                stack.physical_observers(),
-                            )?;
-                            for (pc, access) in clock_run.accesses {
-                                stack.observe(pc, access, &mut audit);
+                    let mut run = match side {
+                        CheckSide::Original {
+                            boundary, outcome, ..
+                        } => {
+                            let stack = stack_slot.as_mut().expect("root audit");
+                            let (logic_trace, audio) = if route.progresses_time() {
+                                let clock_run = run_original_timed_until(
+                                    emulator,
+                                    &mut clock,
+                                    boundary,
+                                    stack.physical_observers(),
+                                )?;
+                                stack.merge_timed_accesses(
+                                    clock_run.accesses,
+                                    clock_run.original_root_reads,
+                                    &mut audit,
+                                );
+                                (clock_run.logic_trace, clock_run.audio)
+                            } else {
+                                audit.append(crate::abi::run_original_atomic_scoped(
+                                    emulator, boundary, stack,
+                                )?);
+                                (LogicTrace::default(), Vec::new())
+                            };
+                            CheckRun {
+                                audit,
+                                outcome,
+                                logic_trace,
+                                nested_calls: 0,
+                                wait_frames: clock.frame - entry_frame,
+                                dependent_writes: None,
+                                exact_device_reads: Vec::new(),
+                                audio,
                             }
-                            (clock_run.logic_trace, clock_run.audio)
-                        } else {
-                            audit.append(crate::abi::run_original_atomic_scoped(
-                                emulator, boundary, stack,
-                            )?);
-                            (LogicTrace::default(), Vec::new())
-                        };
-                        CheckRun {
-                            audit,
-                            outcome,
-                            logic_trace,
-                            nested_calls: 0,
-                            wait_frames: clock.frame - entry_frame,
-                            dependent_writes: None,
-                            exact_device_reads: Vec::new(),
-                            audio,
                         }
-                    }
-                    CheckSide::Rust => {
-                        let mut context = HookContext::new(emulator, revision, dispatcher, mode)
-                            .with_timing_services(timing_services.as_mut())
-                            .with_execution(hook.execution_class, std::mem::take(&mut clock))
-                            .with_check_route(route);
-                        context.enable_stack_audit(stack_slot.take().expect("root audit"), audit);
-                        let outcome: Result<EntryOutcome> =
-                            hook.execute(&mut context).and_then(|outcome| {
-                                exits::finish(&mut context, hook, outcome)?;
-                                Ok(outcome)
-                            });
-                        clock = context.wait_clock;
-                        stack_slot = context.stack_audit.take();
-                        let outcome = outcome?;
-                        CheckRun {
-                            audit: context.audit.into_inner(),
-                            outcome,
-                            logic_trace: context.logic_trace.into_inner(),
-                            nested_calls: context.nested_calls,
-                            wait_frames: context.time_frames,
-                            dependent_writes: None,
-                            exact_device_reads: context.exact_device_reads,
-                            audio: context.time_audio,
+                        CheckSide::Rust => {
+                            let mut context =
+                                HookContext::new(emulator, revision, dispatcher, mode)
+                                    .with_timing_services(timing_services.as_mut())
+                                    .with_execution(
+                                        hook.execution_class,
+                                        std::mem::take(&mut clock),
+                                    )
+                                    .with_check_route(route);
+                            context
+                                .enable_stack_audit(stack_slot.take().expect("root audit"), audit);
+                            let observer = readable.as_ref().expect("Rust side readable guard");
+                            let attempted =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    observer.guard.run_root(hook.symbol.id, entry_sp, || {
+                                        hook.execute(&mut context).and_then(|outcome| {
+                                            exits::finish(&mut context, hook, outcome)?;
+                                            Ok(outcome)
+                                        })
+                                    })
+                                }));
+                            clock = context.wait_clock;
+                            stack_slot = context.stack_audit.take();
+                            let outcome = match attempted {
+                                Ok(Ok(outcome)) => outcome?,
+                                Ok(Err(error)) => return Err(HostError::Translation(error.into())),
+                                Err(payload) => std::panic::resume_unwind(payload),
+                            };
+                            CheckRun {
+                                audit: context.audit.into_inner(),
+                                outcome,
+                                logic_trace: context.logic_trace.into_inner(),
+                                nested_calls: context.nested_calls,
+                                wait_frames: context.time_frames,
+                                dependent_writes: None,
+                                exact_device_reads: context.exact_device_reads,
+                                audio: context.time_audio,
+                            }
                         }
+                    };
+                    if let Some(capture) = stack_slot
+                        .as_ref()
+                        .and_then(|stack| stack.capture.as_deref())
+                    {
+                        capture.mark_main_end(emulator, clock.frame);
                     }
+                    if route.uses_logic_projection() {
+                        emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
+                    }
+                    let checkpoint = emulator.hybrid_cpu().pc();
+                    let stack = stack_slot.as_mut().expect("retained root audit");
+                    if let Some(branch) = &stack.provenance {
+                        branch.begin_native(
+                            entry_frame + run.wait_frames,
+                            emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                        );
+                    }
+                    if let Some(capture) = &stack.capture {
+                        capture.observe_native_batch_parts(
+                            emulator.hybrid_cpu(),
+                            emulator.hybrid_bus(),
+                            clock.frame,
+                        );
+                    }
+                    stack.drain(emulator.hybrid_bus_mut(), checkpoint, &mut run.audit);
+                    if dependent {
+                        run.dependent_writes = Some(
+                            crate::dependent_equivalence::ram_write_footprint(&run.audit.writes),
+                        );
+                    }
+                    if let Some(observer) = &readable {
+                        observer
+                            .guard
+                            .finish_proof()
+                            .map_err(|error| HostError::Translation(error.into()))?;
+                    }
+                    Ok(run)
                 };
-                if let Some(capture) = stack_slot
-                    .as_ref()
-                    .and_then(|stack| stack.capture.as_deref())
-                {
-                    capture.mark_main_end(emulator, clock.frame);
+                if let Some(observer) = &readable {
+                    observer
+                        .guard
+                        .catch_abort(execute)
+                        .map_err(|error| HostError::Translation(error.into()))
+                        .and_then(|result| result)
+                } else {
+                    execute()
                 }
-                if route.uses_logic_projection() {
-                    emulator.hybrid_bus_mut().hybrid_set_functional_mode(true);
-                }
-                let checkpoint = emulator.hybrid_cpu().pc();
-                let stack = stack_slot.as_mut().expect("retained root audit");
-                if let Some(branch) = &stack.provenance {
-                    branch.begin_native(
-                        entry_frame + run.wait_frames,
-                        emulator.hybrid_bus().cycles.m68k_mclk_cycles,
-                    );
-                }
-                if let Some(capture) = &stack.capture {
-                    capture.observe_native_batch_parts(
-                        emulator.hybrid_cpu(),
-                        emulator.hybrid_bus(),
-                        clock.frame,
-                    );
-                }
-                stack.drain(emulator.hybrid_bus_mut(), checkpoint, &mut run.audit);
-                if dependent {
-                    run.dependent_writes = Some(crate::dependent_equivalence::ram_write_footprint(
-                        &run.audit.writes,
-                    ));
-                }
-                Ok(run)
-            })();
+            }));
             if let Some(capture) = stack_slot
                 .as_ref()
                 .and_then(|stack| stack.capture.as_deref())
@@ -296,11 +367,16 @@ impl Host {
             emulator.hybrid_bus_mut().hybrid_cpu_accesses = saved_trace;
             emulator.hybrid_bus_mut().hybrid_exception_boundaries = saved_boundaries;
             emulator.hybrid_bus_mut().hybrid_dma_all_sources = saved_all_dma;
+            #[cfg(feature = "ram-dma-observer")]
+            emulator
+                .hybrid_bus_mut()
+                .restore_ram_dma_observer(saved_readable);
             let cleanup =
                 ceiling.map_or(Ok(()), |scope| clock.leave_call_ceiling(scope).map(|_| ()));
-            let mut result = match result {
-                Err(error) => Err(error),
-                Ok(run) => cleanup.map(|()| run),
+            let mut execution = match attempted {
+                Ok(Ok(run)) => Ok(cleanup.map(|()| run)),
+                Ok(Err(error)) => Ok(Err(error)),
+                Err(payload) => Err(payload),
             };
             if route.progresses_time() {
                 match clock.call_clock.usage().since(entry_usage) {
@@ -314,10 +390,12 @@ impl Host {
                                 emulator.hybrid_cpu().pc(),
                                 emulator.hybrid_cpu().stack_pointer(),
                             ),
-                            result.as_ref().err().map(ToString::to_string),
+                            side_error(&execution).map(ToString::to_string),
                         ));
                     }
-                    Err(error) if result.is_ok() => result = Err(HostError::Clock(error)),
+                    Err(error) if matches!(&execution, Ok(Ok(_))) => {
+                        execution = Ok(Err(HostError::Clock(error)))
+                    }
                     Err(_) => {}
                 }
             }
@@ -326,7 +404,7 @@ impl Host {
                     completed_capture = Some(Box::new((*capture).finish(
                         emulator,
                         clock.frame,
-                        result.as_ref().err().map(ToString::to_string),
+                        side_error(&execution).map(ToString::to_string),
                     )));
                 }
                 stack.provenance.take()
@@ -334,7 +412,7 @@ impl Host {
             if let Some(lease) = journal_lease {
                 lease.restore(emulator.hybrid_bus_mut());
             }
-            Ok((result, provenance))
+            Ok((execution, provenance))
         });
         // Restore before any Result/provenance propagation. A failed/pending
         // speculative receipt belongs only to the now-discarded fork.
@@ -349,12 +427,15 @@ impl Host {
         };
         self.timing_services = timing_services;
         let result = match executed {
-            Ok((result, provenance)) => {
-                // Merge before propagating an execution error.
+            Ok((Ok(result), provenance)) => {
                 let observed = self.merge_future_frame_branch(provenance);
-                result.and_then(|run| observed.map(|()| run))
+                Ok(result.and_then(|run| observed.map(|()| run)))
             }
-            Err(error) => Err(error),
+            Ok((Err(payload), provenance)) => {
+                let _recorded_rejection = self.merge_future_frame_branch(provenance);
+                Err(payload)
+            }
+            Err(error) => Ok(Err(error)),
         };
         if let Some(receipt) = receipt {
             self.checks.call_clocks.push(receipt);
@@ -365,7 +446,10 @@ impl Host {
                 matches!(purpose, ClockRunPurpose::Baseline),
             );
         }
-        result.and_then(|run| discarded.map(|()| run))
+        match result {
+            Ok(result) => result.and_then(|run| discarded.map(|()| run)),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     pub(super) fn check_stack_dependencies(
@@ -374,7 +458,7 @@ impl Host {
         run: &CheckRun,
         hook: &Hook,
         side: CheckSide,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<()> {
         if run.audit.uninitialized_reads.is_empty() {
             return Ok(());
         }
@@ -402,7 +486,7 @@ impl Host {
         hook: &Hook,
         side: CheckSide,
         reads: &mut BTreeSet<UninitializedStackRead>,
-    ) -> std::result::Result<(), String> {
+    ) -> Result<()> {
         let sp = self.emulator.hybrid_cpu().stack_pointer();
         let mut addresses: BTreeSet<_> = reads.iter().map(|read| read.address).collect();
         loop {
@@ -432,7 +516,14 @@ impl Host {
                         },
                         crate::future_frame_watch::ObservationOrigin::DependencyProbe,
                     ) {
-                        Ok(probe) => {
+                        Ok(mut probe) => {
+                            crate::readable_stack::revalidate(
+                                hook,
+                                sp,
+                                &run.audit,
+                                &mut probe.audit,
+                            )
+                            .map_err(|error| HostError::Translation(error.into()))?;
                             reads.extend(probe.audit.uninitialized_reads.iter().copied());
                             let (entry_ram, _) =
                                 self.emulator.hybrid_bus_mut().memory.debug_ram_view();
@@ -446,10 +537,24 @@ impl Host {
                                 sp,
                             )
                             .map(|_| ())
+                            .map_err(|detail| HostError::Mismatch {
+                                frame: self.frame,
+                                function: hook.symbol.name.to_owned(),
+                                detail,
+                            })
                         }
-                        Err(error) => Err(format!("dependency probe did not complete: {error}")),
+                        Err(error) => Err(HostError::DependencyProbe {
+                            cause: Box::new(error),
+                        }),
                     };
-                    if let Err(mut detail) = comparison {
+                    if let Err(error) = comparison {
+                        if error.unsupported_stack_read().is_some() {
+                            return Err(error);
+                        }
+                        let mut detail = match error {
+                            HostError::Mismatch { detail, .. } => detail,
+                            error => error.to_string(),
+                        };
                         self.record_vdp_mismatch(
                             &mut detail,
                             baseline,
@@ -461,15 +566,17 @@ impl Host {
                                 selected_address: selected,
                             },
                         );
-                        failure.get_or_insert_with(|| {
-                            format!(
+                        failure.get_or_insert_with(|| HostError::Mismatch {
+                            frame: self.frame,
+                            function: hook.symbol.name.to_owned(),
+                            detail: format!(
                                 "uninitialized stack read: {} dependency with XOR {mask:02X} {}: {detail}",
                                 side.name(),
                                 selected.map_or_else(
                                     || "over audited bytes".to_owned(),
                                     |address| format!("at {address:06X}")
                                 ),
-                            )
+                            ),
                         });
                     }
                 }

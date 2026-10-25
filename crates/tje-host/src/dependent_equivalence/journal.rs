@@ -24,14 +24,29 @@ pub(crate) struct JournalRead {
     /// For DMA this is the surrounding execution checkpoint, not an invented
     /// 68000 read instruction.
     pub pc: u32,
+    pub ordinal: usize,
     pub read: DependentRead,
     /// Classified by the sole root bitmap at the actual read, after preceding
     /// RAM commits. Never reconstructed from instruction-issue write indices.
     pub uninitialized_mask: u8,
+    pub original_root: Option<crate::readable_stack::OriginalRootWitness>,
 }
 
 impl JournalRead {
     pub(crate) fn new(pc: u32, access: HybridAccess, uninitialized_mask: u8) -> Option<Self> {
+        let read = Self::new_work_ram(pc, access, uninitialized_mask)?;
+        if read.read.origin == "cpu"
+            && !(STACK_BOTTOM..STACK_TOP).contains(&read.read.canonical_address)
+        {
+            return None;
+        }
+        Some(read)
+    }
+    pub(crate) fn new_work_ram(
+        pc: u32,
+        access: HybridAccess,
+        uninitialized_mask: u8,
+    ) -> Option<Self> {
         let (address, word, purpose, value, origin) = match access {
             HybridAccess::Read {
                 address,
@@ -48,17 +63,12 @@ impl JournalRead {
             | HybridAccess::ExceptionBoundary { .. } => return None,
         };
         let raw_address = address & 0xffffff;
-        if origin == "cpu" {
-            if raw_address < 0xe00000 {
-                return None;
-            }
-            let canonical_address = canonical_ram_address(raw_address);
-            if !(STACK_BOTTOM..STACK_TOP).contains(&canonical_address) {
-                return None;
-            }
+        if origin == "cpu" && raw_address < 0xe00000 {
+            return None;
         }
         let canonical_address = canonical_ram_address(raw_address);
         Some(Self {
+            ordinal: 0,
             pc,
             read: DependentRead {
                 raw_address,
@@ -73,6 +83,7 @@ impl JournalRead {
                 value,
             },
             uninitialized_mask,
+            original_root: None,
         })
     }
 }
@@ -98,6 +109,13 @@ impl<'a> DerivedReads<'a> {
             sites: BTreeSet::new(),
         };
         for event in audit.stack_reads.as_deref().unwrap_or_default() {
+            if audit
+                .admitted_stack_inputs
+                .iter()
+                .any(|read| read.token.ordinal == event.ordinal)
+            {
+                continue;
+            }
             for offset in 0..event.read.width {
                 let address = canonical_ram_address(event.read.raw_address + u32::from(offset));
                 if !(STACK_BOTTOM..end).contains(&address) {

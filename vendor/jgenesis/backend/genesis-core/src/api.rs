@@ -670,6 +670,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
+        #[cfg(feature = "ram-dma-observer")]
+        self.bus.vdp.invalidate_readable_dma_on_reset();
         #[cfg(feature = "reference-proof-hooks")]
         let continuation = self
             .bus

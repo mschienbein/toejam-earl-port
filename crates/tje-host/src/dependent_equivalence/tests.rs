@@ -56,10 +56,20 @@ enum Mutation {
     Purpose,
     Flags,
     Independent,
+    Undeclared,
 }
 fn body(context: &mut HookContext<'_>, mutation: Mutation) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(4, 0, 0))?;
     let address = frame.local::<i16>(-2).address();
+    let declared = |context: &mut HookContext<'_>| -> Result<u16> {
+        let read = context.frame_state().unwrap().uninitialized_local(
+            ids::GET_RANDOM_NUMBER,
+            -6,
+            tje_game::stack_read::LocalWidth::Word,
+            "authored LINK #-4; MOVE.W -2(A6),D0 at root entry SP-6",
+        );
+        Ok(context.read_uninitialized_local(read)? as u16)
+    };
     let value = match mutation {
         Mutation::Offset => context.read_u16(address - 2),
         Mutation::Width => {
@@ -70,14 +80,15 @@ fn body(context: &mut HookContext<'_>, mutation: Mutation) -> Result<Option<u32>
             .bus()
             .read_word_tagged(address, ReadPurpose::Discarded),
         Mutation::Stored | Mutation::Independent => {
-            let _actual = context.read_u16(address);
+            let _actual = declared(context)?;
             if matches!(mutation, Mutation::Stored) {
                 context.read_u16(STORED)
             } else {
                 0
             }
         }
-        _ => context.read_u16(address),
+        Mutation::Undeclared => context.read_u16(address),
+        _ => declared(context)?,
     } as i16;
     context.write_u16(OUTPUT, value as u16);
     if matches!(mutation, Mutation::ExtraWrite) {
@@ -101,6 +112,9 @@ fn body(context: &mut HookContext<'_>, mutation: Mutation) -> Result<Option<u32>
 }
 fn correct(c: &mut HookContext<'_>) -> Result<Option<u32>> {
     body(c, Mutation::None)
+}
+fn undeclared(c: &mut HookContext<'_>) -> Result<Option<u32>> {
+    body(c, Mutation::Undeclared)
 }
 fn wrong_offset(c: &mut HookContext<'_>) -> Result<Option<u32>> {
     body(c, Mutation::Offset)
@@ -165,9 +179,13 @@ fn host(program: &[u16], function: HookFn, marked: bool) -> Host {
 
 #[test]
 fn genuine_dependence_is_coupled_not_independent_or_informational() {
-    let mut rejected = host(PROGRAM, correct, false);
-    assert!(rejected.check_fixture(CODE, &[]).is_err());
-    assert!(!rejected.checks.uninitialized_stack_reads.is_empty());
+    let mut rejected = host(PROGRAM, undeclared, false);
+    let error = rejected.check_fixture(CODE, &[]).unwrap_err();
+    assert_eq!(
+        error.typed_stack_read().unwrap().reason,
+        tje_game::stack_read::UnsupportedReason::Unwritten
+    );
+    assert_eq!((rejected.checks.calls, rejected.checks.mismatches), (1, 1));
     let mut proven = host(PROGRAM, correct, true);
     assert_eq!(proven.check_fixture(CODE, &[]).unwrap(), 0x1234);
     assert!(proven.checks.uninitialized_stack_reads.is_empty());
@@ -228,16 +246,31 @@ fn coupled_time_aware_probes_share_the_root_ceiling_and_keep_separate_receipts()
 
 #[test]
 fn offset_width_mirror_and_redundant_write_mutants_fail() {
-    for (function, detail) in [
-        (wrong_offset as HookFn, "outside the reviewed"),
-        (wrong_width, "read trace differs"),
-        (wrong_mirror, "read trace differs"),
-        (extra_write, "write/value footprint differs"),
-        (wrong_purpose, "read trace differs"),
-        (wrong_flags, "full SR/CCR"),
+    for (function, detail, early_guard) in [
+        (wrong_offset as HookFn, "outside the reviewed", true),
+        (wrong_width, "read trace differs", true),
+        (wrong_mirror, "read trace differs", true),
+        (extra_write, "write/value footprint differs", false),
+        (wrong_purpose, "read trace differs", false),
+        (wrong_flags, "full SR/CCR", false),
     ] {
         let mut mutant = host(PROGRAM, function, true);
         let error = mutant.check_fixture(CODE, &[]).unwrap_err();
+        if early_guard {
+            assert_eq!(
+                error.typed_stack_read().unwrap().reason,
+                tje_game::stack_read::UnsupportedReason::Unwritten
+            );
+            assert_eq!((mutant.checks.calls, mutant.checks.mismatches), (1, 1));
+            assert!(
+                mutant
+                    .checks
+                    .dependent_equivalence
+                    .get("AuthoredDependent")
+                    .is_none_or(|evidence| evidence.calls_proven == 0)
+            );
+            continue;
+        }
         assert!(error.to_string().contains(detail), "{error}");
         assert_eq!(
             mutant.checks.dependent_equivalence["AuthoredDependent"].calls_rejected,

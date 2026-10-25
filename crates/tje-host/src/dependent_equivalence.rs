@@ -492,13 +492,14 @@ impl Host {
         translated_run: &CheckRun,
         hook: &Hook,
         dma_plan: Option<zero_dma::ZeroDmaPlan>,
-    ) -> std::result::Result<u64, String> {
+    ) -> Result<u64> {
         let setting = hook.dependent_proof.expect("marked hook");
         let mut evidence = DependentEvidence {
             seed: setting.config.seed,
             ..DependentEvidence::default()
         };
         let mut sites = BTreeSet::new();
+        let mut unsupported = None;
         let mut strict_progress = if setting.is_clocked_strict() {
             Some(
                 self.checks
@@ -507,7 +508,12 @@ impl Host {
                     .or_default()
                     .clocked_strict
                     .get_or_insert_with(Default::default)
-                    .begin_call(setting.config.seed)?,
+                    .begin_call(setting.config.seed)
+                    .map_err(|detail| HostError::Mismatch {
+                        frame: self.frame,
+                        function: hook.symbol.name.to_owned(),
+                        detail,
+                    })?,
             )
         } else {
             None
@@ -523,7 +529,7 @@ impl Host {
             &mut evidence,
             &mut sites,
             dma_plan,
-            strict_progress.as_mut(),
+            (strict_progress.as_mut(), &mut unsupported),
         );
         if result.is_err() {
             evidence.calls_rejected += 1;
@@ -554,7 +560,15 @@ impl Host {
                 .or_default()
                 .merge(evidence);
         }
-        result
+        if let Some(error) = unsupported {
+            Err(HostError::Translation(error.into()))
+        } else {
+            result.map_err(|detail| HostError::Mismatch {
+                frame: self.frame,
+                function: hook.symbol.name.to_owned(),
+                detail,
+            })
+        }
     }
 
     fn prove_dependent(
@@ -564,8 +578,12 @@ impl Host {
         evidence: &mut DependentEvidence,
         sites: &mut BTreeSet<crate::abi::UninitializedStackRead>,
         dma_plan: Option<zero_dma::ZeroDmaPlan>,
-        mut strict_progress: Option<&mut strict_zero_dma::ProbeProgress>,
+        progress: (
+            Option<&mut strict_zero_dma::ProbeProgress>,
+            &mut Option<tje_game::stack_read::Unsupported>,
+        ),
     ) -> std::result::Result<u64, String> {
+        let (mut strict_progress, unsupported) = progress;
         let setting = hook.dependent_proof.expect("marked hook");
         setting
             .config
@@ -692,7 +710,7 @@ impl Host {
                 let mut rust = self.fork();
                 perturb(&mut rust, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
-                let rust_run = self
+                let mut rust_run = self
                     .run_check_side(
                         &mut rust,
                         hook,
@@ -700,7 +718,12 @@ impl Host {
                         purpose,
                         crate::future_frame_watch::ObservationOrigin::DependencyProbe,
                     )
-                    .map_err(|error| format!("dependent Rust probe did not complete: {error}"))?;
+                    .map_err(|error| {
+                        if unsupported.is_none() {
+                            *unsupported = error.typed_stack_read();
+                        }
+                        format!("dependent Rust probe did not complete: {error}")
+                    })?;
                 evidence.rust_runs_completed += 1;
                 let boundary =
                     exits::reference_boundary(hook, rust_run.outcome, entry, self.revision)
@@ -714,21 +737,36 @@ impl Host {
                 let mut original = self.fork();
                 perturb(&mut original, &addresses, probe, setting.config.seed);
                 self.checks.stack_dependency_reruns += 1;
-                let original_run = self
+                let mut original_run = self
                     .run_check_side(
                         &mut original,
                         hook,
                         CheckSide::Original {
                             boundary,
                             outcome: rust_run.outcome,
+                            explicit_inputs: !rust_run.audit.explicit_stack_reads.is_empty(),
                         },
                         purpose,
                         crate::future_frame_watch::ObservationOrigin::DependencyProbe,
                     )
                     .map_err(|error| {
+                        if unsupported.is_none() {
+                            *unsupported = error.typed_stack_read();
+                        }
                         format!("dependent original probe did not complete: {error}")
                     })?;
                 evidence.original_runs_completed += 1;
+                crate::readable_stack::pair(
+                    hook,
+                    self.revision,
+                    entry.sp,
+                    &mut original_run.audit,
+                    &mut rust_run.audit,
+                )
+                .map_err(|error| {
+                    unsupported.get_or_insert(error);
+                    error.to_string()
+                })?;
                 match probe {
                     Probe::Seeded(_) => evidence.seeded_probes_completed += 1,
                     Probe::Byte { .. } => evidence.byte_probes_completed += 1,

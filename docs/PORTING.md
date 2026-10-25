@@ -93,6 +93,33 @@ fixtures are distinct from natural coverage and prove no universal timing bound.
 Standard trap data must not be used to model an address/bus error's different
 frame format. Ordinary ReplayedEnvironment does not gain trap admission here.
 
+`DisableAllInterrupts` and `EnableAllInterrupts` use privileged **SR**, not CCR,
+instructions (`G/src/asm/interrupts.s:33-43`). The game's supervisor/T=0 inputs
+retain ordinary IPL-only/RTS behavior; no supervisor/T=1 RTS proof is claimed.
+A user input declares vector 8 before any prefix,
+RAM save, register or SR change. The opcode fetch still prefetches `site + 2`,
+but the saved privilege PC is **the opcode site**, unlike DIVU's saved next PC.
+The raw preparation requires no D2 save; it cannot borrow the runtime shape.
+User T=1 is valid on this fault path because privilege failure precedes a
+successful instruction's trace edge. Unsupported native/replay delivery never
+silently modifies SR, invents a frame, or finishes an RTS.
+
+**Conditional supervisor reachability invariant.** A genuine MC68000 reset sets
+S=1 and T=0 (`vendor/jgenesis/cpu/m68000-emu/src/core.rs`, `M68000::reset`). The
+cartridge's only decoded direct SR writers in both complete 648-entry reachable
+surveys are `_start`'s `$2700` write (`G/src/asm/startup.s:17,95`), OR `$0700` and
+AND `$F8FF` (`G/src/asm/interrupts.s:6-7,34,42`): each preserves S=1 and never
+sets T from zero. Hardware IRQ entry saves the prior SR and forces S=1. The two
+RTE sites follow balanced saves/calls/restores (`G/src/asm/interrupts.s:49-63`;
+retained `handle_auto_vectored_interrupt` and `rte`), but this opcode scan and
+wrapper balance do NOT alone prove that RAM writes/callees left saved SR intact.
+S=0 is excluded by induction only under authenticated hardware-frame AND actual
+restored-SR lineage retaining S=1/T=0. The stronger profile must validate current
+S=1 at each privileged boundary and the actual frame's saved S/T domain before
+approving/consuming an RTE. A real user/trace transition must be explicitly
+handled or rejected Unsupported, never normalized or repaired. Arbitrary
+corrupted/injected frame words and unauthenticated restored SR are not certified.
+
 
 Call a value-returning game function with `tje_game::call(context, ids::FUNCTION, arguments)`,
 or an ABI-void function with `tje_game::call_void(context, ids::FUNCTION, arguments)`.
@@ -1256,9 +1283,10 @@ A semantic bus read is not necessarily an output dependency: for example,
 unwritten, then `EXT.W` discards that byte. `ReadPurpose` does not change to
 accommodate this value flow.
 
-For each side with audited bytes, check mode creates fresh forks of the same
-entry state and perturbs **only** those canonical byte addresses. Two distinct
-XOR masks (`55` and `aa`) change every candidate byte relative to its entry value.
+After the readable own-written boundary and explicit-input pairing below, each
+side with remaining audited bytes runs fresh forks of the same entry state.
+Only those canonical byte addresses are perturbed. Two distinct XOR masks
+(`55` and `aa`) change every candidate byte relative to its entry value.
 With multiple candidates, additional two-pattern single-byte probes prevent
 correlated changes from hiding dependencies such as `old_a - old_b`. If a replay
 exposes more unwritten bytes, their union is probed before approval.
@@ -1319,6 +1347,81 @@ producer and read-before-later-store cases, accept direct/original-callee
 initialization controls, cover CPU write issue → DMA old-value read → RAM commit,
 and assert both sides' endpoint-normalization reads remain in the root audit.
 
+### Readable own-written stack boundary
+
+Every Rust check route (Atomic, Functional, TimeAware, and clocked-strict) and
+`NativePlatform` readable root enforces one cumulative own-written bitmap shared
+with nested Rust bodies and materialized compiler frames.
+The window is **all canonical 64-KiB work RAM below the actual root entry SP**,
+not a clamp to catalogue `STACK_TOP`. Mirrored CPU/typed-Bus reads and actual
+work-RAM DMA source words are checked before the operand is fetched.
+Hardware word checks cover the actual aligned fetch while retaining the requested
+raw address separately in diagnostics; an odd request cannot borrow adjacent
+initialized lanes to expose an unwritten aligned byte.
+Generic unwritten reads return structured `UnsupportedStackRead`; a discarded Rust
+value is not an implicit declaration. Bytes at/above entry SP remain caller
+inputs. Real Rust/own-frame commits initialize exactly their written lanes.
+
+Live Replace uses a lightweight entry/write tracker **only** for the explicit
+original-local API below. Its generic-read enforcement is disabled, and that
+tracker does not claim owned DMA commands. This is not the Check/native guard
+coverage. Authored tests that install retained ownership in a Replace host
+exercise its conditional boundary/lease handling, not ordinary replacement
+enforcement or a replacement/body proof.
+
+Original-callee segments may read original state, but their stores, Z80/external
+stores, and saved snapshots do not initialize the Rust bitmap. No generic
+original-output or private-spill import is authorized. A missing original-output
+proof stays unsupported rather than borrowing a callee's save area.
+
+This boundary deliberately **does not detect write-alias or frame-replacement
+defects**: a Rust write to the wrong stack location followed by a read from that
+same location is allowed. In particular, it does not close the reviewed SC-03
+case. Such defects still need the actual source-backed frame/caller and the
+independent output/causal proof; this guard is not frame-layout equivalence.
+
+Owned VDP DMA is checked at each actual RAM-source fetch, regardless of whether
+the destination is VRAM, CRAM or VSRAM. Its issuer is retained by the actual
+second command word, including queued control words and transfers that outlive
+the issuing Rust return. There is no guessed source-range preflight or forced
+completion. A source failure retains the original issuing root and first typed
+cause, even when a later root or original tick is running. Pending ownership at
+a proof boundary is unsupported, not a completed proof. **If actual retained
+ownership exists** in a Replace host, isolated fixtures reject it before cloning
+or borrowing any live lease: snapshots cannot revive command authority.
+The real issuing CPU remains attached through the 68000's Z80-window forwarder.
+Fill/copy commands retain their issuer too, so a later R23 switch to RAM-source
+mode cannot drop ownership. Dropping a retained active or queued issuer latches
+`discarded_owned_dma` without unwinding from `Drop`; clearing physical ownership
+or incrementing an informational discard counter is not a completed proof.
+An unknown issuer or exhausted generation latches `unknown_dma_origin` at start
+without interrupting lease construction. Finishing/cancelling a fill/copy without
+any RAM-source read cannot clear that uncertainty or certify the proof.
+
+The CLI exposes `summary.unsupported_stack_read` as the optional structured
+first guard cause, including through dependency-probe wrappers, even in
+fail-fast mode. ContinueOriginal's per-failure packets remain unchanged.
+`summary.unknown_origin_proof_debt` mirrors
+`checks.readable_stack_guard.unknown_origin_proof_debt`: a cumulative count of
+distinct **guard identity plus epoch** scopes that encountered an original
+unknown-origin event. Repeated callbacks and propagation of another scope's
+first error do not add new debt. Completion, cancellation, discard and failure
+latch reset do not erase the count. This is independent of `dma_failed` and
+terminal active/queued ownership, preserves the existing first cause, and is
+reporting only—not an approval latch or a change to proof-status policy.
+
+Twelve preallocated controller slots are a resource ceiling, not a hardware
+FIFO/deferred-command or source-work bound. Exhaustion rejects before a new
+root executes; the controller does not grow a tracker per root. Metrics expose
+opened/completed/cancelled/reset-invalidated/discarded/failed transfers, active
+and queued ownership, pending-proof boundaries, and capacity hits. Observer
+tokens/bitmaps never serialize or copy into physical snapshots. The neutral
+vendor feature itself is default-off (`ram-dma-observer`); `tje-host` enables it
+by default for development checks. The readable native adapter enables it only
+through `game-adapter`; default shipping peripheral layouts/timing stay unchanged.
+Unsupported/unwind-unavailable guarded configurations reject
+before a readable operand, rather than substituting one.
+
 ### Explicit original uninitialized-local declarations
 
 Original bugs that consume an uninitialized own-frame local must be named, not
@@ -1350,6 +1453,47 @@ canonical address, width, reader and reason remain available through
 `Error::unsupported_stack_read`. A failed backend contract remains the first
 error. This shared API neither activates a read permission in an existing
 platform nor registers, promotes or proves any function.
+
+The implemented backend validates the current allocated frame before fetching.
+Native/Replace may serve only unchanged entry residue plus current own-written
+lanes; intervening non-own writes reject. Check mode additionally seals each
+physical byte/word occurrence against the original's actual raw/canonical
+address, width, purpose, value, and unwritten-lane mask. A long is two real word
+reads, not four invented byte reads. Only those exact occurrences become
+declared inputs in `CheckReport::declared_stack_inputs`; no initialized bit is
+changed, and a second uncited read at the same address still fails. The report
+retains citation, frame offset/width, original site and both read ordinals.
+Ordinary paired checks require a positive witness from the actual original
+root-entry PC/SP, CPU bank and exception depth. It is stamped at the real read,
+not reconstructed from a matching symbol PC range or the final runner state.
+Any call, return, tail jump, trap, exception or bank/depth change irrevocably
+invalidates this narrow witness. A recursive/shared-code child cannot supply a
+parent input, and a legitimate parent read after such a boundary is currently
+`missing_original_frame_witness` too: no parent restoration is inferred.
+Timed traces retain the per-access witness through deferred audit replay.
+Neither a declaration, a standalone callee proof, nor a source address list
+waives that missing caller evidence.
+For an explicitly marked dependent proof, occurrence validation does **not**
+remove residual sites or waive coupled seeded/boundary probes and original-output
+sensitivity. An early typed guard failure counts once as an attempted, failed
+root, never a completed or matched proof. `HostError::typed_stack_read` preserves
+its structured first cause through dependency-probe wrappers.
+
+`JamOutCreateCharacterCopies` declares the A6-2 word only while no successful
+lead has written it (both `c_jamout.s:1149-1155,1198-1204`). Each later copy
+still requires a separate declaration until a real lead store, and the
+initialized word remains live across both character loops. This does not
+waive the post-callee original-frame witness requirement described above.
+
+`MapChooseMetatileAlternatives` likewise declares each A6-4 word read on a
+missing descriptor match until the first real choice store (both
+`c_level_generation_and_changes.s:1518-1566`). `MapGrowTerrainRegion` declares
+its A6-14 probability word only for incoming terrain kinds other than the
+0x1000/0x3000 cases which actually initialize it (both
+`c_random_regions_and_cleanup.s:966-983,1235`). Original callers use those two
+kinds; the conditional declaration preserves, rather than initializes or
+validates away, the other original input path. Initialized paths keep ordinary
+typed reads, and the same backend witness obligations still apply.
 
 `tje_mem::written_ram::WrittenRam` supplies only shared canonical 64-KiB RAM
 bookkeeping (`get`, `set`, mirror-aware `clear`, `addresses`, touched-word `reset`).

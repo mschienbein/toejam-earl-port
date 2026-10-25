@@ -17,13 +17,23 @@ fn machine(revision: Revision, entry: FunctionId, opcode: u16) -> GenesisEmulato
     rom[..4].copy_from_slice(&STACK.to_be_bytes());
     rom[4..8].copy_from_slice(&0x40u32.to_be_bytes());
     rom[20..24].copy_from_slice(&HANDLER.to_be_bytes());
+    rom[32..36].copy_from_slice(&HANDLER.to_be_bytes());
     rom[HANDLER as usize..HANDLER as usize + 2].copy_from_slice(&0x60feu16.to_be_bytes());
+    let offset = match entry {
+        ids::DISABLE_ALL_INTERRUPTS | ids::ENABLE_ALL_INTERRUPTS => 0,
+        _ => tje_game::control::runtime_divide_fault_offset(entry).unwrap(),
+    };
     let fault = entry
         .metadata()
         .address(revision)
-        .wrapping_add_signed(tje_game::control::runtime_divide_fault_offset(entry).unwrap());
+        .wrapping_add_signed(offset);
     rom[fault as usize..fault as usize + 2].copy_from_slice(&opcode.to_be_bytes());
-    rom[fault as usize + 2..fault as usize + 4].copy_from_slice(&0x4e71u16.to_be_bytes());
+    let next_word: u16 = match entry {
+        ids::DISABLE_ALL_INTERRUPTS => 0x0700,
+        ids::ENABLE_ALL_INTERRUPTS => 0xf8ff,
+        _ => 0x4e71,
+    };
+    rom[fault as usize + 2..fault as usize + 4].copy_from_slice(&next_word.to_be_bytes());
     let mut emulator = GenesisEmulator::create(
         Some(rom),
         GenesisEmulatorConfig::default(),
@@ -57,7 +67,9 @@ fn prepare(context: &mut HookContext<'_>, entry: FunctionId) -> ExceptionRequest
         ids::LDIVT => tje_game::runtime::ldivt,
         ids::ULMODT => tje_game::runtime::ulmodt,
         ids::ULDIVT => tje_game::runtime::uldivt,
-        _ => panic!("authored runtime fixture uses four reviewed entries only"),
+        ids::DISABLE_ALL_INTERRUPTS => tje_game::platform::disable_all_interrupts,
+        ids::ENABLE_ALL_INTERRUPTS => tje_game::platform::enable_all_interrupts,
+        _ => panic!("authored exception fixture uses six reviewed entries only"),
     };
     let result = body(context, &[]);
     let tje_game::Error::ControlTransfer(transfer) = result.unwrap_err() else {
@@ -289,6 +301,103 @@ fn traced_runtime_entry_rejects_before_any_prefix_effect() {
                 .map(|address| emulator.hybrid_bus().memory.read_main_ram_byte(address))
                 .collect();
             assert_eq!(ram_after, ram_before);
+        }
+    }
+}
+
+#[test]
+fn privilege_trap_preserves_input_and_saves_first_opcode_not_next_pc() {
+    const SUPERVISOR_STACK: u32 = 0xff6000;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for entry in [ids::DISABLE_ALL_INTERRUPTS, ids::ENABLE_ALL_INTERRUPTS] {
+            let opcode = tje_game::control::privileged_status_opcode(entry).unwrap();
+            for status in [0x071f, 0x871f] {
+                let mut emulator = machine(revision, entry, opcode);
+                let mut context = HookContext::new(
+                    &mut emulator,
+                    revision,
+                    Dispatcher::hybrid_with(&[]),
+                    crate::Mode::Replace,
+                );
+                context.set_status_register(status);
+                context
+                    .set_stack_banks(exits::StackBanks {
+                        user: STACK,
+                        supervisor: SUPERVISOR_STACK,
+                    })
+                    .unwrap();
+                context.set_frame_state(FrameState::new(STACK)).unwrap();
+                let before = context.cpu().hybrid_state_words();
+                let request = prepare(&mut context, entry);
+                assert_eq!(context.cpu().hybrid_state_words(), before);
+                assert_eq!(request.prepared.saved_d2, None);
+                assert_eq!(request.trap, SynchronousTrap::PrivilegeViolation);
+                assert_eq!(request.saved_pc, entry.metadata().address(revision));
+                context
+                    .enter_source_exception(entry, entry, request)
+                    .unwrap();
+                let after = context.cpu().hybrid_state_words();
+                assert_eq!(&after[..15], &before[..15]);
+                assert_eq!(context.cpu().user_stack_pointer(), STACK);
+                assert_eq!(context.stack_pointer().unwrap(), SUPERVISOR_STACK - 6);
+                assert_eq!(context.read_u16(SUPERVISOR_STACK - 6), status);
+                assert_eq!(context.read_u32(SUPERVISOR_STACK - 4), request.saved_pc);
+                assert_eq!(context.read_u32(STACK - 4), 0);
+                assert_eq!(context.cpu().status_register(), (status & !0x8000) | 0x2000);
+                assert_eq!(context.cpu().pc(), HANDLER);
+                assert_eq!(context.cpu().hybrid_exception_depth(), 1);
+                assert_eq!(context.cpu().hybrid_last_exception_vector(), Some(8));
+            }
+        }
+    }
+}
+
+#[test]
+fn privilege_shape_prefix_saved_pc_and_true_ccr_opcode_cannot_be_borrowed() {
+    const SUPERVISOR_STACK: u32 = 0xff6000;
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for entry in [ids::DISABLE_ALL_INTERRUPTS, ids::ENABLE_ALL_INTERRUPTS] {
+            let opcode = tje_game::control::privileged_status_opcode(entry).unwrap();
+            for mutant in 0..8 {
+                // 003C/023C are real CCR opcodes, NOT privileged SR opcodes.
+                let actual = if mutant == 6 { opcode ^ 0x40 } else { opcode };
+                let mut emulator = machine(revision, entry, actual);
+                let mut context = HookContext::new(
+                    &mut emulator,
+                    revision,
+                    Dispatcher::hybrid_with(&[]),
+                    crate::Mode::Replace,
+                );
+                context.set_status_register(0x071f);
+                context
+                    .set_stack_banks(exits::StackBanks {
+                        user: STACK,
+                        supervisor: SUPERVISOR_STACK,
+                    })
+                    .unwrap();
+                context.set_frame_state(FrameState::new(STACK)).unwrap();
+                let mut request = prepare(&mut context, entry);
+                match mutant {
+                    0 => request.saved_pc += 2,
+                    1 => request.prepared.saved_d2 = Some(0x89abcdef),
+                    2 => request.trap = SynchronousTrap::DivideByZero,
+                    3 => request.site.byte_offset += 2,
+                    4 => context.set_data_register(0, 8),
+                    5 => context.set_status_register(0x071e),
+                    6 => {}
+                    7 => request.prepared.status |= 0x2000,
+                    _ => unreachable!(),
+                }
+                let before = context.cpu().hybrid_state_words();
+                let error = context
+                    .enter_source_exception(entry, entry, request)
+                    .unwrap_err();
+                assert!(matches!(error, HostError::Translation(ref e) if e.preserves_call_frame()));
+                assert_eq!(context.cpu().hybrid_state_words(), before);
+                assert_eq!(context.read_u32(STACK - 4), 0);
+                assert_eq!(context.read_u16(SUPERVISOR_STACK - 6), 0);
+                assert_eq!(context.cpu().hybrid_exception_depth(), 0);
+            }
         }
     }
 }
