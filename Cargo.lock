@@ -3473,6 +3473,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-four-player"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "genesis-config",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tje-engine-runtime",
+ "tje-game",
+ "tje-mem",
+ "tje-native-platform",
+ "tje-rom",
+ "tje-session",
+ "tje-world",
+]
+
+[[package]]
 name = "tje-game"
 version = "0.1.0"
 dependencies = [

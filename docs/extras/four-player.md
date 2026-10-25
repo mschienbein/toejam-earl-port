@@ -1,6 +1,6 @@
-# Four-player co-op — design, not implementation
+# Four-player co-op — fail-closed foundation and gameplay design
 
-Status: proposed opt-in enhanced campaign, 2026-10-25. Two-player faithful play remains the untouched default. Palette swaps are the agreed first characters; new/HD artwork is excluded.
+Status: **tested primitives, not a playable campaign**, 2026-10-25. Main explicitly revised the current implementation to a fail-closed foundation: `tje-four-player` provides typed four-seat sidecar data, level-ID arrival bookkeeping, four-pad routing, runtime palette variants and quadrant layout primitives. Requests to enable four-player reject before mutation until the complete simulation/render closure exists. Two-player faithful play remains the untouched default. New/HD artwork is excluded. The shared cutover, dependencies and staged estimates are in [mode-owned-simulation.md](mode-owned-simulation.md).
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -37,7 +37,7 @@ ExtendedView coordinated its first envelope as 400×224, or 400×112 for the ori
 
 Use the coordinated non-default `EnhancedProfile(name, &'static [Translation], &'static [FramedTranslation])`. Existing `Context` signatures and physical stack handling are reused. Selected nested calls remain selected; unselected calls execute compiled original code. Atomic/Functional callbacks have a synthetic RTS charge: enhanced gameplay has no cycle-equivalence claim and cannot borrow the faithful source-proof receipts. The existing opt-in `NativeCompiledOriginalCallees` profile ([P `docs/ENGINE.md:437–506`](docs/ENGINE.md#L437)) is the starting dispatch convention, not a second engine or an excuse to edit faithful tables.
 
-**Missing prerequisites, separately estimated below:** typed runtime-owned enhanced sidecars/context access; deterministic four-seat input/config events; a suspendable phase bridge tied to engine video boundaries; host multi-view sprite/HUD rendering; an enhanced snapshot/session envelope and native/WebAssembly equivalents. None is supplied merely by the initial override registry.
+**Available foundation:** enhanced typed sidecars/context, four controller states, resumable callbacks and format-3 atomic snapshots now exist; see [ENHANCED_MODE.md](../ENHANCED_MODE.md). **Still missing for playable co-op:** generalized complete world ownership, the phase/setup transaction, enhanced recording/lobby configuration events, frontend seat-binding UI and sidecar-driven host multi-view sprite/HUD composition. The small four-seat data/input/palette primitives do not supply these gameplay services.
 
 Keep the original compiled main-loop entry and device/audio scheduler, but replace the entire selected **world ownership closure**. Each high-level phase adapter reads/writes the sidecar, uses generalized readable algorithms and returns to the original caller. The bridge latches a video-frame ID plus phase and admits each scheduled enhanced phase once; extra renders or repeated entry calls cannot advance it. Retain the original four-phase relative schedule initially. Do not put an endless new loop, blocking map or elevator wait into an Atomic callback.
 
@@ -115,4 +115,4 @@ Required tests:
 
 Principal risks: broad two-player assumptions hidden in readable leaves; rendering/animation/physics coupling; transition and interaction latches; a plausible-looking four-character demo that does not survive a campaign; small-screen readability. Fixed quadrants and typed state are recommended defaults, not user decisions that block these documents. Whether to fund four-independent-peer play, new artwork, or change the default camera later remains a user choice; no such work is implicitly approved here.
 
-Main owns final build/replay gates. No executable changes or checks were made for this design-only assignment.
+Main owns final integration gates. The current foundation has no admitted four-player profile, frontend session choice, simulated present/AI/transition closure, host four-view compositor or four-pad gameplay recording. Codec/arrival-bookkeeping/rewind tests and private runtime palette previews are not evidence of a playable co-op session. The gameplay acceptance above remains the gate for the later shared cutover; current primitive coverage and exercised checks are reported separately.
