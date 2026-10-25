@@ -46,14 +46,13 @@ pub(super) fn player_start_falling(
     ram::g_terrain_priority_update_player(revision).write(context, number as i16);
     let pending = ram::g_terrain_priority_update_pending(revision);
     pending.write(context, 1);
-    loop {
-        // One TST.W per source poll; never reload merely to construct a wait.
-        let previous = pending.read(context);
-        if previous == 0 {
-            break;
-        }
-        context.wait_vblank_frame(pending.address(), previous as u16)?;
-    }
+    // Matching compiler lines287-288: TST.W/BNE until the complete word is zero.
+    // The predicate owns every poll, including the satisfying zero read.
+    context.wait_until(crate::execution::WaitRequest::ram_word_equal(
+        pending.address(),
+        u16::MAX,
+        0,
+    ))?;
     let text = speech_text(context, "GameText_00F8D6");
     call(context, ids::GENERATE_SPEECH, &[number as u32, text, 0])?;
     call(

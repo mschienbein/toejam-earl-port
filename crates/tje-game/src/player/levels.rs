@@ -81,6 +81,9 @@ pub(super) fn player_advance_to_next_level(
             }
             call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[2])?;
             call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+            // Matching compiler lines1805-1822: retain the literal calls and
+            // handle-byte polls; only yield at the compound loop's backedge.
+            context.poll_yield()?;
         }
         player
             .behavior_flags()

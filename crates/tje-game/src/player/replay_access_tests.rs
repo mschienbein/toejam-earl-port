@@ -1,9 +1,11 @@
 //! ROM-free regressions for the pending falling/respawn bodies' own bus accesses.
 use crate::{
-    Context, Dispatcher, Error, FunctionId, Result, call_frame::FrameState,
-    execution::ExecutionClass, ids,
+    Context, Dispatcher, Error, FunctionId, Result,
+    call_frame::FrameState,
+    execution::{ExecutionClass, RamWidth, WaitCondition, WaitRequest},
+    ids,
 };
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::VecDeque};
 use tje_mem::{Address, AddressSpace, Bus, ObjectState, Platform, Revision, ram};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +13,23 @@ enum Access {
     Read(u32, u8),
     Discard(u32, u8),
     Write(u32, u8, u32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SpinStep {
+    Poll(u32, u8, u32),
+    Call(FunctionId, Vec<u32>),
+    Yield,
+}
+struct PollSamples {
+    address: u32,
+    width: u8,
+    values: VecDeque<u32>,
+}
+struct CalleeBoundary {
+    function: FunctionId,
+    arguments: Vec<u32>,
+    result: Option<u32>,
 }
 struct Probe {
     memory: AddressSpace,
@@ -24,6 +43,10 @@ struct Probe {
     class: ExecutionClass,
     rust_callees: bool,
     clock: crate::execution::CallClock,
+    waits: Vec<WaitRequest>,
+    polls: RefCell<Option<PollSamples>>,
+    spin_steps: RefCell<Vec<SpinStep>>,
+    boundaries: Option<VecDeque<CalleeBoundary>>,
 }
 impl Probe {
     fn new(revision: Revision) -> Self {
@@ -43,12 +66,31 @@ impl Probe {
             class: ExecutionClass::TimeAware,
             rust_callees: true,
             clock: crate::execution::CallClock::default(),
+            waits: Vec::new(),
+            polls: RefCell::new(None),
+            spin_steps: RefCell::new(Vec::new()),
+            boundaries: None,
         }
     }
     fn reset_log(&mut self) {
         self.accesses.get_mut().clear();
         self.calls.clear();
         self.address_writes.clear();
+        self.waits.clear();
+        self.spin_steps.get_mut().clear();
+    }
+    fn poll_sample(&self, address: u32, width: u8) -> Option<u32> {
+        let mut script = self.polls.borrow_mut();
+        let script = script.as_mut()?;
+        if script.address != address {
+            return None;
+        }
+        assert_eq!(script.width, width, "poll width changed");
+        let value = script.values.pop_front().expect("unexpected extra poll");
+        self.spin_steps
+            .borrow_mut()
+            .push(SpinStep::Poll(address, width, value));
+        Some(value)
     }
     fn at(&self, address: u32) -> Vec<Access> {
         self.accesses
@@ -91,11 +133,13 @@ impl Probe {
 impl Bus for Probe {
     fn read_u8(&self, address: u32) -> u8 {
         self.accesses.borrow_mut().push(Access::Read(address, 1));
-        self.memory.read_u8(address)
+        self.poll_sample(address, 1)
+            .map_or_else(|| self.memory.read_u8(address), |value| value as u8)
     }
     fn read_u16(&self, address: u32) -> u16 {
         self.accesses.borrow_mut().push(Access::Read(address, 2));
-        self.memory.read_u16(address)
+        self.poll_sample(address, 2)
+            .map_or_else(|| self.memory.read_u16(address), |value| value as u16)
     }
     // A logical long is deliberately distinguishable from two explicit words.
     fn read_u32(&self, address: u32) -> u32 {
@@ -154,6 +198,36 @@ impl crate::Platform for Probe {
     fn discard_u16(&mut self, address: u32) -> Result<()> {
         self.accesses.get_mut().push(Access::Discard(address, 2));
         let _ = self.memory.read_u16(address);
+        Ok(())
+    }
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.waits.push(request);
+        if self.polls.borrow().is_none() {
+            return Err(Error::Platform("unit wait boundary".into()));
+        }
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Word,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            return Err(Error::Platform("unit expected a RAM word predicate".into()));
+        };
+        // Synthetic recorded poll values model replay, not live IRQ timing.
+        loop {
+            let sample = u32::from(self.read_u16(address));
+            if comparison.satisfied(sample, mask, value) {
+                return Ok(());
+            }
+        }
+    }
+    fn poll_yield(&mut self) -> Result<()> {
+        if self.boundaries.is_none() {
+            return Err(Error::Platform("unit scheduler boundary".into()));
+        }
+        self.spin_steps.get_mut().push(SpinStep::Yield);
         Ok(())
     }
 }
@@ -229,7 +303,26 @@ impl Context for Probe {
     }
     fn call_original(&mut self, id: FunctionId, arguments: &[u32]) -> Result<u32> {
         self.calls.push((id, arguments.to_vec()));
+        self.spin_steps
+            .get_mut()
+            .push(SpinStep::Call(id, arguments.to_vec()));
+        if let Some(boundaries) = &mut self.boundaries {
+            // Catalogue-boundary responses isolate the caller's access protocol;
+            // they are not implementations or proofs of those game callees.
+            let expected = boundaries.pop_front().expect("unexpected extra callee");
+            assert_eq!(id, expected.function);
+            assert_eq!(arguments, expected.arguments);
+            return expected.result.ok_or(Error::Untranslated(id));
+        }
         Err(Error::Untranslated(id))
+    }
+    fn call_original_with_execution(
+        &mut self,
+        id: FunctionId,
+        arguments: &[u32],
+        _: ExecutionClass,
+    ) -> Result<u32> {
+        self.call_original(id, arguments)
     }
 }
 
@@ -539,7 +632,7 @@ fn clr_helpers_retain_discarded_width_and_keep_extend() {
 }
 
 #[test]
-fn start_fall_has_one_word_read_before_its_first_wait() {
+fn start_fall_delegates_every_poll_to_the_exact_word_zero_predicate() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut c = Probe::new(revision);
         let p = c.seed_player(0);
@@ -549,10 +642,12 @@ fn start_fall_has_one_word_read_before_its_first_wait() {
             Err(Error::Platform(_))
         ));
         let pending = ram::g_terrain_priority_update_pending(revision).address();
+        assert_eq!(c.at(pending), vec![Access::Write(pending, 2, 1)]);
         assert_eq!(
-            c.at(pending),
-            vec![Access::Write(pending, 2, 1), Access::Read(pending, 2)]
+            c.waits,
+            vec![WaitRequest::ram_word_equal(pending, u16::MAX, 0)]
         );
+        assert_eq!(c.reads(ram::g_frame_counter(revision).address()), 0);
     }
 }
 
@@ -666,6 +761,114 @@ fn finalizer_publishes_its_actual_lives_base_before_terminal_callee_boundary() {
         assert!(
             c.address_writes
                 .contains(&(0, ram::g_player_lives(revision).address()))
+        );
+    }
+}
+
+#[test]
+fn start_fall_wait_owns_busy_polls_and_the_only_terminal_zero_read() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for values in [vec![0], vec![0x0100, 2, 0]] {
+            let mut c = Probe::new(revision);
+            let p = c.seed_player(0);
+            let pending = ram::g_terrain_priority_update_pending(revision).address();
+            c.reset_log();
+            c.polls.replace(Some(PollSamples {
+                address: pending,
+                width: 2,
+                values: values.clone().into(),
+            }));
+            assert!(matches!(
+                super::falling::player_start_falling(&mut c, &[p.address(), 0]),
+                Err(Error::Untranslated(id)) if id == ids::GENERATE_SPEECH
+            ));
+            assert_eq!(
+                c.waits,
+                vec![WaitRequest::ram_word_equal(pending, u16::MAX, 0)]
+            );
+            assert!(c.polls.borrow().as_ref().unwrap().values.is_empty());
+            let mut expected = vec![Access::Write(pending, 2, 1)];
+            expected.extend(values.iter().map(|_| Access::Read(pending, 2)));
+            assert_eq!(c.at(pending), expected);
+            assert_eq!(c.reads(ram::g_frame_counter(revision).address()), 0);
+        }
+    }
+}
+
+#[test]
+fn transient_effect_loop_keeps_calls_and_yields_before_each_next_byte_poll() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Probe::new(revision);
+        let player = c.seed_player(0);
+        player.behavior_flags().write(&mut c, 1);
+        let effect = c.seed_player(1);
+        effect.draw_flags().write(&mut c, 2);
+        c.rust_callees = false;
+        c.reset_log();
+        let handle = ram::g_player_transient_effect_entities(revision)
+            .at(0)
+            .address();
+        c.polls.replace(Some(PollSamples {
+            address: handle,
+            width: 1,
+            values: vec![1, 1, 1, 1, 0].into(),
+        }));
+        let boundary = |function, arguments, result| CalleeBoundary {
+            function,
+            arguments,
+            result,
+        };
+        c.boundaries = Some(VecDeque::from([
+            boundary(
+                ids::PRESENT_START_TRANSIENT_EFFECT,
+                vec![0, 512, 101, 9, 1],
+                Some(0),
+            ),
+            boundary(ids::UPDATE_ENTITY_VIEWPORT_SPRITES, vec![1], Some(0)),
+            boundary(ids::PRESENT_UPDATE_TRANSIENT_EFFECT, vec![0], Some(0)),
+            boundary(ids::WAIT_FOR_NEXT_V_BLANK, vec![2], Some(0)),
+            boundary(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, vec![], Some(0)),
+            boundary(ids::PRESENT_UPDATE_TRANSIENT_EFFECT, vec![0], Some(1)),
+            boundary(ids::WAIT_FOR_NEXT_V_BLANK, vec![2], Some(0)),
+            boundary(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, vec![], Some(0)),
+            boundary(ids::EARTHLING_RELEASE_LEVEL_BANK, vec![1], None),
+        ]));
+        assert!(matches!(
+            super::levels::player_advance_to_next_level(&mut c, &[player.address(), 0]),
+            Err(Error::Untranslated(id)) if id == ids::EARTHLING_RELEASE_LEVEL_BANK
+        ));
+        let mut expected = vec![
+            SpinStep::Call(ids::PRESENT_START_TRANSIENT_EFFECT, vec![0, 512, 101, 9, 1]),
+            SpinStep::Poll(handle, 1, 1),
+            SpinStep::Poll(handle, 1, 1),
+            SpinStep::Call(ids::UPDATE_ENTITY_VIEWPORT_SPRITES, vec![1]),
+        ];
+        for _ in 0..2 {
+            expected.extend([
+                SpinStep::Poll(handle, 1, 1),
+                SpinStep::Call(ids::PRESENT_UPDATE_TRANSIENT_EFFECT, vec![0]),
+                SpinStep::Call(ids::WAIT_FOR_NEXT_V_BLANK, vec![2]),
+                SpinStep::Call(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, vec![]),
+                SpinStep::Yield,
+            ]);
+        }
+        expected.extend([
+            SpinStep::Poll(handle, 1, 0),
+            SpinStep::Call(ids::EARTHLING_RELEASE_LEVEL_BANK, vec![1]),
+        ]);
+        assert_eq!(*c.spin_steps.borrow(), expected);
+        assert!(c.boundaries.as_ref().unwrap().is_empty());
+        assert!(c.polls.borrow().as_ref().unwrap().values.is_empty());
+        assert_eq!(c.reads(ram::g_frame_counter(revision).address()), 0);
+        assert_eq!(
+            c.at(player.behavior_flags().address())
+                .into_iter()
+                .filter(|a| matches!(a, Access::Write(..)))
+                .collect::<Vec<_>>(),
+            vec![
+                Access::Write(player.behavior_flags().address(), 1, 0x41),
+                Access::Write(player.behavior_flags().address(), 1, 1)
+            ]
         );
     }
 }
