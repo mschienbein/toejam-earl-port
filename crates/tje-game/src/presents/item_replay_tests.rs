@@ -466,3 +466,58 @@ fn retained_full_food_speech_keeps_declared_scalar_and_frame_mutations() {
         assert_eq!(context.stack_pointer().unwrap(), sp);
     }
 }
+
+#[test]
+fn expiry_pending_entry_lazily_reads_only_the_compiled_player_word() {
+    let entry = crate::presents::PENDING_FRAMED_TRANSLATIONS
+        .iter()
+        .find(|entry| entry.id == ids::PRESENT_TRY_END_ACTIVE_POWERUP)
+        .expect("expiry must be a lazy framed pending entry");
+    assert!(
+        !crate::presents::PENDING
+            .iter()
+            .any(|entry| entry.id == ids::PRESENT_TRY_END_ACTIVE_POWERUP)
+    );
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for player_number in [-512_i16, 0, 1, 512] {
+            for unused_high_word in [0_u16, 0x8000, 0xffff] {
+                let mut fixture = Fixture::new(revision);
+                let player = ram::g_player_info(revision).at_word_index(player_number);
+                player.height().write(&mut fixture.memory, 0);
+                player
+                    .animation_group_mask()
+                    .write(&mut fixture.memory, 0x20);
+                ram::g_player_powerups(revision)
+                    .at(i32::from(player_number))
+                    .write(&mut fixture.memory, -1);
+                fixture.memory.write_u32(
+                    ENTRY_SP + 4,
+                    (u32::from(unused_high_word) << 16) | u32::from(player_number as u16),
+                );
+                fixture.clear_trace();
+                (entry.function)(&mut fixture).unwrap();
+                let trace = fixture.accesses.borrow();
+                let argument_reads: Vec<_> = trace
+                    .iter()
+                    .copied()
+                    .filter(|access| match access {
+                        Access::Byte(address) | Access::Word(address) => {
+                            (ENTRY_SP + 4..ENTRY_SP + 8).contains(address)
+                        }
+                        _ => false,
+                    })
+                    .collect();
+                assert_eq!(argument_reads, [Access::Word(ENTRY_SP + 6)]);
+                assert_eq!(
+                    trace
+                        .iter()
+                        .find(|access| matches!(access, Access::Byte(_) | Access::Word(_))),
+                    Some(&Access::Word(ENTRY_SP + 6)),
+                    "the slot must be consumed after saves, before terrain/powerup reads",
+                );
+                assert_eq!(fixture.data[0], i32::from(player_number) as u32);
+                assert_eq!(fixture.sp, ENTRY_SP);
+            }
+        }
+    }
+}

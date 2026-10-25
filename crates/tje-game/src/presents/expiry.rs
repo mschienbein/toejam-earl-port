@@ -7,12 +7,11 @@ use tje_mem::{Address, ObjectState, ram};
 /// G/build/rev{02,00}/asm/c_item_updates.s:594-724 also defines the observable
 /// MOVEM frame, live register residues and final CMPI.B, including the no-sprite
 /// return's Z flag. Object offsets below are relative to function start 0x67c.
-pub fn present_try_end_active_powerup(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn present_try_end_active_powerup(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x1c, 0x04))?;
-    let result = expiry_body(context, arguments[0] as i16);
+    // MOVE.W 22(SP),D2 after MOVEM: only entry SP+6 is consumed.
+    let player = frame.argument_word(0).read(context);
+    let result = expiry_body(context, player);
     if result
         .as_ref()
         .is_err_and(|error| error.preserves_call_frame())

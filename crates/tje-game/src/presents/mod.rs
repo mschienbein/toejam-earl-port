@@ -245,12 +245,21 @@ pub static PENDING_FRAMES: &[crate::Translation] = &[];
 /// No framed presents entry has live replacement approval.
 pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
 
-/// The pickup recording byte is loaded after callbacks, so its incoming slot
-/// must remain authoritative instead of an eagerly copied four-value slice.
-pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[crate::FramedTranslation {
-    id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
-    function: items::player_collect_nearby_items,
-}];
+/// Argument-taking pending roots retain their lazy, source-width incoming slots.
+/// The pickup recording byte is reloaded after callbacks; expiry consumes only
+/// the player's low word after its MOVEM prologue.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
+        function: items::player_collect_nearby_items,
+    },
+    // Corpus REV00 cooperation frame12219: timing proof remains pending.
+    // Body-form migration does not override the retained IRQ/VDP failure.
+    crate::FramedTranslation {
+        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        function: expiry::present_try_end_active_powerup,
+    },
+];
 
 /// Complete candidate bodies held outside production dispatch until their
 /// dual-revision differential proofs pass. The opt-in lane harness may register
@@ -321,14 +330,6 @@ pub static PENDING: &[crate::Translation] = &[
     crate::Translation {
         id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
         function: hazard_frames::present_update_terrain_effects,
-    },
-    // Corpus REV00 cooperation frame12219: an extra original HBlank inside
-    // expiry leaves VDP control_port.mode Read vs Rust Write (13 differences).
-    // Await the timing schedule or a reviewed commutation projection; the
-    // smaller six-fixture passing receipt does not override this failure.
-    crate::Translation {
-        id: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
-        function: expiry::present_try_end_active_powerup,
     },
     // Redraw fixture fails strict main/ISR observations in both revisions:
     // REV02 Z80 A0004A operand0/1; REV00 missing/shifted vector28 boundary.

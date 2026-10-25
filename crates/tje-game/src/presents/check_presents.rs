@@ -58,6 +58,12 @@ fn replay_registry(revision: Revision, requested: &str) -> HookRegistry {
 
 fn candidate_hook(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     let id = tje_game::function_at(context.revision(), context.cpu().pc()).unwrap();
+    if let Some(translation) = tje_game::presents::PENDING_FRAMED_TRANSLATIONS
+        .iter()
+        .find(|candidate| candidate.id == id)
+    {
+        return Ok((translation.function)(context)?);
+    }
     let translation = tje_game::presents::PENDING
         .iter()
         .find(|candidate| candidate.id == id)
