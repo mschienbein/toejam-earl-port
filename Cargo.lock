@@ -3445,6 +3445,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-extended-view"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "genesis-config",
+ "tje-engine-cranelift",
+ "tje-engine-runtime",
+ "tje-game",
+ "tje-mem",
+ "tje-rom",
+ "tje-session",
+]
+
+[[package]]
 name = "tje-game"
 version = "0.1.0"
 dependencies = [
