@@ -178,7 +178,9 @@ impl Unsupported {
 }
 
 mod guard;
-pub use guard::{DmaMetrics, DmaRetirement, GUARD_CAPACITY, Guard, Namespace, OriginalSegment};
+pub use guard::{
+    DmaMetrics, DmaRetirement, GUARD_CAPACITY, Guard, MaterializedFrame, Namespace, OriginalSegment,
+};
 
 #[cfg(test)]
 mod api_tests {

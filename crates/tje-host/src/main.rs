@@ -354,7 +354,7 @@ mod tests {
         };
         let guard = Guard::default();
         let cause = guard
-            .run_root(ids::GET_RANDOM_NUMBER, 0xff8000, || {
+            .run_root(ids::GET_RANDOM_NUMBER, 0xff8000, false, || {
                 guard.read(0xef7ff8, 2, Reader::RustMemory);
             })
             .unwrap_err();

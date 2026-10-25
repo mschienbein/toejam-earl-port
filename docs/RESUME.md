@@ -54,6 +54,19 @@ When dependency inputs change, regenerate the third-party notices with `python3 
 (see [RELEASING](RELEASING.md)). Run the history audit
 (`audit_public.py --history --refs <branch>`) before every push.
 
+The publication audit does not exempt paths or historical blobs. JSON string arrays
+are identifier facts only when every member is an exact function constant, name or
+inventory ID in that Git state's structurally validated 648-entry catalogue.
+That catalogue's sorted unique fact set must also reproduce the SHA-256 pinned
+independently in `audit_public.py`; renaming catalogue facts requires an explicit,
+reviewed audit-tool pin update rather than self-authorizing metadata edits.
+Only declared, unconditional metadata modules reachable from the tracked crate
+root count; comments, unreferenced/untracked files and another Git state's
+catalogue cannot authorize facts. Hash-shaped strings are still arbitrary encoded
+data, not verified digests. Joined facts retain every format/ROM probe; only
+speculative decoded-size/opacity guesses are waived. A single unknown chunk keeps
+the full ordinary encoded-payload checks, including in ROM-free CI.
+
 ## How a function is admitted
 
 1. **Write the body.** Translate it from the decompilation into its subsystem module

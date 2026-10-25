@@ -156,12 +156,63 @@ def compile_rust(directory: Path, name: str, source: bytes) -> bytes:
     return subprocess.run([str(executable)], capture_output=True, check=True).stdout
 
 
+def synthetic_catalogue(*, replace_constant: bool = False,
+                        facts: set[bytes] | None = None) -> dict[str, bytes]:
+    """A complete generated 648-entry catalogue, independent of the checkout."""
+    constants = ["ERROR_TRAP", "START", "GAME_PROGRAM", "DISABLE_ALL_INTERRUPTS",
+                 "ENABLE_ALL_INTERRUPTS", "LEVEL6_ISR"]
+    if replace_constant:
+        constants[3] = "REPLACED_CATALOGUE_FUNCTION"
+    names = ["ErrorTrap", "_start", "GameProgram", "DisableAllInterrupts",
+             "EnableAllInterrupts", "Level6Isr"]
+    inventory_ids = ["func_000200", "func_000202", "frag_0002fc", "func_000322"]
+    identities, entries = [], []
+    for index in range(648):
+        constant = constants[index] if index < len(constants) else f"FIXTURE_FUNCTION_{index}"
+        name = names[index] if index < len(names) else f"FixtureFunction{index}"
+        inventory_id = inventory_ids[index] if index < len(inventory_ids) else f"fixture_{index}"
+        if facts is not None:
+            facts.update(value.encode() for value in (constant, name, inventory_id))
+        identities.append(f"pub const {constant}: FunctionId = FunctionId({index});")
+        entries.append(
+            f'    FunctionMetadata {{ id: FunctionId({index}), inventory_id: "{inventory_id}", '
+            f'name: "{name}", classification: "compiled_c", kind: "function", '
+            'subsystem: "synthetic", source: "src/synthetic.c", source_line: 1, addresses: [0, 0] },')
+    prefix = "crates/tje-game/src/"
+    return {
+        prefix + "lib.rs": b"mod metadata;\n",
+        prefix + "metadata/mod.rs": b"pub mod ids;\nmod part_0;\n",
+        prefix + "metadata/ids.rs": ("\n".join(identities) + "\n").encode(),
+        prefix + "metadata/part_0.rs": ("pub static FUNCTIONS: [FunctionMetadata; 648] = [\n"
+                                        + "\n".join(entries) + "\n];\n").encode(),
+    }
+
+
 def git_command(repo: Path, *args: str, data: bytes | None = None) -> bytes:
     result = subprocess.run(
         ["git", "-C", str(repo), "-c", "user.name=Audit Fixture", "-c", "user.email=audit@example.invalid", *args],
         input=data, capture_output=True, check=True,
     )
     return result.stdout
+
+
+def committed_catalogue() -> dict[str, bytes]:
+    """Read the real catalogue only from regular blobs in the test repository's HEAD."""
+    repo = Path(audit.__file__).resolve().parents[1]
+    files = {}
+    reader = audit.BlobReader(repo)
+    try:
+        for entry in git_command(repo, "ls-tree", "-r", "-z", "HEAD").split(b"\0"):
+            if not entry:
+                continue
+            meta, raw_path = entry.split(b"\t", 1)
+            mode, kind, oid = meta.decode().split()
+            path = os.fsdecode(raw_path)
+            if audit.catalogue_source_path(path) and kind == "blob" and mode in ("100644", "100755"):
+                files[path] = reader.read(oid)
+    finally:
+        reader.close()
+    return files
 
 
 def initialize_repo(path: Path) -> None:
@@ -433,6 +484,366 @@ class ResourceBudgetTests(GitAuditCase):
                 matches = [finding for finding in self.inspect(private) if finding.path == path]
                 self.assertEqual({finding.source for finding in matches}, {"index:0", "worktree"})
                 self.assertTrue(all("blob exceeds 1 MB" in finding.reason for finding in matches), matches)
+
+
+def forged_identifier_facts(seed: bytes = b"Synthetic forged catalogue facts") -> tuple[list[str], bytes]:
+    encoded = base64.b32encode(hashlib.shake_256(seed).digest(160)).decode()
+    chunks = [encoded[start:start + 16] for start in range(0, len(encoded), 16)]
+    comment = ("/*\n" + "\n".join(f'        name: "{chunk}",' for chunk in chunks) + "\n*/\n").encode()
+    return chunks, comment
+
+
+class JsonIdentifierFactTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.index = audit.RomIndex(IMAGES)
+        facts = set()
+        cls.catalogue = synthetic_catalogue(facts=facts)
+        pin = hashlib.sha256(b"\n".join(sorted(facts)) + b"\n").hexdigest()
+        patch = mock.patch.object(audit, "IDENTIFIER_FACTS_SHA256", pin)
+        cls.addClassCleanup(patch.stop)
+        patch.start()
+        cls.identifier_names = audit.identifier_fact_names(cls.catalogue.get)
+
+    @staticmethod
+    def fact_arrays() -> dict[str, list[str]]:
+        return {
+            "constants": ["ERROR_TRAP", "START", "GAME_PROGRAM", "DISABLE_ALL_INTERRUPTS",
+                          "ENABLE_ALL_INTERRUPTS", "LEVEL6_ISR"] * 4,
+            "names": ["ErrorTrap", "_start", "GameProgram", "DisableAllInterrupts"] * 4,
+            "inventory_ids": ["func_000200", "func_000202", "frag_0002fc", "func_000322"] * 4,
+        }
+
+    def test_catalogued_identifier_arrays_are_facts_in_both_modes(self) -> None:
+        for kind, values in self.fact_arrays().items():
+            text = json.dumps(values)
+            joined = "".join(values).encode()
+            decoded = base64.urlsafe_b64decode(joined + b"=" * (-len(joined) % 4))
+            self.assertGreaterEqual(len(decoded), audit.MIN_BINARY_PAYLOAD, kind)
+            self.assertFalse(audit.printable_text(decoded), kind)
+            self.assertIn((joined, False, True),
+                          list(audit.json_payloads(text, audit.DecodeBudget(), self.identifier_names)))
+            for path in ("identifier-facts.json", "unrelated-name.txt"):
+                for index in (None, self.index):
+                    with self.subTest(kind=kind, path=path, private=index is not None):
+                        self.assertEqual(audit.content_reasons(
+                            path, text.encode(), index, identifier_names=self.identifier_names), [])
+
+    def test_synthetic_ownership_manifest_identifier_arrays_pass(self) -> None:
+        facts = self.fact_arrays()
+        # Recreate the incident's fact shapes, never its historical blob or private input.
+        document = {
+            "closure": facts["constants"],
+            "irq_closure": facts["constants"][::-1],
+            "functions": [{"constant": constant, "name": name}
+                          for constant, name in zip(facts["constants"], facts["names"])],
+            "descriptor_schemas": [{"symbol": symbol} for symbol in
+                                   ("Spr_TitleBigPlayers", "ExceptionVectors", "MenuJamOutItems")],
+            "source_identities": [{"source": f"src/synthetic_{index}.c",
+                                   "sha256": hashlib.sha256(f"Synthetic source {index}".encode()).hexdigest()}
+                                  for index in range(4)],
+        }
+        data = json.dumps(document).encode()
+        for index in (None, self.index):
+            with self.subTest(private=index is not None):
+                self.assertEqual(audit.content_reasons(
+                    "synthetic-manifest.json", data, index, identifier_names=self.identifier_names), [])
+
+    def test_random_base64_array_chunks_still_fail(self) -> None:
+        binary = hashlib.shake_256(b"Synthetic random JSON array payload").digest(192)
+        for encoder in (base64.b64encode, base64.urlsafe_b64encode):
+            encoded = encoder(binary).decode()
+            for width in (1, 7, 16, 32):
+                chunks = [encoded[start:start + width] for start in range(0, len(encoded), width)]
+                text = json.dumps(chunks)
+                self.assertIn((encoded.encode(), False, False),
+                              list(audit.json_payloads(text, audit.DecodeBudget(), self.identifier_names)))
+                for index in (None, self.index):
+                    with self.subTest(encoder=encoder.__name__, width=width, private=index is not None):
+                        reasons = audit.content_reasons(
+                            "chunks.json", text.encode(), index, identifier_names=self.identifier_names)
+                        self.assertTrue(reasons, reasons)
+
+    def test_identifier_and_base64_mixed_arrays_still_fail(self) -> None:
+        binary = hashlib.shake_256(b"Synthetic mixed JSON array payload").digest(192)
+        encoded = base64.b64encode(binary).decode()
+        chunks = [encoded[start:start + 8] for start in range(0, len(encoded), 8)]
+        identifiers = ["DISABLE_ALL_INTERRUPTS", "ENABLE_ALL_INTERRUPTS"] * 4
+        cases = [chunks[:position] + identifiers + chunks[position:]
+                 for position in (0, len(chunks) // 2, len(chunks))]
+        # One short unknown chunk must also disqualify an otherwise all-fact array,
+        # even when every element individually looks like an ordinary identifier.
+        cases.append(["DISABLE_ALL_INTERRUPTS"] * 4 + ["AbCdGhIj"] + ["ENABLE_ALL_INTERRUPTS"] * 4)
+        for values in cases:
+            text = json.dumps(values)
+            self.assertIn(("".join(values).encode(), False, False),
+                          list(audit.json_payloads(text, audit.DecodeBudget(), self.identifier_names)))
+            for index in (None, self.index):
+                with self.subTest(elements=len(values), first=values[0], private=index is not None):
+                    self.assertTrue(audit.content_reasons(
+                        "mixed.json", text.encode(), index, identifier_names=self.identifier_names))
+
+    def test_only_complete_fact_arrays_receive_fact_provenance(self) -> None:
+        digest = hashlib.sha256(b"Synthetic not-quite-digest chunks").hexdigest()
+        cases = {
+            "unknown_identifier": ["UNKNOWN_IDENTIFIER_FRAGMENT"] * 8,
+            "non_string_member": ["DISABLE_ALL_INTERRUPTS"] * 4 + [None],
+        }
+        for length in (39, 40, 41, 63, 64, 65):
+            cases[f"hex_length_{length}"] = [(digest + digest)[:length]] * 4
+        for kind, values in cases.items():
+            text = json.dumps(values)
+            joined = "".join(value for value in values if isinstance(value, str)).encode()
+            self.assertIn((joined, False, False),
+                          list(audit.json_payloads(text, audit.DecodeBudget(), self.identifier_names)))
+            with self.subTest(kind=kind):
+                self.assertTrue(audit.content_reasons(
+                    "not-facts.json", text.encode(), None, identifier_names=self.identifier_names))
+
+    def test_decoded_array_rom_windows_remain_mandatory(self) -> None:
+        for image in IMAGES:
+            window = image[OFFSET:OFFSET + WINDOW_SIZE]
+            encoded = base64.b64encode(window).decode()
+            chunks = [encoded[start:start + 8] for start in range(0, len(encoded), 8)]
+            for values in (chunks, ["DISABLE_ALL_INTERRUPTS"] * 4 + chunks):
+                reasons = audit.content_reasons(
+                    "rom-chunks.json", json.dumps(values).encode(), self.index,
+                    identifier_names=self.identifier_names)
+                self.assertTrue(any("ROM window" in reason for reason in reasons), reasons)
+            for width, size in ((20, 80), (32, WINDOW_SIZE)):
+                # Hex chunks of a digest's length are still arbitrary binary data,
+                # including in ROM-free CI, never independently verified digests.
+                values = [window[start:start + width].hex() for start in range(0, size, width)]
+                text = json.dumps(values)
+                self.assertIn(("".join(values).encode(), False, False),
+                              list(audit.json_payloads(text, audit.DecodeBudget(), self.identifier_names)))
+                self.assertTrue(audit.content_reasons(
+                    "digest-chunks.json", text.encode(), None, identifier_names=self.identifier_names))
+                reasons = audit.content_reasons(
+                    "digest-chunks.json", text.encode(), self.index, identifier_names=self.identifier_names)
+                self.assertTrue(any("ROM window" in reason for reason in reasons), reasons)
+
+    def test_catalogued_identifier_joins_still_receive_base64_rom_checks(self) -> None:
+        values = self.fact_arrays()["constants"]
+        joined = "".join(values).encode()
+        binary = base64.urlsafe_b64decode(joined + b"=" * (-len(joined) % 4))
+        reasons = audit.content_reasons(
+            "catalogued.json", json.dumps(values).encode(), audit.RomIndex([binary]),
+            identifier_names=self.identifier_names)
+        self.assertTrue(any("ROM window" in reason and "Base64" in reason for reason in reasons), reasons)
+
+    def test_catalogue_context_is_explicit_and_does_not_leak_between_calls(self) -> None:
+        data = json.dumps(self.fact_arrays()["constants"]).encode()
+        source = audit.SourceContext.build("context.json", data)
+        for names, accepted in ((frozenset(), False), (self.identifier_names, True),
+                                (frozenset(), False), (self.identifier_names, True)):
+            reasons = audit.content_reasons(
+                "context.json", data, None, source=source, identifier_names=names)
+            self.assertEqual(not reasons, accepted, reasons)
+
+    def test_only_reachable_structural_complete_catalogues_authorize_facts(self) -> None:
+        chunks, comment = forged_identifier_facts()
+        for unreferenced in (False, True):
+            files = self.catalogue.copy()
+            path = "crates/tje-game/src/metadata/part_99.rs" if unreferenced else (
+                "crates/tje-game/src/metadata/part_0.rs")
+            files[path] = comment + files.get(path, b"")
+            names = audit.identifier_fact_names(files.get)
+            self.assertEqual(names, self.identifier_names)
+            self.assertFalse(any(chunk.encode() in names for chunk in chunks))
+            self.assertTrue(audit.content_reasons(
+                "forged.json", json.dumps(chunks).encode(), None, identifier_names=names))
+        for path, replacement in (
+            ("crates/tje-game/src/lib.rs", b"/* mod metadata; */"),
+            ("crates/tje-game/src/metadata/mod.rs", b"pub mod ids; /* mod part_0; */"),
+            ("crates/tje-game/src/metadata/mod.rs", b"pub mod ids; #[cfg(test)] mod part_0;"),
+            ("crates/tje-game/src/metadata/ids.rs", b"pub const ERROR_TRAP: FunctionId = FunctionId(0);"),
+            ("crates/tje-game/src/metadata/ids.rs",
+             self.catalogue["crates/tje-game/src/metadata/ids.rs"].replace(b"FunctionId(647)", b"FunctionId(646)")),
+            ("crates/tje-game/src/metadata/ids.rs",
+             b"#[cfg(test)]\n" + self.catalogue["crates/tje-game/src/metadata/ids.rs"]),
+            ("crates/tje-game/src/metadata/part_0.rs",
+             b"#[cfg(test)]\n" + self.catalogue["crates/tje-game/src/metadata/part_0.rs"]),
+        ):
+            files = {**self.catalogue, path: replacement}
+            self.assertEqual(audit.identifier_fact_names(files.get), frozenset(), path)
+
+
+class IdentifierFactGitStateTests(GitAuditCase):
+    def setUp(self) -> None:
+        super().setUp()
+        facts = set()
+        synthetic_catalogue(facts=facts)
+        pin = hashlib.sha256(b"\n".join(sorted(facts)) + b"\n").hexdigest()
+        patch = mock.patch.object(audit, "IDENTIFIER_FACTS_SHA256", pin)
+        self.addCleanup(patch.stop)
+        patch.start()
+
+    def put_catalogue(self, *, replace_constant: bool = False) -> None:
+        for path, data in synthetic_catalogue(replace_constant=replace_constant).items():
+            put(self.repo, path, data)
+
+    def test_digest_length_chunks_fail_all_git_states_and_both_modes(self) -> None:
+        self.put_catalogue()
+        forms = {}
+        for width in (20, 32):
+            binary = hashlib.shake_256(f"Synthetic digest-sized chunks {width}".encode()).digest(width * 4)
+            for uppercase in (False, True):
+                values = [binary[start:start + width].hex() for start in range(0, len(binary), width)]
+                if uppercase:
+                    values = [value.upper() for value in values]
+                forms[f"hex-{width}-{uppercase}"] = ("json", json.dumps(values).encode())
+        cases = self.matrix(forms)
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
+    def test_commented_and_unreferenced_catalogue_forgeries_fail_all_states(self) -> None:
+        self.put_catalogue()
+        commented, comment = forged_identifier_facts()
+        unreferenced, _ = forged_identifier_facts(b"Synthetic unreferenced catalogue facts")
+        part = "crates/tje-game/src/metadata/part_0.rs"
+        put(self.repo, part, comment + synthetic_catalogue()[part])
+        extra = ("pub static FUNCTIONS: [FunctionMetadata; 16] = [\n" + "".join(
+            f'    FunctionMetadata {{\n        name: "{chunk}",\n    }},\n' for chunk in unreferenced) + "];\n").encode()
+        put(self.repo, "crates/tje-game/src/metadata/part_99.rs", extra)
+        self.git("add", "crates")
+        self.git("commit", "-m", "Synthetic catalogue with non-authoritative forged facts")
+        cases = self.matrix({
+            "commented": ("json", json.dumps(commented).encode()),
+            "unreferenced": ("json", json.dumps(unreferenced).encode()),
+        })
+        for private in (False, True):
+            self.assert_matrix(cases, private)
+
+    def test_untracked_or_partial_catalogue_cannot_authorize_payloads(self) -> None:
+        path = "payload.json"
+        put(self.repo, path, json.dumps(["DISABLE_ALL_INTERRUPTS"] * 8).encode())
+        self.git("add", path)
+        self.git("commit", "-m", "Synthetic identifier payload without provenance")
+        self.put_catalogue()
+        for partial in (False, True):
+            if partial:
+                self.git("add", "crates/tje-game/src/metadata")
+            for private in (False, True):
+                matches = [finding for finding in self.inspect(private) if finding.path == path]
+                self.assertTrue(any(finding.source == "worktree" for finding in matches), matches)
+                self.assertTrue(any(finding.source == "index:0" for finding in matches), matches)
+                self.assertTrue(any(finding.source.startswith("tree:") for finding in matches), matches)
+
+    def test_identical_blob_cache_respects_history_index_and_worktree_catalogues(self) -> None:
+        path = "payload.json"
+        self.put_catalogue()
+        put(self.repo, path, json.dumps(["DISABLE_ALL_INTERRUPTS"] * 8).encode())
+        self.git("add", ".")
+        self.git("commit", "-m", "Synthetic authorized function fact array")
+        valid_commit = self.git("rev-parse", "HEAD").decode().strip()
+        valid_tree = "tree:" + self.git("rev-parse", "HEAD^{tree}").decode().strip()
+        self.put_catalogue(replace_constant=True)
+        self.git("add", "crates")
+        self.git("commit", "-m", "Synthetic changed catalogue without prior constant")
+        invalid_tree = "tree:" + self.git("rev-parse", "HEAD^{tree}").decode().strip()
+        for staged_valid in (False, True):
+            self.put_catalogue()
+            if staged_valid:
+                self.git("add", "crates")
+                self.put_catalogue(replace_constant=True)
+            for private in (False, True):
+                matches = {finding.source for finding in self.inspect(private) if finding.path == path}
+                expected = {invalid_tree, "worktree" if staged_valid else "index:0"}
+                self.assertEqual(matches, expected)
+                self.assertNotIn(valid_tree, matches)
+            findings, _ = audit.audit(self.repo, no_rom=True, publish_refs=[valid_commit])
+            self.assertFalse(any(finding.path == path for finding in findings), findings)
+
+    def test_conflict_stages_use_their_own_catalogue_over_stage_zero(self) -> None:
+        path = "payload.json"
+        ids = "crates/tje-game/src/metadata/ids.rs"
+        self.put_catalogue()
+        payload = json.dumps(["DISABLE_ALL_INTERRUPTS"] * 8).encode()
+        put(self.repo, path, payload)
+        self.git("add", ".")
+        self.git("commit", "-m", "Synthetic complete stage-zero catalogue")
+        payload_oid = self.git("hash-object", "-w", "--stdin", data=payload).decode().strip()
+        valid_oid = self.git("hash-object", "-w", "--stdin", data=synthetic_catalogue()[ids]).decode().strip()
+        invalid_oid = self.git("hash-object", "-w", "--stdin",
+                               data=synthetic_catalogue(replace_constant=True)[ids]).decode().strip()
+        entries = [f"0 {'0' * 40}\t{target}\n" for target in (ids, path)]
+        for stage in (1, 2, 3):
+            entries.append(f"100644 {invalid_oid if stage == 2 else valid_oid} {stage}\t{ids}\n")
+            entries.append(f"100644 {payload_oid} {stage}\t{path}\n")
+        self.git("update-index", "--index-info", data="".join(entries).encode())
+        for private in (False, True):
+            matches = {finding.source for finding in self.inspect(private) if finding.path == path}
+            self.assertEqual(matches, {"index:2"})
+
+
+class CataloguePinTests(unittest.TestCase):
+    def test_current_real_catalogue_matches_independent_pin(self) -> None:
+        files = committed_catalogue()
+        facts = audit.identifier_fact_names(files.get)
+        self.assertEqual(len(facts), 3 * 648)
+        self.assertEqual(hashlib.sha256(b"\n".join(sorted(facts)) + b"\n").hexdigest(),
+                         audit.IDENTIFIER_FACTS_SHA256)
+
+    def test_structurally_complete_synthetic_catalogue_does_not_authorize_itself(self) -> None:
+        self.assertEqual(audit.identifier_fact_names(synthetic_catalogue().get), frozenset())
+
+
+class CataloguePinGitStateTests(GitAuditCase):
+    def test_reachable_name_rewrites_cannot_self_authorize_in_rom_free_git_states(self) -> None:
+        import trace_functions as trace
+
+        files = committed_catalogue()
+        self.assertEqual(len(audit.identifier_fact_names(files.get)), 3 * 648)
+        for path, data in files.items():
+            put(self.repo, path, data)
+        self.git("add", "crates")
+        self.git("commit", "-m", "Canonical independently pinned catalogue")
+        # An actual synthetic ROM fragment, encoded as short identifier-shaped
+        # Base32 chunks. No digest or module/count/ID invariant changes.
+        binary = IMAGES[0][OFFSET:OFFSET + 80]
+        encoded = base64.b32encode(binary).decode()
+        chunks = [encoded[start:start + 16] for start in range(0, len(encoded), 16)]
+        self.assertTrue(all(audit.RUST_IDENTIFIER.fullmatch(chunk.encode()) for chunk in chunks))
+        part = "crates/tje-game/src/metadata/part_0.rs"
+        root = audit.source_parser("rust").parse(files[part]).root_node
+        functions = next(node for node in root.named_children if node.type == "static_item"
+                         and trace.text(node.child_by_field_name("name")) == "FUNCTIONS")
+        replacements = []
+        for (entry, _), chunk in zip(trace.array_entries(functions), chunks):
+            value = trace.fields(entry)["name"]
+            replacements.append((value.start_byte, value.end_byte, json.dumps(chunk).encode()))
+        mutated = bytearray(files[part])
+        for start, end, value in reversed(replacements):
+            mutated[start:end] = value
+        files[part] = bytes(mutated)
+        modules = {}
+        for path, data in files.items():
+            name = Path(path).stem
+            if name == "ids" or name.startswith("part_"):
+                modules["metadata::" + name] = audit.source_parser("rust").parse(data).root_node.named_children
+        entries = trace.catalog_entries(modules, trace.CATALOGUED_ENTRIES)
+        self.assertEqual(len(entries), 648)
+        changed_facts = frozenset(value.encode() for entry in entries
+                                  for value in (entry.constant, entry.name, entry.inventory_id))
+        self.assertEqual(len(changed_facts), 3 * 648)
+        changed_digest = hashlib.sha256(b"\n".join(sorted(changed_facts)) + b"\n").hexdigest()
+        self.assertNotEqual(changed_digest, audit.IDENTIFIER_FACTS_SHA256)
+        # Prove that structure alone would authorize these names and waive this
+        # payload; only an independently reviewed pin prevents the bypass.
+        with mock.patch.object(audit, "IDENTIFIER_FACTS_SHA256", changed_digest):
+            self.assertEqual(audit.identifier_fact_names(files.get), changed_facts)
+        payload = json.dumps(chunks).encode()
+        self.assertEqual(audit.content_reasons(
+            "rewritten-names.json", payload, None, identifier_names=changed_facts), [])
+        self.assertEqual(audit.identifier_fact_names(files.get), frozenset())
+        self.assertTrue(audit.content_reasons(
+            "rewritten-names.json", payload, None,
+            identifier_names=audit.identifier_fact_names(files.get)))
+        put(self.repo, part, files[part])
+        self.git("add", part)
+        cases = self.matrix({"rewritten-names": ("json", payload)})
+        self.assert_matrix(cases, private=False)
 
 
 class DecoderTests(unittest.TestCase):

@@ -350,9 +350,8 @@ impl ClockRun {
         };
         let cpu = emulator.hybrid_cpu();
         let call = instruction.filter(|step| {
-            step.completed_successfully
+            crate::call_observation::successful_call_instruction(*step)
                 && self.meters_depth(step.exception_depth)
-                && (step.opcode & 0xffc0 == 0x4e80 || step.opcode & 0xff00 == 0x6100)
         });
         if let Some(call) = call
             && cpu.hybrid_exception_depth() != call.exception_depth
@@ -661,6 +660,9 @@ pub(crate) fn drain_accesses(
         .unwrap_or_default();
     if let Some(accesses) = bus.hybrid_cpu_accesses.as_mut() {
         for access in accesses.drain(..) {
+            if let Some(root) = observers.original_root {
+                root.observe_stream(access, boundaries);
+            }
             if let Some(branch) = observers.provenance {
                 branch.observe_stream(access, boundaries);
             }
@@ -697,6 +699,9 @@ pub(crate) fn drain_accesses(
     }
     if let Some(capture) = observers.capture {
         capture.finish_access_batch(emulator, frame);
+    }
+    if let Some(root) = observers.original_root {
+        root.finish_step(emulator.hybrid_cpu(), emulator.hybrid_bus());
     }
 }
 
@@ -840,10 +845,10 @@ fn timed_tick(
     let bus = emulator.hybrid_bus();
     let ready =
         bus.cycles.m68k_wait_cpu_cycles == 0 && emulator.hybrid_cpu().hybrid_instruction_ready(bus);
+    if let Some(root) = observers.original_root {
+        root.before_step(emulator.hybrid_cpu(), ready);
+    }
     if ready {
-        if let Some(root) = observers.original_root {
-            root.before_step(emulator.hybrid_cpu(), ready);
-        }
         run.previous_pc = Some(pc);
         run.instructions += 1;
     }
@@ -875,7 +880,7 @@ fn timed_tick(
         tick().map_err(|error| HostError::Emulator(error.to_string()))
     };
     if let Some(root) = observers.original_root {
-        root.after_step(emulator.hybrid_cpu());
+        root.after_step(emulator.hybrid_cpu(), emulator.hybrid_bus());
     }
     if let Some(capture) = observers.capture {
         capture.finish_reference_cpu_step(emulator, clock.frame);

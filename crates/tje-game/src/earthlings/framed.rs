@@ -487,6 +487,7 @@ fn steer(
     let d1 = frame.local::<u16>(-10);
     d0.write(context, 0x7fff);
     d1.write(context, 0x7fff);
+    let mut initialized_deltas = [false; 2];
     let separation = separation_parameter >> 2;
     super::pending_access::extend(context, separation_parameter & 2 != 0);
     let mut maximum = if state.sprite_state().read(context) == 2 {
@@ -518,6 +519,7 @@ fn steer(
                 separation,
                 (xpc, ypc),
             )?;
+            initialized_deltas[player as usize] = true;
         }
         let distance = frame.local::<u16>(-12 + player * 2);
         if distance.read(context) > 0x1800 {
@@ -582,6 +584,7 @@ fn steer(
                     separation,
                     (xpc, ypc),
                 )?;
+                initialized_deltas[player as usize] = true;
             }
         }
     }
@@ -595,7 +598,12 @@ fn steer(
         1
     };
     let result = if frame.argument_byte(3).read(context) == 12 {
-        let (dx, dy) = selected_deltas(context, frame, selected);
+        let (dx, dy) = selected_deltas(
+            context,
+            frame,
+            selected,
+            initialized_deltas[selected as usize],
+        )?;
         invoke(
             context,
             caller,
@@ -613,7 +621,12 @@ fn steer(
         } else {
             ram::g_player_info(revision).at(selected)
         };
-        let (dx, dy) = selected_deltas(context, frame, selected);
+        let (dx, dy) = selected_deltas(
+            context,
+            frame,
+            selected,
+            initialized_deltas[selected as usize],
+        )?;
         invoke(
             context,
             caller,
@@ -631,7 +644,12 @@ fn steer(
                 0x01ae56,
             )?;
         }
-        let (dx, dy) = selected_deltas(context, frame, selected);
+        let (dx, dy) = selected_deltas(
+            context,
+            frame,
+            selected,
+            initialized_deltas[selected as usize],
+        )?;
         invoke(
             context,
             caller,
@@ -644,10 +662,38 @@ fn steer(
     Ok(Some(result as i8 as u32))
 }
 
-fn selected_deltas(context: &mut dyn Context, frame: &LocalFrame, player: i32) -> (u32, u32) {
-    // MCC68K pushes right to left: Y is consumed before X, including residuals.
+fn selected_deltas(
+    context: &mut dyn Context,
+    frame: &LocalFrame,
+    player: i32,
+    initialized: bool,
+) -> Result<(u32, u32)> {
+    // Only distance[] is initialized on entry (c_targeting.s:13-14). No target
+    // and maximum >= 0x7fff still select player1 at325-338, leaving both delta
+    // words unwritten. Candidate rejection does not undo its actual stores.
+    // MCC68K pushes Y before X; retain both exact word reads and their order.
     super::pending_access::extend(context, false); // selected-index ADD.L
-    let dy = frame.local::<i16>(-4 + player * 2).read(context) as u32;
-    let dx = frame.local::<i16>(-8 + player * 2).read(context) as u32;
-    (dx, dy)
+    let dy_offset = -4 + player * 2;
+    let dy = if initialized {
+        frame.local::<i16>(dy_offset).read(context)
+    } else {
+        context.read_uninitialized_local(frame.entry().uninitialized_local(
+            ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+            dy_offset - 4,
+            crate::stack_read::LocalWidth::Word,
+            "G/build/{rev00,rev02}/asm/c_targeting.s:4,13-14,325-345,379,406; conditional delta_y[] at A6-4+2*player, own entry SP-8+2*player; no candidate store",
+        ))? as i16
+    };
+    let dx_offset = -8 + player * 2;
+    let dx = if initialized {
+        frame.local::<i16>(dx_offset).read(context)
+    } else {
+        context.read_uninitialized_local(frame.entry().uninitialized_local(
+            ids::EARTHLING_STEER_TOWARD_NEAREST_TARGET,
+            dx_offset - 4,
+            crate::stack_read::LocalWidth::Word,
+            "G/build/{rev00,rev02}/asm/c_targeting.s:4,13-14,325-338,351,385,412; conditional delta_x[] at A6-8+2*player, own entry SP-12+2*player; no candidate store",
+        ))? as i16
+    };
+    Ok((dx as u32, dy as u32))
 }

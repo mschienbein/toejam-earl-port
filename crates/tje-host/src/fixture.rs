@@ -142,20 +142,41 @@ impl Host {
         Ok(())
     }
 
+    /// Public differential entrypoints preflight before touching caller state.
+    /// Snapshot guard metrics on Result completion, never at every game root.
+    pub(crate) fn check_fixture_api<T>(
+        &mut self,
+        api: &'static str,
+        execute: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if self.mode != crate::Mode::Check {
+            return Err(HostError::Metadata(format!("{api} requires Check mode")));
+        }
+        let result = execute(self);
+        self.record_readable_stack_metrics();
+        result
+    }
+
     /// Inject an RTS fixture from a recorded live, settled boundary using that
     /// caller's real immutable-ROM PC, not a sentinel. This is diagnostic call
     /// injection, never evidence of a natural JSR. Both actual check forks run;
     /// no third original replay or invented scratch D0 result is returned.
+    /// Requires Check mode; this does not finalize a campaign's proof obligations.
     pub fn check_clocked_fixture(
         &mut self,
         address: u32,
         arguments: &[u32],
     ) -> Result<tje_game::exits::EntryOutcome> {
-        if self.mode != crate::Mode::Check {
-            return Err(HostError::Metadata(
-                "clocked fixtures require Check mode".into(),
-            ));
-        }
+        self.check_fixture_api("check_clocked_fixture", |host| {
+            host.check_clocked_fixture_inner(address, arguments)
+        })
+    }
+
+    fn check_clocked_fixture_inner(
+        &mut self,
+        address: u32,
+        arguments: &[u32],
+    ) -> Result<tje_game::exits::EntryOutcome> {
         self.observe_retained_native_prefix()?;
         self.require_fixture_boundary()?;
         let hook = self
@@ -189,19 +210,35 @@ impl Host {
     /// inventing a caller's return address. Set frame/register inputs explicitly
     /// before calling; unlike RTS fixtures, this never settles the prepared frame.
     /// Machine state is restored afterward, while coverage and evidence remain.
+    /// Requires Check mode before looking up or entering the prepared frame.
     pub fn check_entry_fixture(&mut self, address: u32) -> Result<tje_game::exits::EntryOutcome> {
-        let hook = self
-            .registry
-            .at(address)
-            .cloned()
-            .ok_or_else(|| HostError::Metadata(format!("no hook at {address:06X}")))?;
-        self.prepared_hook_fixture(hook, address)
+        self.check_fixture_api("check_entry_fixture", |host| {
+            let hook = host
+                .registry
+                .at(address)
+                .cloned()
+                .ok_or_else(|| HostError::Metadata(format!("no hook at {address:06X}")))?;
+            host.prepared_hook_fixture(hook, address)
+        })
     }
 
     /// Check a reviewed persistent-loop continuation on an already prepared
     /// frame. Preserve its original entry `frame` across modal calls; the current
     /// lower SP is not a replacement for it. `body` is the real stage translation.
+    /// Requires Check mode; prepared frame inspection happens after preflight.
     pub fn check_continuation_fixture(
+        &mut self,
+        id: tje_game::FunctionId,
+        stage: tje_game::exits::MainLoopStage,
+        body: tje_game::TranslationFn,
+        frame: tje_game::call_frame::FrameState,
+    ) -> Result<tje_game::exits::EntryOutcome> {
+        self.check_fixture_api("check_continuation_fixture", |host| {
+            host.check_continuation_fixture_inner(id, stage, body, frame)
+        })
+    }
+
+    fn check_continuation_fixture_inner(
         &mut self,
         id: tje_game::FunctionId,
         stage: tje_game::exits::MainLoopStage,
@@ -400,3 +437,6 @@ pub(crate) mod tests;
 
 #[cfg(test)]
 mod clocked_tests;
+
+#[cfg(test)]
+mod check_api_tests;

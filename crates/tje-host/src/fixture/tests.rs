@@ -123,8 +123,13 @@ fn nested_exception_returns_finish_before_seeding_even_in_replace_mode() {
     host.mode = Mode::Replace;
     let before = machine_bytes(&host);
     let error = host.check_fixture(0x200, &[]).unwrap_err();
+    assert!(error.to_string().contains("requires Check mode"));
+    assert_eq!(before, machine_bytes(&host));
+    host.mode = Mode::Check;
+    let error = host.check_fixture(0x200, &[]).unwrap_err();
     assert!(error.to_string().contains("before seeding fixture inputs"));
     assert_eq!(before, machine_bytes(&host));
+    host.mode = Mode::Replace;
     let advance = host
         .settle_fixture_boundary(GenesisInputs::default())
         .unwrap();
@@ -179,6 +184,7 @@ fn pending_irq_is_accepted_and_its_original_handler_returns() {
 fn fifo_halt_and_refresh_wait_advance_without_patching_cpu() {
     let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
     let mut reference = synthetic_host(&[0x60fe], &[0x4e73]);
+    host.mode = Mode::Check;
     for host in [&mut host, &mut reference] {
         let bus = host.emulator.hybrid_bus_mut();
         bus.cycles.m68k_wait_cpu_cycles = 20;
@@ -296,6 +302,7 @@ fn prepared_real_exception_returns_match_in_both_classes_banks_and_revisions() {
         for class in [ExecutionClass::Atomic, ExecutionClass::TimeAware] {
             for saved_sr in [0x0015_u16, 0x231a] {
                 let mut host = synthetic_host(&[0x4e40, 0x60fe], &[0x4e73]);
+                host.mode = Mode::Check;
                 host.revision = revision;
                 {
                     let mut context = host.context();
@@ -433,6 +440,7 @@ fn continuation_restores_explicit_parent_frame_without_rewriting_current_sp() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         for class in [ExecutionClass::Atomic, ExecutionClass::TimeAware] {
             let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
+            host.mode = Mode::Check;
             host.revision = revision;
             host.context().write_u16(CODE, 0x4e71); // Authored NOP -> idle checkpoint.
             host.context().write_u16(CODE + 2, 0x60fe);
@@ -714,7 +722,7 @@ fn player_entity_fixture_after_recorded_10000_frames() {
                 player_predicate,
             )
             .unwrap();
-        let mut host = Host::new(&std::fs::read(path).unwrap(), Mode::Reference, registry).unwrap();
+        let mut host = Host::new(&std::fs::read(path).unwrap(), Mode::Check, registry).unwrap();
         let script = Arc::new(player_recording(revision));
         host.set_wait_input_poller(script.clone());
         for frame in 0..10000 {
@@ -737,6 +745,7 @@ fn player_entity_fixture_after_recorded_10000_frames() {
         player.x().write(&mut host.context(), 0);
         player.y().write(&mut host.context(), 0);
         let before = machine_bytes(&host);
+        let natural_checks = host.checks.calls;
         let value = host
             .check_fixture(
                 ids::ENTITY_IS_NEAR_POSITION.metadata().address(revision),
@@ -744,7 +753,7 @@ fn player_entity_fixture_after_recorded_10000_frames() {
             )
             .unwrap();
         assert_eq!(value, 1);
-        assert_eq!(host.checks.calls, 1);
+        assert_eq!(host.checks.calls, natural_checks + 1);
         assert_eq!(host.checks.mismatches, 0);
         assert!(host.checks.uninitialized_stack_reads.is_empty());
         assert_eq!(before, machine_bytes(&host));
@@ -756,7 +765,8 @@ fn player_entity_fixture_after_recorded_10000_frames() {
                 "master_clocks": advance.master_clocks, "start_frame": advance.start_frame,
                 "end_frame": advance.end_frame, "handlers_completed": advance.handlers_completed,
                 "completed_frames": advance.completed_frames.len(), "fixture_result": value,
-                "checks": host.checks.calls, "mismatches": host.checks.mismatches
+                "checks": host.checks.calls, "mismatches": host.checks.mismatches,
+                "natural_checks": natural_checks, "fixture_checks": host.checks.calls - natural_checks,
             })
         );
     }
@@ -770,6 +780,7 @@ fn vdp_failure_evidence_and_counts_survive_fixture_restoration_and_host_drop() {
     }
     let report = {
         let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
+        host.mode = Mode::Check;
         let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
         symbol.name = "AuthoredVdpDiagnostic";
         symbol.addresses = [0xfff000; 2];
@@ -829,6 +840,7 @@ fn vdp_dependency_probe_reports_the_actual_perturbed_fork_before_it_drops() {
         Ok(None)
     }
     let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
+    host.mode = Mode::Check;
     let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
     symbol.name = "AuthoredVdpProbeDiagnostic";
     symbol.addresses = [0xfff000; 2];

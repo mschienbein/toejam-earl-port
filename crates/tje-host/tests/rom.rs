@@ -482,11 +482,12 @@ fn assert_pilot_coverage(host: &Host) {
 }
 
 #[test]
-#[ignore = "requires both private retail ROMs"]
+#[ignore = "HELD: same full-registry Check1300 bootstrap witness prerequisite as runtime V5; not independently re-run or counted passing after migration"]
 fn repeated_diagnostic_hardware_calls_do_not_fill_live_frozen_fifo() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut host = host(revision, Mode::Reference);
+        let mut host = host(revision, Mode::Check);
+        host.set_wait_input_poller(script.clone());
         for frame in 0..1300 {
             host.run_frame(script.at(frame)).unwrap();
         }

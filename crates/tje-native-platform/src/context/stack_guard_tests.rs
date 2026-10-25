@@ -7,6 +7,7 @@ use tje_game::{
 use tje_mem::{Bus, Platform};
 const SP: u32 = 0xff7f00;
 const SOURCE: u32 = 0xff7e00;
+mod frame_tests;
 
 fn platform() -> NativePlatform {
     let mut rom = vec![0; 1 << 20];

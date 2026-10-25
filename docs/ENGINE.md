@@ -262,6 +262,21 @@ early exit retains its state at that exit, not unreachable later stores;
 multiple permitted exits are unsupported by this query. These results are
 analysis data only, never source, timing, interrupt or replacement authority.
 
+The additive `output_read_demands(field, bits, &mut Vec<ExecutedReadDemand>)`
+returns that same summary and exact demanded memory leaves.
+`value_read_demands(value, bits, control, &mut Vec<ExecutedReadDemand>)` accepts
+only an SSA value actually defined within the selected executed prefix, never
+an allocated-but-unexecuted value after its exit. Both reuse the same walker,
+retain all actual path controls, and clear the caller's reusable vector on
+every query error. Each leaf identifies its supplied physical read ordinal,
+address, width and purpose, with separate width-bounded data/control masks;
+identical reads remain distinct occurrences and guarded-off reads have no
+placeholder ordinal. The summary retains the exact address-domain binding.
+Samples, physical traces and the old `output_reads` behavior are unchanged.
+These leaves grant no initialization, sample import, read omission or proof
+authority: consumers must retain their own chronological register/RAM
+provenance and authenticate every live or unknown memory input.
+
 `DependencyFold` accumulates read-before-write and written masks, killing only
 proved definitions. `observe_outputs` includes pass-through declared outputs as
 inputs when a consumer intends to import them rather than preserve its own

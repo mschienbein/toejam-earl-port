@@ -396,6 +396,46 @@ so repeated diagnostic writes cannot fill the live machine's frozen VDP FIFO.
 Use the explicitly state-mutating `check_call` only when the fixture deliberately
 needs the original's post-call state; do not chain frozen FIFO writes without
 clock progress.
+
+All public differential entrypoints—`check_call`, `check_fixture`,
+`check_entry_fixture`, `check_continuation_fixture` and
+`check_clocked_fixture`—require **`Mode::Check`**. Reference and every other
+non-Check mode reject clearly **before** observing a retained prefix, inspecting
+readiness/prepared frames, cloning, seeding arguments/return words or changing
+CPU/device/check accounting. There is no implicit mode switch, lazy guard pool
+or original fallback.
+
+On success **or Result error** in Check mode, each public boundary publishes the
+current readable-stack metrics snapshot, outside ordinary root/RNG hot paths.
+`enabled` reports the available observer snapshot, not an approval latch.
+Publication does not discharge ownership, proof debt or future-frame watches;
+the campaign must still call `finish_future_frame_provenance`, require its
+`ensure_proof_eligible` result and inspect final pending/DMA/debt conditions.
+Wrong-mode rejection has no metric-refresh or check-counter effects.
+
+`settle_fixture_boundary` remains original-only progress, not a differential
+entrypoint. Generic isolated execution remains available to the separate
+Reference-only `measure_original_clocked_fixture` measurement API; that path
+does not acquire translation approval or a readable guard capability.
+
+Historical Reference-bootstrap GenerateSpeech frame-10000 and wrong-wait
+frame-600 comparator fixtures are explicitly **HELD**, not passing evidence or
+expected-error tests. Preserve their cases, old assertions and receipts until
+genuine actual-call replay replacements cover their paths. This is not a claim
+that the known blocked continuous readable session passed. Typed exception
+fixtures require their own unchanged-trajectory Check proof or an explicit
+blocker; a replay replacement is not implied for them.
+
+The historical nearest-target producer/cohort fixture is separately **HELD as
+superseded comparator evidence**: its whole-dead-stack footprint comparison
+includes callee-private MOVEM saves that the governing readable replay contract
+treats as causal-only traffic. The exact cycle engine supplies physical RAM.
+The own-word guard declaration issue was resolved separately; it is not the
+current hold. Preserve the actual case, assertions and counterexample receipts;
+do not add helper/root spill stores or weaken/rerun the old comparator to claim
+success. Nearest remains pending for its separate replay campaign, with no
+cohort-success or production-promotion claim.
+
 The committed `gameplay_10000_frames_both_revisions_and_every_pilot_hook` test
 compares each session to a separate timed reference (whole RAM including stack,
 VDP/pixels, audio bits and write traces), prints natural coverage, then fills
@@ -1463,16 +1503,83 @@ reads, not four invented byte reads. Only those exact occurrences become
 declared inputs in `CheckReport::declared_stack_inputs`; no initialized bit is
 changed, and a second uncited read at the same address still fails. The report
 retains citation, frame offset/width, original site and both read ordinals.
-Ordinary paired checks require a positive witness from the actual original
-root-entry PC/SP, CPU bank and exception depth. It is stamped at the real read,
-not reconstructed from a matching symbol PC range or the final runner state.
-Any call, return, tail jump, trap, exception or bank/depth change irrevocably
-invalidates this narrow witness. A recursive/shared-code child cannot supply a
-parent input, and a legitimate parent read after such a boundary is currently
-`missing_original_frame_witness` too: no parent restoration is inferred.
-Timed traces retain the per-access witness through deferred audit replay.
-Neither a declaration, a standalone callee proof, nor a source address list
-waives that missing caller evidence.
+Paired checks use the same private invocation recorder as live-original call
+observations. A root is bound to its actual entry PC/SP, stack bank and exception
+depth. A successful original JSR/BSR can mint a **new child** witness only from
+the actual completed opcode receipt and both chronological CPU return-word
+commits, bound to the physical return frame. A final-RAM tuple, device/external
+write, opcode range, operational call budget or standalone callee proof is not
+that evidence. Unknown owners, incomplete/faulted calls and exhausted recorder
+identities remain unsupported.
+
+Proof/capture retains immutable historical records for its actual read tokens.
+Measurement-only observation instead retires each completed trailing call record
+**after** the consumer has read its return DTO, including unselected calls. Its
+recorder storage is bounded by active call depth, not total run length; existing
+selected completed observations remain the requested output. Reused slots carry
+new private serials, so stale measurement IDs cannot bind a later call or become
+an actual-call/read seal. Retirement never discards proof records, unfinished
+calls, counts or operational budgets.
+
+Rust prepared calls emit an opaque, non-copyable `CallBoundaryEvent` through an
+optional observation-only `Context` hook. Only the framework constructs events:
+`PreparedEnter` follows its existing return-word store, SP update and prepared
+frame installation; `Returned` follows actual RTS/completion validation while
+the callee frame is still installed, before parent bookkeeping restoration.
+Ordinary value calls emit elided-frame barriers, not fabricated incoming frames.
+An arbitrary `set_frame_state`, copied prepared tag or event absence mints no
+invocation witness. The hook supplies no operand, timing progress or call
+permission and does not change `FrameState`/`CallSite` layout or `ReadPurpose`.
+
+At the real read, each side seals owner identity, raw incoming SP, target/return
+site, stack bank, exception depth, invocation depth, per-parent occurrence and
+the complete sealed parent lineage. Both word beats of a long retain their real
+ordinals. The original PC must belong to that actual owner's code. A same-address
+sibling, recursive/shared-code entry, different parent, wrong return site or
+restored SP cannot stand in for the witnessed invocation. Timed traces retain
+the per-access token through their existing chronological audit replay; a fresh
+probe gets fresh tokens and revalidates their source lineage, not their arena
+indices. Actual IRQ contexts are recorded separately from call parents, without
+inventing an exception-frame SP.
+An actual `Entered` payload records depth after pushing the exception context;
+the vendor emits successful RTE's `Returned` payload **after decrementing** that
+depth. Pair the innermost entry's checked `depth - 1` with the raw return payload,
+without renumbering or reconstructing it. Nested returns therefore close depth
+two with payload one, then depth one with payload zero. Wrong, skipped, duplicate
+or underflowed returns fail closed; closing metadata never rearms read permission.
+
+Any attempted call, return, tail jump, trap, IRQ or bank/depth change irrevocably
+revokes the **current read permission**. A matching return restores observational
+metadata only, never the parent's permission. A later fully prepared sibling can
+receive a new witness under a still-known materialized parent; an elided or
+unknown ancestor cannot. Reads after an IRQ/RTE or a parent reread after its child
+return remain held. No parent frame or root SP is inferred from address/offset
+arithmetic.
+
+The guard separately tracks current materialization, not another invocation
+stack. Validated framework entries mint opaque, non-serialized allocation tokens
+bound to guard identity, root epoch, bank, raw frame and unique parent/child
+serials. The shared Host recorder retains the actual parent's token. Only the
+matching real return can authorize restoring that parent's **materialization**,
+with read permission still revoked; old-scope and same-SP sibling tokens reject.
+Intrinsic root materialization is also distinct from root read permission, so a
+copied root DTO cannot hide an active or unknown child.
+
+NativePlatform and live Replace use the same real framework/bank observations
+without consulting an original. They keep only the current allocation cache,
+not the Host's per-check invocation history. If B calls C and C returns, a later
+prepared sibling under B is explicitly `UnsupportedStackRead` unless the backend
+has B's sealed parent record; Native/Replace do not reconstruct it from a DTO or
+restore a read permission. Unknown materialization remains held rather than
+claiming arbitrary nested native support. This is not a native-body, full-frame
+layout or cycle-equivalence approval, and shipping peripheral state/timing is
+unchanged.
+
+`declared_stack_inputs` includes both immutable frame records (owner/id, entry and
+return sites, banked-register snapshot, parent and occurrence). Its semantic Rust
+target PC is separate from `observed_cpu_pc`: logical prepared calls never repair
+or pretend to execute a CPU PC. Pairing a child input is not a `ClockedStrict`
+identity certificate; the raw CPU/timing/device obligations still apply.
 For an explicitly marked dependent proof, occurrence validation does **not**
 remove residual sites or waive coupled seeded/boundary probes and original-output
 sensitivity. An early typed guard failure counts once as an attempted, failed
@@ -1731,7 +1838,8 @@ not padded. Both actual check forks run, with no third original replay or fake
 scratch-D0 result. Full live machine and persistent completion authority restore
 on every result; speculative watch observations can reject but never clear LIVE
 debt. This is an injected RTS fixture from a recorded live boundary, not natural
-JSR coverage. The old sentinel-based `check_fixture`/Frozen path is unchanged.
+JSR coverage. The sentinel/Frozen execution path is retained in Check mode;
+every public differential fixture also enforces the Check-only precondition.
 
 The closed root requires a zero encoded count, a work-RAM source and no unowned
 pending DMA/port writes. An owned hardware DMA-start record captures actual
@@ -1872,6 +1980,9 @@ stack bounds a lower USP can require extra SSP-spill equality; it cannot waive
 user-frame corruption. Device/RAM ordering and dependency probes retain the same
 execution class and outcome boundary; no instruction bound is raised.
 
+Public prepared-entry and continuation fixtures require Check mode before any
+lookup, frame inspection or isolation; they do not infer approval from metrics.
+
 Use `check_entry_fixture(address)` for deliberately prepared frames, without a
 synthetic return word or implicit settling. `check_continuation_fixture(entry,
 stage, body, saved_frame)` checks a prepared persistent stage without restarting
@@ -1928,7 +2039,7 @@ are errors. Completed snapshots retain audio/hardware writes and normal frame
 counts. Partial-frame audio/write/idle/lag observations remain for the next
 `run_frame`. No translation runs or earns coverage during settling.
 
-`check_call`/`check_fixture` reject unsettled entries **before** injecting slots
+In Check mode, `check_call`/`check_fixture` reject unsettled entries **before** injecting slots
 or a sentinel. They never settle after seeding inputs, when gameplay could consume
 the synthetic mutation. Do not clear IRQs, lift the mask, choose another session,
 replace caller state or increase bounds to evade the original work. Ordinary

@@ -8,6 +8,8 @@
 mod analysis;
 mod facts;
 #[cfg(test)]
+mod memory_demand_tests;
+#[cfg(test)]
 mod output_tests;
 #[cfg(test)]
 mod tests;
@@ -126,6 +128,20 @@ pub struct ObservedRead {
     pub width: Width,
     pub kind: ReadKind,
     pub value: u32,
+}
+
+/// A demanded leaf of one successfully bound executed instruction. `ordinal`
+/// indexes the supplied physical read stream, including prefetch/discarded reads.
+/// Bits are restricted to that read's width. This is data, never an operand,
+/// initialization proof, read waiver or permission to import a sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutedReadDemand {
+    pub ordinal: usize,
+    pub address: u32,
+    pub width: Width,
+    pub kind: ReadKind,
+    pub data_bits: u32,
+    pub control_bits: u32,
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub enum DependencyInput<'a> {

@@ -61,10 +61,21 @@ pub(crate) struct AtomicRun {
     pub read_ordinal: usize,
     pub unwritten_stack_reads: Vec<crate::dependent_equivalence::journal::JournalRead>,
     pub admitted_stack_inputs: Vec<crate::readable_stack::AdmittedRead>,
+    pub invocation_scope: Option<std::sync::Arc<crate::readable_stack::OriginalRootScope>>,
 }
 
 impl AtomicRun {
     pub(crate) fn append(&mut self, other: Self) {
+        if let Some(scope) = other.invocation_scope {
+            if let Some(current) = &self.invocation_scope {
+                if !std::sync::Arc::ptr_eq(current, &scope) {
+                    current.reject_capture();
+                    scope.reject_capture();
+                }
+            } else {
+                self.invocation_scope = Some(scope);
+            }
+        }
         let prior_reads = self.stack_reads.as_ref().map_or(0, Vec::len);
         let prior_ordinal = self.read_ordinal;
         self.read_ordinal += other.read_ordinal;
@@ -204,12 +215,13 @@ pub(crate) fn run_original_atomic_scoped(
     if owns_trace {
         bus.hybrid_cpu_accesses = Some(Vec::new());
     }
-    let owns_boundaries = (stack.provenance.is_some() || capture.is_some())
-        && bus.hybrid_exception_boundaries.is_none();
+    let owns_boundaries =
+        (stack.provenance.is_some() || capture.is_some() || original_root.is_some())
+            && bus.hybrid_exception_boundaries.is_none();
     if owns_boundaries {
         bus.hybrid_exception_boundaries = Some(Vec::new());
     }
-    let previous_counting = capture.as_ref().map(|_| {
+    let previous_counting = (capture.is_some() || original_root.is_some()).then(|| {
         let previous = cpu
             .hybrid_instruction_counts()
             .map(|counts| counts.enabled());
@@ -245,13 +257,16 @@ pub(crate) fn run_original_atomic_scoped(
                 let cycles = cpu.execute_instruction(audit);
                 audit.inner.apply_pending_writes();
                 if let Some(root) = &original_root {
-                    root.after_step(cpu);
+                    root.after_step(cpu, audit.inner);
                 }
                 if let Some((capture, frame)) = capture_observer {
                     capture.finish_reference_cpu_step_parts(cpu, audit.inner, frame);
                     capture.observe_cpu_batch_parts(cpu, audit.inner, frame);
                 }
                 stack.drain(audit.inner, pc, &mut observed);
+                if let Some(root) = &original_root {
+                    root.finish_step(cpu, audit.inner);
+                }
                 cycles
             })
         };
@@ -361,6 +376,7 @@ impl StackAuditState {
     pub(crate) fn empty_run(&self) -> AtomicRun {
         AtomicRun {
             stack_reads: self.capture_reads.then(Vec::new),
+            invocation_scope: self.original_root.clone(),
             ..AtomicRun::default()
         }
     }
@@ -552,6 +568,9 @@ impl StackAuditState {
             .unwrap_or_default();
         if let Some(accesses) = &mut bus.hybrid_cpu_accesses {
             for access in accesses.drain(..) {
+                if let Some(root) = &self.original_root {
+                    root.observe_stream(access, boundaries);
+                }
                 if let Some(branch) = &self.provenance {
                     branch.observe_stream(access, boundaries);
                 }
@@ -1793,6 +1812,11 @@ impl tje_game::Context for HookContext<'_> {
         self.emulator.hybrid_cpu().status_register()
     }
     fn set_status_register(&mut self, value: u16) {
+        if (self.emulator.hybrid_cpu().status_register() ^ value) & 0x2000 != 0
+            && let Some(observer) = &self.readable_stack
+        {
+            observer.guard.revoke_read_permissions();
+        }
         self.emulator.hybrid_parts().0.set_status_register(value);
     }
     fn stack_pointer(&self) -> tje_game::Result<u32> {
@@ -1814,7 +1838,49 @@ impl tje_game::Context for HookContext<'_> {
                 .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
         }
         self.frame_state = state;
+        if let Some(observer) = &self.readable_stack
+            && let Some(token) = self
+                .stack_audit
+                .as_ref()
+                .and_then(|stack| stack.original_root.as_ref())
+                .and_then(|scope| scope.current_materialization())
+        {
+            observer.guard.restore_materialization(
+                token,
+                state,
+                self.emulator.hybrid_cpu().stack_pointer(),
+                self.emulator.hybrid_cpu().status_register() & 0x2000 != 0,
+            );
+        }
         Ok(())
+    }
+    fn observe_call_boundary(&mut self, event: tje_game::call_frame::CallBoundaryEvent) {
+        let (cpu, bus) = self.emulator.hybrid_parts();
+        let materialization = self.readable_stack.as_ref().and_then(|observer| {
+            observer.guard.observe_call_boundary(
+                &event,
+                self.frame_state,
+                cpu.stack_pointer(),
+                cpu.status_register() & 0x2000 != 0,
+            )
+        });
+        if let Some(scope) = self
+            .stack_audit
+            .as_ref()
+            .and_then(|stack| stack.original_root.as_ref())
+        {
+            scope.observe_framework(event, cpu, bus, self.frame_state, materialization);
+            if let Some(observer) = &self.readable_stack
+                && let Some(token) = scope.current_materialization()
+            {
+                observer.guard.restore_materialization(
+                    token,
+                    self.frame_state,
+                    cpu.stack_pointer(),
+                    cpu.status_register() & 0x2000 != 0,
+                );
+            }
+        }
     }
     fn read_uninitialized_local(
         &mut self,
@@ -1826,10 +1892,33 @@ impl tje_game::Context for HookContext<'_> {
         let observer = self.readable_stack.clone().ok_or_else(|| {
             tje_game::Error::from(tje_game::stack_read::Unsupported::unavailable(read))
         })?;
+        let invocation = if self.mode == crate::Mode::Check {
+            Some(
+                self.stack_audit
+                    .as_ref()
+                    .and_then(|stack| stack.original_root.as_ref())
+                    .and_then(|scope| {
+                        scope.native_witness(
+                            self.emulator.hybrid_cpu(),
+                            self.frame_state,
+                            read.owner,
+                        )
+                    })
+                    .ok_or_else(|| {
+                        tje_game::Error::from(observer.guard.reject_explicit_local(
+                            read,
+                            tje_game::stack_read::UnsupportedReason::InvalidExplicitLocal,
+                        ))
+                    })?,
+            )
+        } else {
+            None
+        };
         let address = observer.guard.explicit_local(
             read,
             self.frame_state,
             self.emulator.hybrid_cpu().stack_pointer(),
+            self.emulator.hybrid_cpu().status_register() & 0x2000 != 0,
         )?;
         let mask = observer.guard.unwritten_mask(address, read.width.bytes());
         let first_read = if self.mode == crate::Mode::Check {
@@ -1900,6 +1989,7 @@ impl tje_game::Context for HookContext<'_> {
                     first_read,
                     ordinals,
                     beat_count: count,
+                    invocation,
                 });
         }
         Ok(if count == 2 {

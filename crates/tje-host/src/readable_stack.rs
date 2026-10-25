@@ -4,14 +4,16 @@ use serde::Serialize;
 use std::sync::Arc;
 use tje_game::stack_read::{Unsupported, UnsupportedReason};
 mod admission;
-pub use admission::DeclaredStackInput;
 pub(crate) use admission::{AdmittedRead, pair, revalidate};
+pub use admission::{DeclaredStackInput, ExceptionFrameEvidence, InvocationFrameEvidence};
 mod observer;
 pub(crate) use observer::{Observer, Pool};
 mod metrics;
 pub use metrics::ReadableGuardMetrics;
 mod original_root;
 pub(crate) use original_root::{OriginalRootScope, OriginalRootWitness};
+#[cfg(all(test, feature = "ram-dma-observer", panic = "unwind"))]
+mod nested_tests;
 #[cfg(all(test, feature = "ram-dma-observer", panic = "unwind"))]
 mod tests;
 
@@ -23,6 +25,7 @@ pub(crate) struct ExplicitRead {
     pub first_read: usize,
     pub ordinals: [usize; 2],
     pub beat_count: usize,
+    pub invocation: Option<OriginalRootWitness>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]

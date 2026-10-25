@@ -33,6 +33,7 @@ import tokenize
 import unicodedata
 import zlib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -41,6 +42,9 @@ from urllib.parse import unquote_to_bytes
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM_URL = "https://github.com/jsgroth/jgenesis"
 UPSTREAM_REVISION = "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb"
+# SHA-256 of the sorted unique ASCII constants, names and inventory IDs, each
+# terminated by LF. Catalogue changes require a separate review of this pin.
+IDENTIFIER_FACTS_SHA256 = "641101e6cb4ba3885e082a080ef681151e2a554358cd28eae752cc17f1fb7693"
 VENDOR_PREFIX = "vendor/jgenesis/"
 VENDOR_MANIFEST = VENDOR_PREFIX + "UPSTREAM.json"
 # Exact project-authored observer/fixture additions, never content exemptions.
@@ -212,6 +216,96 @@ def opaque_component(value: bytes) -> bool:
     entropy, classes = opaque_metrics(value)
     return classes >= 2 and any(pattern.fullmatch(value) and entropy >= OPAQUE_ENTROPY[name]
                                 for name, pattern in OPAQUE_RUNS.items())
+
+
+def identifier_fact_names(read_source: Callable[[str], bytes | None]) -> frozenset[bytes]:
+    """Validate the reachable function catalogue in one caller-supplied Git state."""
+    import trace_functions as trace
+
+    modules = {}
+    prefix = "crates/tje-game/src/"
+
+    def parse(path: str):
+        data = read_source(path)
+        if data is None or len(data) > MAX_BYTES:
+            raise trace.TraceError("missing or oversized catalogue source")
+        root = source_parser("rust").parse(data).root_node
+        if root.has_error:
+            raise trace.TraceError("invalid catalogue Rust syntax")
+        return root
+
+    def load(path: str, module: str, body=None) -> None:
+        if module in modules:
+            raise trace.TraceError("duplicate catalogue module")
+        children = (parse(path) if body is None else body).named_children
+        modules[module] = children
+        for node in children:
+            if node.type != "mod_item":
+                continue
+            name = trace.text(node.child_by_field_name("name"))
+            if not module and name != "metadata":
+                continue
+            # Conditional modules cannot prove that a declaration is active. The
+            # public catalogue uses unconditional, conventional module paths.
+            if trace.attributes(node):
+                raise trace.TraceError("conditional or redirected catalogue module")
+            nested = module + "::" + name if module else name
+            inline = node.child_by_field_name("body")
+            if inline is not None:
+                load(path, nested, inline)
+                continue
+            parent = PurePosixPath(path)
+            base = parent.parent if parent.stem in ("lib", "mod") else parent.with_suffix("")
+            candidates = [str(base / f"{name}.rs"), str(base / name / "mod.rs")]
+            existing = [candidate for candidate in candidates if read_source(candidate) is not None]
+            if len(existing) != 1:
+                raise trace.TraceError("ambiguous or missing catalogue module")
+            load(existing[0], nested)
+
+    try:
+        load(prefix + "lib.rs", "")
+        for node in modules.get("metadata::ids", ()):
+            if node.type != "const_item":
+                continue
+            value = node.child_by_field_name("value")
+            if (trace.attributes(node)
+                    or trace.text(node.child_by_field_name("type")) != "FunctionId"
+                    or value.type != "call_expression"
+                    or trace.text(value.child_by_field_name("function")) != "FunctionId"
+                    or len(value.child_by_field_name("arguments").named_children) != 1
+                    or value.child_by_field_name("arguments").named_children[0].type != "integer_literal"):
+                raise trace.TraceError("non-literal function identity")
+        for module, nodes in modules.items():
+            if not module.startswith("metadata::part_"):
+                continue
+            for node in nodes:
+                if node.type == "static_item" and trace.text(node.child_by_field_name("name")) == "FUNCTIONS":
+                    attributes = re.sub(r"#\[\s*rustfmt::skip\s*\]", "", trace.attributes(node)).strip()
+                    if attributes:
+                        raise trace.TraceError("conditional or transformed catalogue entries")
+        # Reuse the traceability gate's structural entry parser and its exact
+        # 648-entry, contiguous-ID and unique-inventory invariants.
+        catalogue = trace.catalog_entries(modules, trace.CATALOGUED_ENTRIES)
+        names = {entry.constant for entry in catalogue}
+        if len(names) != trace.CATALOGUED_ENTRIES:
+            raise trace.TraceError("duplicate catalogue constants")
+        names.update(entry.name for entry in catalogue)
+        names.update(entry.inventory_id for entry in catalogue)
+        if any(not isinstance(name, str) or RUST_IDENTIFIER.fullmatch(name.encode()) is None for name in names):
+            raise trace.TraceError("non-identifier catalogue fact")
+        facts = frozenset(name.encode("ascii") for name in names)
+        digest = hashlib.sha256(b"\n".join(sorted(facts)) + b"\n").hexdigest()
+        if digest != IDENTIFIER_FACTS_SHA256:
+            return frozenset()  # Inspected metadata cannot authorize its own fact names.
+        return frozenset(raw for raw in facts if not opaque_component(raw))
+    except (trace.TraceError, KeyError, AttributeError, TypeError, ValueError):
+        # An absent/invalid catalogue never authorizes a heuristic waiver.
+        return frozenset()
+
+
+def catalogue_source_path(path: str) -> bool:
+    return path == "crates/tje-game/src/lib.rs" or (
+        path.startswith("crates/tje-game/src/metadata/") and path.endswith(".rs"))
 
 
 def structured_text_view(text: bytes) -> bytes:
@@ -493,8 +587,8 @@ def c_literals(data: bytes, budget: DecodeBudget):
             yield from groups(C_STRING.finditer(region), region)
 
 
-def json_payloads(text: str, budget: DecodeBudget):
-    """Decode JSON strings/keys and adjacent array strings; never join unrelated object fields."""
+def json_payloads(text: str, budget: DecodeBudget, identifier_names: frozenset[bytes] = frozenset()):
+    """Yield strings/keys and adjacent array strings with literal/identifier-fact provenance."""
     if not text.lstrip().startswith(("{", "[", '"')):
         return
     try:
@@ -504,17 +598,17 @@ def json_payloads(text: str, budget: DecodeBudget):
     except RecursionError as error:
         raise DecodeLimitError("JSON exceeds the bounded decoding depth") from error
 
-    def variants(value: str, literal: bool = True):
+    def variants(value: str, literal: bool = True, facts: bool = False):
         raw = value.encode("utf-8", "surrogatepass")
         budget.charge(len(raw))
-        yield raw, literal
+        yield raw, literal, facts
         try:
             latin = value.encode("latin1")
         except UnicodeEncodeError:
             return
         if latin != raw:
             budget.charge(len(latin))
-            yield latin, literal
+            yield latin, literal, facts
 
     work = [(document, 0)]
     nodes = 0
@@ -531,17 +625,21 @@ def json_payloads(text: str, budget: DecodeBudget):
         elif isinstance(value, dict):
             for joined in ordered_string_chunks(value):
                 budget.charge(len(joined))
-                yield joined, False
+                yield joined, False, False
             work.extend((item, depth + 1) for pair in value.items() for item in pair)
         elif isinstance(value, list):
-            # Preserve adjacency, including runs separated by non-string elements.
+            # The entire array must be facts. One unknown chunk (or non-string)
+            # preserves ordinary concatenation and every binary-length check.
+            facts = bool(value) and all(isinstance(item, str)
+                                        and item.encode("utf-8", "surrogatepass") in identifier_names
+                                        for item in value)
             run = []
             for item in value + [None]:
                 if isinstance(item, str):
                     run.append(item)
                 else:
                     if len(run) > 1:
-                        yield from variants("".join(run), literal=False)
+                        yield from variants("".join(run), literal=False, facts=facts)
                     run = []
             work.extend((item, depth + 1) for item in value)
 
@@ -1199,9 +1297,24 @@ def encoded_reason(data: bytes, index: RomIndex | None, allowed: tuple[bytes, ..
     return None
 
 
+def identifier_fact_reason(payload: bytes, index: RomIndex | None, allowed: tuple[bytes, ...],
+                           budget: DecodeBudget, origin: str, path: str) -> str | None:
+    """Only speculative size/opacity guesses are waived; formats and ROM probes always run."""
+    reason = payload_reason(payload, index, allowed, origin, budget)
+    if reason is not None:
+        return reason
+    previous = budget.identifier_facts
+    budget.identifier_facts = True
+    try:
+        return encoded_reason(payload, index, allowed, budget, origin, path=path, check_opaque=False)
+    finally:
+        budget.identifier_facts = previous
+
+
 def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
                     inclusions: tuple[list[str], list[str]] | None = None,
-                    fragment: bool = False, source: SourceContext | None = None) -> list[str]:
+                    fragment: bool = False, source: SourceContext | None = None,
+                    identifier_names: frozenset[bytes] = frozenset()) -> list[str]:
     reasons = []
     try:
         text = data.decode("utf-8")
@@ -1215,6 +1328,7 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
     allowed: tuple[bytes, ...] = ()
     budget = DecodeBudget()
     source = source if source is not None else SourceContext.build(path, data)
+    source.fact_payloads.clear()
     code_source = source_is_code(path)
     structural = None if code_source else opaque_reason(path, data)
     budget.opaque_scanned.add(hashlib.sha256(data).digest())
@@ -1229,19 +1343,27 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
         raw_kind = embedded_kind(data, budget)
         if raw_kind is not None:
             reasons.append(f"embedded {raw_kind} payload")
+        json_reason = None
+        if is_text and not code_source:
+            # Record all-fact JSON joins before the grammar's literal-container
+            # pass sees the same bytes; this classification is path-independent.
+            for payload, literal, facts in json_payloads(text, budget, identifier_names):
+                if facts:
+                    source.fact_payloads.add(payload)
+                    json_reason = identifier_fact_reason(
+                        payload, index, allowed, budget, "JSON identifier facts", path)
+                else:
+                    json_reason = encoded_reason(payload, index, allowed, budget, "JSON string/adjacent array",
+                                                 decoded=True, path=path, check_opaque=literal)
+                if json_reason is not None:
+                    break
         payloads = literal_payloads(source, budget, individual=code_source)
         if code_source:
             payloads = source_payload_regions(source, budget, payloads)
         for payload in payloads:
             if payload in source.fact_payloads:
-                reason = payload_reason(payload, index, allowed, "literal identifier facts", budget)
-                if reason is None:
-                    budget.identifier_facts = True
-                    try:
-                        reason = encoded_reason(payload, index, allowed, budget,
-                                                "literal identifier facts", path=path, check_opaque=False)
-                    finally:
-                        budget.identifier_facts = False
+                reason = identifier_fact_reason(
+                    payload, index, allowed, budget, "literal identifier facts", path)
                 if reason is not None:
                     reasons.append(reason)
                 continue
@@ -1274,12 +1396,8 @@ def content_reasons(path: str, data: bytes, index: RomIndex | None, *,
             if offset is not None:
                 reasons.append(f"raw ROM window (binary >=16 bytes or text >={MIN_TEXT_MATCH}) at blob offset 0x{offset:x}")
         reason = None if code_source else encoded_reason(view, index, allowed, budget, "blob", path=path)
-        if reason is None and is_text and not code_source:
-            for payload, literal in json_payloads(text if view is data else view.decode("utf-8"), budget):
-                reason = encoded_reason(payload, index, allowed, budget, "JSON string/adjacent array",
-                                        decoded=True, path=path, check_opaque=literal)
-                if reason is not None:
-                    break
+        if reason is None:
+            reason = json_reason
         if reason is not None:
             reasons.append(reason)
     except DecodeLimitError as error:
@@ -2129,6 +2247,7 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
     work_paths = set()
     index_paths: dict[str, set[str]] = {}
     tracked_by_source: dict[str, set[str]] = {}
+    catalogue_files: dict[str, dict[str, tuple[str, str]]] = {}
     staged = git(repo, "ls-files", "--stage", "-z") if publish_refs is None else b""
     for entry in staged.split(b"\0"):
         if not entry:
@@ -2137,12 +2256,17 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
         mode, oid, stage = meta.decode().split()
         name = os.fsdecode(path)
         work_paths.add(name)
+        if catalogue_source_path(name):
+            catalogue_files.setdefault(f"index:{stage}", {})[name] = (oid, mode)
         if set(oid) != {"0"}:
             refs.add((oid, name, f"index:{stage}", mode))
             if mode in ("100644", "100755"):
                 index_paths.setdefault(f"index:{stage}", set()).add(name)
     for source, paths in index_paths.items():
         tracked_by_source[source] = paths | index_paths.get("index:0", set())
+        if source != "index:0":
+            catalogue_files[source] = {**catalogue_files.get("index:0", {}),
+                                       **catalogue_files.get(source, {})}
     if history and git(repo, "rev-parse", "--is-shallow-repository").strip() == b"true":
         raise AuditError("--history requires full history; fetch the shallow clone before auditing")
     # --all includes branches, tags and other refs. Deduplicate root trees, but never paths: the
@@ -2155,12 +2279,15 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
     for tree in trees:
         source = f"tree:{tree.decode()}"
         tracked_by_source[source] = set()
+        catalogue_files[source] = {}
         for entry in git(repo, "ls-tree", "-r", "-z", tree.decode()).split(b"\0"):
             if entry:
                 meta, path = entry.split(b"\t", 1)
                 mode, kind, oid = meta.decode().split()
                 name = os.fsdecode(path)
                 refs.add((oid, name, source, mode))
+                if catalogue_source_path(name):
+                    catalogue_files[source][name] = (oid, mode)
                 if mode in ("100644", "100755"):
                     tracked_by_source[source].add(name)
     oids = sorted({oid for oid, _, _, mode in refs if mode != "160000"})
@@ -2200,7 +2327,8 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
             for name, entry in entries.items():
                 vendor.entries.setdefault(name, entry)
 
-    def scan_content(path: str, data: bytes, mode: str) -> tuple[list[str], tuple[list[str], list[str]]]:
+    def scan_content(path: str, data: bytes, mode: str,
+                     identifier_names: frozenset[bytes]) -> tuple[list[str], tuple[list[str], list[str]]]:
         original, changed_lines = data, None
         try:
             if vendor is not None and path.startswith(VENDOR_PREFIX):
@@ -2215,7 +2343,8 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
         source = SourceContext.build(path, original, changed_lines)
         inclusions = rust_inclusions(path, original, source=source)
         reasons = content_reasons(path, data, index, inclusions=inclusions,
-                                  fragment=changed_lines is not None, source=source)
+                                  fragment=changed_lines is not None, source=source,
+                                  identifier_names=identifier_names)
         return reasons, inclusions
 
     def vendor_context(path: str, source: str, tracked: set[str]) -> list[str]:
@@ -2225,18 +2354,33 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
         return []
 
     findings = []
-    cache: dict[tuple[str, str, str], list[str]] = {}
-    include_cache: dict[tuple[str, str, str], tuple[list[str], list[str]]] = {}
+    cache = {}
+    include_cache = {}
+    catalogue_cache = {}
     reader = BlobReader(repo)
+
+    def state_identifier_names(source: str) -> frozenset[bytes]:
+        files = catalogue_files.get(source, {})
+        key = tuple(sorted(files.items()))
+        if key not in catalogue_cache:
+            def read_source(path: str) -> bytes | None:
+                spec = files.get(path)
+                if spec is None or spec[1] not in ("100644", "100755") or sizes.get(spec[0], MAX_BYTES + 1) > MAX_BYTES:
+                    return None
+                return reader.read(spec[0])
+            catalogue_cache[key] = identifier_fact_names(read_source)
+        return catalogue_cache[key]
+
     try:
         for oid, path, source, mode in sorted(refs):
             size = sizes.get(oid, 0)
             reasons = path_reasons(path, size, mode)
-            key = (oid, path, mode)
+            identifier_names = state_identifier_names(source)
+            key = (oid, path, mode, identifier_names)
             if mode != "160000" and size <= MAX_BYTES:
                 if key not in cache:
                     data = reader.read(oid)
-                    cache[key], include_cache[key] = scan_content(path, data, mode)
+                    cache[key], include_cache[key] = scan_content(path, data, mode, identifier_names)
                 reasons += cache[key]
                 reasons += inclusion_context_reasons(include_cache[key][0], tracked_by_source.get(source, set()))
                 reasons += vendor_context(path, source, tracked_by_source.get(source, set()))
@@ -2250,6 +2394,11 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
         and not any((repo / part).is_symlink()
                     for part in (PurePosixPath(path), *PurePosixPath(path).parents))
     }
+    worktree_catalogue = {}
+    for path in tracked_worktree:
+        if catalogue_source_path(path) and (repo / path).stat().st_size <= MAX_BYTES:
+            worktree_catalogue[path] = (repo / path).read_bytes()
+    worktree_identifier_names = identifier_fact_names(worktree_catalogue.get)
     for path in sorted(work_paths):
         absolute = repo / path
         mode = "120000" if absolute.is_symlink() else "100644"
@@ -2267,9 +2416,9 @@ def audit(repo: Path, history: bool = False, no_rom: bool = False,
         hasher = hashlib.new(object_format)
         hasher.update(f"blob {len(data)}\0".encode())
         hasher.update(data)
-        key = (hasher.hexdigest(), path, mode)
+        key = (hasher.hexdigest(), path, mode, worktree_identifier_names)
         if key not in cache:
-            cache[key], include_cache[key] = scan_content(path, data, mode)
+            cache[key], include_cache[key] = scan_content(path, data, mode, worktree_identifier_names)
         reasons = path_reasons(path, len(data), mode) + cache[key]
         reasons += inclusion_context_reasons(include_cache[key][0], tracked_worktree)
         reasons += vendor_context(path, "worktree", tracked_worktree)

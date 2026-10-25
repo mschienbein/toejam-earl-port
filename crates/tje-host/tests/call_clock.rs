@@ -59,7 +59,7 @@ fn fixture(revision: Revision, body: HookFn, ceiling: CallCeiling) -> Host {
     registry
         .register_clock_ceiling(symbol, ceiling, body)
         .unwrap();
-    let mut host = Host::new(&bytes(revision), Mode::Reference, registry).unwrap();
+    let mut host = Host::new(&bytes(revision), Mode::Check, registry).unwrap();
     host.set_wait_input_poller(Arc::new(InputScript::default()));
     let target = ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision);
     // Save D2; load the 32-bit argument's low word; repeat a real counter wait;
@@ -217,7 +217,7 @@ fn individual_wait_cap_and_missing_input_are_not_relaxed() {
 }
 
 #[test]
-#[ignore = "requires both private cartridges"]
+#[ignore = "HELD: generic RustMemory Word at entry SP-6 rejects under readable guard before independence probes; own contract blocker, not replay"]
 fn independence_probes_use_the_identical_configured_contract() {
     fn discarded(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         let address = c.cpu().stack_pointer().wrapping_sub(6);
