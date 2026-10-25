@@ -278,8 +278,31 @@ impl OutgoingArguments {
         id: FunctionId,
         site: CallSite,
     ) -> Result<u32> {
+        self.call_with_return(context, dispatcher, id, site, crate::CallReturn::Value)
+            .map(|value| value.expect("value-returning framed call requested D0"))
+    }
+    /// Preserve the exact frame and actual register effects without reading D0.
+    pub fn call_void(
+        &self,
+        context: &mut dyn Context,
+        dispatcher: Dispatcher,
+        id: FunctionId,
+        site: CallSite,
+    ) -> Result<()> {
+        self.call_with_return(context, dispatcher, id, site, crate::CallReturn::Discard)
+            .map(|_| ())
+    }
+    fn call_with_return(
+        &self,
+        context: &mut dyn Context,
+        dispatcher: Dispatcher,
+        id: FunctionId,
+        site: CallSite,
+        result_use: crate::CallReturn,
+    ) -> Result<Option<u32>> {
         site.validate()?;
         context.check_mmio_contract()?;
+        result_use.check(id)?;
         let parent = context.frame_state().ok_or(FrameError::Unavailable)?;
         let current_sp = context.stack_pointer()?;
         if current_sp != self.base {
@@ -309,13 +332,17 @@ impl OutgoingArguments {
         context.set_stack_pointer(entry.entry_sp)?;
         context.set_frame_state(entry)?;
         let result = if translation.is_some() {
-            dispatcher.call_prepared(context, id)
+            dispatcher.call_prepared(context, id, result_use)
         } else {
-            context.call_original_entry(id, class)
+            match result_use {
+                crate::CallReturn::Value => context.call_original_entry(id, class).map(Some),
+                crate::CallReturn::Discard => {
+                    context.call_original_entry_void(id, class).map(|()| None)
+                }
+            }
         };
-        let result = crate::exits::validate_call(id, result.map(Some), context.revision());
-        let result = Error::after_contract_check(context, result)
-            .map(|value| value.expect("exact-stack RTS callee returns its D0"));
+        let result = crate::exits::validate_call(id, result, context.revision());
+        let result = Error::after_contract_check(context, result);
         if result
             .as_ref()
             .is_err_and(|error| error.preserves_call_frame())
@@ -330,7 +357,11 @@ impl OutgoingArguments {
                         entry_sp: entry.entry_sp,
                         kind: crate::timing::CompletionKind::Rts,
                         expected_pc: Some(site.return_pc),
-                        value: id.metadata().abi.returns_value.then_some(value),
+                        value: if id.metadata().abi.returns_value {
+                            value
+                        } else {
+                            None
+                        },
                     });
                 match completed {
                     Err(error) => return Err(Error::timing_execution_failure(id, error)),
@@ -396,10 +427,48 @@ pub fn call_at(
     arguments: &[u32],
     site: CallSite,
 ) -> Result<u32> {
+    call_at_with_return(
+        context,
+        dispatcher,
+        id,
+        arguments,
+        site,
+        crate::CallReturn::Value,
+    )
+    .map(|value| value.expect("value-returning call_at requested D0"))
+}
+
+pub fn call_at_void(
+    context: &mut dyn Context,
+    dispatcher: Dispatcher,
+    id: FunctionId,
+    arguments: &[u32],
+    site: CallSite,
+) -> Result<()> {
+    call_at_with_return(
+        context,
+        dispatcher,
+        id,
+        arguments,
+        site,
+        crate::CallReturn::Discard,
+    )
+    .map(|_| ())
+}
+
+fn call_at_with_return(
+    context: &mut dyn Context,
+    dispatcher: Dispatcher,
+    id: FunctionId,
+    arguments: &[u32],
+    site: CallSite,
+    result_use: crate::CallReturn,
+) -> Result<Option<u32>> {
     site.validate()?;
     context.check_mmio_contract()?;
+    result_use.check(id)?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
-    let result = outgoing.call(context, dispatcher, id, site);
+    let result = outgoing.call_with_return(context, dispatcher, id, site, result_use);
     let result = Error::after_contract_check(context, result);
     if result
         .as_ref()

@@ -969,6 +969,22 @@ impl<'a> HookContext<'a> {
         execution_class: ExecutionClass,
         arguments: &[u32],
     ) -> Result<u32> {
+        self.call_original_with_execution_contract_result(
+            contract,
+            execution_class,
+            arguments,
+            true,
+        )
+        .map(|value| value.expect("scalar original call requested D0"))
+    }
+
+    fn call_original_with_execution_contract_result(
+        &mut self,
+        contract: &tje_game::FunctionMetadata,
+        execution_class: ExecutionClass,
+        arguments: &[u32],
+        want_value: bool,
+    ) -> Result<Option<u32>> {
         tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(contract.id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
@@ -989,7 +1005,8 @@ impl<'a> HookContext<'a> {
                 .and_then(|reviewed| reviewed.operational_ceiling)
                 .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
         )?;
-        let result = self.call_original_with_execution_contract_inner(contract, arguments);
+        let result =
+            self.call_original_with_execution_contract_inner(contract, arguments, want_value);
         let cleanup = self.leave_call_ceiling_contract(ceiling);
         match result {
             Err(error) => Err(error),
@@ -1001,7 +1018,8 @@ impl<'a> HookContext<'a> {
         &mut self,
         contract: &tje_game::FunctionMetadata,
         arguments: &[u32],
-    ) -> Result<u32> {
+        want_value: bool,
+    ) -> Result<Option<u32>> {
         let address = contract.address(self.revision);
         self.emulator.hybrid_bus_mut().apply_pending_writes();
         self.flush_audit_accesses();
@@ -1048,7 +1066,7 @@ impl<'a> HookContext<'a> {
         }
         self.nested_calls += 1;
         let (cpu, bus) = self.emulator.hybrid_parts();
-        let result = cpu.data_registers()[0];
+        let result = want_value.then(|| cpu.data_registers()[0]);
         set_sp(cpu, saved_sp);
         cpu.set_pc(saved_pc, bus);
         self.flush_audit_accesses();
@@ -1066,6 +1084,16 @@ impl<'a> HookContext<'a> {
     /// Run an original with the caller's exact outgoing area/return PC already
     /// present. Unlike call_original_with_execution_contract, push no new slots.
     fn call_original_prepared(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.call_original_prepared_result(id, class, true)
+            .map(|value| value.expect("scalar prepared original call requested D0"))
+    }
+
+    fn call_original_prepared_result(
+        &mut self,
+        id: FunctionId,
+        class: ExecutionClass,
+        want_value: bool,
+    ) -> Result<Option<u32>> {
         tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
@@ -1086,7 +1114,7 @@ impl<'a> HookContext<'a> {
                 .and_then(|reviewed| reviewed.operational_ceiling)
                 .unwrap_or(tje_game::execution::CallCeiling::DEFAULT),
         )?;
-        let result = self.call_original_prepared_inner(id);
+        let result = self.call_original_prepared_inner(id, want_value);
         let cleanup = self.leave_call_ceiling_contract(ceiling);
         match result {
             Err(error) => Err(error),
@@ -1094,7 +1122,11 @@ impl<'a> HookContext<'a> {
         }
     }
 
-    fn call_original_prepared_inner(&mut self, id: FunctionId) -> Result<u32> {
+    fn call_original_prepared_inner(
+        &mut self,
+        id: FunctionId,
+        want_value: bool,
+    ) -> Result<Option<u32>> {
         let entry_sp = self.emulator.hybrid_cpu().stack_pointer();
         let return_pc = self.read_u32(entry_sp);
         let return_sp = entry_sp.wrapping_add(4);
@@ -1138,7 +1170,7 @@ impl<'a> HookContext<'a> {
         {
             branch.check_result()?;
         }
-        Ok(self.emulator.hybrid_cpu().data_registers()[0])
+        Ok(want_value.then(|| self.emulator.hybrid_cpu().data_registers()[0]))
     }
 
     pub(crate) fn return_to_caller(&mut self, value: Option<u32>) -> Result<()> {
@@ -1470,6 +1502,15 @@ impl tje_game::Context for HookContext<'_> {
         class: ExecutionClass,
     ) -> tje_game::Result<u32> {
         self.call_original_prepared(id, class)
+            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+    }
+    fn call_original_entry_void(
+        &mut self,
+        id: FunctionId,
+        class: ExecutionClass,
+    ) -> tje_game::Result<()> {
+        self.call_original_prepared_result(id, class, false)
+            .map(|_| ())
             .map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
     fn stack_banks(&self) -> tje_game::Result<tje_game::exits::StackBanks> {
@@ -1835,6 +1876,16 @@ impl tje_game::Context for HookContext<'_> {
         self.call_original_with_execution_contract(id.metadata(), class, arguments)
             .map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        arguments: &[u32],
+        class: ExecutionClass,
+    ) -> tje_game::Result<()> {
+        self.call_original_with_execution_contract_result(id.metadata(), class, arguments, false)
+            .map(|_| ())
+            .map_err(|error| tje_game::Error::Platform(error.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -2044,3 +2095,7 @@ mod discard_tests;
 #[cfg(test)]
 #[path = "abi/width_yield_tests.rs"]
 mod width_yield_tests;
+
+#[cfg(test)]
+#[path = "abi/void_calls_tests.rs"]
+mod void_calls_tests;

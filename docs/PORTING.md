@@ -375,6 +375,40 @@ YM BUSY/BUSACK predicates without advancing clocks;
 their live replacement envelope uses real-clock waits rather than spinning on
 timed hardware.
 
+### Typed ABI-void calls
+
+Use `tje_game::call_void(context, id, arguments) -> Result<()>` for an ABI-void
+callee. The exact-frame forms are `tje_game::call_at_void(...)`,
+`Dispatcher::call_at_void(...)` and `OutgoingArguments::call_void(...)`.
+They carry discard intent **before** dispatch and completion: they do not call
+the value-returning helper and throw away its `u32` afterward.
+
+```rust
+tje_game::call_void(context, ids::PRE_GENERATE_RANDOMS, &[])?;
+```
+
+Discarding the scalar result does **not** suppress actual body-produced
+register/CCR effects, argument-slot mutations, real RTS handling, timing
+completion, clock scopes or fatal/nonlocal frame ownership. A native completion
+request carries `value: None`; it does not read D0 to populate an unused receipt.
+The void forms reject value-returning ids before materializing arguments or
+calling the body. This API prerequisite leaves existing value-form callers
+unchanged; global ABI-void rejection is enabled with their complete typed
+caller migration, not by silently breaking a partial set of callsites.
+
+Original fallback has separate `Context::call_original_void_with_execution`
+and `call_original_entry_void` capabilities. Unsupported contexts fail closed;
+they never forward to a value callback, invent zero or reuse an old D0.
+The host uses the same actual original call, audits and cleanup, but omits
+scalar extraction. Test contexts providing original fallback must implement
+these capabilities explicitly.
+
+An ordinary C ABI-void proof does not authenticate leftover D0 or CCR. If the
+original caller truly consumes an assembly/register-ABI output, make that use
+explicit and bind its checked output coverage; do not hide it inside a discarded
+value call. Replayed-environment substitution must likewise distinguish that
+explicit register observation from a scalar return.
+
 ### Discarded bus operands
 
 `tje_game::Platform` (and therefore `dyn Context`) exposes

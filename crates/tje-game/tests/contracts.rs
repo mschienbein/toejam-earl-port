@@ -1,3 +1,4 @@
+use std::cell::{Cell, RefCell};
 use tje_game::execution::ExecutionClass;
 use tje_game::{Context, Dispatcher, Error, FunctionId, ids};
 use tje_mem::{AddressSpace, Bus, Revision, arithmetic::ArithmeticTrap, ram};
@@ -14,6 +15,13 @@ struct Fixture {
     original_class: Option<ExecutionClass>,
     /// Explicit frozen diagnostic clock provider for these ROM-free fixtures.
     clock: Option<tje_game::execution::CallClock>,
+    d0_reads: Cell<usize>,
+    reads: RefCell<Vec<u32>>,
+    sp: u32,
+    frame: tje_game::call_frame::FrameState,
+    completion_consumed: bool,
+    completion_error: Option<Error>,
+    completion_requests: Vec<tje_game::timing::CompletionRequest>,
 }
 impl Fixture {
     fn new(dispatcher: Dispatcher) -> Self {
@@ -28,11 +36,19 @@ impl Fixture {
             execution: ExecutionClass::Atomic,
             original_class: None,
             clock: Some(tje_game::execution::CallClock::default()),
+            d0_reads: Cell::new(0),
+            reads: RefCell::new(Vec::new()),
+            sp: 0xfff000,
+            frame: tje_game::call_frame::FrameState::new(0xfff000),
+            completion_consumed: false,
+            completion_error: None,
+            completion_requests: Vec::new(),
         }
     }
 }
 impl Bus for Fixture {
     fn read_u8(&self, address: u32) -> u8 {
+        self.reads.borrow_mut().push(address);
         self.memory.read_u8(address)
     }
     fn write_u8(&mut self, address: u32, value: u8) {
@@ -66,16 +82,27 @@ impl Context for Fixture {
         self.memory.revision()
     }
     fn data_register(&self, index: usize) -> u32 {
+        if index == 0 {
+            self.d0_reads.set(self.d0_reads.get() + 1);
+        }
         self.registers[index]
     }
     fn set_data_register(&mut self, index: usize, value: u32) {
         self.registers[index] = value;
     }
     fn address_register(&self, index: usize) -> u32 {
-        self.addresses[index]
+        if index == 7 {
+            self.sp
+        } else {
+            self.addresses[index]
+        }
     }
     fn set_address_register(&mut self, index: usize, value: u32) {
-        self.addresses[index] = value;
+        if index == 7 {
+            self.sp = value;
+        } else {
+            self.addresses[index] = value;
+        }
     }
     fn status_register(&self) -> u16 {
         self.status
@@ -85,6 +112,36 @@ impl Context for Fixture {
     }
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
+    }
+    fn stack_pointer(&self) -> tje_game::Result<u32> {
+        Ok(self.sp)
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> tje_game::Result<()> {
+        self.sp = value;
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<tje_game::call_frame::FrameState> {
+        Some(self.frame)
+    }
+    fn set_frame_state(&mut self, frame: tje_game::call_frame::FrameState) -> tje_game::Result<()> {
+        self.frame = frame;
+        Ok(())
+    }
+    fn consume_timing_completion(
+        &mut self,
+        request: tje_game::timing::CompletionRequest,
+    ) -> tje_game::Result<tje_game::timing::Completion> {
+        self.completion_requests.push(request);
+        if let Some(error) = self.completion_error.take() {
+            return Err(error);
+        }
+        if self.completion_consumed {
+            assert_eq!(request.kind, tje_game::timing::CompletionKind::Rts);
+            self.sp = request.entry_sp.wrapping_add(4);
+            Ok(tje_game::timing::Completion::Consumed)
+        } else {
+            Ok(tje_game::timing::Completion::Absent)
+        }
     }
     fn execution_class(&self) -> ExecutionClass {
         self.execution
@@ -141,6 +198,30 @@ impl Context for Fixture {
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> tje_game::Result<u32> {
         self.original_calls.push(id);
         Err(Error::Untranslated(id))
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        _: &[u32],
+        class: ExecutionClass,
+    ) -> tje_game::Result<()> {
+        self.original_class = Some(class);
+        self.original_calls.push(id);
+        self.registers[0] = 0xfeed_5eed;
+        Ok(())
+    }
+    fn call_original_entry_void(
+        &mut self,
+        id: FunctionId,
+        class: ExecutionClass,
+    ) -> tje_game::Result<()> {
+        self.original_class = Some(class);
+        self.original_calls.push(id);
+        let return_pc = self.memory.read_u32(self.sp);
+        assert_eq!(return_pc, 0x1234);
+        self.sp = self.sp.wrapping_add(4);
+        self.registers[0] = 0xfeed_5eed;
+        Ok(())
     }
 }
 
@@ -415,4 +496,280 @@ fn unsupported_discard_never_falls_back_to_a_semantic_read() {
         Err(Error::Platform(_))
     ));
     assert!(context.ports.is_empty());
+}
+
+// Authored API fixtures, not proofs of the catalogue functions used as ABI ids.
+fn authored_void_register_effects(
+    context: &mut dyn Context,
+    _: &[u32],
+) -> tje_game::Result<Option<u32>> {
+    context.set_data_register(0, 0xc0de_0042);
+    context.set_data_register(1, 0x1234_5678);
+    context.set_status_register((context.status_register() & !0x1f) | 0x15);
+    Ok(None)
+}
+fn authored_void_frame(context: &mut dyn Context) -> tje_game::Result<Option<u32>> {
+    let frame = context
+        .frame_state()
+        .ok_or(tje_game::call_frame::FrameError::Unavailable)?;
+    let slot = frame.entry_sp.wrapping_add(4);
+    let value = context.read_u32(slot);
+    context.write_u32(slot, value ^ 0xffff_0000);
+    authored_void_register_effects(context, &[])
+}
+fn authored_fatal_void_frame(context: &mut dyn Context) -> tje_game::Result<Option<u32>> {
+    let frame = context
+        .frame_state()
+        .ok_or(tje_game::call_frame::FrameError::Unavailable)?;
+    context.set_data_register(0, 0xbad0_0042);
+    context.set_stack_pointer(frame.entry_sp.wrapping_sub(2))?;
+    Err(Error::TimingExecutionFailure {
+        entry: ids::WAIT_FOR_NEXT_V_BLANK,
+        cause: Box::new(Error::Platform("authored fatal callee frame".into())),
+    })
+}
+static AUTHORED_VOID_VALUES: &[tje_game::Translation] = &[tje_game::Translation {
+    id: ids::PRE_GENERATE_RANDOMS,
+    function: authored_void_register_effects,
+}];
+static AUTHORED_VOID_FRAMED: &[tje_game::FramedTranslation] = &[tje_game::FramedTranslation {
+    id: ids::WAIT_FOR_NEXT_V_BLANK,
+    function: authored_void_frame,
+}];
+static AUTHORED_FATAL_VOID: &[tje_game::FramedTranslation] = &[tje_game::FramedTranslation {
+    id: ids::WAIT_FOR_NEXT_V_BLANK,
+    function: authored_fatal_void_frame,
+}];
+
+#[test]
+fn typed_void_values_keep_actual_register_effects_without_observing_d0() {
+    assert!(!ids::PRE_GENERATE_RANDOMS.metadata().abi.returns_value);
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for direct_dispatcher in [false, true] {
+            let dispatcher = Dispatcher::hybrid_with(AUTHORED_VOID_VALUES);
+            let mut context = Fixture::new(dispatcher);
+            context.memory = AddressSpace::new(vec![0; 64], revision);
+            context.registers[0] = 0xaaaa_5555;
+            if direct_dispatcher {
+                dispatcher
+                    .call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[])
+                    .unwrap();
+            } else {
+                tje_game::call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[]).unwrap();
+            }
+            assert_eq!(context.d0_reads.get(), 0);
+            assert_eq!(context.registers[0], 0xc0de_0042);
+            assert_eq!(context.registers[1], 0x1234_5678);
+            assert_eq!(context.status, 0x2715);
+            assert!(!context.clock.as_ref().unwrap().active());
+            // An explicit caller register read is a separate observation.
+            assert_eq!(context.data_register(0), 0xc0de_0042);
+            assert_eq!(context.d0_reads.get(), 1);
+        }
+    }
+}
+
+#[test]
+fn typed_void_frames_preserve_arguments_cleanup_and_optional_native_completion() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for consumed in [false, true] {
+            for form in 0..3 {
+                let dispatcher =
+                    Dispatcher::hybrid_with_overrides_and_frames(&[], AUTHORED_VOID_FRAMED);
+                let mut context = Fixture::new(dispatcher);
+                context.memory = AddressSpace::new(vec![0; 64], revision);
+                context.execution = ExecutionClass::TimeAware;
+                context.completion_consumed = consumed;
+                let sp = context.sp;
+                let parent = context.frame;
+                let site = tje_game::call_frame::CallSite::new(0x1234);
+                match form {
+                    0 => tje_game::call_at_void(
+                        &mut context,
+                        ids::WAIT_FOR_NEXT_V_BLANK,
+                        &[0x1122_3344],
+                        site,
+                    )
+                    .unwrap(),
+                    1 => dispatcher
+                        .call_at_void(
+                            &mut context,
+                            ids::WAIT_FOR_NEXT_V_BLANK,
+                            &[0x1122_3344],
+                            site,
+                        )
+                        .unwrap(),
+                    _ => {
+                        let outgoing = tje_game::call_frame::OutgoingArguments::push(
+                            &mut context,
+                            &[0x1122_3344],
+                        )
+                        .unwrap();
+                        outgoing
+                            .call_void(&mut context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site)
+                            .unwrap();
+                        assert_eq!(context.sp, sp - 4);
+                        outgoing.release(&mut context).unwrap();
+                    }
+                }
+                assert_eq!(context.sp, sp);
+                assert_eq!(context.frame, parent);
+                assert_eq!(context.execution, ExecutionClass::TimeAware);
+                assert_eq!(context.memory.read_u32(sp - 4), 0xeedd_3344);
+                assert_eq!(context.registers[0], 0xc0de_0042);
+                assert_eq!(context.d0_reads.get(), 0);
+                assert!(!context.clock.as_ref().unwrap().active());
+                assert_eq!(context.completion_requests.len(), 1);
+                assert_eq!(context.completion_requests[0].value, None);
+                let return_reads = context
+                    .reads
+                    .borrow()
+                    .iter()
+                    .filter(|&&address| (sp - 8..sp - 4).contains(&address))
+                    .count();
+                assert_eq!(return_reads, if consumed { 0 } else { 4 });
+                assert_eq!(
+                    context
+                        .reads
+                        .borrow()
+                        .iter()
+                        .filter(|&&address| (sp - 4..sp).contains(&address))
+                        .count(),
+                    4,
+                    "framed arguments stay lazy; no eager adapter snapshot"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn typed_void_rejects_valued_callees_before_arguments_frames_or_callbacks() {
+    assert!(ids::GET_RANDOM_NUMBER.metadata().abi.returns_value);
+    for framed in [false, true] {
+        let dispatcher = Dispatcher::hybrid();
+        let mut context = Fixture::new(dispatcher);
+        let sp = context.sp;
+        let frame = context.frame;
+        let result = if framed {
+            tje_game::call_at_void(
+                &mut context,
+                ids::GET_RANDOM_NUMBER,
+                &[0x1122_3344],
+                tje_game::call_frame::CallSite::new(0x1234),
+            )
+        } else {
+            tje_game::call_void(&mut context, ids::GET_RANDOM_NUMBER, &[])
+        };
+        assert_eq!(
+            result,
+            Err(Error::CallReturnType {
+                function: ids::GET_RANDOM_NUMBER,
+                requested_value: false
+            })
+        );
+        assert_eq!(context.sp, sp);
+        assert_eq!(context.frame, frame);
+        assert_eq!(context.memory.read_u32(sp - 4), 0);
+        assert!(context.original_calls.is_empty());
+        assert!(context.completion_requests.is_empty());
+        assert!(context.reads.borrow().is_empty());
+        assert_eq!(context.d0_reads.get(), 0);
+        assert!(!context.clock.as_ref().unwrap().active());
+    }
+}
+
+#[test]
+fn typed_void_original_fallback_selects_only_the_no_result_capability() {
+    for framed in [false, true] {
+        let dispatcher = Dispatcher::hybrid();
+        assert!(
+            dispatcher
+                .resolve_entry(ids::WAIT_FOR_NEXT_V_BLANK)
+                .unwrap()
+                .is_none()
+        );
+        let mut context = Fixture::new(dispatcher);
+        context.execution = ExecutionClass::TimeAware;
+        let sp = context.sp;
+        let parent = context.frame;
+        if framed {
+            tje_game::call_at_void(
+                &mut context,
+                ids::WAIT_FOR_NEXT_V_BLANK,
+                &[1],
+                tje_game::call_frame::CallSite::new(0x1234),
+            )
+            .unwrap();
+        } else {
+            tje_game::call_void(&mut context, ids::WAIT_FOR_NEXT_V_BLANK, &[1]).unwrap();
+        }
+        assert_eq!(context.original_calls, [ids::WAIT_FOR_NEXT_V_BLANK]);
+        assert_eq!(context.original_class, Some(ExecutionClass::TimeAware));
+        assert_eq!(context.registers[0], 0xfeed_5eed);
+        assert_eq!(context.d0_reads.get(), 0);
+        assert_eq!(context.sp, sp);
+        assert_eq!(context.frame, parent);
+        assert!(!context.clock.as_ref().unwrap().active());
+    }
+}
+
+#[test]
+fn typed_void_fatal_callee_keeps_its_actual_frame_without_d0_observation() {
+    let dispatcher = Dispatcher::hybrid_with_overrides_and_frames(&[], AUTHORED_FATAL_VOID);
+    let mut context = Fixture::new(dispatcher);
+    context.execution = ExecutionClass::TimeAware;
+    let sp = context.sp;
+    let result = tje_game::call_at_void(
+        &mut context,
+        ids::WAIT_FOR_NEXT_V_BLANK,
+        &[1],
+        tje_game::call_frame::CallSite::new(0x1234),
+    );
+    assert!(matches!(result, Err(Error::TimingExecutionFailure { .. })));
+    assert_eq!(context.sp, sp - 10);
+    assert_eq!(context.frame.entry_sp, sp - 8);
+    assert_eq!(context.registers[0], 0xbad0_0042);
+    assert_eq!(context.d0_reads.get(), 0);
+    assert!(context.completion_requests.is_empty());
+    assert!(!context.clock.as_ref().unwrap().active());
+}
+
+#[test]
+fn typed_void_completion_failure_keeps_the_frame_and_no_scalar_expectation() {
+    let dispatcher = Dispatcher::hybrid_with_overrides_and_frames(&[], AUTHORED_VOID_FRAMED);
+    let mut context = Fixture::new(dispatcher);
+    context.execution = ExecutionClass::TimeAware;
+    context.completion_error = Some(Error::Platform("authored completion failure".into()));
+    let sp = context.sp;
+    let result = tje_game::call_at_void(
+        &mut context,
+        ids::WAIT_FOR_NEXT_V_BLANK,
+        &[1],
+        tje_game::call_frame::CallSite::new(0x1234),
+    );
+    assert!(matches!(result, Err(Error::TimingExecutionFailure { .. })));
+    assert_eq!(context.sp, sp - 8);
+    assert_eq!(context.frame.entry_sp, sp - 8);
+    assert_eq!(context.completion_requests.len(), 1);
+    assert_eq!(context.completion_requests[0].value, None);
+    assert_eq!(context.d0_reads.get(), 0);
+    assert!(!context.clock.as_ref().unwrap().active());
+}
+
+fn authored_void_with_explicit_d0(_: &mut dyn Context, _: &[u32]) -> tje_game::Result<Option<u32>> {
+    Ok(Some(0x0dd0_0042))
+}
+static AUTHORED_VOID_D0: &[tje_game::Translation] = &[tje_game::Translation {
+    id: ids::PRE_GENERATE_RANDOMS,
+    function: authored_void_with_explicit_d0,
+}];
+
+#[test]
+fn typed_void_keeps_explicit_body_d0_output_without_extracting_it() {
+    let dispatcher = Dispatcher::hybrid_with(AUTHORED_VOID_D0);
+    let mut context = Fixture::new(dispatcher);
+    tje_game::call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[]).unwrap();
+    assert_eq!(context.registers[0], 0x0dd0_0042);
+    assert_eq!(context.d0_reads.get(), 0);
 }

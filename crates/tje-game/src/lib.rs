@@ -107,6 +107,10 @@ pub fn function_at(revision: Revision, address: u32) -> Option<FunctionId> {
 pub enum Error {
     Untranslated(FunctionId),
     Unclassified(FunctionId),
+    CallReturnType {
+        function: FunctionId,
+        requested_value: bool,
+    },
     ExecutionUnavailable {
         caller: execution::ExecutionClass,
         callee: execution::ExecutionClass,
@@ -148,6 +152,24 @@ impl fmt::Display for Error {
                 "no unique reviewed execution class: {}",
                 id.metadata().name
             ),
+            Self::CallReturnType {
+                function,
+                requested_value,
+            } => {
+                if *requested_value {
+                    write!(
+                        formatter,
+                        "{} is ABI-void; use call_void/call_at_void, then an explicit authenticated register read if required",
+                        function.metadata().name
+                    )
+                } else {
+                    write!(
+                        formatter,
+                        "{} returns a value; use call/call_at",
+                        function.metadata().name
+                    )
+                }
+            }
             Self::ExecutionUnavailable { caller, callee } => {
                 write!(formatter, "{callee:?} call unavailable inside {caller:?}")
             }
@@ -423,6 +445,15 @@ pub trait Context: Bus + Platform {
     ) -> Result<u32> {
         Err(Error::Untranslated(function))
     }
+    /// Exact prepared original call with no scalar-result observation.
+    /// Never implement by obtaining a D0 result and discarding it afterward.
+    fn call_original_entry_void(
+        &mut self,
+        function: FunctionId,
+        _class: execution::ExecutionClass,
+    ) -> Result<()> {
+        Err(Error::Untranslated(function))
+    }
     /// Required by RTE and reset; Atomic-only contexts fail closed rather than
     /// inventing an inactive stack bank.
     fn stack_banks(&self) -> Result<exits::StackBanks> {
@@ -510,6 +541,16 @@ pub trait Context: Bus + Platform {
         } else {
             Err(Error::Untranslated(function))
         }
+    }
+    /// Explicit residual call that preserves the real register/device effects
+    /// but never observes or supplies a scalar D0 result.
+    fn call_original_void_with_execution(
+        &mut self,
+        function: FunctionId,
+        _arguments: &[u32],
+        _class: execution::ExecutionClass,
+    ) -> Result<()> {
+        Err(Error::Untranslated(function))
     }
 }
 
@@ -612,6 +653,32 @@ pub fn framed_translations() -> impl Iterator<Item = &'static FramedTranslation>
 }
 
 #[derive(Clone, Copy)]
+pub(crate) enum CallReturn {
+    Value,
+    Discard,
+}
+impl CallReturn {
+    fn check(self, function: FunctionId) -> Result<()> {
+        // Existing value-call sites are migrated separately before their
+        // global ABI-void rejection is enabled. Discard is typed already.
+        if matches!(self, Self::Discard) && function.metadata().abi.returns_value {
+            Err(Error::CallReturnType {
+                function,
+                requested_value: false,
+            })
+        } else {
+            Ok(())
+        }
+    }
+    fn observe(self, context: &dyn Context) -> Option<u32> {
+        match self {
+            Self::Value => Some(context.data_register(0)),
+            Self::Discard => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Dispatcher {
     translations: &'static [Translation],
     framed_translations: &'static [FramedTranslation],
@@ -710,10 +777,31 @@ impl Dispatcher {
         )
     }
     pub fn call(self, context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
+        self.call_with_return(context, id, arguments, CallReturn::Value)
+            .map(|value| value.expect("value-returning call requested D0"))
+    }
+    /// ABI-void call: discard intent reaches the callee before any D0 read.
+    pub fn call_void(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        arguments: &[u32],
+    ) -> Result<()> {
+        self.call_with_return(context, id, arguments, CallReturn::Discard)
+            .map(|_| ())
+    }
+    fn call_with_return(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        arguments: &[u32],
+        result_use: CallReturn,
+    ) -> Result<Option<u32>> {
         context.check_mmio_contract()?;
+        result_use.check(id)?;
         let entry = self.resolve_entry(id)?;
         if let Some(entry) = entry {
-            self.invoke_translated(context, entry, Some(arguments))
+            self.invoke_translated(context, entry, Some(arguments), result_use)
         } else if self.original_fallback && exits::contract(id) == exits::ExitContract::Rts {
             let class = execution_class(id).ok_or(Error::Unclassified(id))?;
             if !context.execution_class().permits(class) {
@@ -723,12 +811,17 @@ impl Dispatcher {
                 });
             }
             let ceiling = context.enter_call_ceiling(id)?;
-            let result = context
-                .call_original_with_execution(id, arguments, class)
-                .map_err(|error| context.protect_timing_failure(error));
-            let result = exits::validate_call(id, result.map(Some), context.revision());
-            let result = Error::after_contract_check(context, result)
-                .map(|value| value.expect("RTS-only original returned its D0"));
+            let result = match result_use {
+                CallReturn::Value => context
+                    .call_original_with_execution(id, arguments, class)
+                    .map(Some),
+                CallReturn::Discard => context
+                    .call_original_void_with_execution(id, arguments, class)
+                    .map(|()| None),
+            }
+            .map_err(|error| context.protect_timing_failure(error));
+            let result = exits::validate_call(id, result, context.revision());
+            let result = Error::after_contract_check(context, result);
             let cleanup = context.leave_call_ceiling(ceiling);
             let result = match result {
                 Err(Error::ControlTransfer(transfer)) => match cleanup {
@@ -744,10 +837,16 @@ impl Dispatcher {
         }
     }
 
-    pub(crate) fn call_prepared(self, context: &mut dyn Context, id: FunctionId) -> Result<u32> {
+    pub(crate) fn call_prepared(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        result_use: CallReturn,
+    ) -> Result<Option<u32>> {
         context.check_mmio_contract()?;
+        result_use.check(id)?;
         let entry = self.resolve_entry(id)?.ok_or(Error::Untranslated(id))?;
-        self.invoke_translated(context, entry, None)
+        self.invoke_translated(context, entry, None, result_use)
     }
 
     fn invoke_translated(
@@ -755,7 +854,8 @@ impl Dispatcher {
         context: &mut dyn Context,
         entry: SelectedEntry,
         arguments: Option<&[u32]>,
-    ) -> Result<u32> {
+        result_use: CallReturn,
+    ) -> Result<Option<u32>> {
         context.check_mmio_contract()?;
         let class = execution_class(entry.id()).ok_or(Error::Unclassified(entry.id()))?;
         let parent = context.execution_class();
@@ -784,7 +884,7 @@ impl Dispatcher {
             if let Some(value) = value {
                 context.set_data_register(0, value);
             }
-            context.data_register(0)
+            result_use.observe(context)
         });
         let restore = if scoped {
             context.set_execution_class(parent)
@@ -819,11 +919,25 @@ impl Dispatcher {
     ) -> Result<u32> {
         call_frame::call_at(context, self, id, arguments, site)
     }
+    /// Exact-stack ABI-void call without a scalar D0 observation.
+    pub fn call_at_void(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        arguments: &[u32],
+        site: call_frame::CallSite,
+    ) -> Result<()> {
+        call_frame::call_at_void(context, self, id, arguments, site)
+    }
 }
 
 /// A translated caller never chooses its callee's implementation or address.
 pub fn call(context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<u32> {
     context.dispatcher().call(context, id, arguments)
+}
+
+pub fn call_void(context: &mut dyn Context, id: FunctionId, arguments: &[u32]) -> Result<()> {
+    context.dispatcher().call_void(context, id, arguments)
 }
 
 pub fn call_at(
@@ -833,6 +947,17 @@ pub fn call_at(
     site: call_frame::CallSite,
 ) -> Result<u32> {
     context.dispatcher().call_at(context, id, arguments, site)
+}
+
+pub fn call_at_void(
+    context: &mut dyn Context,
+    id: FunctionId,
+    arguments: &[u32],
+    site: call_frame::CallSite,
+) -> Result<()> {
+    context
+        .dispatcher()
+        .call_at_void(context, id, arguments, site)
 }
 
 pub static SUBSYSTEMS: &[Subsystem] = &[
