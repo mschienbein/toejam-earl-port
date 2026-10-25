@@ -147,7 +147,7 @@ fn byte_delay_predecrement_consumes_subtraction_overflow_before_reload() {
 use crate::{
     Context, Dispatcher, Error, FunctionId, Platform, Result, Translation,
     call_frame::FrameState,
-    execution::{CallCeilingScope, ExecutionClass, WaitRequest},
+    execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest},
 };
 use std::{cell::RefCell, collections::VecDeque};
 
@@ -156,7 +156,8 @@ enum Access {
     Read(u32, u8),
     Discard(u32, u8),
     Write(u32, u8, u32),
-    Wait,
+    Wait(WaitRequest),
+    Yield,
 }
 
 struct SceneContext {
@@ -173,6 +174,7 @@ const SPEECH_COUNT: u32 = 0xff1000;
 const QUEUE_READY: u32 = 0xff1004;
 const CAPTURE_D3: u32 = 0xff1008;
 const CAPTURE_A3: u32 = 0xff100c;
+const QUEUE_CALLS: u32 = 0xff1010;
 
 impl SceneContext {
     fn new(revision: Revision) -> Self {
@@ -199,10 +201,21 @@ impl SceneContext {
                 Access::Read(at, _) | Access::Discard(at, _) | Access::Write(at, _, _) => {
                     *at == address
                 }
-                Access::Wait => false,
+                Access::Wait(_) | Access::Yield => false,
             })
             .cloned()
             .collect()
+    }
+
+    fn advance_poll(&mut self) {
+        let revision = self.memory.revision();
+        if let Some(velocity) = self.velocity_wakes.pop_front() {
+            ram::g_elevator_ride_scroll_velocity(revision).write(&mut self.memory, velocity);
+        } else {
+            ram::g_sprite_graphics_upload_pending(revision).write(&mut self.memory, 0);
+            let requested = ram::g_requested_music_selection(revision).read(&self.memory);
+            ram::g_current_music_selection(revision).write(&mut self.memory, requested);
+        }
     }
 }
 
@@ -275,16 +288,30 @@ impl Platform for SceneContext {
         self.trace.borrow_mut().push(Access::Discard(address, 2));
         Ok(())
     }
-    fn wait_until(&mut self, _: WaitRequest) -> Result<()> {
-        self.trace.borrow_mut().push(Access::Wait);
-        let revision = self.memory.revision();
-        if let Some(velocity) = self.velocity_wakes.pop_front() {
-            ram::g_elevator_ride_scroll_velocity(revision).write(&mut self.memory, velocity);
-        } else {
-            ram::g_sprite_graphics_upload_pending(revision).write(&mut self.memory, 0);
-            let requested = ram::g_requested_music_selection(revision).read(&self.memory);
-            ram::g_current_music_selection(revision).write(&mut self.memory, requested);
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.trace.borrow_mut().push(Access::Wait(request));
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            panic!("unexpected proxy or non-byte wait: {request:?}");
+        };
+        loop {
+            let sample = u32::from(self.read_u8(address));
+            if comparison.satisfied(sample, mask, value) {
+                break;
+            }
+            self.advance_poll();
         }
+        Ok(())
+    }
+    fn poll_yield(&mut self) -> Result<()> {
+        self.trace.borrow_mut().push(Access::Yield);
+        self.advance_poll();
         Ok(())
     }
 }
@@ -355,15 +382,19 @@ fn speech_line(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
 }
 
 fn queue_ready(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    if context.read_u8(QUEUE_READY) != 0 {
+    let mode = context.read_u8(QUEUE_READY);
+    if mode != 0 {
         let revision = context.revision();
+        let calls = context.read_u32(QUEUE_CALLS);
+        context.write_u32(QUEUE_CALLS, calls + 1);
         for slot in [2, 4] {
+            let ready = !(calls == 0 && ((mode == 2 && slot == 2) || (mode == 3 && slot == 4)));
             ram::g_player_info(revision)
                 .at(slot)
                 .sprite_ready()
-                .write(context, 1);
+                .write(context, i8::from(ready));
         }
-        ram::g_sprite_graphics_upload_pending(revision).write(context, 1);
+        ram::g_sprite_graphics_upload_pending(revision).write(context, u8::from(mode == 1));
     }
     Ok(None)
 }
@@ -491,21 +522,47 @@ fn dialogue_pushes_interleave_reads_and_reply_local_reloads_byte_then_word() {
 }
 
 #[test]
-fn end_ride_polls_each_velocity_once_per_source_iteration() {
+fn end_ride_preserves_signed_thresholds_and_yields_only_on_spin_backedges() {
+    let cases: &[(i16, &[i16])] = &[
+        (128, &[2048, 0]),
+        (128, &[2053, -1]),
+        (i16::MIN, &[i16::MAX, i16::MIN]),
+        (2048, &[-1]),
+        (2053, &[0]),
+    ];
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut context = SceneContext::new(revision);
-        let velocity = ram::g_elevator_ride_scroll_velocity(revision);
-        velocity.write(&mut context.memory, 128);
-        context.velocity_wakes = VecDeque::from([2048, 0]);
-        assert!(elevator_end_ride_scene(&mut context, &[]).is_err());
-        assert_eq!(
-            context.accesses(velocity.address()),
-            vec![Access::Read(velocity.address(), 2); 4]
-        );
-        assert_eq!(
-            ram::g_elevator_ride_scroll_acceleration(revision).read(&context.memory),
-            -2048
-        );
+        for &(initial, wakes) in cases {
+            let mut context = SceneContext::new(revision);
+            let velocity = ram::g_elevator_ride_scroll_velocity(revision);
+            let acceleration = ram::g_elevator_ride_scroll_acceleration(revision);
+            velocity.write(&mut context.memory, initial);
+            context.velocity_wakes = wakes.iter().copied().collect();
+            assert!(elevator_end_ride_scene(&mut context, &[]).is_err());
+            let sequence: Vec<_> = context
+                .trace
+                .borrow()
+                .iter()
+                .filter(|event| match event {
+                    Access::Read(address, _) => *address == velocity.address(),
+                    Access::Write(address, _, _) => *address == acceleration.address(),
+                    Access::Wait(_) | Access::Yield => true,
+                    _ => false,
+                })
+                .cloned()
+                .collect();
+            let mut expected = vec![Access::Read(velocity.address(), 2)];
+            if initial < 2048 {
+                expected.extend([Access::Yield, Access::Read(velocity.address(), 2)]);
+            }
+            expected.extend([
+                Access::Write(acceleration.address(), 2, u32::from((-2048_i16) as u16)),
+                Access::Read(velocity.address(), 2),
+                Access::Yield,
+                Access::Read(velocity.address(), 2),
+            ]);
+            assert_eq!(sequence, expected, "initial={initial}, wakes={wakes:?}");
+            assert_eq!(acceleration.read(&context.memory), -2048);
+        }
     }
 }
 
@@ -533,6 +590,82 @@ fn begin_ride_waits_without_a_containing_word_read() {
                 .borrow()
                 .contains(&Access::Read(pending & !1, 2))
         );
+        let sequence: Vec<_> = context
+            .trace
+            .borrow()
+            .iter()
+            .filter(|event| match event {
+                Access::Read(address, _) | Access::Write(address, _, _) => *address == pending,
+                Access::Wait(_) | Access::Yield => true,
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        assert_eq!(
+            sequence,
+            vec![
+                Access::Write(pending, 1, 1),
+                Access::Wait(WaitRequest::ram_byte_equal(pending, u8::MAX, 0)),
+                Access::Read(pending, 1),
+                Access::Read(pending, 1),
+            ]
+        );
+        assert!(
+            context
+                .accesses(ram::g_frame_counter(revision).address())
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn begin_readiness_loop_keeps_short_circuit_order_and_yields_before_requeue() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for mode in [2, 3] {
+            let mut context = SceneContext::new(revision);
+            let elevator = ram::g_elevator_records(revision).at(0).at(0);
+            elevator.entity().write(&mut context.memory, 2);
+            context.memory.write_u8(QUEUE_READY, mode);
+            context.memory.write_u32(0xff7004, elevator.address());
+            assert!(elevator_begin_ride_scene(&mut context).is_err());
+            let first = ram::g_player_info(revision).at(2).sprite_ready().address();
+            let second = ram::g_player_info(revision).at(4).sprite_ready().address();
+            let sequence: Vec<_> = context.trace.borrow().iter().filter(|event| {
+                matches!(event, Access::Read(address, _) if *address == first || *address == second)
+                    || matches!(event, Access::Yield)
+            }).cloned().collect();
+            let mut expected = vec![Access::Read(first, 1)];
+            if mode == 3 {
+                expected.push(Access::Read(second, 1));
+            }
+            expected.extend([
+                Access::Yield,
+                Access::Read(first, 1),
+                Access::Read(second, 1),
+            ]);
+            assert_eq!(sequence, expected);
+            let pending = ram::g_sprite_graphics_upload_pending(revision).address();
+            assert_eq!(
+                context.accesses(pending),
+                vec![
+                    Access::Write(pending, 1, 0),
+                    Access::Read(pending, 1),
+                    Access::Write(pending, 1, 0),
+                    Access::Read(pending, 1),
+                ]
+            );
+            assert_eq!(
+                context
+                    .trace
+                    .borrow()
+                    .iter()
+                    .filter(|event| {
+                        **event == Access::Wait(WaitRequest::ram_byte_equal(pending, u8::MAX, 0))
+                    })
+                    .count(),
+                2
+            );
+        }
     }
 }
 
@@ -551,12 +684,14 @@ fn music_wait_reads_requested_before_current_and_never_their_word() {
         let current = ram::g_current_music_selection(revision).address();
         let polls: Vec<_> = context.trace.borrow().iter().filter(|event| {
             matches!(event, Access::Read(address, _) if *address == requested || *address == current)
+                || matches!(event, Access::Yield | Access::Wait(_))
         }).cloned().collect();
         assert_eq!(
             polls,
             vec![
                 Access::Read(requested, 1),
                 Access::Read(current, 1),
+                Access::Yield,
                 Access::Read(requested, 1),
                 Access::Read(current, 1)
             ]

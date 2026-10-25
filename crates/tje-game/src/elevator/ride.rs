@@ -1,6 +1,7 @@
 use crate::{
     Context, Result, call, call_at,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
+    execution::WaitRequest,
     ids,
 };
 use tje_mem::{ObjectState, ram, rom};
@@ -339,6 +340,8 @@ pub fn elevator_ride_v_blank(context: &mut dyn Context, _: &[u32]) -> Result<Opt
 }
 
 /// G/src/elevator/elevator_scene.c:633 (`ElevatorEndRideScene`).
+/// The source polls signed <2048 and >0; neither is a masked equality test.
+/// Preserve each literal word read and yield only on a taken spin backedge.
 pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let velocity = ram::g_elevator_ride_scroll_velocity(revision);
@@ -347,7 +350,7 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
         if polled >= 2048 {
             break;
         }
-        context.wait_vblank_frame(velocity.address(), polled as u16)?;
+        context.poll_yield()?;
     }
     ram::g_elevator_ride_scroll_acceleration(revision).write(context, -2048);
     loop {
@@ -355,7 +358,7 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
         if polled <= 0 {
             break;
         }
-        context.wait_vblank_frame(velocity.address(), polled as u16)?;
+        context.poll_yield()?;
     }
     let callback = ram::g_v_blank_func(revision).address();
     context.discard_u16(callback)?;
@@ -394,8 +397,9 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
 }
 
 /// G/src/elevator/elevator_scene.c:579 (`ElevatorBeginRideScene`).
-/// The pending-byte spin suspends for an actual interrupt and then rechecks
-/// TST.B's byte predicate, without an invented containing-word read.
+/// The exact-byte wait owns every pending poll, including its terminal zero.
+/// The compound sprite-ready loop retains short-circuit reads and yields only
+/// when another sprite update is required.
 /// Preserve MOVEM D2-D5/A2-A4 and the retained state/dialogue/palette argument
 /// areas; callees that inspect the original caller frame see those real slots.
 pub fn elevator_begin_ride_scene(context: &mut dyn Context) -> Result<Option<u32>> {
@@ -465,12 +469,11 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
             CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x78),
         )?;
         let pending = ram::g_sprite_graphics_upload_pending(revision);
-        while pending.read(context) != 0 {
-            context.wait_for_interrupt()?;
-        }
+        context.wait_until(WaitRequest::ram_byte_equal(pending.address(), u8::MAX, 0))?;
         if first.sprite_ready().read(context) != 0 && second.sprite_ready().read(context) != 0 {
             break;
         }
+        context.poll_yield()?;
     }
     call_at(
         context,
@@ -649,7 +652,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
         requested.write(context, 6);
         // MOVE.B requested,D0 precedes CMP.B current,D0 on every poll.
         while requested.read(context) != current.read(context) {
-            context.wait_for_interrupt()?;
+            context.poll_yield()?;
         }
         let bank = (i32::from(handle) - 1) >> 1;
         elevator = ram::g_elevator_records(revision).at(bank).at(0);
