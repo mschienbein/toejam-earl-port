@@ -73,6 +73,80 @@ impl RootMachine {
         let address = ram::g_sprite_graphics_upload_pending(self.revision()).address();
         *self.pending_samples.borrow_mut() = Some((address, samples.iter().copied().collect()));
     }
+    fn original_effects(&mut self, id: FunctionId, args: &[u32]) -> Result<()> {
+        self.accesses
+            .borrow_mut()
+            .push(Access::Call(id, args.to_vec()));
+        let value = match id {
+            ids::STACK_BASED_RANDOM => 0x10203040,
+            ids::LMULT => self.inner.data[0].wrapping_mul(self.inner.data[1]),
+            ids::MAP_GENERATE_SEPARATED_ANCHORS => 2,
+            ids::MAP_GET_RANDOM_GENERATION_PARAMETER => 25,
+            ids::MAP_IS_ANCHOR_CONNECTION_MISSING => u32::from(self.reject_generation),
+            ids::MAP_TRANSITION_CONTAINS_METATILE => 0,
+            ids::ALLOCATE_SPRITE_TILE_RUN => self.allocations.pop_front().unwrap_or(8),
+            ids::TERRAIN_VALIDATION => {
+                if self.validation_succeeds {
+                    self.write_i16(args[3], 4);
+                    self.write_i16(args[4], 6);
+                    1
+                } else {
+                    0
+                }
+            }
+            ids::CHANGE_LEVEL => {
+                let rejected = self.load_rejections != 0;
+                self.load_rejections = self.load_rejections.saturating_sub(1);
+                u32::from(rejected)
+            }
+            ids::READ_MAPPED_PLAYER_INPUT => self.input.pop_front().expect("finite input fixture"),
+            ids::GET_RANDOM_NUMBER
+            | ids::LOAD_FINAL_LEVEL
+            | ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK
+            | ids::COPY_LEVEL_BETWEEN_PLAYERS
+            | ids::MAP_SWAP_PLAYER_BANKS
+            | ids::MAP_CONNECT_ANCHOR_POSITIONS
+            | ids::MAP_GROW_TERRAIN_REGION
+            | ids::MAP_STABILIZE_REGION_CONNECTIONS
+            | ids::MAP_SEED_FILLED_TERRAIN_REGIONS
+            | ids::MAP_BUILD_REGION_EDGE_SHAPES
+            | ids::MAP_BUILD_FILLED_TERRAIN_SHAPES
+            | ids::MAP_BUILD_DIRECTIONAL_PATH_SHAPES
+            | ids::MAP_SCATTER_TERRAIN_FEATURES
+            | ids::MAP_ASSIGN_TRANSITION_CHAIN
+            | ids::MAP_CHOOSE_METATILE_ALTERNATIVES
+            | ids::ENTITY_CLEAR_VIEWPORT_SPRITES
+            | ids::FREE_SPRITE_TILE_RUN
+            | ids::WAIT_FOR_NEXT_V_BLANK
+            | ids::SPRITE_UNPACK_INTERLEAVED_RLE
+            | ids::SPRITE_UNPACK_RLE
+            | ids::DMA_COPY_WORDS_TO_VRAM
+            | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
+            | ids::ELEVATOR_CONTAINS_POSITION
+            | ids::DISABLE_BLANKING_GRAPHICS
+            | ids::MOVE_DATA_TO_VRAM
+            | ids::MAP_INITIALIZE_SCREEN_SPRITES
+            | ids::MAP_DRAW_BACKGROUND_AND_TERRAIN
+            | ids::LOAD_MAP_INTO_VRAM
+            | ids::COPY_PALETTE_TO_CRAM_SLOT
+            | ids::MAP_DRAW_PLAYER
+            | ids::MAP_DRAW_SHIP_PIECE
+            | ids::MAP_DRAW_ELEVATOR
+            | ids::MAP_UPLOAD_COVER_ANIMATION_FRAME
+            | ids::PRE_GENERATE_RANDOMS
+            | ids::DRAW_STARFIELD_PLANE
+            | ids::DRAW_HUD
+            | ids::ENABLE_BLANKING_GRAPHICS => 0,
+            _ => return Err(Error::Untranslated(id)),
+        };
+        self.inner.data[0] = value;
+        {
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 impl Bus for RootMachine {
     fn read_u8(&self, address: u32) -> u8 {
@@ -238,74 +312,29 @@ impl Context for RootMachine {
             .collect();
         self.call_original(id, &args)
     }
+    fn call_original_entry_void(&mut self, id: FunctionId, _: ExecutionClass) -> Result<()> {
+        // The double reads its own arguments without adding callee accesses to
+        // the root trace being asserted. No real ROM is executed in these tests.
+        let args: Vec<_> = (0..u32::from(id.metadata().abi.argument_count))
+            .map(|index| {
+                self.inner
+                    .memory
+                    .read_u32(self.frame.entry_sp + 4 + index * 4)
+            })
+            .collect();
+        self.original_effects(id, &args)
+    }
     fn call_original(&mut self, id: FunctionId, args: &[u32]) -> Result<u32> {
-        self.accesses
-            .borrow_mut()
-            .push(Access::Call(id, args.to_vec()));
-        let value = match id {
-            ids::STACK_BASED_RANDOM => 0x10203040,
-            ids::LMULT => self.inner.data[0].wrapping_mul(self.inner.data[1]),
-            ids::MAP_GENERATE_SEPARATED_ANCHORS => 2,
-            ids::MAP_GET_RANDOM_GENERATION_PARAMETER => 25,
-            ids::MAP_IS_ANCHOR_CONNECTION_MISSING => u32::from(self.reject_generation),
-            ids::MAP_TRANSITION_CONTAINS_METATILE => 0,
-            ids::ALLOCATE_SPRITE_TILE_RUN => self.allocations.pop_front().unwrap_or(8),
-            ids::TERRAIN_VALIDATION => {
-                if self.validation_succeeds {
-                    self.write_i16(args[3], 4);
-                    self.write_i16(args[4], 6);
-                    1
-                } else {
-                    0
-                }
-            }
-            ids::CHANGE_LEVEL => {
-                let rejected = self.load_rejections != 0;
-                self.load_rejections = self.load_rejections.saturating_sub(1);
-                u32::from(rejected)
-            }
-            ids::READ_MAPPED_PLAYER_INPUT => self.input.pop_front().expect("finite input fixture"),
-            ids::GET_RANDOM_NUMBER
-            | ids::LOAD_FINAL_LEVEL
-            | ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK
-            | ids::COPY_LEVEL_BETWEEN_PLAYERS
-            | ids::MAP_SWAP_PLAYER_BANKS
-            | ids::MAP_CONNECT_ANCHOR_POSITIONS
-            | ids::MAP_GROW_TERRAIN_REGION
-            | ids::MAP_STABILIZE_REGION_CONNECTIONS
-            | ids::MAP_SEED_FILLED_TERRAIN_REGIONS
-            | ids::MAP_BUILD_REGION_EDGE_SHAPES
-            | ids::MAP_BUILD_FILLED_TERRAIN_SHAPES
-            | ids::MAP_BUILD_DIRECTIONAL_PATH_SHAPES
-            | ids::MAP_SCATTER_TERRAIN_FEATURES
-            | ids::MAP_ASSIGN_TRANSITION_CHAIN
-            | ids::MAP_CHOOSE_METATILE_ALTERNATIVES
-            | ids::ENTITY_CLEAR_VIEWPORT_SPRITES
-            | ids::FREE_SPRITE_TILE_RUN
-            | ids::WAIT_FOR_NEXT_V_BLANK
-            | ids::SPRITE_UNPACK_INTERLEAVED_RLE
-            | ids::SPRITE_UNPACK_RLE
-            | ids::DMA_COPY_WORDS_TO_VRAM
-            | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
-            | ids::ELEVATOR_CONTAINS_POSITION
-            | ids::DISABLE_BLANKING_GRAPHICS
-            | ids::MOVE_DATA_TO_VRAM
-            | ids::MAP_INITIALIZE_SCREEN_SPRITES
-            | ids::MAP_DRAW_BACKGROUND_AND_TERRAIN
-            | ids::LOAD_MAP_INTO_VRAM
-            | ids::COPY_PALETTE_TO_CRAM_SLOT
-            | ids::MAP_DRAW_PLAYER
-            | ids::MAP_DRAW_SHIP_PIECE
-            | ids::MAP_DRAW_ELEVATOR
-            | ids::MAP_UPLOAD_COVER_ANIMATION_FRAME
-            | ids::PRE_GENERATE_RANDOMS
-            | ids::DRAW_STARFIELD_PLANE
-            | ids::DRAW_HUD
-            | ids::ENABLE_BLANKING_GRAPHICS => 0,
-            _ => return Err(Error::Untranslated(id)),
-        };
-        self.inner.data[0] = value;
-        Ok(value)
+        self.original_effects(id, args)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        args: &[u32],
+        _class: crate::execution::ExecutionClass,
+    ) -> Result<()> {
+        self.original_effects(id, args)
     }
 }
 

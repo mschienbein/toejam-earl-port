@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::ram;
 
 /// G/src/cutscenes/sega_logo_vblank.c:11 (`SegaLogoVBlank`).
@@ -11,17 +11,17 @@ pub fn sega_logo_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
         context.discard_u16(pending.address())?;
         pending.write(context, 0);
         let palette = ram::g_sega_palette_upload_source(revision).read(context);
-        call(
+        call_void(
             context,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
             &[palette.address(), 3],
         )?;
     }
     if ram::g_sega_v_blank_sprite_updates_enabled(revision).read(context) != 0 {
-        call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-        call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+        call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+        call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
     }
-    call(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
+    call_void(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
     let counter = ram::g_frame_counter(revision);
     let current = counter.read(context);
     let next = current.wrapping_add(1);

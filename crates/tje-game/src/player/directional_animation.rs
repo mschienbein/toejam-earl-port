@@ -1,4 +1,4 @@
-use super::frames::{call_from, with_frame};
+use super::frames::{call_from, call_from_void, with_frame};
 use crate::call_frame::{FrameLayout, LocalFrame};
 use crate::{Context, Result, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
@@ -84,7 +84,7 @@ fn apply(context: &mut dyn Context, arguments: &[u32], stack: &LocalFrame) -> Re
             {
                 sprite.write(context, sprite.read(context).wrapping_add(108));
                 if player.animation_group_mask().read(context) & 0x800_0000 == 0 {
-                    call_from(
+                    call_from_void(
                         context,
                         caller,
                         ids::PLAY_SOUND_EFFECT,
@@ -121,7 +121,7 @@ fn apply(context: &mut dyn Context, arguments: &[u32], stack: &LocalFrame) -> Re
                         context,
                         i16::from(player.sprite_state().read(context) & 3) + 108,
                     );
-                    call_from(
+                    call_from_void(
                         context,
                         caller,
                         ids::PLAY_SOUND_EFFECT,
@@ -163,7 +163,7 @@ fn apply(context: &mut dyn Context, arguments: &[u32], stack: &LocalFrame) -> Re
             1
         };
         let selected = sprite.read(context) as u32;
-        call_from(
+        call_from_void(
             context,
             caller,
             ids::SET_SPRITE,

@@ -41,6 +41,19 @@ pub(super) fn retained_call(
     outgoing.call(context, dispatcher, callee, site)
 }
 
+pub(super) fn retained_call_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    return_offset: u32,
+    callee: FunctionId,
+    arguments: &[u32],
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), return_offset);
+    let dispatcher = context.dispatcher();
+    let outgoing = OutgoingArguments::push(context, arguments)?;
+    outgoing.call_void(context, dispatcher, callee, site)
+}
+
 pub(super) fn release_arguments(context: &mut dyn Context, slots: u32) -> Result<()> {
     OutgoingArguments::existing(context, slots)?.release(context)
 }
@@ -54,6 +67,17 @@ pub(super) fn source_call(
 ) -> Result<u32> {
     let site = CallSite::relative(caller, context.revision(), return_offset);
     crate::call_at(context, callee, arguments, site)
+}
+
+pub(super) fn source_call_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    return_offset: u32,
+    callee: FunctionId,
+    arguments: &[u32],
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), return_offset);
+    crate::call_at_void(context, callee, arguments, site)
 }
 
 // MCC68K tries DIVS.W first and calls lmodt only if the signed quotient does

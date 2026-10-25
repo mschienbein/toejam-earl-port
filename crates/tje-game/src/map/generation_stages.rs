@@ -70,7 +70,7 @@ pub fn map_connect_anchor_positions(c: &mut dyn Context, args: &[u32]) -> Result
             60,
         ];
         let first = OutgoingArguments::push(c, &values)?;
-        let result = first.call(
+        let result = first.call_void(
             c,
             dispatcher,
             ids::MAP_CARVE_DIRECTIONAL_PATH,
@@ -93,7 +93,7 @@ pub fn map_connect_anchor_positions(c: &mut dyn Context, args: &[u32]) -> Result
             Ok(area) => area,
             Err(error) => return release_arguments(c, first, Err(error)).map(|_| None),
         };
-        let result = second.call(
+        let result = second.call_void(
             c,
             dispatcher,
             ids::MAP_CARVE_DIRECTIONAL_PATH,
@@ -144,7 +144,7 @@ pub fn map_connect_anchor_positions(c: &mut dyn Context, args: &[u32]) -> Result
                 1,
                 0,
             ];
-            crate::call_at(
+            crate::call_at_void(
                 c,
                 ids::MAP_CARVE_DIRECTIONAL_PATH,
                 &values,
@@ -295,7 +295,7 @@ pub fn map_seed_filled_terrain_regions(c: &mut dyn Context, _: &[u32]) -> Result
                                 (i32::from(row.read(c)) + 1) as u32,
                                 (i32::from(column) + 1) as u32,
                             ];
-                            crate::call_at(
+                            crate::call_at_void(
                                 c,
                                 ids::MAP_GROW_TERRAIN_REGION,
                                 &values,

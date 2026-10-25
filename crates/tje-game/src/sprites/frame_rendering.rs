@@ -1,5 +1,5 @@
 //! Metasprite positioning and decoder dispatch, retaining per-piece access order.
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, RenderFrame, RenderPiece, ram};
 
 fn append_upload_word(context: &mut dyn Context, value: u16) {
@@ -32,7 +32,7 @@ pub fn queue_sprite_piece_tiles(
     } else {
         ids::SPRITE_UNPACK_RLE
     };
-    call(context, decoder, &[piece.address(), u32::from(tile_count)])?;
+    call_void(context, decoder, &[piece.address(), u32::from(tile_count)])?;
     let offset = ram::g_sprite_tile_buffer_offset(revision);
     offset.write(
         context,
@@ -83,7 +83,7 @@ pub fn prepare_entity_sprite_frame(
             } else {
                 ids::SPRITE_UNPACK_RLE
             };
-            call(context, decoder, &[piece.address(), u32::from(tile_count)])?;
+            call_void(context, decoder, &[piece.address(), u32::from(tile_count)])?;
             if elevation < 0 && entity.animation_group_mask().read(context) as u8 & 0x20 == 0 {
                 discard = call(
                     context,
@@ -92,7 +92,7 @@ pub fn prepare_entity_sprite_frame(
                 )? as i16;
             }
             if entity.behavior_flags().read(context) & 0x20 != 0 {
-                call(
+                call_void(
                     context,
                     ids::CLEAR_SPRITE_MASK_PIXELS,
                     &[u32::from(tile_count) << 5],
@@ -153,7 +153,7 @@ pub fn position_entity_sprites(
         let entity = Address::<ObjectState>::new(pointer);
         if entity.draw_flags().read(context) & 1 != 0 {
             if entity.behavior_flags().read(context) & 8 != 0 {
-                call(
+                call_void(
                     context,
                     ids::UPDATE_ATTACHED_ENTITY_POSITION,
                     &[entity.address()],

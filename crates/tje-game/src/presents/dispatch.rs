@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, Revision, ram};
 
 /// G/src/presents/present_dispatch.c:117 (`SetupSelectedPresent`).
@@ -15,7 +15,7 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
             && player.animation_group_mask().read(context) & 0x8000 != 0
             && present != 0
         {
-            call(
+            call_void(
                 context,
                 ids::PRESENT_TRY_END_ACTIVE_POWERUP,
                 &[index as u32],
@@ -26,7 +26,7 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
             && context.read_u8(player.animation_group_mask().address() + 3) & 0x20 != 0
             && present != 1
         {
-            call(context, ids::STOP_PLAYER, &[player.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[player.address()])?;
             player.acceleration_height().write(context, -32);
             ram::g_player_landing_counter_seed(revision)
                 .at(index)
@@ -41,7 +41,7 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
     ram::g_player_powerups(revision)
         .at(index)
         .write(context, present as i8);
-    call(context, ids::HUD_LOAD_ACTION_ICON_SPRITE, &[index as u32])?;
+    call_void(context, ids::HUD_LOAD_ACTION_ICON_SPRITE, &[index as u32])?;
     let timer = ram::g_player_powerup_timers(revision).at(index);
     timer.write(context, 1000);
     match present {
@@ -50,8 +50,8 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
             if revision == Revision::Rev00
                 || ram::g_player_fall_states(revision).at(index).read(context) == 0
             {
-                call(context, ids::PLAY_SOUND, &[5, 94])?;
-                call(
+                call_void(context, ids::PLAY_SOUND, &[5, 94])?;
+                call_void(
                     context,
                     ids::OPEN_ROCKET_SKATES,
                     &[player.address(), index as u32, u32::from(terrain)],
@@ -60,7 +60,7 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
         }
         0 => {
             timer.write(context, timer.read(context) >> 1);
-            call(
+            call_void(
                 context,
                 ids::PLAYER_INITIALIZE_PHASED_JUMP_MOTION,
                 &[index as u32],
@@ -104,7 +104,7 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
             || player.sprite_state().read(context) == 7
             || player.animation_group_mask().read(context) & refresh != 0)
     {
-        call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
         context.discard_u16(player.velocity_x().address())?; // CLR.W.
         player.velocity_x().write(context, 0);
         context.discard_u16(player.velocity_y().address())?; // CLR.W.
@@ -140,13 +140,13 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             if terrain >= 0x80 {
                 return Ok(Some(1));
             }
-            call(context, ids::OPEN_DECOY, &[index as u32])?;
+            call_void(context, ids::OPEN_DECOY, &[index as u32])?;
         }
         8 => {
-            call(context, ids::PRESENT_IS_DOORWAY, &[index as u32])?;
+            call_void(context, ids::PRESENT_IS_DOORWAY, &[index as u32])?;
         }
         17 | 16 => {
-            call(
+            call_void(
                 context,
                 ids::PERFORM_PROMOTION,
                 &[index as u32, present as u32, u32::from(terrain)],
@@ -165,7 +165,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             } else {
                 ids::EAT_YUCKY_FOOD
             };
-            call(context, food, &[index as u32])?;
+            call_void(context, food, &[index as u32])?;
         }
         10 => {
             ram::g_player_burp_timers(revision)
@@ -178,7 +178,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             health.write(context, health.read(context).wrapping_add(4));
         }
         22 => {
-            call(context, ids::SET_TOMATO_RAIN_TOMATOES, &[index as u32])?;
+            call_void(context, ids::SET_TOMATO_RAIN_TOMATOES, &[index as u32])?;
             let text = tje_mem::rom_symbol(revision, "GameText_01724A")
                 .expect("catalogued rain text")
                 .address;
@@ -189,8 +189,8 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
                 || player.sprite_state().read(context) == 76
                 || player.animation_group_mask().read(context) & 0x0830400c != 0
             {
-                call(context, ids::SET_SPRITE, &[player.address(), 1])?;
-                call(context, ids::STOP_PLAYER, &[player.address()])?;
+                call_void(context, ids::SET_SPRITE, &[player.address(), 1])?;
+                call_void(context, ids::STOP_PLAYER, &[player.address()])?;
                 player.animation_motion_axes().write(context, 0);
             }
         }
@@ -201,16 +201,16 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             ram::g_pending_unfall_player(revision).write(context, (index + 1) as i8);
         }
         13 => {
-            call(context, ids::PRESENT_IS_RAIN_CLOUD, &[index as u32])?;
+            call_void(context, ids::PRESENT_IS_RAIN_CLOUD, &[index as u32])?;
         }
         14 => {
-            call(context, ids::EAT_FUDGE_SUNDAE, &[index as u32])?;
+            call_void(context, ids::EAT_FUDGE_SUNDAE, &[index as u32])?;
         }
         19 => {
             if terrain >= 0x80 {
                 return Ok(Some(1));
             }
-            call(context, ids::OPEN_TELEPHONE, &[index as u32])?;
+            call_void(context, ids::OPEN_TELEPHONE, &[index as u32])?;
         }
         20 | 21 => {
             let bucks = ram::g_player_bucks(revision).at(index);
@@ -227,7 +227,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             )?;
         }
         23 => {
-            call(
+            call_void(
                 context,
                 ids::OPEN_EARTHLING_PRESENT,
                 &[player.address(), u32::from(terrain)],
@@ -237,18 +237,18 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             if terrain >= 0x80 || player.height().read(context) > 0 {
                 return Ok(Some(1));
             }
-            call(context, ids::OPEN_SCHOOL_BOOK, &[player.address()])?;
+            call_void(context, ids::OPEN_SCHOOL_BOOK, &[player.address()])?;
         }
         25 => {
             if terrain >= 0x80 {
                 return Ok(Some(1));
             }
-            call(context, ids::OPEN_BOOM_BOX, &[index as u32])?;
+            call_void(context, ids::OPEN_BOOM_BOX, &[index as u32])?;
         }
         1 if player.level().read(context) == 0 => return Ok(Some(1)),
         _ => {}
     }
-    call(
+    call_void(
         context,
         ids::SETUP_SELECTED_PRESENT,
         &[
@@ -276,7 +276,13 @@ pub fn process_presents(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
             ids::CHECK_FOR_TELEPHONE,
             ids::CHECK_TOMATO_RAIN_TIMER,
         ] {
-            call(context, function, &[index])?;
+            if function.metadata().abi.returns_value {
+                // PresentUpdateTransientEffect has a declared int result,
+                // unlike the other effects; this caller deliberately ignores it.
+                call(context, function, &[index])?;
+            } else {
+                call_void(context, function, &[index])?;
+            }
         }
     }
     Ok(None)

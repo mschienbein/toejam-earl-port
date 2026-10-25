@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, Revision, ram};
 
 pub(super) fn row_cursor(revision: Revision, camera: i16) -> Address<i16> {
@@ -66,7 +66,7 @@ pub fn build_camera_tile_row(context: &mut dyn Context, args: &[u32]) -> Result<
         .write(context, screen_row as i8);
     let blank = map_row == 0 || map_row > 26;
     if blank && !wraps {
-        call(
+        call_void(
             context,
             ids::CLEAR_CAMERA_TILE_ROW,
             &[i32::from(camera) as u32],
@@ -189,7 +189,7 @@ pub fn build_camera_tile_column(context: &mut dyn Context, args: &[u32]) -> Resu
                 || ram::g_player2_map_level(revision).read(context) == 26));
     let blank = map_x == 0 || map_x > 19;
     if blank && !wraps {
-        call(
+        call_void(
             context,
             ids::CLEAR_CAMERA_TILE_COLUMN,
             &[i32::from(camera) as u32],
@@ -293,7 +293,7 @@ pub fn build_pending_camera_tiles(context: &mut dyn Context, _: &[u32]) -> Resul
         if vertical != 0 && vertical != 5 {
             let row = pending_row.read(context);
             row_cursor(revision, camera).write(context, row);
-            call(
+            call_void(
                 context,
                 ids::BUILD_CAMERA_TILE_ROW,
                 &[(vertical & 1) as u32, camera as u32],
@@ -303,7 +303,7 @@ pub fn build_pending_camera_tiles(context: &mut dyn Context, _: &[u32]) -> Resul
         if horizontal != 0 && horizontal != 10 {
             let column = pending_column.read(context);
             column_cursor(revision, camera).write(context, column);
-            call(
+            call_void(
                 context,
                 ids::BUILD_CAMERA_TILE_COLUMN,
                 &[(horizontal & 8) as u32, camera as u32],

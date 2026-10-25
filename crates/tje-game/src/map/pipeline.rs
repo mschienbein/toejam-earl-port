@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 pub(super) fn corners(c: &dyn Context, row: i32, column: i32) -> u16 {
@@ -68,7 +68,7 @@ pub fn map_build_filled_terrain_shapes(c: &mut dyn Context, _: &[u32]) -> Result
             }
         }
     }
-    call(c, ids::MAP_REFINE_FILLED_SHAPE_MASKS, &[])?;
+    call_void(c, ids::MAP_REFINE_FILLED_SHAPE_MASKS, &[])?;
     for row in 0..26 {
         for column in 0..19 {
             let cell = map.at(row).at(column);
@@ -139,7 +139,7 @@ pub fn map_expand_regions_beside_paths(c: &mut dyn Context, args: &[u32]) -> Res
                     .into_iter()
                     .any(|(y, x)| map.at(row + y).at(column + x).read(c) != terrain)
             {
-                call(
+                call_void(
                     c,
                     ids::MAP_FILL_RECTANGLE_AND_MERGE_REGIONS,
                     &[

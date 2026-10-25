@@ -1,4 +1,4 @@
-use super::frames::{call_from, clear_byte, clear_word, read_long, with_frame};
+use super::frames::{call_from, call_from_void, clear_byte, clear_word, read_long, with_frame};
 use crate::call_frame::FrameLayout;
 use crate::{Context, Result, ids};
 use tje_mem::{Address, ObjectState, ram, rom, rom_symbol};
@@ -241,7 +241,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
             } else if current_phase.read(context) == 1 && jump != 0 {
                 phase = 0;
                 clear_byte(context, ticks.address())?;
-                call_from(
+                call_from_void(
                     context,
                     ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                     ids::PLAY_SOUND,
@@ -268,7 +268,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
                             )?;
                         } else {
                             phase = direction + 64;
-                            call_from(
+                            call_from_void(
                                 context,
                                 ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                                 ids::PLAY_SOUND_EFFECT,
@@ -293,7 +293,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
                         )?;
                     }
                     if phase != -1 {
-                        call_from(
+                        call_from_void(
                             context,
                             ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                             ids::SET_SPRITE,
@@ -305,7 +305,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
                 } else if terrain == 0x90 {
                     let counter = ram::g_player_jump_counters(revision).at(player);
                     if counter.read(context) > 10 {
-                        call_from(
+                        call_from_void(
                             context,
                             ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                             ids::PLAYER_START_FALLING,
@@ -326,7 +326,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
                 ticks.write(context, ticks.read(context).wrapping_add(1));
             }
             if read_long(context, state.animation_group_mask().address()) & 0x8000 == 0 {
-                call_from(
+                call_from_void(
                     context,
                     ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                     ids::SET_SPRITE,
@@ -346,7 +346,7 @@ pub(super) fn player_update_phased_jump_motion(context: &mut dyn Context) -> Res
                     .draw_flags()
                     .write(context, state.draw_flags().read(context) | 0x40);
             }
-            call_from(
+            call_from_void(
                 context,
                 ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                 ids::PLAYER_APPLY_PHASED_JUMP_INPUT,

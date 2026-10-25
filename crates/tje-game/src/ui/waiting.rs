@@ -1,5 +1,5 @@
 use crate::execution::WaitRequest;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Address, ram};
 
 /// G/src/ui/inventory.c:278 (`InventoryRefreshContentsAndWait`).
@@ -30,7 +30,7 @@ pub fn wait_for_vblank_with_graphics_paused(
 ) -> Result<Option<u32>> {
     let paused = ram::g_v_blank_graphics_paused(context.revision());
     paused.write(context, 1);
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     paused.write(context, 0);
     Ok(None)
 }

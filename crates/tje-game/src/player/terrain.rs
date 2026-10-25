@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/entity_motion_terrain.c:22 (`EntityIsNearPosition`).
@@ -99,7 +99,7 @@ pub(super) fn player_apply_terrain_destination(
         }
         if property != 0x80 {
             sprite = i16::from(entity.sprite_state().read(context) & 3) + 48;
-            call(context, ids::SET_SPRITE, &[entity.address(), sprite as u32])?;
+            call_void(context, ids::SET_SPRITE, &[entity.address(), sprite as u32])?;
             entity.velocity_x().write(context, 0);
             entity.velocity_y().write(context, 0);
             entity.animation_motion_axes().write(context, 0);
@@ -168,7 +168,7 @@ pub(super) fn player_apply_terrain_destination(
                     }
                 }
             }
-            call(context, ids::SET_SPRITE, &[entity.address(), sprite as u32])?;
+            call_void(context, ids::SET_SPRITE, &[entity.address(), sprite as u32])?;
             entity
                 .draw_flags()
                 .write(context, entity.draw_flags().read(context) | 0x30);
@@ -186,7 +186,7 @@ pub(super) fn player1_process_terrain_motion(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::PLAYER1_PROCESS_TERRAIN_MOTION,
         ids::PLAYER_PROCESS_TERRAIN_MOTION,
@@ -202,7 +202,7 @@ pub(super) fn player2_process_terrain_motion(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::PLAYER2_PROCESS_TERRAIN_MOTION,
         ids::PLAYER_PROCESS_TERRAIN_MOTION,

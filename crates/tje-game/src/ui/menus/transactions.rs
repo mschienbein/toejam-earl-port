@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ram};
 
 fn selected_slot(context: &dyn Context, player: i32) -> i8 {
@@ -102,7 +102,7 @@ pub fn inventory_drop_selected_present(
         .read(context)
         != 0
     {
-        call(context, ids::PLAY_SOUND, &[26, 50])?;
+        call_void(context, ids::PLAY_SOUND, &[26, 50])?;
         return Ok(None);
     }
     let mut slot = selected_slot(context, player);
@@ -115,7 +115,7 @@ pub fn inventory_drop_selected_present(
     }
     inventory.at(i32::from(slot)).write(context, -1);
     if present != -1 {
-        call(
+        call_void(
             context,
             ids::DROP_PRESENT,
             &[player as u32, i32::from(present) as u32],
@@ -138,7 +138,7 @@ pub fn inventory_identify_selected_present(
     let mut present = entry.read(context);
     let bucks = ram::g_player_bucks(revision).at(player);
     if bucks.read(context) < 2 || present == -1 {
-        call(context, ids::PLAY_SOUND, &[26, 50])?;
+        call_void(context, ids::PLAY_SOUND, &[26, 50])?;
         return Ok(Some(0));
     }
     let mut changed = false;
@@ -158,7 +158,7 @@ pub fn inventory_identify_selected_present(
         let next = bucks.read(context).wrapping_sub(2);
         bucks.write(context, next);
     } else {
-        call(context, ids::PLAY_SOUND, &[26, 50])?;
+        call_void(context, ids::PLAY_SOUND, &[26, 50])?;
     }
     Ok(Some(u32::from(changed)))
 }
@@ -166,7 +166,7 @@ pub fn inventory_identify_selected_present(
 fn release_byte(context: &mut dyn Context, handle: Address<i8>) -> Result<()> {
     if handle.read(context) != 0 {
         let argument = i32::from(handle.read(context)) as u32;
-        call(context, ids::FREE_ENTITY, &[argument])?;
+        call_void(context, ids::FREE_ENTITY, &[argument])?;
         handle.write(context, 0);
     }
     Ok(())
@@ -198,7 +198,7 @@ pub fn clear_transient_entities(context: &mut dyn Context, _: &[u32]) -> Result<
     let life = ram::g_life_request_display_entity(revision);
     if life.read(context) != 0 {
         let argument = i32::from(life.read(context)) as u32;
-        call(context, ids::FREE_ENTITY, &[argument])?;
+        call_void(context, ids::FREE_ENTITY, &[argument])?;
         life.write(context, 0);
         ram::g_life_request_pending(revision).write(context, 0);
     }
@@ -241,7 +241,7 @@ pub fn clear_transient_entities(context: &mut dyn Context, _: &[u32]) -> Result<
         let choice = ram::g_player_interaction_choice_entities(revision).at(player);
         if choice.read(context) != 0 {
             let argument = i32::from(choice.read(context)) as u32;
-            call(context, ids::FREE_ENTITY, &[argument])?;
+            call_void(context, ids::FREE_ENTITY, &[argument])?;
             choice.write(context, 0);
             ram::g_player_interaction_choice_active(revision)
                 .at(player)
@@ -254,7 +254,7 @@ pub fn clear_transient_entities(context: &mut dyn Context, _: &[u32]) -> Result<
             .at(player)
             .write(context, 0);
     }
-    call(context, ids::PRESENT_RELEASE_DROPPED_ENTITIES, &[])?;
-    call(context, ids::TELEPHONE_CLEAR_ALL, &[])?;
+    call_void(context, ids::PRESENT_RELEASE_DROPPED_ENTITIES, &[])?;
+    call_void(context, ids::TELEPHONE_CLEAR_ALL, &[])?;
     Ok(None)
 }

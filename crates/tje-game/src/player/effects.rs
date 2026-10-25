@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/player/effect_slots.c:26 (`EntitySpawnTimedEffect`).
@@ -45,7 +45,7 @@ pub(super) fn entity_spawn_timed_effect(
         .write(context, animation.period().read(context));
     effect.frame_duration().write(context, 1);
     effect.frame().write(context, -1);
-    call(context, ids::PLAY_SOUND, &[14, 50])?;
+    call_void(context, ids::PLAY_SOUND, &[14, 50])?;
     Ok(Some(0))
 }
 
@@ -64,7 +64,7 @@ pub(super) fn entity_release_finished_timed_effect(
             == 0
     {
         let entity = slot.read(context) as u32;
-        call(context, ids::FREE_ENTITY, &[entity])?;
+        call_void(context, ids::FREE_ENTITY, &[entity])?;
         slot.write(context, 0);
     }
     Ok(None)

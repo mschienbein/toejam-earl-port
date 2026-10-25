@@ -207,6 +207,9 @@ impl Context for Fixture {
     ) -> tje_game::Result<()> {
         self.original_class = Some(class);
         self.original_calls.push(id);
+        if id != ids::WAIT_FOR_NEXT_V_BLANK {
+            return Err(Error::Untranslated(id));
+        }
         self.registers[0] = 0xfeed_5eed;
         Ok(())
     }
@@ -273,7 +276,7 @@ fn native_never_falls_back_and_translated_nested_calls_stay_rust() {
     let mut context = Fixture::new(dispatcher);
     ram::g_rng_state(Revision::Rev02).write(&mut context, 12345);
     dispatcher
-        .call(&mut context, ids::PRE_GENERATE_RANDOMS, &[])
+        .call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[])
         .unwrap();
     assert_eq!(ram::g_rng_state(Revision::Rev02).read(&context), 12345);
     assert_eq!(
@@ -283,7 +286,7 @@ fn native_never_falls_back_and_translated_nested_calls_stay_rust() {
         tje_game::map::park_miller(12345) as u16
     );
     assert_eq!(
-        dispatcher.call(&mut context, ids::FURTHER_INITIALISATION, &[]),
+        dispatcher.call_void(&mut context, ids::FURTHER_INITIALISATION, &[]),
         Err(Error::Untranslated(ids::FURTHER_INITIALISATION))
     );
     assert!(context.original_calls.is_empty());
@@ -373,24 +376,25 @@ fn production_classes_scope_rust_and_original_calls_and_restore_on_errors() {
     let dispatcher = Dispatcher::hybrid_with_overrides(PENDING);
     let mut context = Fixture::new(dispatcher);
     assert!(matches!(
-        dispatcher.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        dispatcher.call_void(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
         Err(Error::ExecutionUnavailable { .. })
     ));
     context.execution = ExecutionClass::TimeAware;
     assert_eq!(
-        dispatcher.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
-        Ok(7)
+        dispatcher.call_void(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        Ok(())
     );
+    assert_eq!(context.data_register(0), 7);
     assert_eq!(context.execution, ExecutionClass::TimeAware);
     assert_eq!(
-        dispatcher.call(&mut context, ids::CLEAR_COLOUR_RAM, &[]),
+        dispatcher.call_void(&mut context, ids::CLEAR_COLOUR_RAM, &[]),
         Err(Error::Arithmetic(ArithmeticTrap::DivideByZero))
     );
     assert_eq!(context.execution, ExecutionClass::TimeAware);
     assert!(context.original_calls.is_empty()); // proven ABS stayed Rust
     let residual = Dispatcher::hybrid_with(&[]);
     assert_eq!(
-        residual.call(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
+        residual.call_void(&mut context, ids::MOVE_DATA_TO_VRAM, &[]),
         Err(Error::Untranslated(ids::MOVE_DATA_TO_VRAM))
     );
     assert_eq!(context.original_class, Some(ExecutionClass::Functional));
@@ -398,7 +402,7 @@ fn production_classes_scope_rust_and_original_calls_and_restore_on_errors() {
     context.execution = ExecutionClass::Functional;
     let wait = ids::WAIT_FOR_NEXT_V_BLANK;
     assert!(matches!(
-        residual.call(&mut context, wait, &[]),
+        residual.call_void(&mut context, wait, &[]),
         Err(Error::ExecutionUnavailable { .. })
     ));
 }
@@ -417,7 +421,7 @@ fn a_time_aware_root_without_clock_capability_fails_before_effects() {
     fixture.execution = ExecutionClass::TimeAware;
     fixture.clock = None;
     assert_eq!(
-        tje_game::call(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]),
+        tje_game::call_void(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]),
         Err(Error::Clock(
             tje_game::execution::CallClockError::Unavailable
         )),
@@ -462,7 +466,8 @@ fn zero_time_rng_rejection_expires_work_without_repairing_rng_outputs() {
                 CallCeiling::new(4, 100).unwrap(),
             )
             .unwrap();
-        let error = tje_game::call(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]).unwrap_err();
+        let error =
+            tje_game::call_void(&mut fixture, ids::WAIT_FOR_NEXT_V_BLANK, &[1]).unwrap_err();
         assert!(matches!(
             error,
             Error::Clock(CallClockError::CeilingExceeded {
@@ -772,4 +777,78 @@ fn typed_void_keeps_explicit_body_d0_output_without_extracting_it() {
     tje_game::call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[]).unwrap();
     assert_eq!(context.registers[0], 0x0dd0_0042);
     assert_eq!(context.d0_reads.get(), 0);
+}
+
+#[test]
+fn scalar_calls_reject_void_ids_before_dispatch_frames_or_clock_effects() {
+    use tje_game::call_frame::{CallSite, OutgoingArguments};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for dispatcher in [
+            Dispatcher::hybrid_with(AUTHORED_VOID_VALUES),
+            Dispatcher::hybrid_with(&[]),
+            Dispatcher::native_with(&[], AUTHORED_VOID_VALUES).unwrap(),
+            Dispatcher::native(&[]).unwrap(),
+        ] {
+            for form in 0..6 {
+                let mut context = Fixture::new(dispatcher);
+                context.memory = AddressSpace::new(vec![0; 64], revision);
+                context.registers[0] = 0x1234_5678;
+                let sp = context.sp;
+                let frame = context.frame;
+                let site = CallSite::new(0x1234);
+                let id = ids::PRE_GENERATE_RANDOMS;
+                let result = match form {
+                    0 => tje_game::call(&mut context, id, &[]),
+                    1 => dispatcher.call(&mut context, id, &[]),
+                    2 => tje_game::call_at(&mut context, id, &[0x1122_3344], site),
+                    3 => dispatcher.call_at(&mut context, id, &[0x1122_3344], site),
+                    4 => OutgoingArguments::existing(&context, 0).unwrap().call(
+                        &mut context,
+                        dispatcher,
+                        id,
+                        site,
+                    ),
+                    _ => tje_game::call_frame::call_at(
+                        &mut context,
+                        dispatcher,
+                        id,
+                        &[0x1122_3344],
+                        site,
+                    ),
+                };
+                let error = result.unwrap_err();
+                assert_eq!(
+                    error,
+                    Error::CallReturnType {
+                        function: id,
+                        requested_value: true
+                    }
+                );
+                let message = error.to_string();
+                assert!(message.contains("call_void") && message.contains("call_at_void"));
+                assert!(message.contains(id.metadata().name));
+                assert_eq!(context.sp, sp);
+                assert_eq!(context.frame, frame);
+                assert_eq!(context.registers[0], 0x1234_5678);
+                assert_eq!(context.memory.read_u32(sp - 4), 0);
+                assert!(context.reads.borrow().is_empty());
+                assert_eq!(context.d0_reads.get(), 0);
+                assert!(context.original_calls.is_empty());
+                assert!(context.completion_requests.is_empty());
+                assert!(!context.clock.as_ref().unwrap().active());
+            }
+        }
+    }
+}
+
+#[test]
+fn native_void_dispatch_keeps_the_authored_body_register_effects() {
+    let dispatcher =
+        Dispatcher::native_with(&[ids::PRE_GENERATE_RANDOMS], AUTHORED_VOID_VALUES).unwrap();
+    let mut context = Fixture::new(dispatcher);
+    tje_game::call_void(&mut context, ids::PRE_GENERATE_RANDOMS, &[]).unwrap();
+    assert_eq!(context.registers[0], 0xc0de_0042);
+    assert_eq!(context.registers[1], 0x1234_5678);
+    assert_eq!(context.d0_reads.get(), 0);
+    assert!(context.original_calls.is_empty());
 }

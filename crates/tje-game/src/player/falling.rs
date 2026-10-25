@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom, rom_symbol};
 
 fn speech_text(context: &dyn Context, symbol: &str) -> u32 {
@@ -38,7 +38,7 @@ pub(super) fn player_start_falling(
         }
     }
     player.acceleration_height().write(context, -128);
-    call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+    call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     super::frames::clear_byte(context, player.animation_motion_axes().address())?;
     player
         .tile()
@@ -55,7 +55,7 @@ pub(super) fn player_start_falling(
     ))?;
     let text = speech_text(context, "GameText_00F8D6");
     call(context, ids::GENERATE_SPEECH, &[number as u32, text, 0])?;
-    call(
+    call_void(
         context,
         ids::PLAY_SOUND_EFFECT,
         &[rom::sfx_falling(revision).address(), 50, 0],
@@ -176,13 +176,13 @@ pub(super) fn player_update_hurt_recovery_and_idle(
         health.write(context, health.read(context).wrapping_sub(damage));
         let mut direction = player.sprite_state().read(context) & 3;
         if ram::g_player_powerups(revision).at(number).read(context) == 5 {
-            call(
+            call_void(
                 context,
                 ids::OPEN_ROCKET_SKATES,
                 &[player.address(), number as u32, u32::from(land)],
             )?;
         } else if player.height().read(context) > 4 {
-            call(context, ids::STOP_PLAYER, &[player.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[player.address()])?;
             super::frames::clear_byte(context, player.animation_motion_axes().address())?;
             player.acceleration_height().write(context, -32);
             ram::g_player_landing_counter_seed(revision)
@@ -191,14 +191,14 @@ pub(super) fn player_update_hurt_recovery_and_idle(
             if player.sprite_state().read(context) == 68 {
                 direction = 1;
             }
-            call(
+            call_void(
                 context,
                 ids::SET_SPRITE,
                 &[player.address(), (direction + 20) as u32],
             )?;
         } else if nearby.offset(12).read(context) < 0x80 {
             let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         } else {
             if nearby.offset(11).read(context) < 0x80 {
                 player
@@ -216,13 +216,13 @@ pub(super) fn player_update_hurt_recovery_and_idle(
                 } else if direction & 2 != 0 {
                     direction ^= 1;
                 }
-                call(
+                call_void(
                     context,
                     ids::SET_SPRITE,
                     &[player.address(), (direction + 64) as u32],
                 )?;
                 super::frames::clear_word(context, player.height().address())?;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_splash(revision).address(), 50, 0],
@@ -231,8 +231,8 @@ pub(super) fn player_update_hurt_recovery_and_idle(
                 if health.read(context) <= 0 {
                     health.write(context, 1);
                 }
-                call(context, ids::STOP_PLAYER, &[player.address()])?;
-                call(
+                call_void(context, ids::STOP_PLAYER, &[player.address()])?;
+                call_void(
                     context,
                     ids::PLAYER_START_FALLING,
                     &[player.address(), number as u32],
@@ -243,12 +243,12 @@ pub(super) fn player_update_hurt_recovery_and_idle(
     if number == 1 {
         if player.sprite_state().read(context) == 0 && player.frame().read(context) != 0 {
             if call(context, ids::GET_RANDOM_NUMBER, &[])? & 0x7ff == 1 {
-                call(context, ids::SET_SPRITE, &[player.address(), 88])?;
+                call_void(context, ids::SET_SPRITE, &[player.address(), 88])?;
             }
         } else if player.sprite_state().read(context) == 88
             && player.frame_duration().read(context) == 0
         {
-            call(context, ids::SET_SPRITE, &[player.address(), 0])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), 0])?;
             player.frame().write(context, 1);
         }
     }
@@ -305,7 +305,7 @@ pub(super) fn player_resolve_descending_terrain(
         } else if player.height().read(context) < 4 {
             if land >= 0x80 {
                 if land == 0x90 {
-                    call(
+                    call_void(
                         context,
                         ids::PLAYER_START_FALLING,
                         &[player.address(), number as u32],
@@ -321,7 +321,7 @@ pub(super) fn player_resolve_descending_terrain(
                     player
                         .draw_flags()
                         .write(context, player.draw_flags().read(context) & !0x40);
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_splash(revision).address(), 50, 0],
@@ -362,7 +362,7 @@ pub(super) fn player_resolve_descending_terrain(
             }
         }
         if sprite != -1 {
-            call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
         }
     }
     Ok(None)

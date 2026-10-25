@@ -105,6 +105,25 @@ impl Machine {
             _ => 0,
         }
     }
+    fn original_entry_effects(&mut self, function: FunctionId, _: ExecutionClass) -> Result<()> {
+        // These raw reads belong to the synthetic test driver, not the body.
+        let return_pc = self.memory.read_u32(self.sp);
+        let arguments = (0..u32::from(function.metadata().abi.argument_count))
+            .map(|index| self.memory.read_u32(self.sp + 4 + index * 4))
+            .collect();
+        self.accesses
+            .borrow_mut()
+            .push(Access::Call(function, self.sp, return_pc, arguments));
+        let value = self.emulate_callee(function);
+        self.data[0] = value;
+        self.sp += 4;
+        {
+            if function.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 
 impl Bus for Machine {
@@ -225,19 +244,16 @@ impl Context for Machine {
             function.metadata().name
         )
     }
-    fn call_original_entry(&mut self, function: FunctionId, _: ExecutionClass) -> Result<u32> {
-        // These raw reads belong to the synthetic test driver, not the body.
-        let return_pc = self.memory.read_u32(self.sp);
-        let arguments = (0..u32::from(function.metadata().abi.argument_count))
-            .map(|index| self.memory.read_u32(self.sp + 4 + index * 4))
-            .collect();
-        self.accesses
-            .borrow_mut()
-            .push(Access::Call(function, self.sp, return_pc, arguments));
-        let value = self.emulate_callee(function);
-        self.data[0] = value;
-        self.sp += 4;
-        Ok(value)
+    fn call_original_entry(&mut self, function: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.original_entry_effects(function, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(
+        &mut self,
+        function: FunctionId,
+        class: ExecutionClass,
+    ) -> Result<()> {
+        self.original_entry_effects(function, class)
     }
 }
 

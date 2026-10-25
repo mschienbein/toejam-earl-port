@@ -520,10 +520,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 // AllocateEntityViewportSprites' shared-tile/failure bug reads entry D4.W.
 // Forward the matching compiled caller's low word, preserving its C ABI on
 // both success and error. Unmodified-D4 callers need no extra forwarding.
-fn allocate_viewport_with_d4(context: &mut dyn Context, object: u32, low: u16) -> Result<u32> {
+fn allocate_viewport_with_d4(context: &mut dyn Context, object: u32, low: u16) -> Result<()> {
     let saved = context.data_register(4);
     context.set_data_register(4, (saved & 0xffff_0000) | u32::from(low));
-    let result = crate::call(context, ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES, &[object, 0]);
+    let result = crate::call_void(context, ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES, &[object, 0]);
     context.set_data_register(4, saved);
     result
 }

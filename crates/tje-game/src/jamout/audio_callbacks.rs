@@ -1,6 +1,6 @@
 use super::frame_support::{
-    add_word, clear_word, in_frame, random_sample_index, release_arguments, retained_call,
-    source_call, subtract_flags,
+    add_word, clear_word, in_frame, random_sample_index, release_arguments, retained_call_void,
+    source_call, source_call_void, subtract_flags,
 };
 use crate::call_frame::{FrameLayout, OutgoingArguments};
 use crate::{Context, FunctionId, Result, ids};
@@ -12,7 +12,7 @@ fn update_music(context: &mut dyn Context, caller: FunctionId) -> Result<()> {
         != ram::g_current_music_selection(revision).read(context)
     {
         let requested = i32::from(ram::g_requested_music_selection(revision).read(context)) as u32;
-        source_call(
+        source_call_void(
             context,
             caller,
             0x36,
@@ -22,7 +22,7 @@ fn update_music(context: &mut dyn Context, caller: FunctionId) -> Result<()> {
         let requested = ram::g_requested_music_selection(revision).read(context);
         ram::g_current_music_selection(revision).write(context, requested);
     } else {
-        source_call(context, caller, 0x4a, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
+        source_call_void(context, caller, 0x4a, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
     }
     Ok(())
 }
@@ -98,7 +98,7 @@ fn restore_solo_earl_counter(context: &mut dyn Context) {
 }
 
 fn play(context: &mut dyn Context, sample: u32, offset: u32) -> Result<()> {
-    source_call(
+    source_call_void(
         context,
         ids::JAM_OUT_V_BLANK,
         offset,
@@ -166,7 +166,7 @@ fn vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         let pending = ram::g_jam_audio_route2_pending_input(revision);
         if pending.read(context) != 0 {
             if pending.byte_offset(1).cast::<u8>().read(context) & 0x40 != 0 {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_V_BLANK,
                     0x236,
@@ -178,7 +178,7 @@ fn vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
                 }
             }
             if pending.byte_offset(1).cast::<u8>().read(context) & 0x10 != 0 {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_V_BLANK,
                     0x25a,
@@ -187,7 +187,7 @@ fn vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
                 )?;
             }
             if pending.byte_offset(1).cast::<u8>().read(context) & 0x20 != 0 {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_V_BLANK,
                     0x26e,
@@ -198,7 +198,7 @@ fn vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
             if pending.read(context) & 0x0f != 0
                 || pending.byte_offset(1).cast::<u8>().read(context) & 0x80 != 0
             {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_V_BLANK,
                     0x28c,
@@ -222,7 +222,7 @@ fn play_selected(context: &mut dyn Context, index: Address<u16>, offset: u32) ->
         .at(selected)
         .read(context)
         .address();
-    retained_call(
+    retained_call_void(
         context,
         ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
         offset,
@@ -263,14 +263,14 @@ fn random_sample_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Op
         if first.byte_offset(1).cast::<u8>().read(context) & 0x80 != 0 {
             let cycle = ram::g_jam_song_cycle_index(revision);
             if cycle.read(context) == 7 {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
                     0x10c,
                     ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
                     &[],
                 )?;
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
                     0x112,
@@ -334,14 +334,14 @@ fn random_sample_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Op
                 clear_word(context, cycle.address())?;
             }
             if cycle.read(context) == 0 {
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
                     0x25e,
                     ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
                     &[],
                 )?;
-                source_call(
+                source_call_void(
                     context,
                     ids::JAM_OUT_RANDOM_SAMPLE_V_BLANK,
                     0x264,

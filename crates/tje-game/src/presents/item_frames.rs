@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::{Address, LevelItem, Ptr, ram, rom};
 
 /// G/src/presents/item_updates.c:40 (`EntityCreateLevelItem`).
@@ -109,7 +109,7 @@ fn create_body(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u3
         ];
         let outgoing = OutgoingArguments::push(context, &values)?;
         let dispatcher = context.dispatcher();
-        outgoing.call(
+        outgoing.call_void(
             context,
             dispatcher,
             ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
@@ -187,7 +187,7 @@ fn visibility_body(
                         || (item.kind().read(context) >= 81 && second_y < 176))))
         {
             if item.object().read(context) == 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::ENTITY_CREATE_LEVEL_ITEM,
                     &[item.address()],
@@ -197,7 +197,7 @@ fn visibility_body(
         } else {
             let number = item.object().read(context);
             if number != 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::FREE_ENTITY,
                     &[number as u32],

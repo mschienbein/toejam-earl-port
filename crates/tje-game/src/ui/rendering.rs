@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, arithmetic, ram, rom};
 
 fn vram_write(address: i32) -> u32 {
@@ -70,7 +70,7 @@ pub fn text_animate_font_banks(
         let source = ram::g_text_font_buffers(revision)
             .at(i32::from(bank.read(context)))
             .address();
-        call(context, ids::DMA_COPY_WORDS_TO_VRAM, &[source, 0xb680, 944])?;
+        call_void(context, ids::DMA_COPY_WORDS_TO_VRAM, &[source, 0xb680, 944])?;
         return Ok(Some(1));
     }
     Ok(Some(0))
@@ -112,7 +112,7 @@ pub fn hud_load_level_number_sprites(
     let tens = i32::from(level) / 10;
     context.write_vdp_command(vram_write(i32::from(tile).wrapping_shl(5)));
     let source = rom::image_level_numbers(revision).at(units).address();
-    call(context, ids::MOVE_DATA_TO_VRAM, &[source, 64])?;
+    call_void(context, ids::MOVE_DATA_TO_VRAM, &[source, 64])?;
     let attributes = (u16::from(rom::level_number_palettes(revision).at(units).read(context))
         << 13)
         .wrapping_add(0x8000);
@@ -125,7 +125,7 @@ pub fn hud_load_level_number_sprites(
     tile = tile.wrapping_add(4);
     context.write_vdp_command(vram_write(i32::from(tile).wrapping_shl(5)));
     let source = rom::image_level_numbers(revision).at(tens).address();
-    call(context, ids::MOVE_DATA_TO_VRAM, &[source, 64])?;
+    call_void(context, ids::MOVE_DATA_TO_VRAM, &[source, 64])?;
     let attributes = (u16::from(rom::level_number_palettes(revision).at(tens).read(context)) << 13)
         .wrapping_add(0x8000);
     sprites.at(sprite + 1).size().write(context, 5);
@@ -180,7 +180,7 @@ pub fn hud_load_lives_sprite_tiles(
     ] {
         for _ in 0..count {
             context.write_vdp_command(vram_write(tile.wrapping_shl(5)));
-            call(context, ids::MOVE_DATA_TO_VRAM, &[source.address(), 16])?;
+            call_void(context, ids::MOVE_DATA_TO_VRAM, &[source.address(), 16])?;
             tile = tile.wrapping_add(1);
         }
     }
@@ -194,7 +194,7 @@ pub fn hud_load_lives_sprite_tiles(
 pub fn draw_nested_window_frame(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     context.write_vdp_command(0x79a00000);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::inventory_auxiliary_tiles(revision).address(), 80],
@@ -211,7 +211,7 @@ pub fn draw_nested_window_frame(context: &mut dyn Context, _: &[u32]) -> Result<
             .read(context),
     );
     let count = second.wrapping_add(first).wrapping_shl(4) as u32;
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[
@@ -253,7 +253,7 @@ pub fn draw_present_display_panel(context: &mut dyn Context, _: &[u32]) -> Resul
     if ram::g_present_display_panel_drawn(revision).read(context) != 0 {
         return Ok(None);
     }
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     for row in 0_i32..5 {
         context.write_vdp_command(0x60140003_u32.wrapping_add(((row + 5) as u32) << 23));
         for column in 0..19 {
@@ -269,7 +269,7 @@ pub fn draw_present_display_panel(context: &mut dyn Context, _: &[u32]) -> Resul
             context.write_vdp_data(0xc1d2_u16.wrapping_add(tile));
         }
     }
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     ram::g_present_display_panel_drawn(revision).write(context, 1);
     Ok(None)
 }
@@ -281,7 +281,7 @@ pub fn draw_pause_choice_panel(
 ) -> Result<Option<u32>> {
     let revision = context.revision();
     let selection = i32::from(arguments[0] as i16);
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let tile_base = (i32::from(
         rom::inventory_auxiliary_tile_counts(revision)
             .at(1)
@@ -306,6 +306,6 @@ pub fn draw_pause_choice_panel(
             context.write_vdp_data(tile);
         }
     }
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     Ok(None)
 }

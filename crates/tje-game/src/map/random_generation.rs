@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, arithmetic::expr_rem_u32, ram, rom};
 
 pub(super) fn random(c: &mut dyn Context) -> Result<u32> {
@@ -270,8 +270,8 @@ pub fn map_find_region_growth_origin(c: &mut dyn Context, args: &[u32]) -> Resul
 
 /// G/src/map/random_regions_and_cleanup.c:609 (`MapStabilizeRegionConnections`).
 pub fn map_stabilize_region_connections(c: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    call(c, ids::MAP_WIDEN_HORIZONTAL_REGION_EDGES, &[])?;
-    call(c, ids::MAP_WIDEN_VERTICAL_REGION_EDGES, &[])?;
+    call_void(c, ids::MAP_WIDEN_HORIZONTAL_REGION_EDGES, &[])?;
+    call_void(c, ids::MAP_WIDEN_VERTICAL_REGION_EDGES, &[])?;
     let map = ram::g_player1_level_map(c.revision());
     let mut changed = true;
     while changed {

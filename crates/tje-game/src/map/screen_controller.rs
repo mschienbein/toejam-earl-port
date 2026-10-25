@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, FunctionId, Result, call_at, ids};
+use crate::{Context, FunctionId, Result, call_at, call_at_void, ids};
 use tje_mem::{HardwareSprite, Revision, ram, rom};
 
 // Matching c_map_drawing_and_controller.s:1558-1802 (REV 02). REV 00
@@ -26,18 +26,28 @@ fn screen_call(
     call_at(c, id, args, site)
 }
 
-// MCC68K batches outgoing areas across adjacent calls. Keep each area live until
-// the matching ADDQ/LEA cleanup; later pointer-taking callees see the real SP.
-fn retain_call(
+fn screen_call_void(
     c: &mut dyn Context,
     id: FunctionId,
     args: &[u32],
     rev02_return_pc: u32,
-) -> Result<u32> {
+) -> Result<()> {
+    let site = screen_site(c, rev02_return_pc);
+    call_at_void(c, id, args, site)
+}
+
+// MCC68K batches outgoing areas across adjacent calls. Keep each area live until
+// the matching ADDQ/LEA cleanup; later pointer-taking callees see the real SP.
+fn retain_call_void(
+    c: &mut dyn Context,
+    id: FunctionId,
+    args: &[u32],
+    rev02_return_pc: u32,
+) -> Result<()> {
     let outgoing = OutgoingArguments::push(c, args)?;
     let site = screen_site(c, rev02_return_pc);
     let dispatcher = c.dispatcher();
-    outgoing.call(c, dispatcher, id, site)
+    outgoing.call_void(c, dispatcher, id, site)
 }
 
 fn release_arguments(c: &mut dyn Context, slots: u32) -> Result<()> {
@@ -74,33 +84,33 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     if pending.read(c) != 0 {
         super::waits::wait_pending_byte(c, pending.cast())?;
     } else {
-        screen_call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x888e)?;
+        screen_call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x888e)?;
     }
-    screen_call(c, ids::DISABLE_BLANKING_GRAPHICS, &[], 0x8896)?;
+    screen_call_void(c, ids::DISABLE_BLANKING_GRAPHICS, &[], 0x8896)?;
     let mode = ram::g_mode2_reg_softcopy(r);
     mode.write(c, mode.read(c) & 0x3c);
     c.write_vdp_control(0x8104 | u16::from(mode.read(c)));
     c.write_vdp_command(0x4020_0000);
     let count = i32::from(rom::map_screen_tile_count(r).read(c)) << 4;
-    retain_call(
+    retain_call_void(
         c,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::map_screen_tiles(r).address(), count as u32],
         0x88ce,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_INITIALIZE_SCREEN_SPRITES,
         &[sprites.address()],
         0x88d6,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_DRAW_BACKGROUND_AND_TERRAIN,
         &[i32::from(map_number) as u32],
         0x88e0,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::LOAD_MAP_INTO_VRAM,
         &[i32::from(map_number) as u32, sprites.address()],
@@ -118,7 +128,7 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         (rom::palette_map_line2(r).address(), 1, 0x893c),
         (rom::palette_map_line3(r).address(), 2, 0x8948),
     ] {
-        retain_call(c, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot], pc)?;
+        retain_call_void(c, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot], pc)?;
     }
     // The original uses a word-width player*128 address before reading level.
     map_number = i16::from(
@@ -128,37 +138,37 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             .level()
             .read(c),
     );
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_DRAW_PLAYER,
         &[i32::from(map_number) as u32, sprites.address()],
         0x8966,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_DRAW_SHIP_PIECE,
         &[i32::from(map_number) as u32, sprites.offset(2).address()],
         0x8974,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_DRAW_ELEVATOR,
         &[i32::from(map_number) as u32, sprites.offset(6).address()],
         0x8984,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
         &[sprites.address(), 11, 1],
         0x8994,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
         &[sprites.address(), 0, 0],
         0x89a0,
     )?;
-    retain_call(
+    retain_call_void(
         c,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[sprites.address(), 0xf800, 320],
@@ -170,8 +180,8 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     c.write_vdp_control(0x8104 | u16::from(display_mode));
     if ram::g_map_reveal_mode(r).read(c) != 0 {
         for animation in 1..12 {
-            retain_call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[4], 0x89de)?;
-            retain_call(
+            retain_call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[4], 0x89de)?;
+            retain_call_void(
                 c,
                 ids::MAP_UPLOAD_COVER_ANIMATION_FRAME,
                 &[sprites.address(), animation, 0],
@@ -180,9 +190,9 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             release_arguments(c, 4)?;
         }
     }
-    screen_call(c, ids::PRE_GENERATE_RANDOMS, &[], 0x8a00)?;
+    screen_call_void(c, ids::PRE_GENERATE_RANDOMS, &[], 0x8a00)?;
     while screen_call(c, ids::READ_MAPPED_PLAYER_INPUT, &[player as u32], 0x8a16)? & 0x20 != 0 {
-        screen_call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x8a08)?;
+        screen_call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x8a08)?;
     }
     let buttons = loop {
         let buttons =
@@ -190,18 +200,18 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         if buttons & 0x70 != 0 {
             break buttons & 0x70;
         }
-        screen_call(c, ids::DRAW_MAP_CHARACTERS, &[sprites.address()], 0x8a28)?;
+        screen_call_void(c, ids::DRAW_MAP_CHARACTERS, &[sprites.address()], 0x8a28)?;
     };
     while screen_call(c, ids::READ_MAPPED_PLAYER_INPUT, &[player as u32], 0x8a5e)?
         & i32::from(buttons) as u32
         != 0
     {
-        screen_call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x8a50)?;
+        screen_call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1], 0x8a50)?;
     }
     mode.write(c, mode.read(c) & 0x3c);
     c.write_vdp_control(0x8104 | u16::from(mode.read(c)));
-    screen_call(c, ids::DRAW_STARFIELD_PLANE, &[], 0x8a84)?;
-    screen_call(
+    screen_call_void(c, ids::DRAW_STARFIELD_PLANE, &[], 0x8a84)?;
+    screen_call_void(
         c,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[ram::g_hardware_sprite_table(r).address(), 0xf800, 320],
@@ -210,7 +220,7 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     if ram::g_map_reveal_mode(r).read(c) != 0 || buttons & 0x20 != 0 {
         c.write_vdp_command(0x4000_0000);
         let count = (i32::from(rom::map_screen_tile_count(r).read(c)) + 41) << 4;
-        screen_call(
+        screen_call_void(
             c,
             ids::MOVE_DATA_TO_VRAM,
             &[rom::level_tiles(r).address(), count as u32],
@@ -218,18 +228,18 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         )?;
         c.write_vdp_control(0x9100);
         c.write_vdp_control(0x9200);
-        screen_call(c, ids::DRAW_HUD, &[], 0x8aec)?;
+        screen_call_void(c, ids::DRAW_HUD, &[], 0x8aec)?;
         for (palette, slot, pc) in [
             (rom::palette_game_line1(r).address(), 0, 0x8af6),
             (rom::palette_game_line2(r).address(), 1, 0x8b02),
             (rom::palette_game_line3(r).address(), 2, 0x8b0e),
         ] {
-            retain_call(c, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot], pc)?;
+            retain_call_void(c, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot], pc)?;
         }
         let partner_open = ram::g_player_inventory_open(r).at(player ^ 1).read(c) != 0;
         release_arguments(c, 6)?;
         if partner_open {
-            screen_call(
+            screen_call_void(
                 c,
                 ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
                 &[(player ^ 1) as u32],
@@ -237,7 +247,7 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             )?;
         }
     } else {
-        screen_call(
+        screen_call_void(
             c,
             ids::SHOW_SHIP_PIECES,
             &[(-1_i32) as u32, player as u32],
@@ -246,7 +256,7 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     }
     mode.write(c, mode.read(c) | 0x40);
     c.write_vdp_control(0x8104 | u16::from(mode.read(c)));
-    screen_call(c, ids::ENABLE_BLANKING_GRAPHICS, &[], 0x8b68)?;
+    screen_call_void(c, ids::ENABLE_BLANKING_GRAPHICS, &[], 0x8b68)?;
     frame.leave(c)?;
     Ok(None)
 }

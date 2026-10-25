@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
 /// G/src/cutscenes/collision_scene_entities.c:10 (`IntroCreateCollisionSceneEntities`).
@@ -107,20 +107,20 @@ pub fn intro_release_collision_scene_entities(
     let parent = ram::g_intro_collision_parent_entity(revision);
     if parent.read(context) != 0 {
         let handle = parent.read(context);
-        call(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
     }
     parent.write(context, 0);
     for index in 0..3 {
         let auxiliary = ram::g_intro_collision_auxiliary_entities(revision).at(index);
         if auxiliary.read(context) != 0 {
             let handle = auxiliary.read(context);
-            call(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
         }
         auxiliary.write(context, 0);
         let attached = ram::g_intro_collision_attached_entities(revision).at(index);
         if attached.read(context) != 0 {
             let handle = attached.read(context);
-            call(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
         }
         attached.write(context, 0);
     }

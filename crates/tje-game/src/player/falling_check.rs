@@ -1,5 +1,5 @@
 use crate::call_frame::{FrameLayout, LocalFrame};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/player/active_present_falling_and_respawn.c:250 (`CheckPlayerFalling`).
@@ -60,7 +60,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                     & 0x20
                     == 0
                 {
-                    call(
+                    call_void(
                         context,
                         ids::SET_SPRITE,
                         &[player.address(), (direction + 20) as u32],
@@ -78,7 +78,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                 super::frames::clear_byte(context, state.address())?;
                 let selected =
                     call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])? as i8;
-                call(
+                call_void(
                     context,
                     ids::SET_SPRITE,
                     &[player.address(), selected as u32],
@@ -86,7 +86,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
             } else if player.velocity_height().read(context) < 0
                 && player.height().read(context) < 4
             {
-                call(
+                call_void(
                     context,
                     ids::SET_SPRITE,
                     &[player.address(), (direction + 24) as u32],
@@ -95,7 +95,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                 super::frames::clear_word(context, player.velocity_height().address())?;
                 super::frames::clear_word(context, player.acceleration_height().address())?;
             } else if player.frame_duration().read(context) == 0 {
-                call(
+                call_void(
                     context,
                     ids::SET_SPRITE,
                     &[player.address(), (direction + 20) as u32],
@@ -139,7 +139,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                     other
                         .draw_flags()
                         .write(context, other.draw_flags().read(context) | 0x80);
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_squish(revision).address(), 50, 0],
@@ -156,7 +156,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                 selected = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[other.address()])? as i8;
             }
             if selected != -1 {
-                call(
+                call_void(
                     context,
                     ids::SET_SPRITE,
                     &[other.address(), selected as u32],
@@ -168,7 +168,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
         if player.sprite_state().read(context) == 2 && player.frame_duration().read(context) == 0 {
             let selected =
                 call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])? as i8;
-            call(
+            call_void(
                 context,
                 ids::SET_SPRITE,
                 &[player.address(), selected as u32],
@@ -184,7 +184,7 @@ fn check(context: &mut dyn Context, stack: &LocalFrame) -> Result<Option<u32>> {
                 .write(context, 20);
         }
     }
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::CHECK_PLAYER_FALLING,
         ids::MAKE_PLAYER_FALL,

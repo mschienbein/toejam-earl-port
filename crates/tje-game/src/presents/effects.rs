@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/presents/present_effects.c:40 (`PresentStartTransientEffect`).
@@ -42,7 +42,7 @@ pub fn present_start_transient_effect(
         .write(context, animation.period().read(context));
     effect.frame_duration().write(context, 1);
     effect.frame().write(context, -1);
-    call(context, ids::PLAY_SOUND, &[16, 50])?;
+    call_void(context, ids::PLAY_SOUND, &[16, 50])?;
     Ok(Some(0))
 }
 
@@ -58,7 +58,7 @@ pub fn present_update_transient_effect(
     if number != 0 {
         let effect = ram::g_player_info(revision).at(i32::from(number));
         if effect.frame_duration().read(context) == 0 {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handle.write(context, 0);
         } else if effect.frame().read(context) <= 2 {
             return Ok(Some(0));
@@ -107,7 +107,7 @@ pub fn present_update_rain_cloud(
             || ram::g_player_lives(revision).at(index).read(context) < 0
             || matches!(player.sprite_state().read(context), 5 | 6)
         {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handle.write(context, 0);
         } else if cloud.sprite_state().read(context) != 0 {
             if cloud.frame_duration().read(context) == 0 {
@@ -121,11 +121,11 @@ pub fn present_update_rain_cloud(
                     ram::g_player_pending_hurt_damage(revision)
                         .at(index)
                         .write(context, 2);
-                    call(context, ids::SET_SPRITE, &[player.address(), 68])?;
+                    call_void(context, ids::SET_SPRITE, &[player.address(), 68])?;
                     player.animation_motion_axes().write(context, 3);
                     player.velocity_height().write(context, 0);
                     player.acceleration_height().write(context, 0);
-                    call(context, ids::PLAY_SOUND, &[18, 40])?;
+                    call_void(context, ids::PLAY_SOUND, &[18, 40])?;
                 } else if groups & (0x80 | 0x100 | 0x200) != 0 {
                     let health = ram::g_player_health(revision).at(index);
                     health.write(context, health.read(context).wrapping_sub(2));
@@ -178,7 +178,7 @@ pub fn present_update_decoy(context: &mut dyn Context, arguments: &[u32]) -> Res
             .read(context)
             != decoy.level().read(context)
         {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handle.write(context, 0);
         }
         if ram::g_player_decoy_hit_counts(revision)
@@ -186,7 +186,7 @@ pub fn present_update_decoy(context: &mut dyn Context, arguments: &[u32]) -> Res
             .read(context)
             >= 3
         {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             let effect_arguments = [
                 decoy.x().read(context) as u32,
                 decoy.y().read(context) as u32,
@@ -468,7 +468,7 @@ pub fn present_update_boom_box(
         let remaining = super::predecrement_i16(context, timer);
         if remaining <= 0 {
             let level = object.level().read(context);
-            call(context, ids::EARTHLING_WAKE_LEVEL, &[level as u32])?;
+            call_void(context, ids::EARTHLING_WAKE_LEVEL, &[level as u32])?;
             let args = [
                 index as u32,
                 object.x().read(context) as u32,
@@ -478,7 +478,7 @@ pub fn present_update_boom_box(
             ];
             call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
             let number = handle.read(context);
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handle.write(context, 0);
             if ram::g_player_boom_box_entities(revision)
                 .at(index ^ 1)
@@ -568,9 +568,9 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
             && player.animation_group_mask().read(context) & 0x7785bf60 == 0
         {
             let sprite = if promotion == 17 { 71 } else { 70 };
-            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
             player.animation_motion_axes().write(context, 3);
-            call(context, ids::STOP_PLAYER, &[player.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[player.address()])?;
         }
     } else {
         if promotion == 17
@@ -583,7 +583,7 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
                 ram::g_hud_redraw_pending(revision).write(context, 1);
             }
         } else if promotion == 16 {
-            call(context, ids::PLAY_SOUND, &[18, 40])?;
+            call_void(context, ids::PLAY_SOUND, &[18, 40])?;
             context.discard_u8(ram::g_player_health(revision).at(index).address())?; // CLR.B.
             ram::g_player_health(revision).at(index).write(context, 0);
         }
@@ -596,7 +596,7 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
                 .address();
             let speaker = super::word_indexed_player(revision, index).address();
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 1])?;
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_yeah_all_right(revision).address(), 90, 0],
@@ -604,7 +604,7 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
         }
     }
     if promotion == 17 {
-        call(
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_extra_life_glitz(revision).address(), 87, 0],
@@ -623,7 +623,7 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
         let timer = ram::g_player_burp_timers(revision).at(index);
         if timer.read(context) == -1 {
             call(context, ids::START_DIALOGUE, &[24, index as u32])?;
-            call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[14])?;
+            call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[14])?;
             timer.write(context, 50);
         } else {
             let remaining = super::predecrement_i8(context, timer);
@@ -645,7 +645,7 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
                 let delay = 20 + (call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 81;
                 timer.write(context, delay as i8);
                 if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_burp(revision).address(), 50, 0],
@@ -676,11 +676,11 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
             if health.read(context) > 1 {
                 health.write(context, health.read(context).wrapping_sub(1));
             }
-            call(context, ids::PLAY_SOUND, &[18, 40])?;
+            call_void(context, ids::PLAY_SOUND, &[18, 40])?;
         } else if display.sprite_state().read(context) == 17
             && ram::g_pcm_effect_cooldown_ticks(revision).read(context) < 4
         {
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_extra_life_glitz(revision).address(), 87, 0],
@@ -702,7 +702,7 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
             if context.read_u8(random_low) & 2 != 0 {
                 let phase = i16::from(display.frame().read(context)) % 14;
                 if phase == 12 || (phase > 1 && phase < 11 && phase != 7) {
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_jam_snare_drum(revision).address(), 90, 0],
@@ -737,7 +737,7 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
                 .address();
             call(context, ids::GENERATE_SPEECH, &[index as u32, text, 1])?;
             promotion_complete = true;
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_yeah_all_right(revision).address(), 90, 0],
@@ -745,16 +745,16 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
         }
         if player.sprite_state().read(context) == 71 || player.sprite_state().read(context) == 70 {
             let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         }
         let number = handle.read(context);
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         context.discard_u8(handle.address())?; // CLR.B after FreeEntity.
         handle.write(context, 0);
         if promotion_complete
             && (i32::from(ram::g_player_rank(revision).at(index).read(context)) - 2) % 3 == 0
         {
-            call(
+            call_void(
                 context,
                 ids::PERFORM_PROMOTION,
                 &[index as u32, 17, u32::from(terrain)],
@@ -784,7 +784,7 @@ pub fn player_teleport_through_doorway(
         camera_y = ram::g_camera2_pending_y(revision).read(context);
     }
     loop {
-        call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[index as u32])?;
+        call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[index as u32])?;
         let y = player.y().read(context);
         let x = player.x().read(context);
         let args = [player.address(), x as u32, y as u32, 2];
@@ -805,15 +805,15 @@ pub fn player_teleport_through_doorway(
     {
         return Ok(None);
     }
-    call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     mode.write(context, mode.read(context) & 0x3c);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
     mode.write(context, mode.read(context) | 0x40);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     Ok(None)
 }
 
@@ -845,7 +845,7 @@ pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> R
         && ram::g_player_inventory_open(revision).at(0).read(context) == 0
         && ram::g_player_inventory_open(revision).at(1).read(context) == 0
     {
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         context.discard_u8(handle.address())?; // CLR.B after FreeEntity.
         handle.write(context, 0);
         return Ok(None);
@@ -856,7 +856,7 @@ pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> R
         let player = ram::g_player_info(revision).at(index);
         let doorway_y = object.y().read(context);
         if doorway_y > player.y().read(context) {
-            call(
+            call_void(
                 context,
                 ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
                 &[index as u32, player.address()],

@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::ram;
 
 /// G/src/core/startup_and_main_loop.c:307 (`CheckStartButton`, REV 02 0x000A24).
@@ -18,7 +18,7 @@ pub fn check_start_button(context: &mut dyn Context, _: &[u32]) -> Result<Option
                 & 0x80
                 == 0
             {
-                call_at(
+                call_at_void(
                     context,
                     ids::GAME_PAUSED,
                     &[0],
@@ -26,7 +26,7 @@ pub fn check_start_button(context: &mut dyn Context, _: &[u32]) -> Result<Option
                 )?;
             }
         } else if ram::g_player2_previous_processed_input(revision).read(context) & 0x80 == 0 {
-            call_at(
+            call_at_void(
                 context,
                 ids::GAME_PAUSED,
                 &[1],
@@ -45,13 +45,13 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
     context.set_address_register(2, ram::g_player_inventory_open(revision).address());
     context.set_address_register(3, ram::g_player_processed_input(revision).address());
-    call_at(
+    call_at_void(
         context,
         ids::GET_PLAYER_INPUT,
         &[],
         CallSite::relative(ids::PROCESS_INPUT, revision, 0x14),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::CHECK_A_BUTTON,
         &[],
@@ -73,7 +73,7 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         return Ok(None);
     }
     if ram::g_player1_map_level(revision).read(context) < 26 {
-        call_at(
+        call_at_void(
             context,
             ids::CHECK_B_BUTTON,
             &[],
@@ -82,7 +82,7 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         if (first | second) & 0x20 != 0 {
             if first & 0x20 != 0 {
                 if ram::g_player_inventory_open(revision).at(0).read(context) == 0 {
-                    call_at(
+                    call_at_void(
                         context,
                         ids::DRAW_GAME_MAP,
                         &[0],
@@ -91,7 +91,7 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
                     return Ok(None);
                 }
             } else if ram::g_player_inventory_open(revision).at(1).read(context) == 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::DRAW_GAME_MAP,
                     &[1],
@@ -116,7 +116,7 @@ fn process_input_inner(context: &mut dyn Context) -> Result<Option<u32>> {
                     .read(context),
             );
             context.set_data_register(2, player as u32);
-            call_at(
+            call_at_void(
                 context,
                 ids::SPRITE_CHECKS,
                 &[player as u32, input],

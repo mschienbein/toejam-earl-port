@@ -71,7 +71,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
                     if bubble.behavior_flags().read(context) & 8 != 0
                         && i16::from(bubble.owner().read(context)) == speaker
                     {
-                        dispatcher.call_at(
+                        dispatcher.call_at_void(
                             context,
                             ids::FREE_ENTITY,
                             &[i32::from(number) as u32],
@@ -96,7 +96,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
                 }
             }
             let number = i32::from(entities.at(slot).read(context));
-            dispatcher.call_at(context, ids::FREE_ENTITY, &[number as u32], site(0xf6))?;
+            dispatcher.call_at_void(context, ids::FREE_ENTITY, &[number as u32], site(0xf6))?;
         }
         let mut length = 0_i16;
         while context.read_u8(text.wrapping_add(i32::from(length) as u32)) != 0 {
@@ -142,7 +142,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         // then restore this C function's externally preserved incoming D4.
         let saved_d4 = context.data_register(4);
         context.set_data_register(4, (saved_d4 & 0xffff_0000) | u32::from(slot as u16));
-        let allocation = dispatcher.call_at(
+        let allocation = dispatcher.call_at_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[bubble.address(), viewport],
@@ -152,7 +152,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         allocation?;
         if bubble.draw_flags().read(context) & 6 == 0 {
             let number = i32::from(entities.at(slot).read(context));
-            dispatcher.call_at(context, ids::FREE_ENTITY, &[number as u32], site(0x1f8))?;
+            dispatcher.call_at_void(context, ids::FREE_ENTITY, &[number as u32], site(0x1f8))?;
             context.discard_u8(entities.at(slot).address())?;
             entities.at(slot).write(context, 0);
             return Ok(Some(0));
@@ -168,7 +168,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         ))?;
         let tile = u32::from(bubble.tile().read(context) & 0x7ff);
         let queue = OutgoingArguments::push(context, &[text, i32::from(length) as u32, tile])?;
-        queue.call(
+        queue.call_void(
             context,
             dispatcher,
             ids::QUEUE_SPEECH_TEXT_TILES,
@@ -176,7 +176,7 @@ pub fn generate_speech(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         )?;
         let prepare =
             OutgoingArguments::push(context, &[bubble.address(), frame.address(), 1, viewport])?;
-        prepare.call(
+        prepare.call_void(
             context,
             dispatcher,
             ids::PREPARE_ENTITY_SPRITE_FRAME,
@@ -215,7 +215,7 @@ pub fn clear_speech_bubbles_and_replies(
     for slot in 0..4 {
         if entities.at(slot).read(context) != 0 {
             let number = i32::from(entities.at(slot).read(context));
-            crate::call(context, ids::FREE_ENTITY, &[number as u32])?;
+            crate::call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             entities.at(slot).write(context, 0);
         }
     }
@@ -338,7 +338,7 @@ pub fn update_speech_and_dialogue(
                     decrement_bubble_lifetime(lifetimes.at(slot).read(context));
                 lifetimes.at(slot).write(context, lifetime);
                 if expired || bubble.draw_flags().read(context) & 6 == 0 {
-                    dispatcher.call_at(
+                    dispatcher.call_at_void(
                         context,
                         ids::FREE_ENTITY,
                         &[i32::from(number) as u32],
@@ -401,7 +401,7 @@ pub fn update_speech_and_dialogue(
                         context,
                         &[rom::sfx_achoo(revision).address(), 50, 0],
                     )?;
-                    sound.call(context, dispatcher, ids::PLAY_SOUND_EFFECT, site(0x128))?;
+                    sound.call_void(context, dispatcher, ids::PLAY_SOUND_EFFECT, site(0x128))?;
                     let split = ram::g_split_screen_enabled(revision).read(context);
                     sound.release(context)?;
                     if split != 0 {

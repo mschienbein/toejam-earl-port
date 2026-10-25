@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, HardwareSprite, ram, rom};
 
 /// G/src/map/map_drawing_and_controller.c:36 (`MapDrawFixedBackgroundDecorations`).
@@ -46,7 +46,7 @@ pub fn map_draw_player(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>>
             } else {
                 rom::earl_map_icon(r)
             };
-            call(c, ids::MOVE_DATA_TO_VRAM, &[icon.address(), 16])?;
+            call_void(c, ids::MOVE_DATA_TO_VRAM, &[icon.address(), 16])?;
             sprite.tile().write(c, sprite.tile().read(c) | 0xe000);
             sprite.x().write(
                 c,
@@ -83,7 +83,7 @@ pub fn map_draw_ship_piece(c: &mut dyn Context, args: &[u32]) -> Result<Option<u
         let y = records.at(piece).y().read(c);
         let tile = sprites.tile().read(c) & 0x7ff;
         c.write_vdp_command(icon_command(tile));
-        call(
+        call_void(
             c,
             ids::MOVE_DATA_TO_VRAM,
             &[rom::ship_piece_map_icon(r).address(), 64],
@@ -118,7 +118,7 @@ pub fn map_draw_elevator(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32
         let x = elevator.x().read(c).wrapping_sub(128);
         let y = elevator.y().read(c).wrapping_sub(64);
         c.write_vdp_command(icon_command(sprite.tile().read(c) & 0x7ff));
-        call(
+        call_void(
             c,
             ids::MOVE_DATA_TO_VRAM,
             &[rom::elevator_map_icon(r).address(), 16],
@@ -134,7 +134,7 @@ pub fn map_draw_elevator(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32
 /// G/src/map/map_drawing_and_controller.c:410 (`DrawMapCharacters`).
 pub fn draw_map_characters(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     let sprites = Address::<HardwareSprite>::new(args[0]);
-    call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     if ram::g_frame_counter(c.revision()).read(c) & 24 != 0 {
         for p in 0..3 {
             c.write_vdp_command(0x78000003 + (p as u32) * 0x80000);
@@ -171,7 +171,7 @@ pub fn map_upload_cover_animation_frame(c: &mut dyn Context, args: &[u32]) -> Re
         // Both matching listings load height (+1) before width (+0).
         let height = u32::from(piece.height().read(c));
         let count = (height * u32::from(piece.width().read(c))) as i16;
-        call(
+        call_void(
             c,
             if flags < 0 {
                 ids::SPRITE_UNPACK_INTERLEAVED_RLE
@@ -194,12 +194,12 @@ pub fn map_upload_cover_animation_frame(c: &mut dyn Context, args: &[u32]) -> Re
             .at(i32::from(old))
             .write(c, value);
     }
-    call(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-    call(
+    call_void(c, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(
         c,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[sprites.address(), 0xf800, 320],
     )?;
-    call(c, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
+    call_void(c, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
     Ok(None)
 }

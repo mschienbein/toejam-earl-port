@@ -1,5 +1,5 @@
 use super::large_player_parts::entity_at;
-use crate::{Context, Result, call, execution::WaitRequest, ids};
+use crate::{Context, Result, call, call_void, execution::WaitRequest, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/sega_logo.c:24 (`SegaLogoClearVideoPlanes`).
@@ -7,17 +7,17 @@ use tje_mem::{Ptr, ram, rom};
 /// raster observations; its 4,176 data words cannot fit a frozen hardware FIFO.
 pub fn sega_logo_clear_video_planes(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    call(context, ids::CLEAR_COLOUR_RAM, &[])?;
+    call_void(context, ids::CLEAR_COLOUR_RAM, &[])?;
     context.write_vdp_command(0x7fe0_0001);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::vram_clearing_data(revision).address(), 16],
     )?;
     context.write_vdp_command(0x6000_0002);
-    call(context, ids::FILL_VDP_DATA_WORDS, &[0xe3ff, 2048])?;
+    call_void(context, ids::FILL_VDP_DATA_WORDS, &[0xe3ff, 2048])?;
     context.write_vdp_command(0x6000_0003);
-    call(context, ids::FILL_VDP_DATA_WORDS, &[0x63ff, 2048])?;
+    call_void(context, ids::FILL_VDP_DATA_WORDS, &[0x63ff, 2048])?;
     Ok(None)
 }
 
@@ -56,7 +56,7 @@ pub fn sega_logo_create_trademark_entity(
         trademark.frame_duration().write(context, 1);
         trademark.frame().write(context, -1);
         trademark.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[trademark.address(), 0],
@@ -74,7 +74,7 @@ pub fn sega_logo_release_trademark_entity(
     let selector = ram::g_sega_trademark_entity(context.revision());
     let slot = selector.read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     selector.write(context, 0);
     Ok(None)
@@ -113,20 +113,20 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context,
         Ptr::new(ids::SEGA_LOGO_V_BLANK.metadata().address(revision)),
     );
-    call(context, ids::SEGA_LOGO_CLEAR_VIDEO_PLANES, &[])?;
-    call(
+    call_void(context, ids::SEGA_LOGO_CLEAR_VIDEO_PLANES, &[])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank0(revision).address(), 0],
     )?;
-    call(context, ids::DRAW_STARFIELD_PLANE, &[])?;
+    call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
     context.write_vdp_command(0x4000_0000);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::splash_sega_logo(revision).address(), 784],
     )?;
-    call(
+    call_void(
         context,
         ids::UPLOAD_VRAM_WORD_RECTANGLE,
         &[
@@ -174,16 +174,16 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 0);
         context.discard_u16(ram::g_sega_palette_upload_pending(revision).address())?;
         ram::g_sega_palette_upload_pending(revision).write(context, 0);
-        call(context, ids::SEGA_LOGO_CREATE_TRADEMARK_ENTITY, &[])?;
-        call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
-        call(
+        call_void(context, ids::SEGA_LOGO_CREATE_TRADEMARK_ENTITY, &[])?;
+        call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+        call_void(
             context,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
             &[rom::palette_space_screen_bank2(revision).address(), 2],
         )?;
         let mut character_x = 280_i16;
         let mut character_y = 150_i16;
-        call(
+        call_void(
             context,
             ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
             &[0, character_x as i32 as u32, character_y as i32 as u32],
@@ -191,7 +191,7 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         ram::g_sega_v_blank_sprite_updates_enabled(revision).write(context, 1);
         palette_time = counter.read(context);
         while character_x > -50 {
-            call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+            call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
             let frame = counter.read(context);
             context.wait_until(WaitRequest::ram_word_not_equal(
                 counter.address(),
@@ -199,7 +199,7 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
                 frame,
             ))?;
             if character_x == 257 {
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_achoo(revision).address(), 50, 0],
@@ -210,19 +210,19 @@ pub fn sega_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
             } else if character_x > 178 && character_x < 191 {
                 character_y = character_y.wrapping_sub(2);
                 if character_x == 190 {
-                    call(context, ids::PLAY_SOUND, &[21, 99])?;
+                    call_void(context, ids::PLAY_SOUND, &[21, 99])?;
                 }
             }
             character_x = character_x.wrapping_sub(1);
-            call(
+            call_void(
                 context,
                 ids::CUTSCENE_POSITION_ROCKETSHIP_PAIR,
                 &[character_x as i32 as u32, character_y as i32 as u32],
             )?;
             advance_palette(context, &mut palette_time, &mut palette_frame);
         }
-        call(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-        call(context, ids::SEGA_LOGO_RELEASE_TRADEMARK_ENTITY, &[])?;
+        call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
+        call_void(context, ids::SEGA_LOGO_RELEASE_TRADEMARK_ENTITY, &[])?;
         ram::g_sega_rocket_pass_shown(revision).write(context, 1);
     }
     let frame = counter.read(context);

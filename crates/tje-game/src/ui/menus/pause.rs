@@ -1,6 +1,6 @@
 use crate::ui::hud_all::frame as stack;
 use crate::{
-    Context, FunctionId, Result, call_at,
+    Context, FunctionId, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame},
     ids,
     ui::entities::entity,
@@ -97,24 +97,24 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
     let mut reset_selected = false;
     // c_pause.s:9-23 keeps seven outgoing slots until the music request.
     stack::push_clear(context)?;
-    stack::call(context, caller, ids::DRAW_PAUSE_CHOICE_PANEL, 0x1a)?;
+    stack::call_void(context, caller, ids::DRAW_PAUSE_CHOICE_PANEL, 0x1a)?;
     stack::push_pea(context, 99)?;
     stack::push_pea(context, 6)?;
-    stack::call(context, caller, ids::PLAY_SOUND, 0x28)?;
+    stack::call_void(context, caller, ids::PLAY_SOUND, 0x28)?;
     stack::push_pea(context, 1)?;
-    stack::call(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x32)?;
+    stack::call_void(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x32)?;
     stack::push_pea(context, 99)?;
     stack::push_pea(context, 20)?;
-    stack::call(context, caller, ids::PLAY_SOUND, 0x40)?;
+    stack::call_void(context, caller, ids::PLAY_SOUND, 0x40)?;
     stack::push_clear(context)?;
-    stack::call(
+    stack::call_void(
         context,
         caller,
         ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT,
         0x48,
     )?;
-    stack::call(context, caller, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, 0x4e)?;
-    stack::call(
+    stack::call_void(context, caller, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, 0x4e)?;
+    stack::call_void(
         context,
         caller,
         ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
@@ -127,7 +127,7 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
     }
     loop {
         if !reset_selected && read_input(context, caller, player, 0x74)? & 2 != 0 {
-            call_at(
+            call_at_void(
                 context,
                 ids::DRAW_PAUSE_CHOICE_PANEL,
                 &[1],
@@ -140,7 +140,7 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
         }
         if reset_selected && read_input(context, caller, player, 0x94)? & 1 != 0 {
             stack::push_clear(context)?;
-            stack::call(context, caller, ids::DRAW_PAUSE_CHOICE_PANEL, 0xa0)?;
+            stack::call_void(context, caller, ids::DRAW_PAUSE_CHOICE_PANEL, 0xa0)?;
             stack::release(context, 4)?;
             reset_selected = false;
             set_word(context, 3, 0);
@@ -152,14 +152,14 @@ pub fn run_final_level_pause_menu(context: &mut dyn Context) -> Result<Option<u3
         }
         context.poll_yield()?;
     }
-    call_at(
+    call_at_void(
         context,
         ids::DRAW_PAUSE_CHOICE_PANEL,
         &[u32::MAX],
         CallSite::relative(caller, revision, 0xbe),
     )?;
     if reset_selected {
-        stack::call(context, caller, ids::RESTART_FROM_RESET_ENTRY, 0xca)?;
+        stack::call_void(context, caller, ids::RESTART_FROM_RESET_ENTRY, 0xca)?;
     }
     ram::g_current_music_selection(revision).write(context, -1);
     while read_input(context, caller, player, 0xda)? & 0xc0 != 0 {
@@ -197,7 +197,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     context.set_data_register(4, ram::g_player1_map_level(revision).address());
     if ram::g_player1_map_level(revision).read(context) == 26 {
         stack::push_move(context, player as u32)?;
-        stack::call(context, caller, ids::RUN_FINAL_LEVEL_PAUSE_MENU, 0x32)?;
+        stack::call_void(context, caller, ids::RUN_FINAL_LEVEL_PAUSE_MENU, 0x32)?;
         stack::release(context, 4)?;
         frame.leave(context)?;
         return Ok(None);
@@ -283,7 +283,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     object.frame().write(context, -1);
     stack::push_move(context, viewport)?;
     stack::push_move(context, object.address())?;
-    stack::call(
+    stack::call_void(
         context,
         caller,
         ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
@@ -292,10 +292,10 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     stack::release(context, 8)?;
     while object.draw_flags().read(context) & viewport_mask == 0 {
         context.poll_yield()?;
-        stack::call(context, caller, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, 0x120)?;
+        stack::call_void(context, caller, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, 0x120)?;
         stack::push_move(context, viewport)?;
         stack::push_move(context, object.address())?;
-        stack::call(
+        stack::call_void(
             context,
             caller,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
@@ -304,7 +304,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
         stack::release(context, 8)?;
     }
     loop {
-        stack::call(context, caller, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, 0x144)?;
+        stack::call_void(context, caller, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, 0x144)?;
         if object.sprite_ready().read(context) != 0 {
             break;
         }
@@ -313,26 +313,26 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     // c_pause.s:189-201 keeps six outgoing slots across the sound requests.
     stack::push_pea(context, 99)?;
     stack::push_pea(context, 6)?;
-    stack::call(context, caller, ids::PLAY_SOUND, 0x158)?;
+    stack::call_void(context, caller, ids::PLAY_SOUND, 0x158)?;
     stack::push_pea(context, 1)?;
-    stack::call(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x162)?;
+    stack::call_void(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x162)?;
     stack::push_pea(context, 99)?;
     stack::push_pea(context, 20)?;
-    stack::call(context, caller, ids::PLAY_SOUND, 0x170)?;
+    stack::call_void(context, caller, ids::PLAY_SOUND, 0x170)?;
     stack::push_clear(context)?;
-    stack::call(
+    stack::call_void(
         context,
         caller,
         ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT,
         0x178,
     )?;
-    stack::call(
+    stack::call_void(
         context,
         caller,
         ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
         0x17e,
     )?;
-    stack::call(
+    stack::call_void(
         context,
         caller,
         ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
@@ -378,7 +378,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
                 let minimum_entry = apply_ship_piece_hint(context)?;
                 set_word(context, 2, 10);
                 set_word(context, 3, minimum_entry as u16);
-                call_at(
+                call_at_void(
                     context,
                     ids::PLAY_SOUND,
                     &[20, 99],
@@ -394,7 +394,7 @@ pub fn game_paused(context: &mut dyn Context) -> Result<Option<u32>> {
     ram::g_current_music_selection(revision).write(context, -1);
     let object_number = u32::from(frame.local::<u16>(-2).read(context));
     stack::push_move(context, object_number)?;
-    stack::call(context, caller, ids::FREE_ENTITY, 0x2aa)?;
+    stack::call_void(context, caller, ids::FREE_ENTITY, 0x2aa)?;
     stack::release(context, 4)?;
     loop {
         let input = both_inputs(context, 0x2b2, 0x2ba)?;

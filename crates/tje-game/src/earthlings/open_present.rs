@@ -1,5 +1,5 @@
 use crate::call_frame::{FrameLayout, LocalFrame};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/earthlings/spawning_and_banks.c:476 (`OpenEarthlingPresent`).
@@ -178,11 +178,11 @@ fn open_present(
     )?;
     let object = call(context, ids::ALLOCATE_ENTITY, &[])? as i16;
     if object != 0 {
-        call(context, ids::FREE_ENTITY, &[object as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[object as u32])?;
     } else {
         let object = call(context, ids::ALLOCATE_ENTITY_WITH_EVICTION, &[1])? as i16;
         if object != 0 {
-            call(context, ids::FREE_ENTITY, &[object as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[object as u32])?;
         }
     }
     Ok(None)

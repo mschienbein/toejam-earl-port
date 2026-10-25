@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::ram;
 
 fn plane(camera: i32) -> u32 {
@@ -33,14 +33,14 @@ pub fn update_camera_y(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                 .at(camera)
                 .cast::<u16>();
             if i32::from(start) + i32::from(count) <= 64 {
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[source.address(), i32::from(count) as u32],
                 )?;
             } else {
                 let first = 64_i16.wrapping_sub(start);
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[source.address(), i32::from(first) as u32],
@@ -51,7 +51,7 @@ pub fn update_camera_y(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                 context.write_vdp_command(
                     plane(camera).wrapping_add((i32::from(row) as u32).wrapping_shl(23)),
                 );
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[
@@ -94,14 +94,14 @@ pub fn update_camera_x(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                 .at(camera)
                 .cast::<u16>();
             if i32::from(start) + i32::from(count) <= 32 {
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[source.address(), i32::from(count) as u32],
                 )?;
             } else {
                 let first = 32_i16.wrapping_sub(start);
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[source.address(), i32::from(first) as u32],
@@ -112,7 +112,7 @@ pub fn update_camera_x(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                 context.write_vdp_command(
                     plane(camera).wrapping_add((i32::from(column) as u32).wrapping_shl(17)),
                 );
-                call(
+                call_void(
                     context,
                     ids::MOVE_DATA_TO_VRAM,
                     &[
@@ -138,8 +138,8 @@ pub fn redraw_camera_tile_rows(context: &mut dyn Context, args: &[u32]) -> Resul
         .read(context)
         .wrapping_add(ram::g_camera_column_upload_height(revision).read(context));
     while end > cursor.read(context) {
-        call(context, ids::BUILD_CAMERA_TILE_ROW, &[1, selected])?;
-        call(context, ids::UPDATE_CAMERA_Y, &[])?;
+        call_void(context, ids::BUILD_CAMERA_TILE_ROW, &[1, selected])?;
+        call_void(context, ids::UPDATE_CAMERA_Y, &[])?;
         let next = cursor.read(context).wrapping_add(1);
         cursor.write(context, next);
     }
@@ -198,7 +198,7 @@ pub fn set_camera_view_origin(context: &mut dyn Context, args: &[u32]) -> Result
     pending_y.write(context, y);
     super::tiles::column_cursor(revision, camera).write(context, (x >> 3).wrapping_sub(1));
     super::tiles::row_cursor(revision, camera).write(context, (y >> 3).wrapping_sub(1));
-    call(
+    call_void(
         context,
         ids::REDRAW_CAMERA_TILE_ROWS,
         &[i32::from(camera) as u32],
@@ -219,7 +219,7 @@ pub fn set_camera_position(context: &mut dyn Context, args: &[u32]) -> Result<Op
     if ram::g_player_lives(revision).at(0).read(context) < 0 {
         player = 0;
     }
-    call(
+    call_void(
         context,
         ids::SET_CAMERA_VIEW_ORIGIN,
         &[player as u32, args[1], args[2]],

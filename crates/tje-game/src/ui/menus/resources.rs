@@ -48,7 +48,7 @@ pub fn check_promotion_score(context: &mut dyn Context) -> Result<Option<u32>> {
                 wait_upload(context)?;
                 source::push_clear(context)?;
                 source::push_move(context, player as u32)?;
-                source::call(
+                source::call_void(
                     context,
                     ids::CHECK_PROMOTION_SCORE,
                     ids::HUD_INITIALIZE_HEALTH_BAR,
@@ -130,21 +130,21 @@ pub fn player_reset_rank_and_resources(context: &mut dyn Context) -> Result<Opti
     // The compiler retains all three call areas until LEA 16(SP),SP.
     source::push_pea(context, 1)?;
     source::push_move(context, player as u32)?;
-    source::call(
+    source::call_void(
         context,
         ids::PLAYER_RESET_RANK_AND_RESOURCES,
         ids::HUD_INITIALIZE_HEALTH_BAR,
         0xd8,
     )?;
     source::push_move(context, player as u32)?;
-    source::call(
+    source::call_void(
         context,
         ids::PLAYER_RESET_RANK_AND_RESOURCES,
         ids::HUD_LOAD_ACTION_ICON_SPRITE,
         0xe2,
     )?;
     source::push_move(context, player as u32)?;
-    source::call(
+    source::call_void(
         context,
         ids::PLAYER_RESET_RANK_AND_RESOURCES,
         ids::HUD_LOAD_LIVES_SPRITE_TILES,
@@ -184,7 +184,7 @@ pub fn setup_the_main_game(context: &mut dyn Context) -> Result<Option<u32>> {
     // Linked c_hud.s:1623-1641, same return offsets in both revisions.
     source::push_pea(context, 1)?;
     source::push_clear(context)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_INITIALIZE_HEALTH_BAR,
@@ -192,49 +192,49 @@ pub fn setup_the_main_game(context: &mut dyn Context) -> Result<Option<u32>> {
     )?;
     source::push_pea(context, 1)?;
     source::push_pea(context, 1)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_INITIALIZE_HEALTH_BAR,
         0x80,
     )?;
     source::push_clear(context)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
         0x86,
     )?;
     source::push_pea(context, 1)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
         0x8e,
     )?;
     source::push_clear(context)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_ACTION_ICON_SPRITE,
         0x94,
     )?;
     source::push_pea(context, 1)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_ACTION_ICON_SPRITE,
         0x9c,
     )?;
     source::push_clear(context)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_LIVES_SPRITE_TILES,
         0xa2,
     )?;
     source::push_pea(context, 1)?;
-    source::call(
+    source::call_void(
         context,
         ids::SETUP_THE_MAIN_GAME,
         ids::HUD_LOAD_LIVES_SPRITE_TILES,
@@ -276,7 +276,7 @@ pub fn player_update_health_and_lives(context: &mut dyn Context) -> Result<Optio
         && health.read(context) <= 0
     {
         source::push_move(context, player as u32)?;
-        source::call(
+        source::call_void(
             context,
             ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
             ids::KILL_THE_PLAYER,
@@ -331,7 +331,7 @@ pub fn player_update_health_and_lives(context: &mut dyn Context) -> Result<Optio
         source::push_move(context, terrain)?;
         source::push_pea(context, 11)?;
         source::push_move(context, player as u32)?;
-        source::call(
+        source::call_void(
             context,
             ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
             ids::PERFORM_PROMOTION,

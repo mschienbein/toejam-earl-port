@@ -1,7 +1,7 @@
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call, call_at, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
-    ids,
+    call_void, ids,
 };
 use tje_mem::{Address, ObjectState, ram};
 
@@ -54,7 +54,7 @@ pub fn process_elevator_step2(context: &mut dyn Context, _: &[u32]) -> Result<Op
                         non_rider.y().write(context, y);
                     }
                 }
-                call(context, ids::PLAY_SOUND, &[15, 50])?;
+                call_void(context, ids::PLAY_SOUND, &[15, 50])?;
                 if ram::g_current_music_selection(revision).read(context) == 6 {
                     let level = ram::g_highest_level(revision).read(context);
                     let music = call(
@@ -127,11 +127,11 @@ pub fn process_elevator_step2(context: &mut dyn Context, _: &[u32]) -> Result<Op
             {
                 if state != 3 && state != 2 {
                     next = 2;
-                    call(context, ids::PLAY_SOUND, &[24, 30])?;
+                    call_void(context, ids::PLAY_SOUND, &[24, 30])?;
                 }
             } else if state > 1 && state != 4 {
                 next = 4;
-                call(context, ids::PLAY_SOUND, &[24, 30])?;
+                call_void(context, ids::PLAY_SOUND, &[24, 30])?;
             }
         }
         for player in 0..2 {
@@ -149,7 +149,7 @@ pub fn process_elevator_step2(context: &mut dyn Context, _: &[u32]) -> Result<Op
             }
         }
         if next != -1 {
-            call(
+            call_void(
                 context,
                 ids::ELEVATOR_SET_STATE,
                 &[elevator.address(), i32::from(next) as u32],
@@ -304,7 +304,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
                 ram::g_departure_elevator_shake_delay(revision).write(context, 2);
                 context.set_data_register(4, next as u32);
                 let sound_arguments = OutgoingArguments::push(context, &[17, 50])?;
-                sound_arguments.call(
+                sound_arguments.call_void(
                     context,
                     dispatcher,
                     ids::PLAY_SOUND,
@@ -316,13 +316,13 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
                     && (ram::g_player_lives(revision).at(1).read(context) < 0
                         || handle == flags.at(1).read(context))
                 {
-                    call_at(
+                    call_at_void(
                         context,
                         ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
                         &[],
                         CallSite::relative(caller, revision, 0x1fc),
                     )?;
-                    call_at(
+                    call_at_void(
                         context,
                         ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
                         &[],
@@ -330,7 +330,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
                     )?;
                 }
             } else if frame < 12 && ((i32::from(frame) + 1) & 3) == 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::PLAY_SOUND,
                     &[7, 50],
@@ -348,7 +348,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
             {
                 next = 7;
                 context.set_data_register(4, next as u32);
-                call_at(
+                call_at_void(
                     context,
                     ids::PLAY_SOUND,
                     &[3, 65],
@@ -373,7 +373,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
                 } else {
                     next = 11;
                     context.set_data_register(4, next as u32);
-                    call_at(
+                    call_at_void(
                         context,
                         ids::PLAY_SOUND,
                         &[0, 98],
@@ -416,7 +416,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
             if state != 3 && state != 2 {
                 next = 2;
                 context.set_data_register(4, next as u32);
-                call_at(
+                call_at_void(
                     context,
                     ids::PLAY_SOUND,
                     &[24, 30],
@@ -426,7 +426,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
         } else if state > 1 && state != 4 {
             next = 4;
             context.set_data_register(4, next as u32);
-            call_at(
+            call_at_void(
                 context,
                 ids::PLAY_SOUND,
                 &[24, 30],
@@ -456,7 +456,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
             },
         );
         if next != -1 {
-            call_at(
+            call_at_void(
                 context,
                 ids::ELEVATOR_SET_STATE,
                 &[elevator.address(), i32::from(next) as u32],
@@ -464,7 +464,7 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
             )?;
         }
         if next == 11 {
-            call_at(
+            call_at_void(
                 context,
                 ids::ELEVATOR_ADVANCE_RIDERS_TO_NEXT_LEVEL,
                 &[i32::from(handle) as u32],
@@ -478,13 +478,13 @@ fn step1_body(context: &mut dyn Context) -> Result<()> {
 /// G/src/elevator/elevator_transitions.c:270 (`ProcessElevators`).
 pub fn process_elevators(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    call_at(
+    call_at_void(
         context,
         ids::PROCESS_ELEVATOR_STEP1,
         &[],
         CallSite::relative(ids::PROCESS_ELEVATORS, revision, 4),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::PROCESS_ELEVATOR_STEP2,
         &[],

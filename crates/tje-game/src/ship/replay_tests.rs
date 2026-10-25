@@ -66,14 +66,30 @@ impl Machine {
     }
 
     fn stub(&mut self, id: FunctionId, arguments: &[u32]) -> Result<u32> {
+        self.stub_effects(id, arguments)?;
+        Ok(self.data_register(0))
+    }
+    fn stub_effects(&mut self, id: FunctionId, arguments: &[u32]) -> Result<()> {
         self.events
             .borrow_mut()
             .push(Event::Call(id, arguments.to_vec(), self.address[7]));
         if id == ids::ALLOCATE_ENTITY {
-            return Ok(self.allocated);
+            return {
+                let value = self.allocated;
+                if id.metadata().abi.returns_value {
+                    self.set_data_register(0, value);
+                }
+                Ok(())
+            };
         }
         if id == ids::READ_MAPPED_PLAYER_INPUT {
-            return Ok(self.input_polls.pop_front().unwrap_or(0));
+            return {
+                let value = self.input_polls.pop_front().unwrap_or(0);
+                if id.metadata().abi.returns_value {
+                    self.set_data_register(0, value);
+                }
+                Ok(())
+            };
         }
         if id == ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES {
             tje_mem::Address::<tje_mem::ObjectState>::new(arguments[0])
@@ -87,7 +103,13 @@ impl Machine {
             let frame = self.transition_frames.pop_front().unwrap_or(480);
             ram::g_frame_counter(self.revision()).write(&mut self.memory, frame);
         }
-        Ok(0)
+        {
+            let value = 0;
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -261,6 +283,27 @@ impl Context for Machine {
         let result = self.stub(id, &args)?;
         self.address[7] = sp + 4;
         Ok(result)
+    }
+    fn call_original_entry_void(
+        &mut self,
+        id: FunctionId,
+        _: execution::ExecutionClass,
+    ) -> Result<()> {
+        let sp = self.address[7];
+        let args: Vec<_> = (0..u32::from(id.metadata().abi.argument_count))
+            .map(|index| self.memory.read_u32(sp + 4 + index * 4))
+            .collect();
+        self.stub_effects(id, &args)?;
+        self.address[7] = sp + 4;
+        Ok(())
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        args: &[u32],
+        _: crate::execution::ExecutionClass,
+    ) -> Result<()> {
+        self.stub_effects(id, args)
     }
 }
 

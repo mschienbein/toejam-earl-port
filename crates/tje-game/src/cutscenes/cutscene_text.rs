@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/cutscene_text.c:62 (`CutsceneQueueCenteredRemappedTextLine`).
@@ -33,7 +33,7 @@ fn queue_centered_line(
     let mut padding = (free_tiles / 2) as i16;
     let mut index = 0_i16;
     while index < padding {
-        call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        call_void(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
         index = index.wrapping_add(1);
     }
     index = 0;
@@ -48,7 +48,7 @@ fn queue_centered_line(
             glyph = glyph.wrapping_add(1);
         }
         let source = font.wrapping_add(i32::from(glyph).wrapping_shl(5) as u32);
-        call(context, append, &[source, 1])?;
+        call_void(context, append, &[source, 1])?;
         index = index.wrapping_add(1);
     }
     if length & 1 != 0 {
@@ -56,7 +56,7 @@ fn queue_centered_line(
     }
     index = 0;
     while index < padding {
-        call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        call_void(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
         index = index.wrapping_add(1);
     }
     let count = ram::g_sprite_tile_upload_queue_word_count(revision);
@@ -89,7 +89,7 @@ pub fn cutscene_load_original_palette_text_line(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     let slot = ram::g_cutscene_first_text_entity(context.revision());
     load_text_entity(context, arguments, slot, true)
 }
@@ -97,7 +97,7 @@ pub fn cutscene_load_original_palette_text_line(
 /// G/src/cutscenes/cutscene_text.c:133 (`CutsceneTextLoad`).
 /// Functional: release/prepare RAM work plus embedded-control VDP writes.
 pub fn cutscene_text_load(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
     let slot = ram::g_cutscene_first_text_entity(context.revision());
     load_text_entity(context, arguments, slot, false)
 }
@@ -141,7 +141,7 @@ fn load_text_entity(
         // All three matching caption callers retain Y in D4.W.
         super::allocate_viewport_with_d4(context, entity.address(), arguments[2] as u16)?;
         let tile = entity.tile().read(context) & 0x7ff;
-        call(
+        call_void(
             context,
             if original_palette {
                 ids::CUTSCENE_QUEUE_CENTERED_ORIGINAL_PALETTE_TEXT_LINE
@@ -150,7 +150,7 @@ fn load_text_entity(
             },
             &[text, length as i32 as u32, u32::from(tile)],
         )?;
-        call(
+        call_void(
             context,
             ids::PREPARE_ENTITY_SPRITE_FRAME,
             &[entity.address(), frame, 1, 0],
@@ -167,13 +167,13 @@ pub fn cutscene_release_text_entities(context: &mut dyn Context, _: &[u32]) -> R
     let first = ram::g_cutscene_first_text_entity(revision);
     if first.read(context) != 0 {
         let handle = first.read(context);
-        call(context, ids::FREE_ENTITY, &[i32::from(handle) as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[i32::from(handle) as u32])?;
         first.write(context, 0);
     }
     let second = ram::g_cutscene_second_text_entity(revision);
     if second.read(context) != 0 {
         let handle = second.read(context);
-        call(context, ids::FREE_ENTITY, &[i32::from(handle) as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[i32::from(handle) as u32])?;
         second.write(context, 0);
     }
     Ok(None)

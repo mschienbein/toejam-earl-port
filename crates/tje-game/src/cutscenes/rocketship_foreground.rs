@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/rocketship_foreground.c:11 (`CutsceneSetForegroundRocketshipPose`).
@@ -12,7 +12,7 @@ pub fn cutscene_set_foreground_rocketship_pose(
     let handle = ram::g_cutscene_rocketship_entity(revision).read(context);
     let object = ram::g_player_info(revision).at(i32::from(handle));
     if object.draw_flags().read(context) & 2 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -37,7 +37,7 @@ pub fn cutscene_set_foreground_rocketship_pose(
     let handle = ram::g_cutscene_rocketship_exhaust_entity(revision).read(context);
     let object = ram::g_player_info(revision).at(i32::from(handle));
     if object.draw_flags().read(context) & 2 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],

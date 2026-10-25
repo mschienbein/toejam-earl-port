@@ -66,7 +66,8 @@ does: preserve residual D0 bits when required. Register-runtime entries take
 D0/D1, not invented stack arguments. Division by zero propagates an explicit
 `ArithmeticTrap::DivideByZero` (68000 vector 5), never a fabricated result.
 
-Call another game function with `tje_game::call(context, ids::FUNCTION, arguments)`.
+Call a value-returning game function with `tje_game::call(context, ids::FUNCTION, arguments)`,
+or an ABI-void function with `tje_game::call_void(context, ids::FUNCTION, arguments)`.
 The dispatcher runs available Rust translations. A hybrid missing callee calls
 `Context::call_original` using that revision's original address; the host pushes
 real MCC68K slots and waits for both the sentinel PC and matching SP. No emulator
@@ -391,10 +392,13 @@ Discarding the scalar result does **not** suppress actual body-produced
 register/CCR effects, argument-slot mutations, real RTS handling, timing
 completion, clock scopes or fatal/nonlocal frame ownership. A native completion
 request carries `value: None`; it does not read D0 to populate an unused receipt.
-The void forms reject value-returning ids before materializing arguments or
-calling the body. This API prerequisite leaves existing value-form callers
-unchanged; global ABI-void rejection is enabled with their complete typed
-caller migration, not by silently breaking a partial set of callsites.
+The void forms reject value-returning ids, and the scalar `call` / `call_at`
+forms reject ABI-void ids in every dispatcher mode. Rejection precedes argument
+materialization, frame entry, clock scopes and body/original execution, and its
+error names the required call form. The same contract applies to
+`OutgoingArguments::call` / `call_void`. Use the catalogue's
+`id.metadata().abi.returns_value`, not the current Rust body's `Option<u32>`,
+to determine a target's ABI.
 
 Original fallback has separate `Context::call_original_void_with_execution`
 and `call_original_entry_void` capabilities. Unsupported contexts fail closed;
@@ -403,11 +407,21 @@ The host uses the same actual original call, audits and cleanup, but omits
 scalar extraction. Test contexts providing original fallback must implement
 these capabilities explicitly.
 
-An ordinary C ABI-void proof does not authenticate leftover D0 or CCR. If the
-original caller truly consumes an assembly/register-ABI output, make that use
-explicit and bind its checked output coverage; do not hide it inside a discarded
-value call. Replayed-environment substitution must likewise distinguish that
-explicit register observation from a scalar return.
+An ordinary C ABI-void proof does not authenticate leftover D0 or CCR. For an
+ABI-void target whose original caller truly consumes a leftover register or
+extra assembly/register-ABI output, first complete `call_void(...)` /
+`call_at_void(...)`, then explicitly read `context.data_register(0)` or
+`context.status_register()` as appropriate.
+Cite the matching compiler listing at that call site and bind its checked output
+coverage; never hide this observation inside a scalar return. Replayed-environment
+substitution tracks that explicit register observation separately from ordinary
+ABI-void coverage. Mixed indirect target sets must select the scalar or void
+form using the resolved target's ABI; deliberately ignoring a declared scalar
+return is different from inventing one for a void target.
+Register-runtime targets with a declared scalar D0 output still use
+`call(...)` / `call_at(...)`; the explicit-register rule above does not retype
+their declared scalar return as void. Frame-retaining helpers must likewise
+choose the call form from the actual callee's ABI, not their own return type.
 
 ### Discarded bus operands
 

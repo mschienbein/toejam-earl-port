@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::{arithmetic::expr_div_u32, ram, rom};
 
 /// G/src/map/level_generation_and_changes.c:536 (`ChangeLevel`).
@@ -39,14 +39,14 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         } else {
             if requested.read(c) == second.read(c) {
                 if first.read(c) != 0 {
-                    call_at(
+                    call_at_void(
                         c,
                         ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                         &[0],
                         CallSite::new(0x4a8a),
                     )?;
                 }
-                call_at(
+                call_at_void(
                     c,
                     ids::COPY_LEVEL_BETWEEN_PLAYERS,
                     &[1],
@@ -54,7 +54,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
                 )?;
                 loaded = true;
             } else if requested.read(c) == stored.read(c) {
-                call_at(
+                call_at_void(
                     c,
                     ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                     &[0],
@@ -62,7 +62,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
                 )?;
                 loaded = true;
             } else if first.read(c) > 1 {
-                call_at(
+                call_at_void(
                     c,
                     ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                     &[0],
@@ -76,14 +76,14 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     } else {
         if requested.read(c) == first.read(c) {
             if first.read(c) != 0 {
-                call_at(
+                call_at_void(
                     c,
                     ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                     &[1],
                     CallSite::new(0x4ad6),
                 )?;
             }
-            call_at(
+            call_at_void(
                 c,
                 ids::COPY_LEVEL_BETWEEN_PLAYERS,
                 &[0],
@@ -91,7 +91,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             )?;
             loaded = true;
         } else if requested.read(c) == stored.read(c) {
-            call_at(
+            call_at_void(
                 c,
                 ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                 &[1],
@@ -100,14 +100,14 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             loaded = true;
         } else {
             if second.read(c) > 1 {
-                call_at(
+                call_at_void(
                     c,
                     ids::MAP_SWAP_PLAYER_WITH_SAVED_BANK,
                     &[1],
                     CallSite::new(0x4b06),
                 )?;
             }
-            call_at(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4b0c))?;
+            call_at_void(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4b0c))?;
         }
         second.write(c, requested.read(c));
     }
@@ -138,7 +138,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
             }
         }
         if player == 1 {
-            call_at(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4bfe))?;
+            call_at_void(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4bfe))?;
         }
         loaded = true;
     }
@@ -169,7 +169,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     let count = frame.local::<i16>(-2).read(c);
     let connected = OutgoingArguments::push(c, &[i32::from(count) as u32])?;
     let dispatcher = c.dispatcher();
-    connected.call(
+    connected.call_void(
         c,
         dispatcher,
         ids::MAP_CONNECT_ANCHOR_POSITIONS,
@@ -208,7 +208,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         let region = OutgoingArguments::existing(c, 5)?;
         c.set_data_register(6, (c.data_register(6) & 0xffff_0000) | position as u32);
         // Both linked listings: JSR 0x4d08, return 0x4d0e.
-        region.call(
+        region.call_void(
             c,
             dispatcher,
             ids::MAP_GROW_TERRAIN_REGION,
@@ -217,7 +217,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         position = position.wrapping_add(1);
         region.release(c)?;
     }
-    call_at(
+    call_at_void(
         c,
         ids::MAP_STABILIZE_REGION_CONNECTIONS,
         &[],
@@ -234,7 +234,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         return Ok(Some(1));
     }
     // External JSR.L at 0x4d2e, both revisions. Seed now owns a real frame.
-    call_at(
+    call_at_void(
         c,
         ids::MAP_SEED_FILLED_TERRAIN_REGIONS,
         &[],
@@ -245,7 +245,7 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
     let count = frame.local::<i16>(-2).read(c);
     let outgoing = OutgoingArguments::push(c, &[i32::from(count) as u32])?;
     let dispatcher = c.dispatcher();
-    outgoing.call(
+    outgoing.call_void(
         c,
         dispatcher,
         ids::MAP_BUILD_REGION_EDGE_SHAPES,
@@ -258,11 +258,11 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         (ids::MAP_ASSIGN_TRANSITION_CHAIN, 0x4d54),
         (ids::MAP_CHOOSE_METATILE_ALTERNATIVES, 0x4d58),
     ] {
-        call_at(c, id, &[], CallSite::new(pc))?;
+        call_at_void(c, id, &[], CallSite::new(pc))?;
     }
     outgoing.release(c)?;
     if player == 1 {
-        call_at(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4d64))?;
+        call_at_void(c, ids::MAP_SWAP_PLAYER_BANKS, &[], CallSite::new(0x4d64))?;
     }
     let saved = frame.local::<u32>(-8).read(c);
     call_at(c, ids::STACK_BASED_RANDOM, &[saved], CallSite::new(0x4d6e))?;
@@ -279,7 +279,7 @@ pub fn map_load_player_level(c: &mut dyn Context, args: &[u32]) -> Result<Option
     let level = args[1] as i16;
     if level >= 26 {
         if i16::from(ram::g_player1_map_level(r).read(c)) != level {
-            call_at(
+            call_at_void(
                 c,
                 ids::LOAD_FINAL_LEVEL,
                 &[i32::from(level) as u32],

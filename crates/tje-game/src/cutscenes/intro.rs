@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ram, rom};
 
 /// G/src/cutscenes/intro.c:85 (`IntroBeginLargePlayerScene`).
@@ -10,10 +10,10 @@ pub fn intro_begin_large_player_scene(
     let revision = context.revision();
     let background = arguments[0] as i16;
     let saved_d2 = context.data_register(2);
-    call(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
     ram::g_scene_background_pair_index(revision).write(context, background as i8);
-    call(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    call_void(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
     let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
     ram::g_mode2_reg_softcopy(revision).write(context, mode);
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
@@ -128,27 +128,27 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
     ram::g_scene_background_pair_index(revision).write(context, 8);
-    call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    call(context, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
-    call(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
-    call(
+    call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(
         context,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[11, 7, 30, 20],
     )?;
-    call(
+    call_void(
         context,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[12, 8, 29, 19],
     )?;
-    call(context, ids::INTRO_POSITION_DRIVING_PART, &[0, 104, 151])?;
-    call(context, ids::INTRO_POSITION_DRIVING_PART, &[1, 104, 151])?;
-    call(
+    call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[0, 104, 151])?;
+    call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[1, 104, 151])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_intro_earl_driving_bank3(revision).address(), 3],
@@ -160,11 +160,11 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let mut scroll_position = 0_i16;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-        call(
+        call_void(
             context,
             ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
             &[driving_pose as i32 as u32],
@@ -182,7 +182,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         read_switch_entry(context, ids::INTRO_PART5, 0x156, 11, next);
         match next {
             1 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -194,11 +194,11 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(context, ids::INTRO_POSITION_DRIVING_PART, &[2, 104, 151])?;
+                call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[2, 104, 151])?;
                 countdown.write(context, 17);
             }
             2 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -210,7 +210,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             3 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -222,8 +222,8 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             4 => {
-                call(context, ids::INTRO_RELEASE_DRIVING_PART_SPRITES, &[2])?;
-                call(
+                call_void(context, ids::INTRO_RELEASE_DRIVING_PART_SPRITES, &[2])?;
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -237,7 +237,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 )?;
             }
             5 | 9 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -249,7 +249,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_running(revision).address(), 50, 0],
@@ -258,7 +258,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 scroll_direction = -1;
             }
             6 | 8 | 10 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -274,7 +274,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 scroll_direction = 0;
             }
             7 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[
@@ -286,7 +286,7 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_running(revision).address(), 50, 0],
@@ -295,14 +295,14 @@ pub fn intro_part5(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 scroll_direction = 1;
             }
             11 => {
-                call(context, ids::INTRO_UPDATE_FLYING_ENTITY_MOTION, &[0])?;
+                call_void(context, ids::INTRO_UPDATE_FLYING_ENTITY_MOTION, &[0])?;
                 state.write(context, -1);
             }
             _ => {}
         }
     }
-    call(context, ids::INTRO_RELEASE_DRIVING_PARTS, &[])?;
-    call(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_DRIVING_PARTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
     scroll_position = 0;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
@@ -316,16 +316,16 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let revision = context.revision();
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
     clear_word(context, state)?;
     countdown.write(context, 42);
     let mut scroll_position = 0_i16;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data((scroll_position / 4) as u16);
     ram::g_scene_background_pair_index(revision).write(context, 9);
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
-    call(
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    call_void(
         context,
         ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
         &[0, 104, 151],
@@ -333,7 +333,7 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let mut pose_changed = 0_i16;
     let mut driving_pose = 0_i16;
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(
+        call_void(
             context,
             ids::INTRO_UPDATE_RIGHTWARD_FLYING_ENTITY,
             &[pose_changed as i32 as u32, driving_pose as i32 as u32],
@@ -351,22 +351,22 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         read_switch_entry(context, ids::INTRO_PART6, 0xe0, 10, next);
         match next {
             1 | 7 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[1, 104, 151],
                 )?;
             }
             2 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[2, 104, 151],
                 )?;
-                call(context, ids::PLAY_SOUND, &[21, 5])?;
+                call_void(context, ids::PLAY_SOUND, &[21, 5])?;
             }
             3 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[3, 104, 151],
@@ -376,24 +376,24 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 driving_pose = 1;
             }
             4 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[2, 104, 151],
                 )?;
             }
             5 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[1, 104, 151],
                 )?;
                 pose_changed = 1;
                 driving_pose = 2;
-                call(context, ids::PLAY_SOUND, &[22, 5])?;
+                call_void(context, ids::PLAY_SOUND, &[22, 5])?;
             }
             6 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[0, 104, 151],
@@ -401,17 +401,17 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             8 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[2, 104, 151],
                 )?;
                 pose_changed = 1;
                 driving_pose = 1;
-                call(context, ids::PLAY_SOUND, &[21, 5])?;
+                call_void(context, ids::PLAY_SOUND, &[21, 5])?;
             }
             9 => {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
                     &[3, 104, 151],
@@ -424,8 +424,8 @@ pub fn intro_part6(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             _ => {}
         }
     }
-    call(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
     scroll_position = 0;
     context.write_vdp_command(0x7c02_0003);
     context.write_vdp_data(scroll_position as u16);
@@ -441,9 +441,9 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let countdown = ram::g_cutscene_script_countdown(revision);
     let camera_x = ram::g_camera1_pending_x(revision);
     let camera_y = ram::g_camera1_pending_y(revision);
-    call(context, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
-    call(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
-    call(
+    call_void(context, ids::INTRO_ALLOCATE_DRIVING_PARTS, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_intro_earl_driving_bank0(revision).address(), 0],
@@ -457,11 +457,11 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     context.write_vdp_data((scroll_position / 4) as u16);
     let mut scroll_direction = 0_i16;
     ram::g_scene_background_pair_index(revision).write(context, 10);
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
-    call(context, ids::INTRO_POSITION_DRIVING_PART, &[0, 104, 151])?;
-    call(context, ids::INTRO_POSITION_DRIVING_PART, &[1, 104, 151])?;
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[0, 104, 151])?;
+    call_void(context, ids::INTRO_POSITION_DRIVING_PART, &[1, 104, 151])?;
     while state.read(context) != -1 && !start_pressed(context)? {
-        call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
+        call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
         if shake_phase == 1 {
             let value = camera_x.read(context).wrapping_add(5);
             camera_x.write(context, value);
@@ -479,17 +479,17 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             context,
             ram::g_sprite_graphics_upload_pending(revision).address(),
         )?;
-        call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-        call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+        call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+        call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
         if shake_phase != 0 {
             context.write_vdp_command(0x4000_0010);
             context.write_vdp_data(camera_y.read(context) as u16);
             context.write_vdp_command(0x7c00_0003);
             context.write_vdp_data(camera_x.read(context).wrapping_neg() as u16);
         }
-        call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-        call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
-        call(
+        call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+        call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+        call_void(
             context,
             ids::INTRO_UPDATE_FLYING_ENTITY_MOTION,
             &[driving_pose as i32 as u32],
@@ -507,12 +507,12 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         read_switch_entry(context, ids::INTRO_PART7, 0x18a, 7, next);
         match next {
             1 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[1, rom::intro_held_frame_five(revision).frame().address(), 6],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_running(revision).address(), 50, 0],
@@ -521,7 +521,7 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 driving_pose = 2;
             }
             3 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[1, rom::intro_held_frame_one(revision).frame().address(), 6],
@@ -530,12 +530,12 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 scroll_direction = 0;
             }
             4 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[1, rom::intro_held_frame_six(revision).frame().address(), 6],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_running(revision).address(), 50, 0],
@@ -544,7 +544,7 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 driving_pose = 3;
             }
             5 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_DRIVING_PART_SEQUENCE,
                     &[1, rom::intro_held_frame_one(revision).frame().address(), 6],
@@ -554,8 +554,8 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             }
             6 => {
                 shake_phase = 1;
-                call(context, ids::INTRO_CREATE_ASTEROID_ENTITY, &[])?;
-                call(context, ids::PLAY_SOUND, &[10, 5])?;
+                call_void(context, ids::INTRO_CREATE_ASTEROID_ENTITY, &[])?;
+                call_void(context, ids::PLAY_SOUND, &[10, 5])?;
             }
             7 => {
                 state.write(context, -1);
@@ -565,9 +565,9 @@ pub fn intro_part7(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     set_display(context, false);
-    call(context, ids::INTRO_RELEASE_ASTEROID_ENTITY, &[])?;
-    call(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
-    call(context, ids::INTRO_RELEASE_DRIVING_PARTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_ASTEROID_ENTITY, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FLYING_ENTITY_SLOTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_DRIVING_PARTS, &[])?;
     clear_word(context, camera_x)?;
     clear_word(context, camera_y)?;
     context.write_vdp_command(0x4000_0010);
@@ -588,40 +588,40 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let countdown = ram::g_cutscene_script_countdown(revision);
     clear_word(context, state)?;
     countdown.write(context, 4);
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank0(revision).address(), 0],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_intro_collision_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank3(revision).address(), 3],
     )?;
     context.write_vdp_command(0x4660_0001);
     let size = i32::from(rom::crash_screen_size(revision).read(context)).wrapping_shl(4);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::crash_screen(revision).address(), size as u32],
     )?;
     ram::g_shared_tile_sprite_copies_enabled(revision).write(context, 1);
-    call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
-    call(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
-    call(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[0, 0])?;
-    call(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[20, 0])?;
-    call(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[0, 14])?;
-    call(
+    call_void(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[0, 0])?;
+    call_void(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[20, 0])?;
+    call_void(context, ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK, &[0, 14])?;
+    call_void(
         context,
         ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
         &[20, 14],
     )?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
@@ -635,10 +635,11 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         .metadata()
                         .address(revision);
                     context.set_address_register(3, residue);
-                    let result = call(context, ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES, &[]);
+                    let result =
+                        call_void(context, ids::INTRO_CREATE_COLLISION_SCENE_ENTITIES, &[]);
                     context.set_address_register(3, saved_a3);
                     result?;
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_falling(revision).address(), 50, 0],
@@ -646,7 +647,7 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                     countdown.write(context, 59);
                 }
                 2 => {
-                    call(context, ids::INTRO_RELEASE_COLLISION_SCENE_ENTITIES, &[])?;
+                    call_void(context, ids::INTRO_RELEASE_COLLISION_SCENE_ENTITIES, &[])?;
                     state.write(context, -1);
                 }
                 _ => {}
@@ -656,8 +657,8 @@ pub fn intro_part8(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     set_display(context, false);
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     clear_word(context, ram::g_shared_tile_sprite_copies_enabled(revision))?;
-    call(context, ids::DRAW_STARFIELD_PLANE, &[])?;
-    call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
+    call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
+    call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
     scene_result(context, state)
 }
 
@@ -668,19 +669,19 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
     ram::g_scene_background_pair_index(revision).write(context, 12);
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
-    call(
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    call_void(
         context,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[11, 7, 30, 20],
     )?;
-    call(
+    call_void(
         context,
         ids::CUTSCENE_DRAW_RANDOMIZED_RECTANGLE_BORDER,
         &[12, 8, 29, 19],
     )?;
-    call(context, ids::INTRO_CREATE_FALLING_ROCKETSHIP, &[])?;
-    call(
+    call_void(context, ids::INTRO_CREATE_FALLING_ROCKETSHIP, &[])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank2(revision).address(), 2],
@@ -688,8 +689,8 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     clear_word(context, state)?;
     let mut scroll_position = 0_i16;
     countdown.write(context, 42);
-    call(context, ids::INTRO_POSITION_FALLING_ROCKETSHIP, &[170, 141])?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::INTRO_POSITION_FALLING_ROCKETSHIP, &[170, 141])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     while state.read(context) != -1 && !start_pressed(context)? {
         call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
@@ -705,7 +706,7 @@ pub fn intro_part9(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     set_display(context, false);
-    call(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
     scroll_position = 0;
     context.write_vdp_command(0x4002_0010);
     context.write_vdp_data(scroll_position as u16);
@@ -743,7 +744,7 @@ pub(super) fn caption(
     } else {
         ids::CUTSCENE_TEXT_LOAD
     };
-    call(
+    call_void(
         context,
         function,
         &[text.address(), x as i32 as u32, y as i32 as u32],
@@ -762,7 +763,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let actor = ram::g_cutscene_music_actor_animation_enabled(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART1;
-    call(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
+    call_void(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
     let mut advance_scene = false;
     clear_word(context, state)?;
     countdown.write(context, 51);
@@ -801,7 +802,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         read_switch_entry(context, owner, 0xd6, 39, next);
         match next {
             1 | 3 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -820,7 +821,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             4 => {
                 advance_scene = false;
                 caption(context, owner, 0x578, 220, 80, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -829,7 +830,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -841,7 +842,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 59);
             }
             5 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -856,7 +857,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 advance_scene = false;
                 caption(context, owner, 0x58c, 220, 72, false)?;
                 caption(context, owner, 0x5a4, 220, 84, true)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -865,7 +866,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -877,7 +878,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             7 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -890,12 +891,12 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             8 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 countdown.write(context, 8);
             }
             9 => {
                 advance_scene = false;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -909,7 +910,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 clear_word(context, actor)?;
             }
             10 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -921,7 +922,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 8);
             }
             11 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -931,10 +932,10 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                     ],
                 )?;
                 countdown.write(context, 8);
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
             }
             12 | 18 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -949,7 +950,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 advance_scene = false;
                 caption(context, owner, 0x5c4, 220, 72, false)?;
                 caption(context, owner, 0x5d8, 220, 84, true)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -961,7 +962,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 8);
             }
             14 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -973,7 +974,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 4);
             }
             15 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -985,7 +986,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             16 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -994,7 +995,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1006,7 +1007,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             17 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1023,7 +1024,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 59);
             }
             20 | 29 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1040,7 +1041,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 42);
             }
             22 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1053,12 +1054,12 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             }
             23 => {
                 countdown.write(context, 8);
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
             }
             24 => {
                 advance_scene = false;
                 caption(context, owner, 0x60c, 220, 80, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1070,7 +1071,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 34);
             }
             25 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1082,7 +1083,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 8);
             }
             26 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1091,7 +1092,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1109,7 +1110,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 85);
             }
             28 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1126,7 +1127,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             31 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1138,7 +1139,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 34);
             }
             32 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 countdown.write(context, 8);
             }
             33 => {
@@ -1147,7 +1148,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 34);
             }
             34 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1160,7 +1161,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 clear_word(context, actor)?;
             }
             35 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1169,7 +1170,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1186,7 +1187,7 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 34);
             }
             37 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1198,8 +1199,8 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             38 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-                call(
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1216,13 +1217,13 @@ pub fn intro_part1(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             _ => {}
         }
     }
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(
         context,
         ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         &[],
     )?;
-    call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     scene_result(context, state)
 }
@@ -1234,17 +1235,17 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     let revision = context.revision();
     let state = ram::g_cutscene_script_state(revision);
     let countdown = ram::g_cutscene_script_countdown(revision);
-    call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
-    call(context, ids::INTRO_CREATE_FALLING_ROCKETSHIP, &[])?;
+    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    call_void(context, ids::INTRO_CREATE_FALLING_ROCKETSHIP, &[])?;
     countdown.write(context, 42);
     let mut scene_y = 20_i16;
-    call(context, ids::CUTSCENE_CREATE_PLANET_ENTITY, &[160, 180])?;
-    call(
+    call_void(context, ids::CUTSCENE_CREATE_PLANET_ENTITY, &[160, 180])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank3(revision).address(), 3],
     )?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     state.write(context, 1);
     while state.read(context) != -1 && !start_pressed(context)? {
@@ -1254,19 +1255,19 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
         match next {
             1 => {
                 scene_y = scene_y.wrapping_add(1);
-                call(
+                call_void(
                     context,
                     ids::INTRO_POSITION_FALLING_ROCKETSHIP,
                     &[160, scene_y as i32 as u32],
                 )?;
                 if scene_y == 160 {
                     increment(context, state);
-                    call(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
+                    call_void(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
                 }
             }
             2 => {
-                call(context, ids::INTRO_CREATE_ROCKETSHIP_IMPACT, &[160, 180])?;
-                call(context, ids::PLAY_SOUND, &[8, 50])?;
+                call_void(context, ids::INTRO_CREATE_ROCKETSHIP_IMPACT, &[160, 180])?;
+                call_void(context, ids::PLAY_SOUND, &[8, 50])?;
                 countdown.write(context, 85);
                 increment(context, state);
             }
@@ -1276,7 +1277,7 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 }
             }
             4 => {
-                call(context, ids::INTRO_RELEASE_ROCKETSHIP_IMPACT, &[])?;
+                call_void(context, ids::INTRO_RELEASE_ROCKETSHIP_IMPACT, &[])?;
                 caption(context, ids::INTRO_PART10, 0x194, 160, 30, false)?;
                 countdown.write(context, 119);
                 increment(context, state);
@@ -1288,9 +1289,9 @@ pub fn intro_part10(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
         }
     }
     set_display(context, false);
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(context, ids::CUTSCENE_RELEASE_PLANET_ENTITY, &[])?;
-    call(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_PLANET_ENTITY, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FALLING_ROCKETSHIP, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     scene_result(context, state)
 }
@@ -1305,12 +1306,12 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let countdown = ram::g_cutscene_script_countdown(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART2;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_ship_line3(revision).address(), 2],
     )?;
-    call(context, ids::INTRO_CREATE_HIDDEN_FRAME_ENTITIES, &[])?;
+    call_void(context, ids::INTRO_CREATE_HIDDEN_FRAME_ENTITIES, &[])?;
     clear_word(context, state)?;
     countdown.write(context, 17);
     let mut advance_period = 0_i16;
@@ -1339,7 +1340,7 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         match next {
             1 => {
                 caption(context, owner, 0x1cc, 160, 30, false)?;
-                call(context, ids::INTRO_REVEAL_FRAME_ENTITIES, &[])?;
+                call_void(context, ids::INTRO_REVEAL_FRAME_ENTITIES, &[])?;
             }
             2 => {
                 caption(context, owner, 0x1e6, 160, 30, false)?;
@@ -1367,7 +1368,7 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 51);
             }
             9 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 ram::g_requested_music_selection(revision).write(context, 6);
                 advance_period = 1;
                 countdown.write(context, 306);
@@ -1379,10 +1380,10 @@ pub fn intro_part2(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             _ => {}
         }
     }
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(context, ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::INTRO_RELEASE_FRAME_ENTITIES_AND_REFRESH, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank2(revision).address(), 2],
@@ -1400,7 +1401,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let actor = ram::g_cutscene_music_actor_animation_enabled(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART3;
-    call(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
+    call_void(context, ids::INTRO_BEGIN_LARGE_PLAYER_SCENE, &[7])?;
     clear_byte(
         context,
         ram::g_requested_music_selection(revision).address(),
@@ -1435,7 +1436,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         read_switch_entry(context, owner, 0xa4, 8, next);
         match next {
             1 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1444,7 +1445,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         3,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1453,7 +1454,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1465,7 +1466,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             2 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1474,7 +1475,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1492,7 +1493,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 85);
             }
             4 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1504,7 +1505,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 34);
             }
             5 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1516,7 +1517,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 17);
             }
             6 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -1530,7 +1531,7 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
                 countdown.write(context, 59);
             }
             7 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 countdown.write(context, 8);
             }
             8 => {
@@ -1540,13 +1541,13 @@ pub fn intro_part3(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     set_display(context, false);
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(
         context,
         ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         &[],
     )?;
-    call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     scene_result(context, state)
 }
@@ -1561,26 +1562,26 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let countdown = ram::g_cutscene_script_countdown(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART4;
-    call(context, ids::CUTSCENE_CREATE_DRIFTING_ENTITIES, &[])?;
-    call(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
-    call(context, ids::DRAW_STARFIELD_PLANE, &[])?;
-    call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
-    call(
+    call_void(context, ids::CUTSCENE_CREATE_DRIFTING_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_ALLOCATE_ROCKETSHIP_PAIR, &[])?;
+    call_void(context, ids::DRAW_STARFIELD_PLANE, &[])?;
+    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[1])?;
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_space_screen_bank3(revision).address(), 3],
     )?;
-    call(
+    call_void(
         context,
         ids::CUTSCENE_SET_ROCKETSHIP_PAIR_POSE,
         &[0, 280, 160],
     )?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     countdown.write(context, 85);
     clear_word(context, state)?;
@@ -1588,26 +1589,26 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
     let mut exhaust_phase = 0_i16;
     while state.read(context) != -1 && !start_pressed(context)? {
         loop {
-            call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+            call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
             context.write_vdp_command(0x7c02_0003);
             context.write_vdp_data((scroll_position / 4) as u16);
-            call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-            call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
-            call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-            call(
+            call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+            call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+            call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+            call_void(
                 context,
                 ids::CUTSCENE_UPDATE_DRIFTING_ENTITIES,
                 &[scroll_position as i32 as u32],
             )?;
             exhaust_phase ^= 1;
             if exhaust_phase != 0 {
-                call(
+                call_void(
                     context,
                     ids::CUTSCENE_MOVE_ROCKETSHIP_PAIR_LEFT,
                     &[exhaust_phase as i32 as u32],
                 )?;
             }
-            call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+            call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
             scroll_position = scroll_position.wrapping_add(1);
             let mask = action_buttons(context)?;
             advance_mask.write(context, mask);
@@ -1646,9 +1647,9 @@ pub fn intro_part4(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         }
     }
     set_display(context, false);
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(context, ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES, &[])?;
-    call(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_DRIFTING_ENTITIES, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_ROCKETSHIP_PAIR, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     scene_result(context, state)
 }
@@ -1681,42 +1682,42 @@ pub fn intro_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
         context,
         ram::g_requested_music_selection(revision).address(),
     )?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, false);
     clear_byte(context, ram::g_music_animation_channel(revision).address())?;
     reset_scroll(context)?;
-    call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
     ram::g_camera_tile_attributes(revision).write(context, 0x8000);
     context.write_vdp_command(0x7000_0002);
     let size = i32::from(rom::font_data_size(revision).read(context)).wrapping_shl(4);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::image_text_base(revision).address(), size as u32],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank0(revision).address(), 0],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank3(revision).address(), 3],
     )?;
-    call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[0])?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
+    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[0])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     let mut interrupted = false;
     for part in [
@@ -1737,12 +1738,12 @@ pub fn intro_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> 
             break;
         }
     }
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, false);
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
-    call(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
-    call(context, ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::CLEAR_LOWER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::CUTSCENE_RELEASE_FLAGGED_ENTITY_RANGE, &[])?;
     reset_scroll(context)?;
     let status = context.status_register();
     context.set_status_register((status & !0x000f) | if interrupted { 0 } else { 0x04 });

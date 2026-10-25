@@ -1,7 +1,7 @@
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
-    ids,
+    call_void, ids,
 };
 use tje_mem::{ElevatorRecord, ram, rom};
 
@@ -11,12 +11,12 @@ pub fn load_final_level_map(context: &mut dyn Context, _: &[u32]) -> Result<Opti
     let revision = context.revision();
     context.write_vdp_command(0x40000000);
     let count = i32::from(rom::level_tiles_size(revision).read(context)).wrapping_shl(4);
-    call(
+    call_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::level_tiles(revision).address(), count as u32],
     )?;
-    call(context, ids::TEXT_COPY_FONT_BANKS_TO_RAM, &[])?;
+    call_void(context, ids::TEXT_COPY_FONT_BANKS_TO_RAM, &[])?;
     for (command, offset, count) in [
         (0x42800000, 0, 80),
         (0x48200000, 160, 16),
@@ -24,7 +24,7 @@ pub fn load_final_level_map(context: &mut dyn Context, _: &[u32]) -> Result<Opti
         (0x6a800000, 288, 896),
     ] {
         context.write_vdp_command(command);
-        call(
+        call_void(
             context,
             ids::MOVE_DATA_TO_VRAM,
             &[
@@ -42,20 +42,20 @@ pub fn load_final_level_map(context: &mut dyn Context, _: &[u32]) -> Result<Opti
         (rom::funkatron_palette_b(revision), 2),
         (rom::palette_game_line4(revision), 3),
     ] {
-        call(
+        call_void(
             context,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
             &[palette.address(), bank],
         )?;
     }
     context.write_vdp_control(0x9200);
-    call(context, ids::DRAW_NESTED_WINDOW_FRAME, &[])?;
+    call_void(context, ids::DRAW_NESTED_WINDOW_FRAME, &[])?;
     context.write_vdp_command(0x40020010);
     context.write_vdp_data(0);
     context.write_vdp_command(0x7c020003);
     context.write_vdp_data(0);
-    call(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;
-    call(context, ids::SET_CAMERA_TILE_PRIORITY_ENABLED, &[0])?;
+    call_void(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;
+    call_void(context, ids::SET_CAMERA_TILE_PRIORITY_ENABLED, &[0])?;
     Ok(None)
 }
 
@@ -68,7 +68,7 @@ pub fn map_clear_active_level_objects(context: &mut dyn Context, _: &[u32]) -> R
                 .at(player)
                 .level()
                 .read(context);
-            call(
+            call_void(
                 context,
                 ids::EARTHLING_RELEASE_LEVEL_BANK,
                 &[i32::from(level) as u32],
@@ -77,7 +77,7 @@ pub fn map_clear_active_level_objects(context: &mut dyn Context, _: &[u32]) -> R
                 .at(player)
                 .level()
                 .read(context);
-            call(
+            call_void(
                 context,
                 ids::MAP_RELEASE_LEVEL_ITEM_BANK,
                 &[i32::from(level) as u32],
@@ -91,14 +91,14 @@ pub fn map_clear_active_level_objects(context: &mut dyn Context, _: &[u32]) -> R
         let entity = ram::g_player_info(revision).at(player);
         if entity.draw_flags().read(context) & 1 != 0 {
             if entity.draw_flags().read(context) & 2 != 0 {
-                call(
+                call_void(
                     context,
                     ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                     &[entity.address(), 0],
                 )?;
             }
             if entity.draw_flags().read(context) & 4 != 0 {
-                call(
+                call_void(
                     context,
                     ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                     &[entity.address(), 1],
@@ -112,14 +112,14 @@ pub fn map_clear_active_level_objects(context: &mut dyn Context, _: &[u32]) -> R
             .offset(number);
         if elevator.entity().read(context) != 0 {
             let entity = i32::from(elevator.entity().read(context));
-            call(context, ids::FREE_ENTITY, &[entity as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[entity as u32])?;
             let entity = i32::from(elevator.entity().read(context)) + 2;
-            call(context, ids::FREE_ENTITY, &[entity as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[entity as u32])?;
             elevator.entity().write(context, 0);
         }
-        call(context, ids::ELEVATOR_SET_STATE, &[elevator.address(), 11])?;
+        call_void(context, ids::ELEVATOR_SET_STATE, &[elevator.address(), 11])?;
     }
-    call(context, ids::CLEAR_TRANSIENT_ENTITIES, &[])?;
+    call_void(context, ids::CLEAR_TRANSIENT_ENTITIES, &[])?;
     Ok(None)
 }
 
@@ -152,7 +152,7 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
             let entity = ram::g_player_info(revision).at(player);
             entity.level().write(context, 26);
             let level = i32::from(entity.level().read(context));
-            call_at(
+            call_at_void(
                 context,
                 ids::MAP_LOAD_PLAYER_LEVEL,
                 &[player as u32, level as u32],
@@ -161,7 +161,7 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
             context.set_address_register(3, entity.address());
             context.discard_u16(entity.height().address())?;
             entity.height().write(context, 0);
-            call_at(
+            call_at_void(
                 context,
                 ids::STOP_PLAYER,
                 &[entity.address()],
@@ -172,7 +172,7 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
                 .at(player)
                 .write(context, 0);
             let sprite_arguments = OutgoingArguments::push(context, &[entity.address(), 0])?;
-            sprite_arguments.call(
+            sprite_arguments.call_void(
                 context,
                 dispatcher,
                 ids::SET_SPRITE,
@@ -189,13 +189,13 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
     let value = mode.read(context) & 0x3c;
     mode.write(context, value);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call_at(
+    call_at_void(
         context,
         ids::LOAD_FINAL_LEVEL_MAP,
         &[],
         CallSite::relative(caller, revision, 0xd2),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
         &[],
@@ -210,7 +210,7 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
     let y = first.y().read(context);
     second.y().write(context, y);
     let split_arguments = OutgoingArguments::push(context, &[1])?;
-    split_arguments.call(
+    split_arguments.call_void(
         context,
         dispatcher,
         ids::UPDATE_SCREEN_SPLIT_MODE,
@@ -221,7 +221,7 @@ fn enter_final_level_body(context: &mut dyn Context) -> Result<()> {
     let hardware_mode = 0x8104 | u16::from(mode.read(context));
     split_arguments.release(context)?;
     context.write_vdp_control(hardware_mode);
-    call_at(
+    call_at_void(
         context,
         ids::ENABLE_BLANKING_GRAPHICS,
         &[],

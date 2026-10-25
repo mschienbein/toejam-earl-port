@@ -1,6 +1,6 @@
 use crate::ui::hud_all::frame as stack;
 use crate::{
-    Context, FunctionId, Result, call_at,
+    Context, FunctionId, Result, call_at, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
     ids,
     ui::draws::literal,
@@ -104,7 +104,7 @@ pub fn new_game_main_menu(context: &mut dyn Context) -> Result<Option<u32>> {
                         CallSite::relative(ids::NEW_GAME_MAIN_MENU, revision, 0xf4),
                     )?;
                     stack::push_move(context, selection)?;
-                    stack::call(context, ids::NEW_GAME_MAIN_MENU, ids::START_JAM_OUT, 0xfe)?;
+                    stack::call_void(context, ids::NEW_GAME_MAIN_MENU, ids::START_JAM_OUT, 0xfe)?;
                     stack::release(context, 4)?;
                     continue 'select_players;
                 }
@@ -149,7 +149,7 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
     let mode = ram::g_mode2_reg_softcopy(revision);
     context.set_address_register(2, mode.address());
     let window_argument = cleared_arguments(context, 1)?;
-    window_argument.call(
+    window_argument.call_void(
         context,
         dispatcher,
         ids::DRAW_MENU_WINDOW_FRAME,
@@ -159,14 +159,14 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
     context.write_vdp_command(0x57160003);
     let text = literal(context, "BogusGameOverStr")?;
     let text_argument = OutgoingArguments::push(context, &[text])?;
-    text_argument.call(
+    text_argument.call_void(
         context,
         dispatcher,
         ids::TEXT_WRITE_STRING_TILES,
         CallSite::relative(caller, revision, 0x2a),
     )?;
     let background_argument = OutgoingArguments::push(context, &[1])?;
-    background_argument.call(
+    background_argument.call_void(
         context,
         dispatcher,
         ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK,
@@ -176,7 +176,7 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
     background_argument.release(context)?;
     text_argument.release(context)?;
     context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
-    call_at(
+    call_at_void(
         context,
         ids::ENABLE_TEXT_FONT_ANIMATION,
         &[],
@@ -187,7 +187,7 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
     loop {
         loop {
             let wait_argument = OutgoingArguments::push(context, &[1])?;
-            wait_argument.call(
+            wait_argument.call_void(
                 context,
                 dispatcher,
                 ids::WAIT_FOR_NEXT_V_BLANK,
@@ -224,7 +224,7 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
             }
         }
         let noise_arguments = OutgoingArguments::push(context, &[6, 99])?;
-        noise_arguments.call(
+        noise_arguments.call_void(
             context,
             dispatcher,
             ids::PLAY_SOUND,
@@ -233,19 +233,19 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
         stack::push_pea(context, 98)?;
         stack::push_clear(context)?;
         let silence_arguments = OutgoingArguments::existing(context, 2)?;
-        silence_arguments.call(
+        silence_arguments.call_void(
             context,
             dispatcher,
             ids::PLAY_SOUND,
             CallSite::relative(caller, revision, 0xb2),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
             &[],
             CallSite::relative(caller, revision, 0xb8),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
             &[],
@@ -255,25 +255,25 @@ pub fn show_game_over_and_reset(context: &mut dyn Context) -> Result<Option<u32>
         silence_arguments.release(context)?;
         noise_arguments.release(context)?;
         context.write_vdp_control(u16::from(mode.read(context)) | 0x8104);
-        call_at(
+        call_at_void(
             context,
             ids::CLEAR_COLOUR_RAM,
             &[],
             CallSite::relative(caller, revision, 0xdc),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::CLEAR_VERTICAL_SCROLL_RAM,
             &[],
             CallSite::relative(caller, revision, 0xe2),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::CLEAR_VIDEO_RAM,
             &[],
             CallSite::relative(caller, revision, 0xe8),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::RESTART_FROM_RESET_ENTRY,
             &[],
@@ -305,7 +305,7 @@ fn menu_handler(
         stack::push_pea(context, header)?;
     }
     let header_argument = OutgoingArguments::existing(context, 1)?;
-    header_argument.call(
+    header_argument.call_void(
         context,
         dispatcher,
         ids::ADD_MENU_HEADER,
@@ -325,7 +325,7 @@ fn menu_handler(
     )?;
     general_arguments.release(context)?;
     context.set_data_register(2, selection);
-    call_at(
+    call_at_void(
         context,
         ids::REMOVE_MENU_HEADER,
         &[],
@@ -462,22 +462,22 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
     context.set_address_register(3, ids::WAIT_FOR_NEXT_V_BLANK.metadata().address(revision));
 
     let first_wait = OutgoingArguments::push(context, &[1])?;
-    first_wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x2a))?;
+    first_wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x2a))?;
     mode.write(context, mode.read(context) & 0x3c);
     let command = u16::from(mode.read(context)) | 0x8104;
     context.set_data_register(6, u32::from(command));
     first_wait.release(context)?;
     context.write_vdp_control(command);
-    call_at(context, ids::DRAW_STARFIELD_PLANE, &[], site(0x54))?;
+    call_at_void(context, ids::DRAW_STARFIELD_PLANE, &[], site(0x54))?;
 
     // c_main_menu.s:361-390 retains all eleven outgoing slots until both
     // palette uploads, text/sprite work and the display-enable read complete.
     let window = cleared_arguments(context, 1)?;
-    window.call(context, dispatcher, ids::DRAW_MENU_WINDOW_FRAME, site(0x5c))?;
+    window.call_void(context, dispatcher, ids::DRAW_MENU_WINDOW_FRAME, site(0x5c))?;
     stack::push_clear(context)?;
     stack::push_pea(context, rom::palette_game_line1(revision).address())?;
     let palette1 = OutgoingArguments::existing(context, 2)?;
-    palette1.call(
+    palette1.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -485,14 +485,14 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
     )?;
     let palette4 =
         OutgoingArguments::push(context, &[rom::palette_game_line4(revision).address(), 3])?;
-    palette4.call(
+    palette4.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         site(0x7a),
     )?;
     let background = OutgoingArguments::push(context, &[1])?;
-    background.call(
+    background.call_void(
         context,
         dispatcher,
         ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK,
@@ -503,17 +503,17 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
     stack::push_move(context, count)?;
     stack::push_move(context, items.address())?;
     let text = OutgoingArguments::existing(context, 2)?;
-    text.call(context, dispatcher, ids::MENU_DRAW_TEXT_ITEMS, site(0x90))?;
-    call_at(
+    text.call_void(context, dispatcher, ids::MENU_DRAW_TEXT_ITEMS, site(0x90))?;
+    call_at_void(
         context,
         ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
         &[],
         site(0x98),
     )?;
     let wait = OutgoingArguments::push(context, &[1])?;
-    wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x9e))?;
+    wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x9e))?;
     let upload = cleared_arguments(context, 2)?;
-    upload.call(
+    upload.call_void(
         context,
         dispatcher,
         ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
@@ -530,7 +530,7 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
     palette1.release(context)?;
     window.release(context)?;
     context.write_vdp_control(command);
-    call_at(context, ids::ENABLE_TEXT_FONT_ANIMATION, &[], site(0xd4))?;
+    call_at_void(context, ids::ENABLE_TEXT_FONT_ANIMATION, &[], site(0xd4))?;
     loop {
         let input = controller_inputs(context, 0xee, 0xf6, false)? & 0xf0;
         context.set_data_register(2, input);
@@ -538,7 +538,7 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
             break;
         }
         let wait = OutgoingArguments::push(context, &[1])?;
-        wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0xdc))?;
+        wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0xdc))?;
         let font = OutgoingArguments::push(context, &[8])?;
         font.call(
             context,
@@ -549,7 +549,7 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
         font.release(context)?;
         wait.release(context)?;
     }
-    call_at(context, ids::CREATE_MENU_CURSOR_ENTITY, &[], site(0x104))?;
+    call_at_void(context, ids::CREATE_MENU_CURSOR_ENTITY, &[], site(0x104))?;
     let mut previous_input = 0_u8;
     let mut selected_item = 0_i16;
     set_word(context, 6, 0);
@@ -560,16 +560,16 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
             context,
             ram::g_sprite_graphics_upload_pending(revision).cast(),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
             &[],
             site(0x118),
         )?;
         let wait = OutgoingArguments::push(context, &[1])?;
-        wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x11e))?;
+        wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x11e))?;
         let upload = cleared_arguments(context, 2)?;
-        upload.call(
+        upload.call_void(
             context,
             dispatcher,
             ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
@@ -583,7 +583,7 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
             site(0x132),
         )?;
         let viewport = cleared_arguments(context, 1)?;
-        viewport.call(
+        viewport.call_void(
             context,
             dispatcher,
             ids::SELECT_VIEWPORT_SPRITE_CHAIN,
@@ -608,14 +608,14 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
                 {
                     break;
                 }
-                call_at(context, ids::PLAY_SOUND, &[26, 50], site(0x198))?;
+                call_at_void(context, ids::PLAY_SOUND, &[26, 50], site(0x198))?;
                 context.write_vdp_command(0x5c040003);
                 let text = literal(context, "NeedTwoControllersStr")?;
-                call_at(context, ids::TEXT_WRITE_STRING_TILES, &[text], site(0x1b0))?;
+                call_at_void(context, ids::TEXT_WRITE_STRING_TILES, &[text], site(0x1b0))?;
             } else if input & 1 != 0 {
                 selected_item = selected_item.wrapping_sub(1);
                 set_word(context, 6, selected_item as u16);
-                call_at(context, ids::PLAY_SOUND, &[7, 50], site(0x1ca))?;
+                call_at_void(context, ids::PLAY_SOUND, &[7, 50], site(0x1ca))?;
                 if selected_item < 0
                     || items
                         .offset(i32::from(selected_item))
@@ -627,7 +627,7 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
                     set_word(context, 6, selected_item as u16);
                 }
             } else if input & 2 != 0 {
-                call_at(context, ids::PLAY_SOUND, &[7, 50], site(0x1f8))?;
+                call_at_void(context, ids::PLAY_SOUND, &[7, 50], site(0x1f8))?;
                 selected_item = selected_item.wrapping_add(1);
                 set_word(context, 6, selected_item as u16);
                 if selected_item >= item_count
@@ -650,10 +650,10 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
         let row = u32::from(selected.y().read(context));
         stack::push_move(context, row)?;
         stack::push_move(context, cursor_column)?;
-        stack::call(context, caller, ids::POSITION_MENU_CURSOR_ENTITY, 0x234)?;
+        stack::call_void(context, caller, ids::POSITION_MENU_CURSOR_ENTITY, 0x234)?;
         stack::release(context, 8)?;
     }
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
         &[],
@@ -663,9 +663,9 @@ pub fn general_menu_handler(context: &mut dyn Context) -> Result<Option<u32>> {
     let command = u16::from(mode.read(context)) | 0x8104;
     context.set_data_register(2, u32::from(command));
     context.write_vdp_control(command);
-    call_at(context, ids::RELEASE_MENU_CURSOR_ENTITY, &[], site(0x268))?;
+    call_at_void(context, ids::RELEASE_MENU_CURSOR_ENTITY, &[], site(0x268))?;
     let background = cleared_arguments(context, 1)?;
-    background.call(
+    background.call_void(
         context,
         dispatcher,
         ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK,

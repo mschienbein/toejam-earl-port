@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ElevatorRecord, ObjectState, ram};
 
 fn magnitude(context: &mut dyn Context, difference: i32) -> Result<i32> {
@@ -203,7 +203,7 @@ pub fn elevator_step_departure_height_cycles(
             entity.height().write(context, 0);
             let remaining = cycles.read(context).wrapping_sub(1);
             cycles.write(context, remaining);
-            call(context, ids::PLAY_SOUND, &[17, 50])?;
+            call_void(context, ids::PLAY_SOUND, &[17, 50])?;
         }
         let remaining = cycles.read(context);
         delay.write(context, remaining / 2);

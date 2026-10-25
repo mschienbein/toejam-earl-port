@@ -1,5 +1,5 @@
 use super::super::draws::literal;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/ui/window_panels.c:107 (`DrawMenuWindowFrame`), both
@@ -42,14 +42,14 @@ pub fn hud_draw_rank_labels(context: &mut dyn Context, _: &[u32]) -> Result<Opti
             .at_long_index(rank)
             .read(context)
             .address();
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         context.write_vdp_command(0x5c400003);
         let rank = i32::from(ram::g_player_rank(revision).at(1).read(context));
         let text = rom::rank_chars_table(revision)
             .at_long_index(rank)
             .read(context)
             .address();
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
     } else if selection == 0 {
         context.write_vdp_command(0x5c160003);
         let rank = i32::from(ram::g_player_rank(revision).at(0).read(context));
@@ -57,13 +57,13 @@ pub fn hud_draw_rank_labels(context: &mut dyn Context, _: &[u32]) -> Result<Opti
             .at_long_index(rank)
             .read(context)
             .address();
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         context.write_vdp_command(0x5c3c0003);
         let text = literal(context, "OnVacationLine1Str1")?;
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         context.write_vdp_command(0x5cba0003);
         let text = literal(context, "OnVacationLine2Str1")?;
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
     } else {
         context.write_vdp_command(0x5c400003);
         let rank = i32::from(ram::g_player_rank(revision).at(1).read(context));
@@ -71,13 +71,13 @@ pub fn hud_draw_rank_labels(context: &mut dyn Context, _: &[u32]) -> Result<Opti
             .at_long_index(rank)
             .read(context)
             .address();
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         context.write_vdp_command(0x5c120003);
         let text = literal(context, "OnVacationLine1Str2")?;
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         context.write_vdp_command(0x5c900003);
         let text = literal(context, "OnVacationLine2Str2")?;
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
     }
     Ok(None)
 }

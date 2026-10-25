@@ -1,6 +1,6 @@
-use super::frames::{call_from, with_frame};
+use super::frames::{call_from_void, with_frame};
 use crate::call_frame::FrameLayout;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/open_rocket_skates.c:11 (`OpenRocketSkates`).
@@ -26,7 +26,7 @@ pub(super) fn open_rocket_skates(
         );
         context.set_data_register(4, 1);
         let mut sprite = 1_i8;
-        call_from(
+        call_from_void(
             context,
             ids::OPEN_ROCKET_SKATES,
             ids::STOP_PLAYER,
@@ -57,7 +57,7 @@ pub(super) fn open_rocket_skates(
         // ADDI.B cannot carry for the emitted bounded direction/base pairs;
         // the following MOVE.B/EXT.W/EXT.L retain X and leave N/Z/V/C clear.
         context.set_status_register(context.status_register() & !0x001f);
-        call_from(
+        call_from_void(
             context,
             ids::OPEN_ROCKET_SKATES,
             ids::SET_SPRITE,
@@ -129,7 +129,7 @@ pub(super) fn player_update_rocket_skates_sprite(
         } else if terrain == 0x80 {
             sprite = direction + 100;
         } else {
-            call(context, ids::STOP_PLAYER, &[state.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[state.address()])?;
             state.acceleration_height().write(context, -32);
             sprite = (state.sprite_state().read(context) & 3) + 20;
             ram::g_player_landing_counter_seed(context.revision())
@@ -141,7 +141,7 @@ pub(super) fn player_update_rocket_skates_sprite(
             ((i32::from(state.sprite_state().read(context)) & 0xfc) + i32::from(direction)) as i8;
     }
     if sprite != -1 {
-        call(context, ids::SET_SPRITE, &[state.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[state.address(), sprite as u32])?;
     }
     Ok(None)
 }
@@ -339,12 +339,12 @@ pub(super) fn player_update_rocket_skates_motion(
             };
         }
     }
-    call(
+    call_void(
         context,
         ids::PLAYER_APPLY_ROCKET_SKATES_INPUT,
         &[state.address(), player as u32, changed, u32::from(input)],
     )?;
-    call(
+    call_void(
         context,
         ids::PLAYER_UPDATE_ROCKET_SKATES_SPRITE,
         &[state.address(), player as u32, u32::from(terrain)],

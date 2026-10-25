@@ -46,6 +46,74 @@ impl Machine {
             .cloned()
             .collect()
     }
+    fn original_effects(&mut self, id: FunctionId, args: &[u32]) -> Result<()> {
+        self.accesses
+            .borrow_mut()
+            .push(Access::Call(id, args.to_vec()));
+        {
+            let value = match id {
+                ids::GET_ACTIVE_PRESENT_SPRITE => i32::from(self.active_sprite) as u32,
+                ids::PRESENT_UPDATE_TRANSIENT_EFFECT => 1,
+                ids::ALLOCATE_ENTITY_WITH_EVICTION => 6,
+                ids::ABS => (args[0] as i32).wrapping_abs() as u32,
+                ids::GET_RANDOM_NUMBER => 65535,
+                ids::ENTITY_IS_WITHIN_RANGE => 1,
+                ids::PLAYER_YOUCH => {
+                    let source = tje_mem::Address::<tje_mem::EarthlingState>::new(args[1]);
+                    assert_eq!(source.kind().read(self), 1);
+                    assert_eq!(source.object().read(self), 6);
+                    assert_eq!(source.x().read(self), 400);
+                    assert_eq!(source.y().read(self), 400);
+                    assert_eq!(
+                        self.read_u8(source.address() + 2),
+                        0xa5,
+                        "unwritten source bytes must not be initialized"
+                    );
+                    0
+                }
+                ids::TELEPHONE_START_RING => {
+                    ram::g_telephone_time_to_ring(self.revision())
+                        .at(args[0] as i32)
+                        .write(self, 60);
+                    0
+                }
+                ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION => {
+                    let collision = self.collisions_left != 0;
+                    self.collisions_left = self.collisions_left.saturating_sub(1);
+                    u32::from(collision)
+                }
+                ids::STOP_PLAYER
+                | ids::HUD_LOAD_ACTION_ICON_SPRITE
+                | ids::SETUP_SELECTED_PRESENT
+                | ids::SET_TOMATO_RAIN_TOMATOES
+                | ids::GENERATE_SPEECH
+                | ids::SET_SPRITE
+                | ids::SET_POSITION_ON_NEW_LEVEL
+                | ids::PRESENT_FIND_DOORWAY_OWNER_AT_TILE
+                | ids::PLAY_SOUND
+                | ids::PLAY_SOUND_EFFECT
+                | ids::START_DIALOGUE
+                | ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT
+                | ids::FREE_ENTITY
+                | ids::DRAW_GAME_MAP
+                | ids::PRESENT_START_TRANSIENT_EFFECT
+                | ids::PRESENT_UPDATE_DECOY
+                | ids::PRESENT_UPDATE_BOOM_BOX
+                | ids::PRESENT_UPDATE_DOORWAY
+                | ids::PRESENT_UPDATE_BURPS
+                | ids::PRESENT_UPDATE_RAIN_CLOUD
+                | ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT
+                | ids::CHECK_FOR_TELEPHONE
+                | ids::CHECK_TOMATO_RAIN_TIMER
+                | ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK => 0,
+                _ => panic!("unexpected isolated callee {}", id.metadata().name),
+            };
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
@@ -173,67 +241,30 @@ impl Context for Machine {
         self.set_stack_pointer(sp + 4)?;
         Ok(result)
     }
+    fn call_original_entry_void(
+        &mut self,
+        id: FunctionId,
+        _: execution::ExecutionClass,
+    ) -> Result<()> {
+        let sp = self.stack_pointer()?;
+        let args: Vec<_> = (0..u32::from(id.metadata().abi.argument_count))
+            .map(|index| self.read_u32(sp + 4 + 4 * index))
+            .collect();
+        self.original_effects(id, &args)?;
+        self.set_stack_pointer(sp + 4)?;
+        Ok(())
+    }
     fn call_original(&mut self, id: FunctionId, args: &[u32]) -> Result<u32> {
-        self.accesses
-            .borrow_mut()
-            .push(Access::Call(id, args.to_vec()));
-        Ok(match id {
-            ids::GET_ACTIVE_PRESENT_SPRITE => i32::from(self.active_sprite) as u32,
-            ids::PRESENT_UPDATE_TRANSIENT_EFFECT => 1,
-            ids::ALLOCATE_ENTITY_WITH_EVICTION => 6,
-            ids::ABS => (args[0] as i32).wrapping_abs() as u32,
-            ids::GET_RANDOM_NUMBER => 65535,
-            ids::ENTITY_IS_WITHIN_RANGE => 1,
-            ids::PLAYER_YOUCH => {
-                let source = tje_mem::Address::<tje_mem::EarthlingState>::new(args[1]);
-                assert_eq!(source.kind().read(self), 1);
-                assert_eq!(source.object().read(self), 6);
-                assert_eq!(source.x().read(self), 400);
-                assert_eq!(source.y().read(self), 400);
-                assert_eq!(
-                    self.read_u8(source.address() + 2),
-                    0xa5,
-                    "unwritten source bytes must not be initialized"
-                );
-                0
-            }
-            ids::TELEPHONE_START_RING => {
-                ram::g_telephone_time_to_ring(self.revision())
-                    .at(args[0] as i32)
-                    .write(self, 60);
-                0
-            }
-            ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION => {
-                let collision = self.collisions_left != 0;
-                self.collisions_left = self.collisions_left.saturating_sub(1);
-                u32::from(collision)
-            }
-            ids::STOP_PLAYER
-            | ids::HUD_LOAD_ACTION_ICON_SPRITE
-            | ids::SETUP_SELECTED_PRESENT
-            | ids::SET_TOMATO_RAIN_TOMATOES
-            | ids::GENERATE_SPEECH
-            | ids::SET_SPRITE
-            | ids::SET_POSITION_ON_NEW_LEVEL
-            | ids::PRESENT_FIND_DOORWAY_OWNER_AT_TILE
-            | ids::PLAY_SOUND
-            | ids::PLAY_SOUND_EFFECT
-            | ids::START_DIALOGUE
-            | ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT
-            | ids::FREE_ENTITY
-            | ids::DRAW_GAME_MAP
-            | ids::PRESENT_START_TRANSIENT_EFFECT
-            | ids::PRESENT_UPDATE_DECOY
-            | ids::PRESENT_UPDATE_BOOM_BOX
-            | ids::PRESENT_UPDATE_DOORWAY
-            | ids::PRESENT_UPDATE_BURPS
-            | ids::PRESENT_UPDATE_RAIN_CLOUD
-            | ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT
-            | ids::CHECK_FOR_TELEPHONE
-            | ids::CHECK_TOMATO_RAIN_TIMER
-            | ids::EARTHLING_RESET_STATE_TWO_BY_DRAW_MASK => 0,
-            _ => panic!("unexpected isolated callee {}", id.metadata().name),
-        })
+        self.original_effects(id, args)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        args: &[u32],
+        _class: crate::execution::ExecutionClass,
+    ) -> Result<()> {
+        self.original_effects(id, args)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::{Address, LevelItem, Ptr, ram, rom};
 
 /// G/src/presents/level_item_setup.c:152 (`MapFindItemPlacementPosition`).
@@ -266,7 +266,7 @@ fn large_items_body(
     while slot.read(context) < 32 {
         attempts.write(context, 0);
         while attempts.read(context) < 10 {
-            call_at(
+            call_at_void(
                 context,
                 ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
                 &[x.address(), y.address(), level as u32, 1],
@@ -455,7 +455,7 @@ fn load_bank_body(
             x.write(context, position.x().read(context));
             y.write(context, position.y().read(context));
         } else {
-            call_at(
+            call_at_void(
                 context,
                 ids::MAP_FIND_ITEM_PLACEMENT_POSITION,
                 &[x.address(), y.address(), level as u32, 0],
@@ -522,14 +522,14 @@ fn load_bank_body(
     }
     let items = ram::g_object_table(revision).at(bank);
     if level == 0 {
-        call_at(
+        call_at_void(
             context,
             ids::INITIALIZE_LEVEL_ZERO_FIXED_ITEMS,
             &[items.at(28).address()],
             CallSite::relative(caller, revision, 0x23c),
         )?;
     } else if level != 1 {
-        call_at(
+        call_at_void(
             context,
             ids::MAP_PLACE_LARGE_LEVEL_ITEMS,
             &[items.address(), level as u32],
@@ -604,7 +604,7 @@ fn telephone_body(
         ];
         let outgoing = OutgoingArguments::push(context, &values)?;
         let dispatcher = context.dispatcher();
-        outgoing.call(
+        outgoing.call_void(
             context,
             dispatcher,
             ids::MAP_FIND_ITEM_PLACEMENT_POSITION,

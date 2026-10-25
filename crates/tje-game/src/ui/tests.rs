@@ -29,6 +29,9 @@ impl Fixture {
     fn call(&mut self, id: FunctionId, arguments: &[u32]) -> u32 {
         Dispatcher::hybrid().call(self, id, arguments).unwrap()
     }
+    fn call_void(&mut self, id: FunctionId, arguments: &[u32]) {
+        Dispatcher::hybrid().call_void(self, id, arguments).unwrap();
+    }
 }
 
 impl Bus for Fixture {
@@ -161,7 +164,7 @@ fn action_icon_position_publishes_volatile_registers_and_every_byte_origin_ccr()
                                         c.data[1] = entry_d1;
                                         c.addresses = [0x7654_3210; 8];
                                         c.status = 0xa71f;
-                                        c.call(
+                                        c.call_void(
                                             ids::HUD_POSITION_ACTION_ICON_SPRITE,
                                             &[0x7777_0000 | player as u32],
                                         );
@@ -292,7 +295,7 @@ fn font_banks_are_read_from_each_revisions_rom() {
         }
         let mut c = Fixture::new(revision);
         c.memory = AddressSpace::new(bytes, revision);
-        c.call(ids::TEXT_COPY_FONT_BANKS_TO_RAM, &[]);
+        c.call_void(ids::TEXT_COPY_FONT_BANKS_TO_RAM, &[]);
         for bank in 0..2 {
             for word in 0..472 {
                 assert_eq!(
@@ -321,13 +324,13 @@ fn cameras_use_full_int_truth_and_restore_both_open_views() {
             .at(player)
             .write(&mut c, -1);
     }
-    c.call(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0x10000]);
+    c.call_void(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0x10000]);
     assert_eq!(ram::g_camera1_pending_x(revision).read(&c), -123);
     ram::g_split_screen_enabled(revision).write(&mut c, -1);
-    c.call(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0x10000]);
+    c.call_void(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0x10000]);
     assert_eq!(ram::g_camera1_pending_x(revision).read(&c), 0);
     assert_eq!(ram::g_camera2_pending_y(revision).read(&c), 112);
-    c.call(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0]);
+    c.call_void(ids::INVENTORY_SET_CAMERA_SUSPENSION, &[0]);
     assert_eq!(ram::g_camera1_pending_x(revision).read(&c), -123);
     assert_eq!(ram::g_camera1_pending_y(revision).read(&c), 456);
     assert_eq!(ram::g_camera2_pending_x(revision).read(&c), 789);
@@ -372,7 +375,7 @@ fn selected_slot_narrows_but_selector_retreats_in_place() {
             ram::g_player2_inventory_selector_entity(revision)
         };
         selector.behavior_flags().write(&mut c, 0xff);
-        c.call(ids::INVENTORY_UPDATE_SELECTOR_ENTITY, &[player as u32]);
+        c.call_void(ids::INVENTORY_UPDATE_SELECTOR_ENTITY, &[player as u32]);
         assert_eq!(
             ram::g_player_inventory_selection_row(revision)
                 .at(player)
@@ -392,7 +395,7 @@ fn selected_slot_narrows_but_selector_retreats_in_place() {
             .at(player)
             .at(1)
             .write(&mut c, -1);
-        c.call(ids::INVENTORY_UPDATE_SELECTOR_ENTITY, &[player as u32]);
+        c.call_void(ids::INVENTORY_UPDATE_SELECTOR_ENTITY, &[player as u32]);
         assert_eq!(selector.behavior_flags().read(&c), 0xff);
     }
 }
@@ -443,7 +446,7 @@ fn cursor_handle_word_wrap_and_coordinate_narrowing() {
     let revision = Revision::Rev02;
     let mut c = Fixture::new(revision);
     ram::g_menu_cursor_entity(revision).write(&mut c, 512);
-    c.call(
+    c.call_void(
         ids::POSITION_MENU_CURSOR_ENTITY,
         &[i16::MAX as u32, i16::MIN as i32 as u32],
     );
@@ -456,7 +459,7 @@ fn cursor_handle_word_wrap_and_coordinate_narrowing() {
 fn text_background_color_preserves_command_word_order_and_short_truth() {
     let revision = Revision::Rev02;
     let mut c = Fixture::new(revision);
-    c.call(ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0x10000]);
+    c.call_void(ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0x10000]);
     assert_eq!(
         c.writes,
         [

@@ -67,6 +67,52 @@ impl Fixture {
             poll_script: VecDeque::new(),
         }
     }
+    fn original_entry_effects(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        if id == ids::KILL_THE_PLAYER {
+            let return_pc = self.read_u32(self.sp);
+            assert_eq!(
+                return_pc,
+                ids::PLAYER_UPDATE_HEALTH_AND_LIVES
+                    .metadata()
+                    .address(self.revision())
+                    + 0x7e
+            );
+            let player = self.frame.argument_word(0).read(self);
+            self.kills.push(i32::from(player) as u32);
+            self.sp += 4;
+            return {
+                let value = self.data[0];
+                if id.metadata().abi.returns_value {
+                    self.set_data_register(0, value);
+                }
+                Ok(())
+            };
+        }
+        assert_eq!(id, ids::TEXT_WRITE_STRING_TILES);
+        assert_eq!(class, ExecutionClass::Functional);
+        let return_pc = self.read_u32(self.sp);
+        let expected = ids::TEXT_WRITE_DECIMAL_TILES
+            .metadata()
+            .address(self.revision())
+            + 0x8a;
+        assert_eq!(return_pc, expected);
+        let pointer = self.frame.argument_slot(0).read(self);
+        let mut text = Vec::new();
+        let mut address = pointer;
+        while self.read_u8(address) != 0 {
+            text.push(self.read_u8(address));
+            address += 1;
+        }
+        self.strings.push((pointer, text));
+        self.sp += 4;
+        {
+            let value = self.data[0];
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 impl Bus for Fixture {
     fn read_u8(&self, address: u32) -> u8 {
@@ -245,38 +291,11 @@ impl Context for Fixture {
         Ok(self.data[0])
     }
     fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
-        if id == ids::KILL_THE_PLAYER {
-            let return_pc = self.read_u32(self.sp);
-            assert_eq!(
-                return_pc,
-                ids::PLAYER_UPDATE_HEALTH_AND_LIVES
-                    .metadata()
-                    .address(self.revision())
-                    + 0x7e
-            );
-            let player = self.frame.argument_word(0).read(self);
-            self.kills.push(i32::from(player) as u32);
-            self.sp += 4;
-            return Ok(self.data[0]);
-        }
-        assert_eq!(id, ids::TEXT_WRITE_STRING_TILES);
-        assert_eq!(class, ExecutionClass::Functional);
-        let return_pc = self.read_u32(self.sp);
-        let expected = ids::TEXT_WRITE_DECIMAL_TILES
-            .metadata()
-            .address(self.revision())
-            + 0x8a;
-        assert_eq!(return_pc, expected);
-        let pointer = self.frame.argument_slot(0).read(self);
-        let mut text = Vec::new();
-        let mut address = pointer;
-        while self.read_u8(address) != 0 {
-            text.push(self.read_u8(address));
-            address += 1;
-        }
-        self.strings.push((pointer, text));
-        self.sp += 4;
-        Ok(self.data[0])
+        self.original_entry_effects(id, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        self.original_entry_effects(id, class)
     }
 }
 

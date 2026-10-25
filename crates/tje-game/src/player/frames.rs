@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
-use crate::{Context, FunctionId, Result, call_at};
+use crate::{Context, FunctionId, Result, call_at, call_at_void};
 
 /// Enter and leave the exact emitted frame, including early returns and errors.
 /// Non-returning typed exits must retain their live frame for the platform.
@@ -35,6 +35,17 @@ pub(super) fn call_from(
 ) -> Result<u32> {
     let site = CallSite::relative(caller, context.revision(), return_offset);
     call_at(context, callee, arguments, site)
+}
+
+pub(super) fn call_from_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    arguments: &[u32],
+    return_offset: u32,
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), return_offset);
+    call_at_void(context, callee, arguments, site)
 }
 
 /// A 68000 memory CLR performs a read even though it does not use the value.

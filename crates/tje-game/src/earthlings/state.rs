@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ram, rom};
 
 /// G/src/earthlings/spawning_and_banks.c:290 (`SetEarthlingState`).
@@ -50,7 +50,7 @@ pub fn set_earthling_state(context: &mut dyn Context, arguments: &[u32]) -> Resu
     }
     if state != 2 && earthling.second_object().read(context) != 0 {
         let second = earthling.second_object().read(context) as u32;
-        call(context, ids::FREE_ENTITY, &[second])?;
+        call_void(context, ids::FREE_ENTITY, &[second])?;
         earthling.second_object().write(context, 0);
     }
     Ok(None)
@@ -59,12 +59,12 @@ pub fn set_earthling_state(context: &mut dyn Context, arguments: &[u32]) -> Resu
 fn release_objects(context: &mut dyn Context, earthling: Address<EarthlingState>) -> Result<()> {
     if earthling.object().read(context) != 0 {
         let object = earthling.object().read(context) as u32;
-        call(context, ids::FREE_ENTITY, &[object])?;
+        call_void(context, ids::FREE_ENTITY, &[object])?;
         earthling.object().write(context, 0);
     }
     if earthling.second_object().read(context) != 0 {
         let object = earthling.second_object().read(context) as u32;
-        call(context, ids::FREE_ENTITY, &[object])?;
+        call_void(context, ids::FREE_ENTITY, &[object])?;
         earthling.second_object().write(context, 0);
     }
     Ok(())
@@ -140,12 +140,12 @@ pub fn earthling_release_level_bank(
                     let object = earthling.object().read(context);
                     earthling.kind().write(context, -1);
                     if object != 0 {
-                        call(context, ids::FREE_ENTITY, &[object as u32])?;
+                        call_void(context, ids::FREE_ENTITY, &[object as u32])?;
                         earthling.object().write(context, 0);
                     }
                     let second = earthling.second_object().read(context);
                     if second != 0 {
-                        call(context, ids::FREE_ENTITY, &[second as u32])?;
+                        call_void(context, ids::FREE_ENTITY, &[second as u32])?;
                         earthling.second_object().write(context, 0);
                     }
                 }
@@ -231,7 +231,7 @@ pub fn earthling_apply_nearby_sleep(
             earthling.state().write(context, 99);
             if earthling.second_object().read(context) != 0 {
                 let second = earthling.second_object().read(context) as u32;
-                call(context, ids::FREE_ENTITY, &[second])?;
+                call_void(context, ids::FREE_ENTITY, &[second])?;
                 earthling.second_object().write(context, 0);
             }
         }
@@ -303,7 +303,7 @@ pub fn earthling_reset_state_two_by_draw_mask(
                 if definition.behavior_flags().read(context) & 1 != 0
                     && u32::from(object.draw_flags().read(context)) & mask != 0
                 {
-                    call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+                    call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
                     earthling.timer().write(context, 0);
                     changed = 1;
                 }
@@ -328,7 +328,7 @@ pub fn earthling_wake_level(context: &mut dyn Context, arguments: &[u32]) -> Res
     for slot in 0..20 {
         let earthling = ram::g_earthling_banks(revision).at(bank).at(slot);
         if earthling.kind().read(context) != -1 && earthling.state().read(context) == 99 {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+            call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
         }
     }
     Ok(None)
@@ -362,7 +362,7 @@ pub fn damage_earthling(context: &mut dyn Context, arguments: &[u32]) -> Result<
             earthling.health_visibility().at(0).write(context, 1);
             return Ok(None);
         }
-        call(
+        call_void(
             context,
             ids::EARTHLING_REMOVE_FROM_LEVEL,
             &[earthling.address()],
@@ -372,7 +372,7 @@ pub fn damage_earthling(context: &mut dyn Context, arguments: &[u32]) -> Result<
         let level = earthling.level().read(context) as u32;
         call(context, ids::ENTITY_SPAWN_TIMED_EFFECT, &[x, y, level])?;
     } else if earthling.second_object().read(context) != 0 {
-        call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+        call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
         earthling.timer().write(context, 0);
     }
     Ok(None)
@@ -399,7 +399,7 @@ pub fn do_viking_ability(context: &mut dyn Context, arguments: &[u32]) -> Result
                     && (earthling.health_visibility().at(0).read(context) > 1
                         || call(context, ids::ENTITY_HAS_FREE_TIMED_EFFECT_SLOT, &[])? != 0)
                 {
-                    call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+                    call_void(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
                 }
             }
         }
@@ -439,7 +439,7 @@ pub fn earthling_damage_on_hazard_terrain(
             )? == 0x90
             {
                 earthling.health_visibility().at(0).write(context, 0);
-                call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+                call_void(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
             }
         }
     }
@@ -465,12 +465,12 @@ pub fn setup_initial_earthlings(
             .write(context, -1);
     }
     if ram::g_player_lives(revision).at(0).read(context) >= 0 {
-        call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[1])?;
+        call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[1])?;
     }
     if ram::g_player2_lives(revision).read(context) >= 0 {
-        call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[1])?;
+        call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[1])?;
     }
-    call(context, ids::ASSIGN_SHIP_PIECE_LEVELS, &[])?;
+    call_void(context, ids::ASSIGN_SHIP_PIECE_LEVELS, &[])?;
     Ok(None)
 }
 
@@ -545,7 +545,7 @@ pub fn earthling_allocate_entities(
             companion = second != 0;
         }
         if companion {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 2])?;
+            call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 2])?;
             let object =
                 ram::g_player_info(revision).at(i32::from(earthling.second_object().read(context)));
             object.x().write(context, earthling.x().read(context));
@@ -590,15 +590,15 @@ pub fn earthling_allocate_entities(
             object.frame_duration().write(context, 1);
         } else if earthling.kind().read(context) == 8 {
             object.behavior_flags().write(context, 0x40);
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
+            call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
         } else {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+            call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
         }
         earthling.timer().write(context, 0);
     } else if earthling.kind().read(context) == 0 {
-        call(context, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[])?;
+        call_void(context, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[])?;
     } else {
-        call(
+        call_void(
             context,
             ids::EARTHLING_RELOCATE_RECORD,
             &[earthling.address()],

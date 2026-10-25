@@ -1,6 +1,6 @@
 //! Functional channel-release and auxiliary-template logic.
 
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Address, ram, rom_symbol};
 
 /// G/src/asm/sound_channels.s:9 (`AudioReleaseAllFmChannels`, REV 02 0x03e446).
@@ -12,7 +12,7 @@ pub fn audio_release_all_fm_channels(context: &mut dyn Context, _: &[u32]) -> Re
     let mut channel = 5_u16;
     loop {
         context.set_data_register(1, u32::from(channel));
-        call(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, &[])?;
+        call_void(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, &[])?;
         channel = channel.wrapping_sub(1);
         context.set_data_register(1, u32::from(channel));
         if channel == u16::MAX {
@@ -53,7 +53,7 @@ pub fn audio_load_pending_channel_template_effect(
     ] {
         if stream.cast::<u32>().read(context) != 0 {
             context.set_data_register(1, (context.data_register(1) & !0xffff) | channel);
-            call(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, &[])?;
+            call_void(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, &[])?;
             owner.cast::<u32>().write(context, 0);
         }
     }

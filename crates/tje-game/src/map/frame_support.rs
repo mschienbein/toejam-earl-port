@@ -29,8 +29,8 @@ pub(super) fn in_frame(
 pub(super) fn release_arguments(
     c: &mut dyn Context,
     outgoing: crate::call_frame::OutgoingArguments,
-    result: Result<u32>,
-) -> Result<u32> {
+    result: Result<()>,
+) -> Result<()> {
     let result = result.map_err(|error| c.protect_timing_failure(error));
     if result
         .as_ref()

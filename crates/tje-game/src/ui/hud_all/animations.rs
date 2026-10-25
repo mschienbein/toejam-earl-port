@@ -2,7 +2,7 @@ use super::super::animations::wait_upload;
 use super::super::entities::entity;
 use super::frame as source;
 use crate::call_frame::{FrameLayout, LocalFrame};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/ui/hud.c:103 (`HudLoadActionIconSprite`), both c_hud.s:242–311.
@@ -82,8 +82,8 @@ pub fn hud_animate_health_bar(context: &mut dyn Context, arguments: &[u32]) -> R
             .at_long_index(player)
             .read(context)
     {
-        call(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[player as u32])?;
-        call(context, ids::HUD_POSITION_LIVES_SPRITE, &[player as u32])?;
+        call_void(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[player as u32])?;
+        call_void(context, ids::HUD_POSITION_LIVES_SPRITE, &[player as u32])?;
     }
     let entity = entity(context, player_number);
     if ram::g_player_lives(revision)

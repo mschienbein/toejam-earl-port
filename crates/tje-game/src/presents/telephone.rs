@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, TelephoneState, ram, rom};
 
 /// G/src/presents/telephone.c:52 (`TelephoneStartRing`).
@@ -8,7 +8,7 @@ pub fn telephone_start_ring(context: &mut dyn Context, arguments: &[u32]) -> Res
     let index = i32::from(arguments[0] as i16);
     let telephone = Address::<TelephoneState>::new(arguments[1]);
     if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
-        call(
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_telephone(revision).address(), 50, 0],
@@ -101,7 +101,7 @@ pub fn telephone_clear_all(context: &mut dyn Context, _: &[u32]) -> Result<Optio
         if telephone.level().read(context) != 0 {
             let number = telephone.object().read(context);
             if number != 0 {
-                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                 telephone.object().write(context, 0);
             }
             telephone.level().write(context, 0);
@@ -197,7 +197,7 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
             && second_y < 132)
     {
         if telephone.object().read(context) == 0 {
-            call(
+            call_void(
                 context,
                 ids::TELEPHONE_CREATE_DISPLAY_ENTITY,
                 &[telephone.address()],
@@ -205,7 +205,7 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
         }
     } else if telephone.object().read(context) != 0 {
         let number = telephone.object().read(context);
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         context.discard_u8(telephone.object().address())?; // CLR.B.
         telephone.object().write(context, 0);
     }
@@ -234,7 +234,7 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 ram::g_telephone_rings_left(revision)
                     .at(index)
                     .write(context, 6);
-                call(
+                call_void(
                     context,
                     ids::TELEPHONE_START_RING,
                     &[index as u32, telephone.address()],
@@ -258,7 +258,7 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                     == telephone.level().read(context))
         {
             if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
-                call(
+                call_void(
                     context,
                     ids::TELEPHONE_START_RING,
                     &[index as u32, telephone.address()],
@@ -270,7 +270,7 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
         } else {
             if telephone.object().read(context) != 0 {
                 let number = telephone.object().read(context);
-                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                 context.discard_u8(telephone.object().address())?; // CLR.B.
                 telephone.object().write(context, 0);
                 let level = telephone.level().read(context);
@@ -303,11 +303,11 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 }
             {
                 let number = telephone.object().read(context);
-                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                 context.discard_u8(telephone.object().address())?; // CLR.B.
                 telephone.object().write(context, 0);
                 ram::g_map_reveal_mode(revision).write(context, 1);
-                call(context, ids::DRAW_GAME_MAP, &[player_number as u32])?;
+                call_void(context, ids::DRAW_GAME_MAP, &[player_number as u32])?;
                 context.discard_u16(ram::g_map_reveal_mode(revision).address())?; // CLR.W.
                 ram::g_map_reveal_mode(revision).write(context, 0);
                 context.discard_u8(telephone.level().address())?; // CLR.B.

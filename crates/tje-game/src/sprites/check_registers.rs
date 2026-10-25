@@ -6,7 +6,7 @@ use tje_mem::Revision;
 use tje_mem::ram;
 
 fn strict_indexes(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-    Ok(tje_game::call(context, ids::SET_RAM_INDEXES, &[]).map(|_| None)?)
+    Ok(tje_game::call_void(context, ids::SET_RAM_INDEXES, &[]).map(|_| None)?)
 }
 
 pub fn prove_indexes(root: &std::path::Path, evidence: &std::path::Path, script: &InputScript) {
@@ -61,7 +61,7 @@ pub fn prove_indexes(root: &std::path::Path, evidence: &std::path::Path, script:
 
 fn strict_sprite(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     let arguments = [context.argument_u32(0), context.argument_u32(1)];
-    Ok(tje_game::call(context, ids::SET_SPRITE, &arguments).map(|_| None)?)
+    Ok(tje_game::call_void(context, ids::SET_SPRITE, &arguments).map(|_| None)?)
 }
 
 pub fn prove_sprite(root: &std::path::Path, evidence: &std::path::Path, script: &InputScript) {

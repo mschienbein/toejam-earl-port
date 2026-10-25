@@ -177,3 +177,86 @@ fn void_original_callbacks_keep_the_exact_machine_and_frame_effects_without_a_sc
         }
     }
 }
+
+#[test]
+fn game_scalar_void_rejection_and_void_execution_are_mode_independent() {
+    use tje_game::call_frame::{CallSite, OutgoingArguments};
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for mode in [
+            crate::Mode::Reference,
+            crate::Mode::Check,
+            crate::Mode::Replace,
+        ] {
+            for form in 0..6 {
+                let mut machine = authored_machine(revision);
+                let before = machine.hybrid_cpu().hybrid_state_words();
+                let dispatcher = Dispatcher::hybrid_with(&[]);
+                let id = tje_game::ids::PRE_GENERATE_RANDOMS;
+                let site = CallSite::new(0x200);
+                let mut context = HookContext::new(&mut machine, revision, dispatcher, mode);
+                let result = match form {
+                    0 => tje_game::call(&mut context, id, &[0x1122_3344]),
+                    1 => dispatcher.call(&mut context, id, &[0x1122_3344]),
+                    2 => tje_game::call_at(&mut context, id, &[0x1122_3344], site),
+                    3 => dispatcher.call_at(&mut context, id, &[0x1122_3344], site),
+                    4 => OutgoingArguments::existing(&context, 0).unwrap().call(
+                        &mut context,
+                        dispatcher,
+                        id,
+                        site,
+                    ),
+                    _ => tje_game::call_frame::call_at(
+                        &mut context,
+                        dispatcher,
+                        id,
+                        &[0x1122_3344],
+                        site,
+                    ),
+                };
+                assert_eq!(
+                    result,
+                    Err(tje_game::Error::CallReturnType {
+                        function: id,
+                        requested_value: true,
+                    })
+                );
+                assert_eq!(context.nested_calls, 0);
+                assert_eq!(context.emulator.hybrid_cpu().hybrid_state_words(), before);
+                assert_eq!(context.read_u16(0xff0100), 0);
+                let result = match form {
+                    0 => tje_game::call_void(&mut context, id, &[0x1122_3344]),
+                    1 => dispatcher.call_void(&mut context, id, &[0x1122_3344]),
+                    2 => tje_game::call_at_void(&mut context, id, &[0x1122_3344], site),
+                    3 => dispatcher.call_at_void(&mut context, id, &[0x1122_3344], site),
+                    4 => {
+                        let outgoing =
+                            OutgoingArguments::push(&mut context, &[0x1122_3344]).unwrap();
+                        let result = outgoing.call_void(&mut context, dispatcher, id, site);
+                        outgoing.release(&mut context).unwrap();
+                        result
+                    }
+                    _ => tje_game::call_frame::call_at_void(
+                        &mut context,
+                        dispatcher,
+                        id,
+                        &[0x1122_3344],
+                        site,
+                    ),
+                };
+                result.unwrap();
+                assert_eq!(context.nested_calls, 1);
+                assert_eq!(
+                    context.emulator.hybrid_cpu().data_registers()[0],
+                    0x1357_2468
+                );
+                assert_eq!(
+                    context.emulator.hybrid_cpu().data_registers()[1],
+                    0x89ab_cdef
+                );
+                assert_eq!(context.read_u16(0xff0100), 0x5aa5);
+                assert_eq!(Context::stack_pointer(&context).unwrap(), 0xff7ff0);
+                assert_eq!(context.read_u32(0xff7fec), 0xa1b2_c3d4);
+            }
+        }
+    }
+}

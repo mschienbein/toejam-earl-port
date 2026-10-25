@@ -231,3 +231,51 @@ fn failed_discard_does_not_issue_the_clear_store() {
     assert_eq!(bus.accesses, [ClearAccess::DiscardWord(address, 0xabcd)]);
     assert_eq!(bus.value, 0xabcd);
 }
+
+#[test]
+fn retained_ending_cadence_keeps_declared_scalar_and_actual_argument_area() {
+    use crate::core::test_support::TestContext;
+    use crate::{Context, Dispatcher, Translation, ids};
+    fn cadence(context: &mut dyn Context, arguments: &[u32]) -> crate::Result<Option<u32>> {
+        assert_eq!(arguments, &[0, 0]);
+        let sp = context.stack_pointer()?;
+        assert_eq!(
+            context.read_u32(sp),
+            ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE
+                .metadata()
+                .address(context.revision())
+                + 0x23c,
+        );
+        context.write_u32(sp + 8, 0x5566_7788);
+        context.set_data_register(1, 0x1122_3344);
+        Ok(Some(17))
+    }
+    static CALLEE: &[Translation] = &[Translation {
+        id: ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+        function: cadence,
+    }];
+    for revision in [tje_mem::Revision::Rev02, tje_mem::Revision::Rev00] {
+        let mut context = TestContext::with_rom(revision, Vec::new());
+        let caller = ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE;
+        let parent = context.prepare_entry(caller, &[]);
+        context.execution = crate::execution::ExecutionClass::TimeAware;
+        context.dispatcher_override = Some(Dispatcher::hybrid_with(CALLEE));
+        let sp = context.stack_pointer().unwrap();
+        let area = super::retained_ending_call(
+            &mut context,
+            caller,
+            0x1016 - 0xdda,
+            ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
+            &[0, 0],
+        )
+        .unwrap();
+        assert_eq!(context.stack_pointer().unwrap(), sp - 8);
+        assert_eq!(context.frame_state(), Some(parent));
+        assert_eq!(area.argument_slot(0).read(&context), 0);
+        assert_eq!(area.argument_slot(1).read(&context), 0x5566_7788);
+        assert_eq!(context.data_register(0), 17);
+        assert_eq!(context.data_register(1), 0x1122_3344);
+        area.release(&mut context).unwrap();
+        assert_eq!(context.stack_pointer().unwrap(), sp);
+    }
+}

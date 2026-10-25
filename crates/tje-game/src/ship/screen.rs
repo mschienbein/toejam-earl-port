@@ -43,21 +43,21 @@ pub fn animate_ship_screen_palette(
         for color in 0..16 {
             context.discard_u16(palette.offset(color).address())?;
             palette.offset(color).write(context, 0);
-            dispatcher.call_at(
+            dispatcher.call_at_void(
                 context,
                 ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
                 &[0],
                 site(0x26),
             )?;
         }
-        dispatcher.call_at(context, ids::PLAY_SOUND, &[12, 90], site(0x3e))?;
+        dispatcher.call_at_void(context, ids::PLAY_SOUND, &[12, 90], site(0x3e))?;
         for tick in 1..61 {
             if matches!(tick, 8 | 16 | 22 | 28 | 32 | 36 | 38 | 40) {
                 fade_step = fade_step.wrapping_add(1);
             } else if matches!(tick, 44 | 48 | 54 | 60) {
                 fade_step = fade_step.wrapping_sub(1);
             } else {
-                dispatcher.call_at(
+                dispatcher.call_at_void(
                     context,
                     ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
                     &[0],
@@ -98,9 +98,9 @@ pub fn animate_ship_screen_palette(
             // The compiler retains Wait's argument while pushing Copy's two
             // arguments, then cleans twelve bytes only after the palette call.
             let wait = OutgoingArguments::push(context, &[1])?;
-            wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x162))?;
+            wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0x162))?;
             let copy = OutgoingArguments::push(context, &[palette.address(), 3])?;
-            copy.call(
+            copy.call_void(
                 context,
                 dispatcher,
                 ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -148,19 +148,19 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
         base_tile.write(context, 129);
         sprite_number.write(context, 0);
         mode_pointer.write(context, mode.address());
-        dispatcher.call_at(context, ids::DISABLE_BLANKING_GRAPHICS, &[], site(0x2e))?;
+        dispatcher.call_at_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[], site(0x2e))?;
         let blanked = mode.read(context) & 0x3c;
         mode.write(context, blanked);
         context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
         let initial_upload = OutgoingArguments::push(context, &[1, 1])?;
-        initial_upload.call(
+        initial_upload.call_void(
             context,
             dispatcher,
             ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
             site(0x5e),
         )?;
         // The upload's two slots remain allocated during this no-argument call.
-        dispatcher.call_at(
+        dispatcher.call_at_void(
             context,
             ids::INITIALIZE_SHIP_SCREEN_TILEMAP_AND_PALETTES,
             &[],
@@ -220,7 +220,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                     } else {
                         (ids::SPRITE_UNPACK_RLE, 0x110)
                     };
-                    dispatcher.call_at(
+                    dispatcher.call_at_void(
                         context,
                         unpack,
                         &[part.address(), i32::from(tiles) as u32],
@@ -231,7 +231,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                         .read(context)
                         != 0
                     {
-                        dispatcher.call_at(
+                        dispatcher.call_at_void(
                             context,
                             ids::FILL_SPRITE_OPAQUE_PIXELS,
                             &[i32::from(tiles) as u32],
@@ -291,7 +291,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                 let tiles = tile_offset.read(context) as u16;
                 let next = base_tile.read(context).wrapping_add(tiles);
                 base_tile.write(context, next);
-                dispatcher.call_at(
+                dispatcher.call_at_void(
                     context,
                     ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
                     &[1, 1],
@@ -314,7 +314,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
         context.discard_u8(last.link().address())?;
         last.link().write(context, 0);
         let dma = OutgoingArguments::push(context, &[sprites.address(), 0xf800, 320])?;
-        dma.call(
+        dma.call_void(
             context,
             dispatcher,
             ids::DMA_COPY_WORDS_TO_VRAM,
@@ -327,11 +327,11 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
         context.write_vdp_control(command);
         if selected_piece >= 0 {
             let selected = OutgoingArguments::push(context, &[i32::from(selected_piece) as u32])?;
-            selected.call(context, dispatcher, ids::SHOW_SHIP_PIECE_NAME, site(0x2d2))?;
-            dispatcher.call_at(context, ids::ANIMATE_SHIP_SCREEN_PALETTE, &[], site(0x2d6))?;
+            selected.call_void(context, dispatcher, ids::SHOW_SHIP_PIECE_NAME, site(0x2d2))?;
+            dispatcher.call_at_void(context, ids::ANIMATE_SHIP_SCREEN_PALETTE, &[], site(0x2d6))?;
             selected.release(context)?;
         } else if player_number != 2 {
-            dispatcher.call_at(
+            dispatcher.call_at_void(
                 context,
                 ids::SHOW_MISSING_SHIP_PIECE_SUMMARY,
                 &[i32::from(player_number) as u32],
@@ -356,7 +356,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
         if ship_number.read(context) < 10 {
             let acknowledgement =
                 OutgoingArguments::push(context, &[i32::from(player_number) as u32])?;
-            acknowledgement.call(
+            acknowledgement.call_void(
                 context,
                 dispatcher,
                 ids::WAIT_FOR_SHIP_SCREEN_ACKNOWLEDGEMENT,
@@ -367,9 +367,9 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
             let command = 0x8104 | u16::from(mode.read(context));
             acknowledgement.release(context)?;
             context.write_vdp_control(command);
-            dispatcher.call_at(context, ids::RESTORE_GAMEPLAY_GRAPHICS, &[], site(0x340))?;
+            dispatcher.call_at_void(context, ids::RESTORE_GAMEPLAY_GRAPHICS, &[], site(0x340))?;
             if ram::g_player_inventory_open(revision).at(0).read(context) != 0 {
-                dispatcher.call_at(
+                dispatcher.call_at_void(
                     context,
                     ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
                     &[0],
@@ -377,7 +377,7 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                 )?;
             }
             if ram::g_player2_inventory_open(revision).read(context) != 0 {
-                dispatcher.call_at(
+                dispatcher.call_at_void(
                     context,
                     ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
                     &[1],
@@ -388,10 +388,15 @@ pub fn show_ship_pieces(context: &mut dyn Context, arguments: &[u32]) -> Result<
                 let enabled = mode.read(context) | 0x40;
                 mode.write(context, enabled);
                 context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-                dispatcher.call_at(context, ids::ENABLE_BLANKING_GRAPHICS, &[], site(0x392))?;
+                dispatcher.call_at_void(
+                    context,
+                    ids::ENABLE_BLANKING_GRAPHICS,
+                    &[],
+                    site(0x392),
+                )?;
             }
         } else {
-            dispatcher.call_at(
+            dispatcher.call_at_void(
                 context,
                 ids::PLAY_SHIP_COMPLETION_SEQUENCE,
                 &[i32::from(player_number) as u32],

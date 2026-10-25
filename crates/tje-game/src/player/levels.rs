@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom, rom_symbol};
 
 /// G/src/player/ability_helpers.c:61 (`LemonadeAbility`).
@@ -17,7 +17,7 @@ pub(super) fn lemonade_ability(
             .read(context)
             == 0
     {
-        call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+        call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
     }
     let reward = ram::g_player_lemonade_reward_states(revision).at(number);
     if reward.read(context) == 1 && ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
@@ -26,12 +26,12 @@ pub(super) fn lemonade_ability(
     }
     if player.sprite_state().read(context) == 118 && player.frame_duration().read(context) == 0 {
         let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-        call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         let text = rom_symbol(revision, "GameText_023E04")
             .expect("source speech symbol")
             .address;
         call(context, ids::GENERATE_SPEECH, &[number as u32, text, 1])?;
-        call(
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_burp(revision).address(), 50, 0],
@@ -42,8 +42,8 @@ pub(super) fn lemonade_ability(
     } else if player.sprite_state().read(context) == 8
         && player.y().read(context) > earthling.y().read(context)
     {
-        call(context, ids::SET_SPRITE, &[player.address(), 118])?;
-        call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 1])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), 118])?;
+        call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 1])?;
     }
     Ok(None)
 }
@@ -66,7 +66,7 @@ pub(super) fn player_advance_to_next_level(
     let handle = ram::g_player_transient_effect_entities(revision).at(number);
     let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
     let entity = handle.read(context) as u32;
-    call(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[entity])?;
+    call_void(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[entity])?;
     if effect.draw_flags().read(context) & 2 != 0 {
         while handle.read(context) != 0 {
             if call(
@@ -79,8 +79,8 @@ pub(super) fn player_advance_to_next_level(
                     .behavior_flags()
                     .write(context, player.behavior_flags().read(context) | 0x40);
             }
-            call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[2])?;
-            call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+            call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[2])?;
+            call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
             // Matching compiler lines1805-1822: retain the literal calls and
             // handle-byte polls; only yield at the compound loop's backedge.
             context.poll_yield()?;
@@ -90,28 +90,28 @@ pub(super) fn player_advance_to_next_level(
             .write(context, player.behavior_flags().read(context) & !0x40);
     }
     let level = player.level().read(context) as u32;
-    call(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+    call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
     let level = player.level().read(context) as u32;
-    call(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+    call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
     player
         .level()
         .write(context, player.level().read(context).wrapping_add(1));
     let level = player.level().read(context) as u32;
-    call(context, ids::MAP_LOAD_PLAYER_LEVEL, &[0, level])?;
+    call_void(context, ids::MAP_LOAD_PLAYER_LEVEL, &[0, level])?;
     let level = player.level().read(context) as u32;
     call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
     let level = player.level().read(context) as u32;
-    call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+    call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
     let level = player.level().read(context) as u32;
-    call(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
+    call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
     if player.level().read(context) > 1 {
-        call(
+        call_void(
             context,
             ids::PLAYER_SET_POSITION_FROM_SAVED_MAP_CELL,
             &[player.address()],
         )?;
     } else {
-        call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
+        call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
     }
     player.height().write(context, 70);
     Ok(None)
@@ -135,7 +135,7 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         player.level().read(context) != highest
     };
     if advance {
-        call(
+        call_void(
             context,
             ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
             &[player.address(), number as u32],
@@ -175,13 +175,13 @@ pub(super) fn player_relocate_to_partner_or_next_level(
             player.level().read(context) != other_level
         } {
             let level = player.level().read(context) as u32;
-            call(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+            call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
             let level = player.level().read(context) as u32;
-            call(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+            call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
             player.level().write(context, other.level().read(context));
             let source = ram::g_player_info(revision).at(if number == 0 { 0 } else { 1 });
             let level = source.level().read(context) as u32;
-            call(
+            call_void(
                 context,
                 ids::MAP_LOAD_PLAYER_LEVEL,
                 &[if number == 0 { 0 } else { 1 }, level],
@@ -189,28 +189,28 @@ pub(super) fn player_relocate_to_partner_or_next_level(
             let level = source.level().read(context) as u32;
             call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
             let level = source.level().read(context) as u32;
-            call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+            call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
             let level = source.level().read(context) as u32;
-            call(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
+            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
         }
     }
-    call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     mode.write(context, mode.read(context) & 0x3c);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(
+    call_void(
         context,
         ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
         &[number as u32],
     )?;
-    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
     mode.write(context, mode.read(context) | 0x40);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
-    call(context, ids::UPDATE_LAND_AROUND_PLAYER, &[number as u32])?;
+    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::UPDATE_LAND_AROUND_PLAYER, &[number as u32])?;
     if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
-        call(context, ids::SET_SPRITE, &[player.address(), 21])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), 21])?;
         player.velocity_x().write(context, 0);
         player.velocity_y().write(context, 0);
         player.velocity_height().write(context, -128);
@@ -242,7 +242,7 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         let args = [number as u32, x, y, height, level];
         call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
     } else {
-        call(context, ids::STOP_PLAYER, &[player.address()])?;
+        call_void(context, ids::STOP_PLAYER, &[player.address()])?;
         ram::g_player_elevator_flags(revision).at(number).write(
             context,
             ram::g_player_elevator_flags(revision)
@@ -252,7 +252,7 @@ pub(super) fn player_relocate_to_partner_or_next_level(
         player
             .behavior_flags()
             .write(context, player.behavior_flags().read(context) | 0x40);
-        call(context, ids::SET_SPRITE, &[player.address(), 0])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), 0])?;
     }
     Ok(None)
 }
@@ -286,9 +286,9 @@ pub(super) fn make_player_fall(
                 .draw_flags()
                 .write(context, player.draw_flags().read(context) | 0x40);
             let level = player.level().read(context) as u32;
-            call(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+            call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
             let level = player.level().read(context) as u32;
-            call(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+            call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
             let (stored, remaining) =
                 super::counters::predecrement_byte(player.level().read(context));
             player.level().write(context, stored);
@@ -302,23 +302,23 @@ pub(super) fn make_player_fall(
                 .write(context, 2);
         }
         if ram::g_player_lives(revision).at(number).read(context) < 0 {
-            call(context, ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS, &[])?;
+            call_void(context, ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS, &[])?;
         }
     }
     for number in 0..2 {
         if falling.offset(number).read(context) != 0 {
             let player = ram::g_player_info(revision).at(number);
             let level = player.level().read(context) as u32;
-            call(context, ids::MAP_LOAD_PLAYER_LEVEL, &[number as u32, level])?;
+            call_void(context, ids::MAP_LOAD_PLAYER_LEVEL, &[number as u32, level])?;
             let level = player.level().read(context) as u32;
             call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
             let level = player.level().read(context) as u32;
-            call(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+            call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
             let level = player.level().read(context) as u32;
-            call(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
+            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
         }
     }
-    call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
     let mode = ram::g_mode2_reg_softcopy(revision);
     mode.write(context, mode.read(context) & 0x3c);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
@@ -329,7 +329,7 @@ pub(super) fn make_player_fall(
         || ram::g_player2_lives(revision).read(context) < 0
     {
         if falling.read(context) != 0 && falling.offset(1).read(context) != 0 {
-            call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[2])?;
+            call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[2])?;
         } else {
             let (number, other) = if falling.read(context) != 0 {
                 (0, second)
@@ -349,7 +349,7 @@ pub(super) fn make_player_fall(
                 || other.sprite_state().read(context) == 6
                 || ram::g_player_lives(revision).at(number ^ 1).read(context) < 0
             {
-                call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
+                call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
             } else {
                 let player = ram::g_player_info(revision).at(number);
                 player.x().write(context, other.x().read(context));
@@ -368,19 +368,19 @@ pub(super) fn make_player_fall(
     } else {
         for number in 0..2 {
             if falling.offset(number).read(context) != 0 {
-                call(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
+                call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
             }
         }
     }
-    call(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
-    call(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[0])?;
-    call(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[0])?;
-    call(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[1])?;
-    call(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
+    call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+    call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[0])?;
+    call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[0])?;
+    call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[1])?;
+    call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
     context.write_vdp_control(0x8c89);
     mode.write(context, mode.read(context) | 0x40);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     Ok(None)
 }
 

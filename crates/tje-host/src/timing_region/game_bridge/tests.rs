@@ -411,17 +411,17 @@ fn prepared_outgoing_call_consumes_real_source_completion_before_parent_restore(
             let parent = context.frame_state().unwrap();
             let outgoing = OutgoingArguments::push(&mut context, &[0]).unwrap();
             let dispatcher = context.dispatcher();
-            assert_eq!(
-                outgoing
-                    .call(
-                        &mut context,
-                        dispatcher,
-                        ids::WAIT_FOR_NEXT_V_BLANK,
-                        CallSite::new(actual_return)
-                    )
-                    .unwrap(),
-                0
-            );
+            outgoing
+                .call_void(
+                    &mut context,
+                    dispatcher,
+                    ids::WAIT_FOR_NEXT_V_BLANK,
+                    CallSite::new(actual_return),
+                )
+                .unwrap();
+            // Actual timed-callee D0 remains observable independently of the
+            // ABI-void call's unit result (authored prepared-ABI fixture).
+            assert_eq!(context.cpu().data_registers()[0], 0);
             assert_eq!(context.cpu().pc(), actual_return);
             assert_eq!(
                 context.stack_pointer().unwrap(),
@@ -662,11 +662,7 @@ fn failing_after_real_source(context: &mut dyn tje_game::Context) -> tje_game::R
 #[test]
 #[ignore = "requires both private ROMs; real prepared-callee failure boundaries"]
 fn admitted_prepared_failures_preserve_actual_frames_and_first_causes() {
-    use tje_game::{
-        Context, Error,
-        call_frame::{CallSite, call_at},
-        execution::CallCeiling,
-    };
+    use tje_game::{Context, Error, call_frame::CallSite, execution::CallCeiling};
     static BAD_WRAPPER: &[FramedTranslation] = &[FramedTranslation {
         id: ids::WAIT_FOR_NEXT_V_BLANK,
         function: failing_after_real_source,
@@ -728,7 +724,7 @@ fn admitted_prepared_failures_preserve_actual_frames_and_first_causes() {
                 } else {
                     0
                 };
-                failure = call_at(
+                failure = tje_game::call_frame::call_at_void(
                     &mut context,
                     dispatcher,
                     ids::WAIT_FOR_NEXT_V_BLANK,
@@ -820,7 +816,7 @@ fn admitted_prepared_failures_preserve_actual_frames_and_first_causes() {
                 .with_execution(ExecutionClass::TimeAware, clock);
             let parent = context.frame_state().unwrap();
             let dispatcher = context.dispatcher();
-            let error = call_at(
+            let error = tje_game::call_frame::call_at_void(
                 &mut context,
                 dispatcher,
                 ids::WAIT_FOR_NEXT_V_BLANK,
@@ -976,10 +972,7 @@ fn source_failure_body(context: &mut dyn tje_game::Context) -> tje_game::Result<
 #[test]
 #[ignore = "requires both private ROMs; source-owned first-cause preservation"]
 fn source_callback_causes_survive_owned_boundaries_and_secondary_checks() {
-    use tje_game::{
-        Context, Error,
-        call_frame::{CallSite, call_at},
-    };
+    use tje_game::{Context, Error, call_frame::CallSite};
     static FAILING: &[FramedTranslation] = &[FramedTranslation {
         id: ids::WAIT_FOR_NEXT_V_BLANK,
         function: source_failure_body,
@@ -1009,7 +1002,7 @@ fn source_callback_causes_survive_owned_boundaries_and_secondary_checks() {
                 .context()
                 .with_execution(ExecutionClass::TimeAware, clock);
             let dispatcher = context.dispatcher();
-            let error = call_at(
+            let error = tje_game::call_frame::call_at_void(
                 &mut context,
                 dispatcher,
                 ids::WAIT_FOR_NEXT_V_BLANK,

@@ -1,10 +1,10 @@
 use super::entities::set_data_word;
 use super::frame_support::{
     clear_long, clear_word, in_frame, random_sample_index, release_arguments, retained_call,
-    source_call,
+    retained_call_void, source_call, source_call_void,
 };
 use crate::call_frame::{CallSite, FrameLayout, OutgoingArguments};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at_void, ids};
 use tje_mem::{Ptr, ram, rom, rom_symbol};
 
 fn pads(context: &mut dyn Context, second_offset: u32, first_offset: u32) -> Result<u32> {
@@ -60,7 +60,7 @@ fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()>
             } else {
                 rom::jam_bass_drum_alternate_sequence(revision).address()
             };
-            source_call(
+            source_call_void(
                 context,
                 ids::START_JAM_OUT,
                 0x29a + shift,
@@ -82,7 +82,7 @@ fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()>
             } else {
                 rom::jam_snare_drum_first_sequence(revision).address()
             };
-            source_call(
+            source_call_void(
                 context,
                 ids::START_JAM_OUT,
                 0x2c8 + shift,
@@ -91,7 +91,7 @@ fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()>
             )?;
         }
         if pending.byte_offset(1).cast::<u8>().read(context) & 0x20 != 0 {
-            source_call(
+            source_call_void(
                 context,
                 ids::START_JAM_OUT,
                 0x2e2 + shift,
@@ -103,7 +103,7 @@ fn consume_animation_input(context: &mut dyn Context, player: i32) -> Result<()>
         if pending.read(context) & 0x0f != 0
             || pending.byte_offset(1).cast::<u8>().read(context) & 0x80 != 0
         {
-            source_call(
+            source_call_void(
                 context,
                 ids::START_JAM_OUT,
                 0x30e + shift,
@@ -134,7 +134,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     context.set_address_register(4, ids::GET_RANDOM_NUMBER.metadata().address(revision));
     set_data_word(context, 3, song);
     while pads(context, 0x2e, 0x36)? != 0 {
-        source_call(
+        source_call_void(
             context,
             ids::START_JAM_OUT,
             0x26,
@@ -146,7 +146,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     ram::g_mode2_reg_softcopy(revision).write(context, mode);
     let mode = ram::g_mode2_reg_softcopy(revision).read(context);
     context.write_vdp_control(0x8104 | u16::from(mode));
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x6a,
@@ -167,7 +167,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     // creator's uninitialized -2(A6) local; never erase or invent that residue.
     let dispatcher = context.dispatcher();
     let image = OutgoingArguments::push(context, &[rom::crash_screen(revision).address(), length])?;
-    image.call(
+    image.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -177,7 +177,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
         context,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    first_palette.call(
+    first_palette.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -185,7 +185,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     )?;
     let last_palette =
         OutgoingArguments::push(context, &[rom::palette_game_line4(revision).address(), 3])?;
-    last_palette.call(
+    last_palette.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -195,7 +195,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     first_palette.release(context)?;
     image.release(context)?;
     ram::g_shared_tile_sprite_copies_enabled(revision).write(context, 1);
-    call_at(
+    call_at_void(
         context,
         ids::JAM_OUT_CREATE_CHARACTER_COPIES,
         &[],
@@ -203,7 +203,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     )?;
     context.write_vdp_control(0x8c89);
     clear_word(context, ram::g_camera_tile_attributes(revision).address())?;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0xf2,
@@ -241,7 +241,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     if song != 0 {
         song = song.wrapping_sub(1);
         set_data_word(context, 3, song);
-        source_call(
+        source_call_void(
             context,
             ids::START_JAM_OUT,
             0x1c4,
@@ -251,14 +251,14 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
         ram::g_current_music_selection(revision).write(context, i8::from(song == 0));
         ram::g_requested_music_selection(revision).write(context, song as i8);
     } else {
-        source_call(
+        source_call_void(
             context,
             ids::START_JAM_OUT,
             0x1e4,
             ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
             &[],
         )?;
-        source_call(
+        source_call_void(
             context,
             ids::START_JAM_OUT,
             0x1ea,
@@ -266,7 +266,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
             &[],
         )?;
     }
-    retained_call(
+    retained_call_void(
         context,
         ids::START_JAM_OUT,
         0x1f4,
@@ -281,7 +281,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     let text = rom_symbol(revision, "PressAndHoldStartToExitStr")
         .expect("generated Jam Out exit-text symbol")
         .address;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x228,
@@ -296,14 +296,14 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
             ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE,
             &[3, 0],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             ids::START_JAM_OUT,
             0x242,
             ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
             &[0],
         )?;
-        source_call(
+        source_call_void(
             context,
             ids::START_JAM_OUT,
             0x248,
@@ -321,7 +321,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
         consume_animation_input(context, 0)?;
         consume_animation_input(context, 1)?;
     }
-    retained_call(
+    retained_call_void(
         context,
         ids::START_JAM_OUT,
         0x3e0,
@@ -338,35 +338,35 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
         context,
         ram::g_music_alternate_template_bank_enabled(revision).address(),
     )?;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x412,
         ids::CUTSCENE_RELEASE_TEXT_ENTITIES,
         &[],
     )?;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x418,
         ids::CLEAR_UPPER_VRAM_TILEMAP,
         &[],
     )?;
-    retained_call(
+    retained_call_void(
         context,
         ids::START_JAM_OUT,
         0x420,
         ids::JAM_OUT_UPDATE_LAYOUTS_AND_SCROLL,
         &[1],
     )?;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x428,
         ids::CLEAR_LOWER_VRAM_TILEMAP,
         &[],
     )?;
-    retained_call(
+    retained_call_void(
         context,
         ids::START_JAM_OUT,
         0x432,
@@ -377,7 +377,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
     ram::g_current_music_selection(revision).write(context, 1);
     context.discard_u8(ram::g_requested_music_selection(revision).address())?;
     ram::g_requested_music_selection(revision).write(context, 0);
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x446,
@@ -388,7 +388,7 @@ fn start_jam_out_inner(context: &mut dyn Context, mut song: i16) -> Result<Optio
         context,
         ram::g_shared_tile_sprite_copies_enabled(revision).address(),
     )?;
-    source_call(
+    source_call_void(
         context,
         ids::START_JAM_OUT,
         0x454,

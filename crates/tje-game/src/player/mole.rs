@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, Ptr, ram, rom};
 
 /// G/src/player/mole.c:23 (`DoMoleAbility`). Inventory loss precedes allocation;
@@ -88,7 +88,7 @@ pub(super) fn mole_ability(context: &mut dyn Context, arguments: &[u32]) -> Resu
         if victim.sprite_state().read(context) == 70 {
             if earthling.timer().read(context) < 15 {
                 let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[victim.address()])?;
-                call(context, ids::SET_SPRITE, &[victim.address(), sprite])?;
+                call_void(context, ids::SET_SPRITE, &[victim.address(), sprite])?;
                 victim
                     .behavior_flags()
                     .write(context, victim.behavior_flags().read(context) & !0x20);
@@ -102,7 +102,7 @@ pub(super) fn mole_ability(context: &mut dyn Context, arguments: &[u32]) -> Resu
                     || (count.read(context) < 3
                         && u32::from(super::poses::next_random(context)) % 100 < 8)
                 {
-                    call(
+                    call_void(
                         context,
                         ids::DO_MOLE_ABILITY,
                         &[victim.address(), number as u32],
@@ -140,7 +140,7 @@ pub(super) fn mole_ability(context: &mut dyn Context, arguments: &[u32]) -> Resu
         mole.x().write(context, victim.x().read(context));
         mole.y().write(context, victim.y().read(context));
     }
-    call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
+    call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
     earthling.timer().write(context, 30);
     mole.frame().write(context, -1);
     mole.behavior_flags()
@@ -158,7 +158,7 @@ pub(super) fn mole_ability(context: &mut dyn Context, arguments: &[u32]) -> Resu
             mole.attachment_y_or_latch().read(context).wrapping_add(1),
         );
     }
-    call(context, ids::SET_SPRITE, &[victim.address(), 70])?;
+    call_void(context, ids::SET_SPRITE, &[victim.address(), 70])?;
     victim.animation_motion_axes().write(context, 3);
     victim
         .behavior_flags()

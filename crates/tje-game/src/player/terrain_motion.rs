@@ -1,4 +1,4 @@
-use super::frames::{call_from, with_frame};
+use super::frames::{call_from, call_from_void, with_frame};
 use crate::call_frame::{FrameLayout, LocalFrame};
 use crate::{Context, Result, ids};
 use tje_mem::{Address, RenderFrame, Revision, ram};
@@ -264,7 +264,7 @@ fn process(
         entity.y().write(context, y.read(context));
         entity.fraction_y().write(context, fraction_y.read(context));
     } else if entity.sprite_state().read(context) != 78 {
-        call_from(
+        call_from_void(
             context,
             caller,
             ids::PLAYER_APPLY_TERRAIN_DESTINATION,

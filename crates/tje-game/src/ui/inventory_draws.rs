@@ -1,5 +1,5 @@
 use super::draws::literal;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/ui/inventory.c:972 (`InventoryDrawActionBanner`).
@@ -13,8 +13,8 @@ pub fn inventory_draw_action_banner(
     let already_blanked = arguments[2] as i16;
     let base_row = if player == 0 { 1_i32 } else { 14_i32 };
     if already_blanked == 0 {
-        call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-        call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+        call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
         for row in 0_i32..3 {
             context.write_vdp_command(
                 0x501c0003_u32.wrapping_add((base_row.wrapping_add(row) as u32) << 23),
@@ -66,7 +66,7 @@ pub fn inventory_draw_action_banner(
         }
     }
     if already_blanked == 0 {
-        call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     }
     ram::g_inventory_banner_mode(revision)
         .at(i32::from(player))
@@ -175,7 +175,7 @@ pub fn load_presents_into_inventory(
                     let flags = object.behavior_flags().read(context) | 0x40;
                     object.behavior_flags().write(context, flags);
                     let text = literal(context, "GameText_00A606")?;
-                    call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+                    call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
                 }
             }
             object = object.offset(1);

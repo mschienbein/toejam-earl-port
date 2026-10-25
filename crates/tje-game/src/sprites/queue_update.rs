@@ -1,6 +1,6 @@
 //! Main-thread sprite preparation; waits retain real accepted-interrupt progress.
 use crate::{
-    Context, Result, call_at,
+    Context, Result, call_at, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
     execution::WaitRequest,
     ids,
@@ -54,7 +54,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
     let d3_high = context.data_register(3) & 0xffff_0000;
     let mut last_frame = context.address_register(3);
     context.set_address_register(4, ram::g_player_inventory_open(revision).address());
-    call_at(
+    call_at_void(
         context,
         ids::INVENTORY_SET_CAMERA_SUSPENSION,
         &[1],
@@ -168,7 +168,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
             };
             entity.current_frame().write(context, frame_pointer);
             if entity.draw_flags().read(context) & 2 != 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::PREPARE_ENTITY_SPRITE_FRAME,
                     &[entity.address(), frame.address(), u32::from(reuse_tiles), 0],
@@ -178,7 +178,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
                 entity.sprite_ready().write(context, 1);
             }
             if entity.draw_flags().read(context) & 4 != 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::PREPARE_ENTITY_SPRITE_FRAME,
                     &[entity.address(), frame.address(), u32::from(reuse_tiles), 1],
@@ -193,14 +193,14 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         }
     }
     if ram::g_shared_tile_sprite_copies_enabled(revision).read(context) != 0 {
-        call_at(
+        call_at_void(
             context,
             ids::JAM_OUT_SYNCHRONIZE_ENTITY_COPIES,
             &[],
             CallSite::relative(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, revision, 0x1c0),
         )?;
     }
-    call_at(
+    call_at_void(
         context,
         ids::SORT_ENTITIES_FOR_SPRITE_DRAW,
         &[],
@@ -210,7 +210,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         .read(context)
         .address();
     let arguments = OutgoingArguments::push(context, &[head])?;
-    arguments.call(
+    arguments.call_void(
         context,
         dispatcher,
         ids::POSITION_ENTITY_SPRITES,
@@ -224,7 +224,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
             .read(context)
             .address();
         let inventory = OutgoingArguments::push(context, &[head])?;
-        inventory.call(
+        inventory.call_void(
             context,
             dispatcher,
             ids::POSITION_ENTITY_SPRITES,
@@ -233,7 +233,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
         // G CE66-CE6E retains that head while pushing/calling suspension(0),
         // then removes both actual slots together (ADDQ.L #8,SP).
         let suspension = OutgoingArguments::push(context, &[0])?;
-        suspension.call(
+        suspension.call_void(
             context,
             dispatcher,
             ids::INVENTORY_SET_CAMERA_SUSPENSION,
@@ -248,7 +248,7 @@ fn update_queue_inner(context: &mut dyn Context) -> Result<Option<u32>> {
     context.set_address_register(3, last_frame);
     // REV02 CE74 / REV00 CE54, offset 0x1f2: actual zero-argument JSR return.
     let site = CallSite::relative(ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, revision, 0x1f2);
-    call_at(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[], site)?;
+    call_at_void(context, ids::BUILD_VIEWPORT_SPRITE_LINKS, &[], site)?;
     pending.write(context, 1);
     // G c_entity_sprite_rendering.s:1328: final MOVE.B #1 sets N/Z/V/C=0.
     context.set_status_register(context.status_register() & !0x0f);

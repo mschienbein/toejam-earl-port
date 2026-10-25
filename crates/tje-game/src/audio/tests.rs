@@ -393,7 +393,7 @@ fn delivered_audio_roots_have_native_closures_and_pending_bodies_fail_closed() {
         assert!(dispatcher.translation(id).is_none());
         let mut context = TestContext::new(Revision::Rev02, Vec::new());
         assert_eq!(
-            dispatcher.call(&mut context, id, &[]),
+            dispatcher.call_void(&mut context, id, &[]),
             Err(Error::Untranslated(id))
         );
     }

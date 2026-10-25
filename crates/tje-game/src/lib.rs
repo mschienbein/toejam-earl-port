@@ -659,12 +659,11 @@ pub(crate) enum CallReturn {
 }
 impl CallReturn {
     fn check(self, function: FunctionId) -> Result<()> {
-        // Existing value-call sites are migrated separately before their
-        // global ABI-void rejection is enabled. Discard is typed already.
-        if matches!(self, Self::Discard) && function.metadata().abi.returns_value {
+        let requested_value = matches!(self, Self::Value);
+        if requested_value != function.metadata().abi.returns_value {
             Err(Error::CallReturnType {
                 function,
-                requested_value: false,
+                requested_value,
             })
         } else {
             Ok(())

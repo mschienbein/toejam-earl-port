@@ -2,7 +2,7 @@
 use crate::{
     Context, Error, Result, call, call_at,
     call_frame::{CallSite, FrameLayout, LocalFrame},
-    function_at, ids,
+    call_void, function_at, ids,
 };
 use tje_mem::{Address, ObjectState, Ptr, ram, rom};
 
@@ -18,14 +18,14 @@ pub fn free_entity(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
         .cast::<ObjectState>();
     if entity.draw_flags().read(context) & 1 != 0 {
         if entity.draw_flags().read(context) & 2 != 0 {
-            call(
+            call_void(
                 context,
                 ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 0],
             )?;
         }
         if entity.draw_flags().read(context) & 4 != 0 {
-            call(
+            call_void(
                 context,
                 ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 1],
@@ -158,7 +158,7 @@ pub fn update_all_entity_shadows(context: &mut dyn Context, _: &[u32]) -> Result
             } else {
                 ids::RELEASE_ENTITY_SHADOWS
             };
-            call(context, function, &[entity.address()])?;
+            call_void(context, function, &[entity.address()])?;
         }
     }
     Ok(None)
@@ -199,7 +199,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
             add_primary = true;
         }
     } else if entity.draw_flags().read(context) & 2 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[entity.address(), 0],
@@ -219,7 +219,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
             context.set_data_register(4, 1);
         }
     } else if entity.draw_flags().read(context) & 4 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[entity.address(), 1],
@@ -227,7 +227,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
     }
     if add_primary {
         if number == 0 && entity.draw_flags().read(context) & 4 != 0 {
-            call(
+            call_void(
                 context,
                 ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 1],
@@ -235,7 +235,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
         }
         if number != 1 || entity.draw_flags().read(context) & 4 == 0 {
             entity.sprite_ready().write(context, 0);
-            call(
+            call_void(
                 context,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 0],
@@ -244,7 +244,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
     }
     if add_secondary {
         if number == 1 && entity.draw_flags().read(context) & 2 != 0 {
-            call(
+            call_void(
                 context,
                 ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 0],
@@ -252,7 +252,7 @@ fn update_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Result
         }
         if number != 0 || entity.draw_flags().read(context) & 2 == 0 {
             entity.sprite_ready().write(context, 0);
-            call(
+            call_void(
                 context,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                 &[entity.address(), 1],
@@ -275,7 +275,7 @@ pub fn update_all_entity_viewport_sprites(
         26
     };
     for index in 0..count {
-        call(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[index])?;
+        call_void(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[index])?;
     }
     Ok(None)
 }
@@ -337,7 +337,7 @@ pub fn process_entity_animation_motion(
                 let callback = function_at(revision, address).ok_or_else(|| {
                     Error::Platform(format!("unknown sprite motion callback {address:#010x}"))
                 })?;
-                call(context, callback, &[frame.address(), entity.address()])?;
+                call_void(context, callback, &[frame.address(), entity.address()])?;
             }
             if entity.draw_flags().read(context) & 6 != 0 && needs_tiles {
                 tile_total = tile_total.wrapping_add(i16::from(entity.tile_count().read(context)));

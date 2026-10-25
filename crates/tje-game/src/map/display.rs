@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/map/map_drawing_and_controller.c:158 (`DisplayMap`).
@@ -146,7 +146,7 @@ pub fn load_map_into_vram(c: &mut dyn Context, args: &[u32]) -> Result<Option<u3
     for _ in 0..40 {
         c.write_vdp_data(0x8000);
     }
-    call(
+    call_void(
         c,
         ids::DISPLAY_MAP,
         &[map.address(), sprites, i32::from(level) as u32],
@@ -184,7 +184,7 @@ pub fn map_draw_background_and_terrain(c: &mut dyn Context, args: &[u32]) -> Res
             c.write_vdp_data(tile.wrapping_add(0x4580));
         }
     }
-    call(c, ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS, &[])?;
+    call_void(c, ids::MAP_DRAW_FIXED_BACKGROUND_DECORATIONS, &[])?;
     for row in 0..26 {
         c.write_vdp_command(0x60040003 + (((row + 2) as u32) << 23));
         for column in 0..19 {
@@ -252,13 +252,13 @@ pub fn map_initialize_screen_sprites(c: &mut dyn Context, args: &[u32]) -> Resul
     let sprites = Address::<HardwareSprite>::new(args[0]);
     let mut first = call(c, ids::ALLOCATE_SPRITE_TILE_RUN, &[8])? as u16;
     if first == 0 {
-        call(c, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, &[0])?;
+        call_void(c, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, &[0])?;
         first = call(c, ids::ALLOCATE_SPRITE_TILE_RUN, &[8])? as u16;
         if first == 0 {
-            call(c, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, &[1])?;
+            call_void(c, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, &[1])?;
         }
     }
-    call(c, ids::FREE_SPRITE_TILE_RUN, &[u32::from(first), 8])?;
+    call_void(c, ids::FREE_SPRITE_TILE_RUN, &[u32::from(first), 8])?;
     ram::g_map_screen_next_sprite_index(r).write(c, 7);
     for slot in 0..80 {
         let sprite = sprites.offset(slot);

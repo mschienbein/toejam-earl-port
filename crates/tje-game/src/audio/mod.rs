@@ -417,7 +417,7 @@ pub fn play_sound_effect(context: &mut dyn Context, arguments: &[u32]) -> Result
         ram::g_sound_effect_priority(revision).write(context, priority);
         if stop_channels != 0 {
             ram::g_pcm_blocks_sequencer(revision).write(context, 1);
-            crate::call(context, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, &[])?;
+            crate::call_void(context, ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE, &[])?;
         }
     }
     Ok(None)

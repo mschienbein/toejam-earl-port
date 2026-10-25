@@ -51,6 +51,18 @@ pub(crate) fn call(
     outgoing.call(context, dispatcher, callee, site)
 }
 
+pub(crate) fn call_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    return_offset: u32,
+) -> Result<()> {
+    let outgoing = OutgoingArguments::existing(context, 0)?;
+    let site = CallSite::relative(caller, context.revision(), return_offset);
+    let dispatcher = context.dispatcher();
+    outgoing.call_void(context, dispatcher, callee, site)
+}
+
 pub(crate) fn release(context: &mut dyn Context, bytes: u32) -> Result<()> {
     let sp = context.stack_pointer()?.wrapping_add(bytes);
     context.set_stack_pointer(sp)

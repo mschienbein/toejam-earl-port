@@ -419,3 +419,50 @@ fn splash_clr_has_a_tagged_byte_preread_and_preserves_extend() {
         }
     }
 }
+
+#[test]
+fn retained_full_food_speech_keeps_declared_scalar_and_frame_mutations() {
+    fn speech(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+        assert_eq!(arguments, &[1, 0xff9100, 1]);
+        let sp = context.stack_pointer()?;
+        assert_eq!(
+            context.read_u32(sp),
+            ids::PLAYER_COLLECT_NEARBY_ITEMS
+                .metadata()
+                .address(context.revision())
+                + 0x1e6,
+        );
+        context.write_u32(sp + 12, 2);
+        context.set_data_register(1, 0x5566_7788);
+        Ok(Some(23))
+    }
+    static CALLEE: &[Translation] = &[Translation {
+        id: ids::GENERATE_SPEECH,
+        function: speech,
+    }];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = crate::core::test_support::TestContext::with_rom(revision, Vec::new());
+        let caller = ids::PLAYER_COLLECT_NEARBY_ITEMS;
+        let parent = context.prepare_entry(caller, &[]);
+        context.execution = crate::execution::ExecutionClass::TimeAware;
+        context.dispatcher_override = Some(Dispatcher::hybrid_with(CALLEE));
+        let sp = context.stack_pointer().unwrap();
+        let area = super::item_retained_call(
+            &mut context,
+            caller,
+            ids::GENERATE_SPEECH,
+            &[1, 0xff9100, 1],
+            0x1e6,
+        )
+        .unwrap();
+        assert_eq!(context.stack_pointer().unwrap(), sp - 12);
+        assert_eq!(context.frame_state(), Some(parent));
+        assert_eq!(area.argument_slot(0).read(&context), 1);
+        assert_eq!(area.argument_slot(1).read(&context), 0xff9100);
+        assert_eq!(area.argument_slot(2).read(&context), 2);
+        assert_eq!(context.data_register(0), 23);
+        assert_eq!(context.data_register(1), 0x5566_7788);
+        area.release(&mut context).unwrap();
+        assert_eq!(context.stack_pointer().unwrap(), sp);
+    }
+}

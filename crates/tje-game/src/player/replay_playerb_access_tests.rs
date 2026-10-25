@@ -102,6 +102,41 @@ impl AccessContext {
     fn ids(&self) -> Vec<FunctionId> {
         self.calls.iter().map(|call| call.id).collect()
     }
+    fn original_entry_effects(&mut self, id: FunctionId, _: ExecutionClass) -> Result<()> {
+        let count = usize::from(id.metadata().abi.argument_count);
+        let arguments: Vec<_> = (0..count)
+            .map(|index| self.memory.read_u32(self.sp + 4 + index as u32 * 4))
+            .collect();
+        let result = match id {
+            ids::ABS => (arguments[0] as i32).unsigned_abs(),
+            ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT => 1,
+            ids::GET_RANDOM_NUMBER => self.random.pop_front().expect("scripted RNG call"),
+            ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT
+            | ids::GET_ACTIVE_PRESENT_SPRITE
+            | ids::SET_SPRITE
+            | ids::SET_EARTHLING_STATE
+            | ids::GENERATE_SPEECH
+            | ids::PLAY_SOUND_EFFECT
+            | ids::PLAY_SOUND
+            | ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG
+            | ids::PLAYER_START_FALLING
+            | ids::PLAYER_APPLY_PHASED_JUMP_INPUT => 0,
+            _ => panic!("unexpected callee {}", id.metadata().name),
+        };
+        self.calls.push(Callee {
+            id,
+            arguments,
+            entry_sp: self.sp,
+        });
+        self.status = 0x2010;
+        {
+            let value = result;
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 
 impl Bus for AccessContext {
@@ -210,34 +245,12 @@ impl Context for AccessContext {
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
         panic!("unprepared call {}", id.metadata().name)
     }
-    fn call_original_entry(&mut self, id: FunctionId, _: ExecutionClass) -> Result<u32> {
-        let count = usize::from(id.metadata().abi.argument_count);
-        let arguments: Vec<_> = (0..count)
-            .map(|index| self.memory.read_u32(self.sp + 4 + index as u32 * 4))
-            .collect();
-        let result = match id {
-            ids::ABS => (arguments[0] as i32).unsigned_abs(),
-            ids::PLAYER_CAN_RECEIVE_EARTHLING_EFFECT => 1,
-            ids::GET_RANDOM_NUMBER => self.random.pop_front().expect("scripted RNG call"),
-            ids::ELEVATOR_BLOCKS_PLAYER_MOVEMENT
-            | ids::GET_ACTIVE_PRESENT_SPRITE
-            | ids::SET_SPRITE
-            | ids::SET_EARTHLING_STATE
-            | ids::GENERATE_SPEECH
-            | ids::PLAY_SOUND_EFFECT
-            | ids::PLAY_SOUND
-            | ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG
-            | ids::PLAYER_START_FALLING
-            | ids::PLAYER_APPLY_PHASED_JUMP_INPUT => 0,
-            _ => panic!("unexpected callee {}", id.metadata().name),
-        };
-        self.calls.push(Callee {
-            id,
-            arguments,
-            entry_sp: self.sp,
-        });
-        self.status = 0x2010;
-        Ok(result)
+    fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.original_entry_effects(id, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        self.original_entry_effects(id, class)
     }
 }
 

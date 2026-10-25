@@ -324,6 +324,24 @@ impl Context for Probe {
     ) -> Result<u32> {
         self.call_original(id, arguments)
     }
+    fn call_original_void_with_execution(
+        &mut self,
+        id: FunctionId,
+        arguments: &[u32],
+        _: ExecutionClass,
+    ) -> Result<()> {
+        self.calls.push((id, arguments.to_vec()));
+        self.spin_steps
+            .get_mut()
+            .push(SpinStep::Call(id, arguments.to_vec()));
+        if let Some(boundaries) = &mut self.boundaries {
+            let expected = boundaries.pop_front().expect("unexpected extra callee");
+            assert_eq!(id, expected.function);
+            assert_eq!(arguments, expected.arguments);
+            return expected.result.ok_or(Error::Untranslated(id)).map(|_| ());
+        }
+        Err(Error::Untranslated(id))
+    }
 }
 
 #[test]

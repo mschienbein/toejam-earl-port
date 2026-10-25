@@ -1,5 +1,5 @@
 use super::large_player_parts::{allocate_viewport_with_d4_word, entity_at, reserve_frame_pieces};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/drifting_entities.c:17 (`CutsceneCreateDriftingEntities`).
@@ -136,7 +136,7 @@ pub fn cutscene_release_drifting_entities(
         let selector = ram::g_cutscene_drifting_entities(revision).at(index);
         let slot = selector.read(context);
         if slot != 0 {
-            call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
         }
         selector.write(context, 0);
     }
@@ -154,7 +154,7 @@ pub fn intro_release_flying_entity_slots(
         let selector = ram::g_intro_flying_entities(revision).at(index);
         let slot = selector.read(context);
         if slot != 0 {
-            call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
         }
         selector.write(context, 0);
     }

@@ -570,7 +570,7 @@ fn eager_unused_framed_arguments_are_informational_not_dependencies() {
         let frame = LocalFrame::enter(c, FrameLayout::link(4, 0, 0))?;
         let outgoing = OutgoingArguments::existing(c, 0)?;
         let dispatcher = c.dispatcher();
-        outgoing.call(
+        outgoing.call_void(
             c,
             dispatcher,
             ids::WAIT_FOR_NEXT_V_BLANK,

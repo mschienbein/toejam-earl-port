@@ -1,6 +1,8 @@
-use super::frames::{advance_random_index, call_from, clear_word, read_long, with_frame};
+use super::frames::{
+    advance_random_index, call_from, call_from_void, clear_word, read_long, with_frame,
+};
 use crate::call_frame::{CallSite, FrameLayout, OutgoingArguments};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom, rom_symbol};
 
 /// G/src/player/earthling_damage_reactions.c:40 (`Player_Youch`).
@@ -93,7 +95,7 @@ pub(super) fn player_youch(context: &mut dyn Context) -> Result<Option<u32>> {
             } else if player.velocity_y().read(context) < 0 {
                 sprite = 52;
             }
-            call_from(
+            call_from_void(
                 context,
                 ids::PLAYER_YOUCH,
                 ids::SET_SPRITE,
@@ -123,7 +125,7 @@ pub(super) fn player_youch(context: &mut dyn Context) -> Result<Option<u32>> {
                         .read(context),
                 );
             if earthling.kind().read(context) == 4 || earthling.kind().read(context) == 21 {
-                call_from(
+                call_from_void(
                     context,
                     ids::PLAYER_YOUCH,
                     ids::SET_EARTHLING_STATE,
@@ -152,7 +154,7 @@ pub(super) fn player_youch(context: &mut dyn Context) -> Result<Option<u32>> {
             } else {
                 rom::sfx_earl_youch(revision).address()
             };
-            call_from(
+            call_from_void(
                 context,
                 ids::PLAYER_YOUCH,
                 ids::PLAY_SOUND_EFFECT,
@@ -249,7 +251,7 @@ pub(super) fn hula_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                                     ids::GENERATE_SPEECH,
                                     CallSite::relative(ids::HULA_ABILITY, revision, 0x152),
                                 )?;
-                                call_from(
+                                call_from_void(
                                     context,
                                     ids::HULA_ABILITY,
                                     ids::PLAY_SOUND_EFFECT,
@@ -285,7 +287,7 @@ pub(super) fn hula_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                 let current = player.sprite_state().read(context);
                 if sprite != current {
                     player.animation_motion_axes().write(context, 3);
-                    call_from(
+                    call_from_void(
                         context,
                         ids::HULA_ABILITY,
                         ids::SET_SPRITE,
@@ -337,7 +339,7 @@ pub(super) fn chicken_ability(context: &mut dyn Context, arguments: &[u32]) -> R
     } else {
         11
     };
-    call(
+    call_void(
         context,
         ids::SET_EARTHLING_STATE,
         &[earthling.address(), next],
@@ -373,12 +375,12 @@ pub(super) fn ai_boogie_touch(context: &mut dyn Context, arguments: &[u32]) -> R
     } else {
         8
     };
-    call(
+    call_void(
         context,
         ids::SET_EARTHLING_STATE,
         &[earthling.address(), next],
     )?;
-    call(
+    call_void(
         context,
         ids::PLAY_SOUND_EFFECT,
         &[rom::sfx_boogie_boogie(revision).address(), 50, 0],
@@ -424,7 +426,7 @@ pub(super) fn player_update_whirlwind_and_recovery(
                         )?;
                     } else if terrain >= 0x80 {
                         if terrain == 0x90 {
-                            call_from(
+                            call_from_void(
                                 context,
                                 ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
                                 ids::PLAYER_START_FALLING,
@@ -464,7 +466,7 @@ pub(super) fn player_update_whirlwind_and_recovery(
                         }
                     }
                     if sprite != -1 {
-                        call_from(
+                        call_from_void(
                             context,
                             ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
                             ids::SET_SPRITE,
@@ -492,7 +494,7 @@ pub(super) fn player_update_whirlwind_and_recovery(
                 if remaining <= 0 {
                     clear_word(context, player.velocity_x().address())?;
                     clear_word(context, player.velocity_y().address())?;
-                    call_from(
+                    call_from_void(
                         context,
                         ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
                         ids::SET_SPRITE,
@@ -547,7 +549,7 @@ pub(super) fn player_update_whirlwind_and_recovery(
                                 % 6;
                         timer.write(context, duration as i8);
                     }
-                    call_from(
+                    call_from_void(
                         context,
                         ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
                         ids::ENTITY_UPDATE_TERRAIN_DRAW_FLAG,

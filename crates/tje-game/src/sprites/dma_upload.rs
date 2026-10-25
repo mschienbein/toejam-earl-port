@@ -1,13 +1,13 @@
 //! Stable-source DMA transaction streams; these functions are Functional, not Atomic.
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame},
-    ids,
+    call_void, ids,
 };
 use tje_mem::ram;
 
 fn copy_words(context: &mut dyn Context, source: u32, destination: u32, count: u32) -> Result<()> {
-    call(
+    call_void(
         context,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[source, destination, count],
@@ -52,7 +52,7 @@ fn upload_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u
     if tiles_only == 0 {
         // REV02 CF2C / REV00 CF0C: real JSR return, caller offset 0x3c.
         let site = CallSite::relative(ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, revision, 0x3c);
-        call_at(
+        call_at_void(
             context,
             ids::DMA_COPY_WORDS_TO_VRAM,
             &[
@@ -91,7 +91,7 @@ fn upload_inner(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u
         );
         // REV02 CF84 / REV00 CF64: real JSR return, caller offset 0x94.
         let site = CallSite::relative(ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, revision, 0x94);
-        call_at(
+        call_at_void(
             context,
             ids::DMA_COPY_WORDS_TO_VRAM,
             &[source, destination, u32::from(word_count)],

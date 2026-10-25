@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/active_present_falling_and_respawn.c:990 (`PlayerUpdateDeathAnimation`).
@@ -32,7 +32,7 @@ pub(super) fn player_update_death_animation(
                     .read(context)
                     == 0
                 {
-                    call(
+                    call_void(
                         context,
                         ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
                         &[player.address(), number as u32],
@@ -58,9 +58,9 @@ pub(super) fn player_update_death_animation(
             }
             if terrain != 0x90 {
                 let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-                call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+                call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
             } else {
-                call(
+                call_void(
                     context,
                     ids::PLAYER_START_FALLING,
                     &[player.address(), number as u32],
@@ -83,7 +83,7 @@ pub(super) fn player_update_death_animation(
             && player.height().read(context) >= 20
         {
             if player.sprite_state().read(context) == 5 {
-                call(context, ids::SET_SPRITE, &[player.address(), 6])?;
+                call_void(context, ids::SET_SPRITE, &[player.address(), 6])?;
                 super::frames::clear_word(context, player.velocity_height().address())?;
                 counter.write(context, 30);
                 // The two source literals follow the catalogued code extent;
@@ -102,7 +102,7 @@ pub(super) fn player_update_death_animation(
                 let (stored, remaining) = super::counters::predecrement_byte(counter.read(context));
                 counter.write(context, stored);
                 if remaining <= 0 {
-                    call(context, ids::SET_SPRITE, &[player.address(), 5])?;
+                    call_void(context, ids::SET_SPRITE, &[player.address(), 5])?;
                     player.sprite_state().write(context, 6);
                     player.velocity_height().write(context, 256);
                 }
@@ -145,7 +145,7 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
     for number in 0..2 {
         let player = ram::g_player_info(revision).at(number);
         if ram::g_player_lives(revision).at(number).read(context) < 0 {
-            call(context, ids::PLAYER_PROCESS_LIFE_REQUEST, &[number as u32])?;
+            call_void(context, ids::PLAYER_PROCESS_LIFE_REQUEST, &[number as u32])?;
         } else {
             if ram::g_player_inventory_open(revision)
                 .at(number)
@@ -156,64 +156,64 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
                     u32::from(ram::g_player2_terrain_underfoot(revision).read(context) & 0xf0);
                 continue;
             }
-            call(context, ids::PLAYER_UPDATE_TEETERING, &[player.address()])?;
-            call(
+            call_void(context, ids::PLAYER_UPDATE_TEETERING, &[player.address()])?;
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_SPRING_SHOE_JUMP,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_PHASED_JUMP_MOTION,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_ROCKET_SKATES_MOTION,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_JUMP_LANDING_ANIMATION,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_PRESENT_COMPLETION_AND_TERRAIN_POSE,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_TERRAIN_SINKING,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_DEATH_ANIMATION,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_PRESENT_SHOOTING,
                 &[player.address(), terrain],
             )?;
-            call(context, ids::PROCESS_SLEEP, &[player.address()])?;
-            call(
+            call_void(context, ids::PROCESS_SLEEP, &[player.address()])?;
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_WHIRLWIND_AND_RECOVERY,
                 &[player.address(), terrain],
             )?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
                 &[player.address(), terrain],
@@ -242,24 +242,24 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
                     .write(context, player.behavior_flags().read(context) & !0x20);
             }
         }
-        call(
+        call_void(
             context,
             ids::BUMMER_LIFE_PROMO,
             &[player.address(), terrain],
         )?;
-        call(
+        call_void(
             context,
             ids::PLAYER_UPDATE_CONTROL_REMAP_EFFECT,
             &[player.address()],
         )?;
-        call(
+        call_void(
             context,
             ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
             &[player.address(), terrain],
         )?;
         terrain = u32::from(ram::g_player2_terrain_underfoot(revision).read(context) & 0xf0);
     }
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::PROCESS_PLAYERS,
         ids::CHECK_PLAYER_FALLING,
@@ -267,7 +267,7 @@ fn process_players_body(context: &mut dyn Context) -> Result<Option<u32>> {
         0x1a0,
     )?;
     if ram::g_player_selection(revision).read(context) == 2 {
-        call(context, ids::PLAYER_UPDATE_HEALTH_SHARING_CLAP, &[])?;
+        call_void(context, ids::PLAYER_UPDATE_HEALTH_SHARING_CLAP, &[])?;
     }
     Ok(None)
 }

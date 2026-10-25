@@ -1,5 +1,5 @@
 use crate::{
-    Context, Result, call_at,
+    Context, Result, call_at, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
     ids,
 };
@@ -118,21 +118,21 @@ fn split_players_body(context: &mut dyn Context) -> Result<()> {
             .read(context)
             .address();
         let position_args = OutgoingArguments::push(context, &[head])?;
-        position_args.call(
+        position_args.call_void(
             context,
             dispatcher,
             ids::POSITION_ENTITY_SPRITES,
             CallSite::relative(caller, revision, 0x264),
         )?;
         let wait = OutgoingArguments::push(context, &[1])?;
-        wait.call(
+        wait.call_void(
             context,
             dispatcher,
             ids::WAIT_FOR_NEXT_V_BLANK,
             CallSite::relative(caller, revision, 0x26e),
         )?;
         let upload = OutgoingArguments::push(context, &[1, 0])?;
-        upload.call(
+        upload.call_void(
             context,
             dispatcher,
             ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
@@ -202,7 +202,7 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
             context.discard_u8(entity.sprite_ready().address())?;
             entity.sprite_ready().write(context, 0);
             let allocation = OutgoingArguments::push(context, &[entity.address(), 0])?;
-            allocation.call(
+            allocation.call_void(
                 context,
                 dispatcher,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
@@ -215,7 +215,7 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
                 != 0;
             allocation.release(context)?;
             if !resident {
-                call_at(
+                call_at_void(
                     context,
                     ids::ENTITY_RELEASE_ONE_BY_PRIORITY,
                     &[],
@@ -234,21 +234,21 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
         let first = Address::<ObjectState>::new(context.address_register(3));
         first.sprite_ready().read(context) == 0 || first.offset(1).sprite_ready().read(context) == 0
     } {
-        call_at(
+        call_at_void(
             context,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
             &[],
             CallSite::relative(caller, revision, 0x4c),
         )?;
         let wait = OutgoingArguments::push(context, &[1])?;
-        wait.call(
+        wait.call_void(
             context,
             dispatcher,
             ids::WAIT_FOR_NEXT_V_BLANK,
             CallSite::relative(caller, revision, 0x56),
         )?;
         let upload = OutgoingArguments::push(context, &[0, 0])?;
-        upload.call(
+        upload.call_void(
             context,
             dispatcher,
             ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
@@ -261,13 +261,13 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
         context.poll_yield()?;
     }
     let wait = OutgoingArguments::push(context, &[1])?;
-    wait.call(
+    wait.call_void(
         context,
         dispatcher,
         ids::WAIT_FOR_NEXT_V_BLANK,
         CallSite::relative(caller, revision, 0x7a),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE,
         &[],
@@ -282,7 +282,7 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
     for step in 0..15 {
         set_word(context, 3, step);
         let wait = OutgoingArguments::push(context, &[1])?;
-        wait.call(
+        wait.call_void(
             context,
             dispatcher,
             ids::WAIT_FOR_NEXT_V_BLANK,
@@ -315,7 +315,7 @@ fn split_wipe_body(context: &mut dyn Context) -> Result<()> {
             set_word(context, 2, pass + 1);
         }
     }
-    call_at(
+    call_at_void(
         context,
         ids::SELECT_SPRITE_CHAIN_START,
         &[1],

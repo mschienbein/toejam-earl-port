@@ -172,7 +172,7 @@ impl Context for DispatchContext {
 }
 
 fn caller(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    crate::call(context, ids::GAME_PROGRAM, &[])?;
+    crate::call_void(context, ids::GAME_PROGRAM, &[])?;
     context.set_data_register(7, 0xbad);
     Ok(Some(0xfeed))
 }
@@ -210,7 +210,7 @@ static WRONG_RETURN: &[crate::Translation] = &[
 #[test]
 fn nested_exit_keeps_the_abandoned_stack_and_never_runs_the_caller_continuation() {
     let mut context = DispatchContext::new(TRANSFERS);
-    let result = crate::call(&mut context, ids::START, &[]);
+    let result = crate::call_void(&mut context, ids::START, &[]);
     let expected = ControlTransfer {
         entry: ids::GAME_PROGRAM,
         exit: Exit::Call {
@@ -228,7 +228,7 @@ fn nested_exit_keeps_the_abandoned_stack_and_never_runs_the_caller_continuation(
 #[test]
 fn a_non_rts_callee_returning_normally_is_rejected_before_its_caller_continues() {
     let mut context = DispatchContext::new(WRONG_RETURN);
-    assert!(crate::call(&mut context, ids::START, &[]).is_err());
+    assert!(crate::call_void(&mut context, ids::START, &[]).is_err());
     assert_eq!(context.inner.data[7], 0);
     assert_eq!(context.original_calls, 0);
 }
@@ -237,7 +237,7 @@ fn a_non_rts_callee_returning_normally_is_rejected_before_its_caller_continues()
 fn untranslated_non_rts_entries_never_enter_the_rts_only_original_bridge() {
     let mut context = DispatchContext::new(&[]);
     assert_eq!(
-        crate::call(&mut context, ids::START, &[]),
+        crate::call_void(&mut context, ids::START, &[]),
         Err(Error::Untranslated(ids::START))
     );
     assert_eq!(context.original_calls, 0);
@@ -246,7 +246,7 @@ fn untranslated_non_rts_entries_never_enter_the_rts_only_original_bridge() {
 fn framed_caller(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let dispatcher = context.dispatcher();
     if context.data_register(5) == 1 {
-        dispatcher.call_at(
+        dispatcher.call_at_void(
             context,
             ids::GAME_PROGRAM,
             &[0x11223344],
@@ -254,7 +254,7 @@ fn framed_caller(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         )?;
     } else {
         let outgoing = crate::call_frame::OutgoingArguments::push(context, &[0x11223344])?;
-        outgoing.call(
+        outgoing.call_void(
             context,
             dispatcher,
             ids::GAME_PROGRAM,
@@ -273,7 +273,7 @@ fn atomic_scope_marker(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
 }
 
 fn framed_transfer(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
-    crate::call(context, ids::DISABLE_ALL_INTERRUPTS, &[])?;
+    crate::call_void(context, ids::DISABLE_ALL_INTERRUPTS, &[])?;
     assert_eq!(context.execution_class(), ExecutionClass::TimeAware);
     context.set_stack_pointer(0xff6000)?;
     context.write_u32(0xff6000, 0x89abcdef);
@@ -313,7 +313,7 @@ fn framed_transfer_keeps_child_frame_and_abandons_caller_cleanup_in_both_revisio
         context.revision = revision;
         let parent_sp = context.stack_pointer().unwrap();
         let parent_frame = context.frame;
-        let result = crate::call(&mut context, ids::START, &[]);
+        let result = crate::call_void(&mut context, ids::START, &[]);
         assert_eq!(
             result,
             Err(Error::ControlTransfer(ControlTransfer {
@@ -355,7 +355,7 @@ fn clock_and_arbitrary_cleanup_failure_never_approve_a_transfer_or_unwind_it() {
             context.revision = revision;
             context.cleanup_error = Some((ids::GAME_PROGRAM, cleanup.clone()));
             let parent_sp = context.stack_pointer().unwrap();
-            let error = crate::call(&mut context, ids::START, &[]).unwrap_err();
+            let error = crate::call_void(&mut context, ids::START, &[]).unwrap_err();
             assert!(error.preserves_call_frame());
             match &error {
                 Error::ClockAfterTransfer { error, .. } => {
@@ -396,7 +396,7 @@ fn nested_sticky_contract_errors_keep_first_failure_and_abandoned_frame() {
                     let error = if typed_root {
                         enter(&mut context, ids::START, &[]).unwrap_err()
                     } else {
-                        crate::call(&mut context, ids::START, &[]).unwrap_err()
+                        crate::call_void(&mut context, ids::START, &[]).unwrap_err()
                     };
                     let expected = first.unwrap_or(sticky);
                     match &error {

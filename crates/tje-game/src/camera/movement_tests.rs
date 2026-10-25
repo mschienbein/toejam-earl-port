@@ -62,6 +62,84 @@ impl Machine {
             .cloned()
             .collect()
     }
+    fn original_entry_effects(&mut self, id: FunctionId, _: ExecutionClass) -> Result<()> {
+        // Unit-only callee boundary: inspect the actual prepared RAM, not a
+        // host argument slice. ROM/check proofs use the real callees instead.
+        assert!(matches!(
+            id,
+            ids::WAIT_FOR_NEXT_V_BLANK
+                | ids::DISABLE_BLANKING_GRAPHICS
+                | ids::ENABLE_BLANKING_GRAPHICS
+                | ids::UPDATE_CAMERA_X
+                | ids::UPDATE_CAMERA_Y
+                | ids::TRY_UPDATE_CAMERA_X
+                | ids::TRY_UPDATE_CAMERA_Y
+                | ids::GET_PLAYER_CAMERA_VELOCITY
+                | ids::ABS
+                | ids::LDIVT
+                | ids::POSITION_ENTITY_SPRITES
+                | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
+                | ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES
+                | ids::ENTITY_RELEASE_ONE_BY_PRIORITY
+                | ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
+                | ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE
+                | ids::SELECT_SPRITE_CHAIN_START
+        ));
+        let return_pc = self.memory.read_u32(self.sp);
+        self.calls.push(Call {
+            id,
+            sp: self.sp,
+            return_pc,
+            argument: self.memory.read_u32(self.sp + 4),
+            d2: self.data[2],
+            d4: self.data[4],
+            a2: self.address[2],
+            a3: self.address[3],
+        });
+        let value = match id {
+            ids::GET_PLAYER_CAMERA_VELOCITY => {
+                // Isolate the parent; this is not a ROM/callee proof.
+                let dx = self.memory.read_u32(self.sp + 8);
+                let dy = self.memory.read_u32(self.sp + 12);
+                self.write_u16(dx, 0);
+                self.write_u16(dy, 0);
+                0
+            }
+            ids::ABS => (self.memory.read_u32(self.sp + 4) as i32).wrapping_abs() as u32,
+            ids::LDIVT => {
+                tje_mem::arithmetic::div_i32(self.data[0] as i32, self.data[1] as i32)? as u32
+            }
+            ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES => {
+                let entity = tje_mem::Address::<tje_mem::ObjectState>::new(
+                    self.memory.read_u32(self.sp + 4),
+                );
+                let flags = entity.draw_flags().read(&self.memory) | 2;
+                entity.draw_flags().write(&mut self.memory, flags);
+                entity.sprite_ready().write(&mut self.memory, 1);
+                0
+            }
+            ids::UPDATE_AND_QUEUE_ENTITY_SPRITES => {
+                for player in 0..2 {
+                    ram::g_player_info(self.revision())
+                        .at(player)
+                        .sprite_ready()
+                        .write(&mut self.memory, 1);
+                }
+                0
+            }
+            _ => 0,
+        };
+        if id.metadata().abi.returns_value {
+            self.data[0] = value;
+        }
+        self.sp += 4;
+        {
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
@@ -181,78 +259,12 @@ impl Context for Machine {
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid_with(&[])
     }
-    fn call_original_entry(&mut self, id: FunctionId, _: ExecutionClass) -> Result<u32> {
-        // Unit-only callee boundary: inspect the actual prepared RAM, not a
-        // host argument slice. ROM/check proofs use the real callees instead.
-        assert!(matches!(
-            id,
-            ids::WAIT_FOR_NEXT_V_BLANK
-                | ids::DISABLE_BLANKING_GRAPHICS
-                | ids::ENABLE_BLANKING_GRAPHICS
-                | ids::UPDATE_CAMERA_X
-                | ids::UPDATE_CAMERA_Y
-                | ids::TRY_UPDATE_CAMERA_X
-                | ids::TRY_UPDATE_CAMERA_Y
-                | ids::GET_PLAYER_CAMERA_VELOCITY
-                | ids::ABS
-                | ids::LDIVT
-                | ids::POSITION_ENTITY_SPRITES
-                | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
-                | ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES
-                | ids::ENTITY_RELEASE_ONE_BY_PRIORITY
-                | ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
-                | ids::LINK_PLAYER_SPRITES_FOR_SPLIT_WIPE
-                | ids::SELECT_SPRITE_CHAIN_START
-        ));
-        let return_pc = self.memory.read_u32(self.sp);
-        self.calls.push(Call {
-            id,
-            sp: self.sp,
-            return_pc,
-            argument: self.memory.read_u32(self.sp + 4),
-            d2: self.data[2],
-            d4: self.data[4],
-            a2: self.address[2],
-            a3: self.address[3],
-        });
-        let value = match id {
-            ids::GET_PLAYER_CAMERA_VELOCITY => {
-                // Isolate the parent; this is not a ROM/callee proof.
-                let dx = self.memory.read_u32(self.sp + 8);
-                let dy = self.memory.read_u32(self.sp + 12);
-                self.write_u16(dx, 0);
-                self.write_u16(dy, 0);
-                0
-            }
-            ids::ABS => (self.memory.read_u32(self.sp + 4) as i32).wrapping_abs() as u32,
-            ids::LDIVT => {
-                tje_mem::arithmetic::div_i32(self.data[0] as i32, self.data[1] as i32)? as u32
-            }
-            ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES => {
-                let entity = tje_mem::Address::<tje_mem::ObjectState>::new(
-                    self.memory.read_u32(self.sp + 4),
-                );
-                let flags = entity.draw_flags().read(&self.memory) | 2;
-                entity.draw_flags().write(&mut self.memory, flags);
-                entity.sprite_ready().write(&mut self.memory, 1);
-                0
-            }
-            ids::UPDATE_AND_QUEUE_ENTITY_SPRITES => {
-                for player in 0..2 {
-                    ram::g_player_info(self.revision())
-                        .at(player)
-                        .sprite_ready()
-                        .write(&mut self.memory, 1);
-                }
-                0
-            }
-            _ => 0,
-        };
-        if id.metadata().abi.returns_value {
-            self.data[0] = value;
-        }
-        self.sp += 4;
-        Ok(value)
+    fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.original_entry_effects(id, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        self.original_entry_effects(id, class)
     }
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
         panic!("value-only call instead of the compiled prepared frame: {id:?}")

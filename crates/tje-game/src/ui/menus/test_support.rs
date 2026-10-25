@@ -72,6 +72,37 @@ impl Fixture {
     pub fn calls_complete(&self) {
         assert!(self.expected.is_empty(), "unconsumed expected calls");
     }
+    fn original_entry_effects(&mut self, function: FunctionId, _: ExecutionClass) -> Result<()> {
+        let expected = self.expected.pop_front().expect("unexpected callee");
+        assert_eq!(function, expected.function);
+        let pc = self.memory.read_u32(self.sp);
+        assert_eq!(
+            pc,
+            self.root.metadata().address(self.revision()) + expected.return_offset
+        );
+        for (index, expected) in expected.arguments.iter().enumerate() {
+            assert_eq!(
+                self.memory.read_u32(self.sp + 4 + index as u32 * 4),
+                *expected,
+                "{} argument {index}",
+                function.metadata().name
+            );
+        }
+        self.calls.push((function, self.sp));
+        self.accesses
+            .get_mut()
+            .push(Access::Call(function, expected.result));
+        self.data[0] = expected.result;
+        self.status = 0x2013;
+        self.sp += 4;
+        {
+            let value = expected.result;
+            if function.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 impl Bus for Fixture {
     fn read_u8(&self, address: u32) -> u8 {
@@ -202,29 +233,15 @@ impl Context for Fixture {
     fn call_original(&mut self, function: FunctionId, _: &[u32]) -> Result<u32> {
         panic!("unexpected unprepared call {}", function.metadata().name)
     }
-    fn call_original_entry(&mut self, function: FunctionId, _: ExecutionClass) -> Result<u32> {
-        let expected = self.expected.pop_front().expect("unexpected callee");
-        assert_eq!(function, expected.function);
-        let pc = self.memory.read_u32(self.sp);
-        assert_eq!(
-            pc,
-            self.root.metadata().address(self.revision()) + expected.return_offset
-        );
-        for (index, expected) in expected.arguments.iter().enumerate() {
-            assert_eq!(
-                self.memory.read_u32(self.sp + 4 + index as u32 * 4),
-                *expected,
-                "{} argument {index}",
-                function.metadata().name
-            );
-        }
-        self.calls.push((function, self.sp));
-        self.accesses
-            .get_mut()
-            .push(Access::Call(function, expected.result));
-        self.data[0] = expected.result;
-        self.status = 0x2013;
-        self.sp += 4;
-        Ok(expected.result)
+    fn call_original_entry(&mut self, function: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.original_entry_effects(function, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(
+        &mut self,
+        function: FunctionId,
+        class: ExecutionClass,
+    ) -> Result<()> {
+        self.original_entry_effects(function, class)
     }
 }

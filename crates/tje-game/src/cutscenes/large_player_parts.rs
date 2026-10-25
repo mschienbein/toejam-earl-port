@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, Ptr, RenderFrame, RenderFramePieceView, ram, rom};
 
 /// G/src/cutscenes/large_player_parts.c:27, lowered with ASL.W #7 / ADDA.W.
@@ -21,7 +21,7 @@ pub(super) fn allocate_viewport_with_d4_word(
 ) -> Result<()> {
     let saved = context.data_register(4);
     context.set_data_register(4, (saved & 0xffff_0000) | u32::from(word as u16));
-    let result = call(
+    let result = call_void(
         context,
         ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
         &[entity.address(), 0],
@@ -149,7 +149,7 @@ pub fn intro_release_large_player_part_sprites(
         .read(context);
     let entity = entity_at(context, i16::from(slot));
     if entity.draw_flags().read(context) & 1 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[entity.address(), 0],
@@ -251,7 +251,7 @@ pub fn intro_release_driving_part_sprites(
         .read(context);
     let entity = entity_at(context, i16::from(slot));
     if entity.draw_flags().read(context) & 3 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[entity.address(), 0],
@@ -288,7 +288,7 @@ pub fn intro_create_asteroid_entity(context: &mut dyn Context, _: &[u32]) -> Res
         entity.frame_duration().write(context, 1);
         entity.frame().write(context, -1);
         entity.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[entity.address(), 0],
@@ -308,7 +308,7 @@ pub fn intro_release_large_player_parts(
         let selector = ram::g_intro_large_player_part_entities(revision).at(index);
         let slot = selector.read(context);
         if slot != 0 {
-            call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
         }
         selector.write(context, 0);
     }
@@ -322,7 +322,7 @@ pub fn intro_position_large_player_parts(
     _: &[u32],
 ) -> Result<Option<u32>> {
     for index in [0, 4, 1, 2, 5, 6, 7] {
-        call(
+        call_void(
             context,
             ids::INTRO_POSITION_LARGE_PLAYER_PART,
             &[index, 148, 112],
@@ -338,7 +338,7 @@ pub fn intro_release_large_player_sprites_and_refresh(
     _: &[u32],
 ) -> Result<Option<u32>> {
     for index in [0, 4, 1, 2, 5, 6, 7] {
-        call(
+        call_void(
             context,
             ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES,
             &[index],
@@ -346,9 +346,9 @@ pub fn intro_release_large_player_sprites_and_refresh(
     }
     context.discard_u8(ram::g_sprite_graphics_upload_pending(context.revision()).address())?;
     ram::g_sprite_graphics_upload_pending(context.revision()).write(context, 0);
-    call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-    call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+    call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
     Ok(None)
 }
 
@@ -360,7 +360,7 @@ pub fn intro_release_driving_parts(context: &mut dyn Context, _: &[u32]) -> Resu
         let selector = ram::g_intro_driving_part_entities(revision).at(index);
         let slot = selector.read(context);
         if slot != 0 {
-            call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+            call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
         }
         selector.write(context, 0);
     }
@@ -373,7 +373,7 @@ pub fn intro_release_asteroid_entity(context: &mut dyn Context, _: &[u32]) -> Re
     let selector = ram::g_intro_asteroid_entity(context.revision());
     let slot = selector.read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     selector.write(context, 0);
     Ok(None)

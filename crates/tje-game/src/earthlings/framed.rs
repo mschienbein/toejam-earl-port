@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, FunctionId, Result, call_at, ids};
+use crate::{Context, FunctionId, Result, call_at, call_at_void, ids};
 use tje_mem::{Address, ObjectState, Revision, ram, rom};
 
 // Return PCs are inventory executable-call sites plus the matching compiler's
@@ -13,6 +13,17 @@ pub(super) fn invoke(
 ) -> Result<u32> {
     let site = site(context, caller, return_rev02);
     call_at(context, callee, args, site)
+}
+
+pub(super) fn invoke_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    args: &[u32],
+    return_rev02: u32,
+) -> Result<()> {
+    let site = site(context, caller, return_rev02);
+    call_at_void(context, callee, args, site)
 }
 pub(super) fn site(context: &dyn Context, caller: FunctionId, return_rev02: u32) -> CallSite {
     let offset = return_rev02 - caller.metadata().address(Revision::Rev02);
@@ -28,6 +39,18 @@ pub(super) fn invoke_on(
     let site = site(context, caller, return_rev02);
     let dispatcher = context.dispatcher();
     arguments.call(context, dispatcher, callee, site)
+}
+
+pub(super) fn invoke_on_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    arguments: &OutgoingArguments,
+    return_rev02: u32,
+) -> Result<()> {
+    let site = site(context, caller, return_rev02);
+    let dispatcher = context.dispatcher();
+    arguments.call_void(context, dispatcher, callee, site)
 }
 pub(super) fn finish(
     context: &mut dyn Context,
@@ -277,7 +300,7 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
             frame.local::<i8>(-1).write(context, 0);
         } else if ship {
             kind = 0;
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::MAP_GET_SHIP_PIECE_WORLD_POSITION,
@@ -313,7 +336,7 @@ fn retain(context: &mut dyn Context, level: i16, frame: &LocalFrame) -> Result<O
             .byte_offset(i32::from(level.wrapping_mul(4)));
         if kind > 0 {
             if level == 0 {
-                invoke(
+                invoke_void(
                     context,
                     caller,
                     ids::GET_LEVEL_ZERO_EARTHLING_POSITION,
@@ -600,7 +623,7 @@ fn steer(
         )?
     } else {
         if frame.argument_byte(3).read(context) == 14 && !special {
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::ENTITY_TRIGGER_TARGET_STATUS_EVENT_ONCE,

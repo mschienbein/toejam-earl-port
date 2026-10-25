@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, Result, call, call_at, ids};
+use crate::{Context, Result, call, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/map/land_processing.c:43 (`AllocateEntityWithEviction`).
@@ -15,7 +15,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
         let handle = ram::g_mole_effect_entities(r).at(i);
         let object = handle.read(c);
         if object != 0 {
-            call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+            call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
             handle.write(c, 0);
             return Ok(Some(
                 i32::from(call(c, ids::ALLOCATE_ENTITY, &[])? as i16) as u32
@@ -26,7 +26,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
         let handle = ram::g_speech_bubble_entities(r).at(i);
         let object = handle.read(c);
         if object != 0 {
-            call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+            call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
             handle.write(c, 0);
             return Ok(Some(
                 i32::from(call(c, ids::ALLOCATE_ENTITY, &[])? as i16) as u32
@@ -43,7 +43,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
             let handle = ram::g_object_table(r).at(bank).at(entry).object();
             let object = handle.read(c);
             if object != 0 {
-                call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+                call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
                 handle.write(c, 0);
                 return Ok(Some(
                     i32::from(call(c, ids::ALLOCATE_ENTITY, &[])? as i16) as u32
@@ -60,7 +60,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
             let handle = records.at(entry).second_object();
             let object = handle.read(c);
             if object != 0 {
-                call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+                call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
                 handle.write(c, 0);
                 return Ok(Some(
                     i32::from(call(c, ids::ALLOCATE_ENTITY, &[])? as i16) as u32
@@ -72,7 +72,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
             if record.kind().read(c) != 0 {
                 let object = record.object().read(c);
                 if object != 0 {
-                    call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+                    call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
                     record.object().write(c, 0);
                     return Ok(Some(
                         i32::from(call(c, ids::ALLOCATE_ENTITY, &[])? as i16) as u32
@@ -88,7 +88,7 @@ pub fn allocate_entity_with_eviction(c: &mut dyn Context, args: &[u32]) -> Resul
 pub fn entity_release_one_by_priority(c: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let object = call(c, ids::ALLOCATE_ENTITY_WITH_EVICTION, &[1])? as i16;
     if object != 0 {
-        call(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+        call_void(c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
     }
     Ok(None)
 }
@@ -129,12 +129,12 @@ pub fn entity_start_land_path_animation(c: &mut dyn Context) -> Result<Option<u3
                         .write(c, object.behavior_flags().read(c) & !0x40);
                 }
                 let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0xd2);
-                call_at(c, ids::PLAY_SOUND, &[16, 50], site)?;
+                call_at_void(c, ids::PLAY_SOUND, &[16, 50], site)?;
                 break;
             }
         }
         let site = CallSite::relative(ids::ENTITY_START_LAND_PATH_ANIMATION, r, 0xe6);
-        call_at(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[], site)?;
+        call_at_void(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[], site)?;
         Ok(None)
     })
 }
@@ -207,7 +207,12 @@ pub fn map_animate_metatile_path_change(c: &mut dyn Context) -> Result<Option<u3
                 ];
                 let effect_args = OutgoingArguments::push(c, &values)?;
                 let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x16a);
-                effect_args.call(c, dispatcher, ids::ENTITY_START_LAND_PATH_ANIMATION, site)?;
+                effect_args.call_void(
+                    c,
+                    dispatcher,
+                    ids::ENTITY_START_LAND_PATH_ANIMATION,
+                    site,
+                )?;
                 let values = [
                     u32::from(cell.read(c)),
                     i32::from(tile_row.read(c)) as u32,
@@ -218,7 +223,7 @@ pub fn map_animate_metatile_path_change(c: &mut dyn Context) -> Result<Option<u3
                 ];
                 let queue_args = OutgoingArguments::push(c, &values)?;
                 let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x19a);
-                queue_args.call(c, dispatcher, ids::MAP_QUEUE_VISIBLE_METATILE_ROW, site)?;
+                queue_args.call_void(c, dispatcher, ids::MAP_QUEUE_VISIBLE_METATILE_ROW, site)?;
                 queue_args.release(c)?;
                 effect_args.release(c)?;
             }
@@ -243,7 +248,12 @@ pub fn map_animate_metatile_path_change(c: &mut dyn Context) -> Result<Option<u3
                 ];
                 let effect_args = OutgoingArguments::push(c, &values)?;
                 let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x220);
-                effect_args.call(c, dispatcher, ids::ENTITY_START_LAND_PATH_ANIMATION, site)?;
+                effect_args.call_void(
+                    c,
+                    dispatcher,
+                    ids::ENTITY_START_LAND_PATH_ANIMATION,
+                    site,
+                )?;
                 let values = [
                     u32::from(cell.read(c)),
                     i32::from(tile_row.read(c)) as u32,
@@ -254,7 +264,12 @@ pub fn map_animate_metatile_path_change(c: &mut dyn Context) -> Result<Option<u3
                 ];
                 let queue_args = OutgoingArguments::push(c, &values)?;
                 let site = CallSite::relative(ids::MAP_ANIMATE_METATILE_PATH_CHANGE, r, 0x250);
-                queue_args.call(c, dispatcher, ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN, site)?;
+                queue_args.call_void(
+                    c,
+                    dispatcher,
+                    ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+                    site,
+                )?;
                 queue_args.release(c)?;
                 effect_args.release(c)?;
             }
@@ -317,7 +332,7 @@ pub fn entity_reserve_land_path_animations(c: &mut dyn Context) -> Result<Option
             let saved_d4 = c.data_register(4);
             c.set_data_register(4, (saved_d4 & 0xffff0000) | animation as u32);
             let site = CallSite::relative(ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS, r, 0xb0);
-            let result = call_at(
+            let result = call_at_void(
                 c,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                 &[object.address(), camera as u32],
@@ -329,7 +344,7 @@ pub fn entity_reserve_land_path_animations(c: &mut dyn Context) -> Result<Option
                 break;
             }
             let site = CallSite::relative(ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS, r, 0xc2);
-            call_at(c, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[], site)?;
+            call_at_void(c, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[], site)?;
         }
         object
             .draw_flags()
@@ -421,7 +436,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
         ];
         // Linked return PCs: REV 02 0x1f550, REV 00 0x1f50e.
         let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x58);
-        call_at(
+        call_at_void(
             c,
             ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
             &arguments,
@@ -455,7 +470,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
                         i32::from(current_column.read(c)) as u32,
                     ];
                     let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0xae);
-                    call_at(
+                    call_at_void(
                         c,
                         ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
                         &animation_arguments,
@@ -475,7 +490,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
             c.set_address_register(4, object.address());
             while object.frame_duration().read(c) != 0 {
                 let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x110);
-                call_at(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[], site)?;
+                call_at_void(c, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[], site)?;
                 super::waits::wait_pending_byte(
                     c,
                     ram::g_sprite_graphics_upload_pending(r).cast(),
@@ -483,7 +498,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
             }
             let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x12c);
             let arguments = [i32::from(object_number.read(c)) as u32];
-            call_at(c, ids::FREE_ENTITY, &arguments, site)?;
+            call_at_void(c, ids::FREE_ENTITY, &arguments, site)?;
             let slot = ram::g_land_path_animation_entities(r).at(animation);
             // Matching asm:1535 CLR.B: retain the purpose, not a semantic peek.
             c.discard_u8(slot.address())?;
@@ -494,7 +509,7 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
         }
         if ram::g_split_screen_enabled(r).read(c) == 0 {
             let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x164);
-            call_at(
+            call_at_void(
                 c,
                 ids::COPY_LEVEL_BETWEEN_PLAYERS,
                 &[i32::from(camera) as u32],
@@ -608,7 +623,7 @@ pub fn process_land(c: &mut dyn Context) -> Result<Option<u32>> {
         c.set_data_register(2, row as u32);
         let outgoing = OutgoingArguments::push(c, &[camera as u32, row as u32, column as u32])?;
         let site = process_site(c, branch, 1);
-        outgoing.call(c, dispatcher, ids::MAP_ANIMATE_MARKED_LAND_PATHS, site)?;
+        outgoing.call_void(c, dispatcher, ids::MAP_ANIMATE_MARKED_LAND_PATHS, site)?;
         // ORIGINAL shared-view Earl path damages/rechecks bank zero as ToeJam.
         let damage_player = if player == 1 && camera == 0 {
             0
@@ -618,11 +633,11 @@ pub fn process_land(c: &mut dyn Context) -> Result<Option<u32>> {
         let map_level = i32::from(level.read(c)) as u32;
         let damage = OutgoingArguments::push(c, &[damage_player as u32, map_level])?;
         let site = process_site(c, branch, 2);
-        damage.call(c, dispatcher, ids::EARTHLING_DAMAGE_ON_HAZARD_TERRAIN, site)?;
+        damage.call_void(c, dispatcher, ids::EARTHLING_DAMAGE_ON_HAZARD_TERRAIN, site)?;
         c.set_address_register(3, object.address());
         let update = OutgoingArguments::push(c, &[player as u32])?;
         let site = process_site(c, branch, 3);
-        update.call(c, dispatcher, ids::UPDATE_LAND_AROUND_PLAYER, site)?;
+        update.call_void(c, dispatcher, ids::UPDATE_LAND_AROUND_PLAYER, site)?;
         OutgoingArguments::existing(c, 6)?.release(c)?;
         let terrain = if player == 0 {
             ram::g_player1_terrain_underfoot(r)
@@ -632,10 +647,10 @@ pub fn process_land(c: &mut dyn Context) -> Result<Option<u32>> {
         if path_change_can_fall(c, terrain, object) {
             let stop = OutgoingArguments::push(c, &[object.address()])?;
             let site = process_site(c, branch, 4);
-            stop.call(c, dispatcher, ids::STOP_PLAYER, site)?;
+            stop.call_void(c, dispatcher, ids::STOP_PLAYER, site)?;
             let falling = OutgoingArguments::push(c, &[object.address(), player as u32])?;
             let site = process_site(c, branch, 5);
-            falling.call(c, dispatcher, ids::PLAYER_START_FALLING, site)?;
+            falling.call_void(c, dispatcher, ids::PLAYER_START_FALLING, site)?;
             OutgoingArguments::existing(c, 3)?.release(c)?;
         }
     }

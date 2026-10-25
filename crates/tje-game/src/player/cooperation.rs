@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/player/edge_hop_and_clap.c:15 (`PlayerCheckTerrainEdgeHop`).
@@ -28,19 +28,19 @@ pub(super) fn player_check_terrain_edge_hop(
             .draw_flags()
             .write(context, state.draw_flags().read(context) | 0x40);
         let sprite = (state.sprite_state().read(context) & 3) + 112;
-        call(context, ids::SET_SPRITE, &[state.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[state.address(), sprite as u32])?;
         return Ok(Some(1));
     }
     if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
         if ram::g_terrain_edge_meep_pending(revision).read(context) != 0 {
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_meep(revision).address(), 40, 0],
             )?;
             ram::g_terrain_edge_meep_pending(revision).write(context, 0);
         } else if call(context, ids::GET_RANDOM_NUMBER, &[])? & 0x1ff == 0 {
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_meep(revision).address(), 40, 0],
@@ -76,9 +76,9 @@ pub(super) fn player_update_health_sharing_clap(
     }
     if toejam.sprite_state().read(context) & 0xfe_u8 as i8 == 90 {
         if toejam.frame_duration().read(context) == 0 {
-            call(context, ids::SET_SPRITE, &[toejam.address(), 0])?;
+            call_void(context, ids::SET_SPRITE, &[toejam.address(), 0])?;
         } else if toejam.frame().read(context) == 2 {
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_jam_clap(revision).address(), 95, 1],
@@ -90,7 +90,7 @@ pub(super) fn player_update_health_sharing_clap(
     }
     if earl.sprite_state().read(context) & 0xfe_u8 as i8 == 90 {
         if earl.frame_duration().read(context) == 0 {
-            call(context, ids::SET_SPRITE, &[earl.address(), 0])?;
+            call_void(context, ids::SET_SPRITE, &[earl.address(), 0])?;
             let health = ram::g_player_health(revision);
             let average = ((i32::from(health.at(0).read(context))
                 + i32::from(health.at(1).read(context))
@@ -135,14 +135,14 @@ pub(super) fn player_update_health_sharing_clap(
         .wrapping_sub(toejam.x().read(context));
     if toejam.sprite_state().read(context) == 11 && earl.sprite_state().read(context) == 10 {
         if separation_x > 0 && separation_x < 25 {
-            call(context, ids::SET_SPRITE, &[toejam.address(), 91])?;
+            call_void(context, ids::SET_SPRITE, &[toejam.address(), 91])?;
             toejam
                 .x()
                 .write(context, earl.x().read(context).wrapping_sub(23));
             toejam
                 .y()
                 .write(context, earl.y().read(context).wrapping_sub(3));
-            call(context, ids::SET_SPRITE, &[earl.address(), 90])?;
+            call_void(context, ids::SET_SPRITE, &[earl.address(), 90])?;
             toejam.height().write(context, 0);
             earl.height().write(context, 0);
         }
@@ -151,14 +151,14 @@ pub(super) fn player_update_health_sharing_clap(
         && separation_x < 0
         && separation_x > -25
     {
-        call(context, ids::SET_SPRITE, &[toejam.address(), 90])?;
+        call_void(context, ids::SET_SPRITE, &[toejam.address(), 90])?;
         toejam
             .x()
             .write(context, earl.x().read(context).wrapping_add(23));
         toejam
             .y()
             .write(context, earl.y().read(context).wrapping_sub(3));
-        call(context, ids::SET_SPRITE, &[earl.address(), 91])?;
+        call_void(context, ids::SET_SPRITE, &[earl.address(), 91])?;
         toejam.height().write(context, 0);
         earl.height().write(context, 0);
     }

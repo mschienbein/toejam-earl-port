@@ -1,7 +1,7 @@
 use super::super::animations::wait_upload;
 use super::frame as source;
 use crate::call_frame::{FrameLayout, LocalFrame};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/ui/hud.c:197 (`HudInitializeHealthBar`), both c_hud.s:442–634.
@@ -117,7 +117,7 @@ pub fn hud_initialize_health_bar(context: &mut dyn Context) -> Result<Option<u32
             .offset_long_index(i32::from(offset.read(context)))
             .address();
         source::push_pea(context, pointer)?;
-        source::call(
+        source::call_void(
             context,
             ids::HUD_INITIALIZE_HEALTH_BAR,
             ids::DMA_COPY_WORDS_TO_VRAM,
@@ -131,7 +131,7 @@ pub fn hud_initialize_health_bar(context: &mut dyn Context) -> Result<Option<u32
             > displayed.read(context)
         {
             source::push_move(context, player as u32)?;
-            source::call(
+            source::call_void(
                 context,
                 ids::HUD_INITIALIZE_HEALTH_BAR,
                 ids::HUD_ANIMATE_HEALTH_BAR,
@@ -203,26 +203,26 @@ pub fn draw_hud(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
             }
         }
         context.write_vdp_control(0x9297);
-        call(context, ids::HUD_DRAW_RANK_LABELS, &[])?;
+        call_void(context, ids::HUD_DRAW_RANK_LABELS, &[])?;
     } else {
         if inventories.at(0).read(context) == 0 && inventories.at(1).read(context) == 0 {
             context.write_vdp_control(0x9200);
         }
-        call(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
+        call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
     }
     let player = if ram::g_player_lives(revision).at(0).read(context) >= 0 {
         0
     } else {
         1
     };
-    call(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[player])?;
-    call(context, ids::HUD_POSITION_ACTION_ICON_SPRITE, &[0])?;
-    call(context, ids::HUD_POSITION_ACTION_ICON_SPRITE, &[1])?;
-    call(context, ids::HUD_POSITION_HEALTH_BAR_SPRITES, &[0])?;
-    call(context, ids::HUD_POSITION_HEALTH_BAR_SPRITES, &[1])?;
-    call(context, ids::HUD_POSITION_LIVES_SPRITE, &[0])?;
-    call(context, ids::HUD_POSITION_LIVES_SPRITE, &[1])?;
-    call(
+    call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[player])?;
+    call_void(context, ids::HUD_POSITION_ACTION_ICON_SPRITE, &[0])?;
+    call_void(context, ids::HUD_POSITION_ACTION_ICON_SPRITE, &[1])?;
+    call_void(context, ids::HUD_POSITION_HEALTH_BAR_SPRITES, &[0])?;
+    call_void(context, ids::HUD_POSITION_HEALTH_BAR_SPRITES, &[1])?;
+    call_void(context, ids::HUD_POSITION_LIVES_SPRITE, &[0])?;
+    call_void(context, ids::HUD_POSITION_LIVES_SPRITE, &[1])?;
+    call_void(
         context,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[

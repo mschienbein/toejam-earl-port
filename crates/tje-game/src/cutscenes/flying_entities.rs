@@ -1,5 +1,5 @@
 use super::large_player_parts::entity_at;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/flying_entities.c:15 (`IntroUpdateRightwardFlyingEntity`).
@@ -19,7 +19,7 @@ pub fn intro_update_rightward_flying_entity(
     let object = entity_at(context, i16::from(slot));
     if restart != 0 {
         if object.draw_flags().read(context) & 3 != 0 {
-            call(
+            call_void(
                 context,
                 ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                 &[object.address(), 0],
@@ -61,7 +61,7 @@ pub fn intro_update_rightward_flying_entity(
         object.frame().write(context, -1);
         object.sprite_ready().write(context, 0);
         object.x().write(context, 96);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -70,7 +70,7 @@ pub fn intro_update_rightward_flying_entity(
     let x = object.x().read(context).wrapping_add(10);
     object.x().write(context, x);
     if object.x().read(context) > 232 && object.draw_flags().read(context) & 3 != 0 {
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -96,7 +96,7 @@ pub fn intro_update_flying_entity_motion(
                     .read(context);
                 if slot != 0 {
                     let object = entity_at(context, i16::from(slot));
-                    call(
+                    call_void(
                         context,
                         ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                         &[object.address(), 0],
@@ -131,7 +131,7 @@ pub fn intro_update_flying_entity_motion(
             || object.height().read(context) < -198
         {
             if object.draw_flags().read(context) & 2 != 0 {
-                call(
+                call_void(
                     context,
                     ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
                     &[object.address(), 0],
@@ -234,7 +234,7 @@ pub fn intro_update_flying_entity_motion(
         object.velocity_height().write(context, velocity);
         if object.velocity_height().read(context) == 0 {
             context.set_data_register(4, allocator_d4);
-            let result = call(
+            let result = call_void(
                 context,
                 ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                 &[object.address(), 0],

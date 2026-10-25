@@ -110,7 +110,53 @@ impl Fixture {
     fn assert_no_frame_counter_read(&self) {
         let counter = ram::g_frame_counter(self.memory.revision()).address();
         assert!(!self.accesses.borrow().iter().any(|access| matches!(access,
-            Access::Read(at, _, _) | Access::Discard(at, _, _) if *at == counter || *at == counter + 1)));
+        Access::Read(at, _, _) | Access::Discard(at, _, _) if *at == counter || *at == counter + 1)));
+    }
+    fn original_entry_effects(&mut self, id: FunctionId, _: ExecutionClass) -> Result<()> {
+        let arguments: Vec<_> = (0..id.metadata().abi.argument_count)
+            .map(|index| self.memory.read_u32(self.sp + 4 + u32::from(index) * 4))
+            .collect();
+        self.dependencies.push(Dependency {
+            id,
+            arguments: arguments.clone(),
+            sp: self.sp,
+            pc: self.memory.read_u32(self.sp),
+            data: self.data,
+            address: self.address,
+            retained: std::array::from_fn(|index| {
+                self.memory.read_u32(self.sp + 4 + index as u32 * 4)
+            }),
+        });
+        if id == ids::GET_PLAYER_INPUT {
+            self.input_calls += 1;
+            if self.input_calls >= self.close_after {
+                let revision = self.revision();
+                ram::g_player_inventory_open(revision)
+                    .at(0)
+                    .write(&mut self.memory, 0);
+                ram::g_player_inventory_open(revision)
+                    .at(1)
+                    .write(&mut self.memory, 0);
+            }
+        }
+        (self.on_dependency)(self, id, &arguments);
+        let value = if self
+            .results
+            .front()
+            .is_some_and(|&(expected, _)| expected == id)
+        {
+            self.results.pop_front().unwrap().1
+        } else {
+            0
+        };
+        self.data[0] = value;
+        self.sp += 4;
+        {
+            if id.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -298,46 +344,12 @@ impl Context for Fixture {
     fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
         panic!("unframed dependency {}", id.metadata().name);
     }
-    fn call_original_entry(&mut self, id: FunctionId, _: ExecutionClass) -> Result<u32> {
-        let arguments: Vec<_> = (0..id.metadata().abi.argument_count)
-            .map(|index| self.memory.read_u32(self.sp + 4 + u32::from(index) * 4))
-            .collect();
-        self.dependencies.push(Dependency {
-            id,
-            arguments: arguments.clone(),
-            sp: self.sp,
-            pc: self.memory.read_u32(self.sp),
-            data: self.data,
-            address: self.address,
-            retained: std::array::from_fn(|index| {
-                self.memory.read_u32(self.sp + 4 + index as u32 * 4)
-            }),
-        });
-        if id == ids::GET_PLAYER_INPUT {
-            self.input_calls += 1;
-            if self.input_calls >= self.close_after {
-                let revision = self.revision();
-                ram::g_player_inventory_open(revision)
-                    .at(0)
-                    .write(&mut self.memory, 0);
-                ram::g_player_inventory_open(revision)
-                    .at(1)
-                    .write(&mut self.memory, 0);
-            }
-        }
-        (self.on_dependency)(self, id, &arguments);
-        let value = if self
-            .results
-            .front()
-            .is_some_and(|&(expected, _)| expected == id)
-        {
-            self.results.pop_front().unwrap().1
-        } else {
-            0
-        };
-        self.data[0] = value;
-        self.sp += 4;
-        Ok(value)
+    fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        self.original_entry_effects(id, class)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        self.original_entry_effects(id, class)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    Context, Result, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
     ids,
 };
@@ -55,19 +55,19 @@ fn flush_body(context: &mut dyn Context, camera: i32, vertical: bool) -> Result<
     };
     let dispatcher = context.dispatcher();
     let wait = OutgoingArguments::push(context, &[1])?;
-    wait.call(
+    wait.call_void(
         context,
         dispatcher,
         ids::WAIT_FOR_NEXT_V_BLANK,
         CallSite::relative(caller, revision, 0x3a),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_BLANKING_GRAPHICS,
         &[],
         CallSite::relative(caller, revision, 0x40),
     )?;
-    call_at(
+    call_at_void(
         context,
         if vertical {
             ids::UPDATE_CAMERA_Y
@@ -79,7 +79,7 @@ fn flush_body(context: &mut dyn Context, camera: i32, vertical: bool) -> Result<
     )?;
     wait.release(context)?;
     other.write(context, saved);
-    call_at(
+    call_at_void(
         context,
         ids::ENABLE_BLANKING_GRAPHICS,
         &[],
@@ -203,7 +203,7 @@ fn move_pixel_body(
                 Direction::Left => (ids::MOVE_CAMERA_LEFT, [0x46, 0x82]),
                 Direction::Right => (ids::MOVE_CAMERA_RIGHT, [0x46, 0x82]),
             };
-            call_at(
+            call_at_void(
                 context,
                 if vertical {
                     ids::TRY_UPDATE_CAMERA_Y

@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, FunctionId, Result, call_at, ids};
+use crate::{Context, FunctionId, Result, call_at, call_at_void, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/presents/item_updates.c:259 (`PresentTryEndActivePowerup`).
@@ -61,13 +61,13 @@ fn expiry_body(context: &mut dyn Context, index: i16) -> Result<Option<u32>> {
         .read(context);
     compare(context, powerup as u8 as u32, 5, 8);
     if powerup == 5 {
-        source_call(context, ids::PLAY_SOUND, &[6, 99], 0x54)?;
+        source_call_void(context, ids::PLAY_SOUND, &[6, 99], 0x54)?;
     }
     let height = player.height().read(context);
     logical(context, u32::from(height as u16), 16);
     if height > 0 && masked_group(context, player, 0x0400_8000) {
         logical(context, player.address(), 32); // MOVE.L A2,-(SP)
-        source_call(context, ids::STOP_PLAYER, &[player.address()], 0x70)?;
+        source_call_void(context, ids::STOP_PLAYER, &[player.address()], 0x70)?;
         player.acceleration_height().write(context, -32);
         logical(context, 0xffe0, 16);
         direction_sprite(context, player, 20);
@@ -103,7 +103,7 @@ fn expiry_body(context: &mut dyn Context, index: i16) -> Result<Option<u32>> {
         move_long(context, 0, sprite_argument);
         // The second push (A2) supplies the flags seen by SetSprite.
         logical(context, player.address(), 32);
-        source_call(
+        source_call_void(
             context,
             ids::SET_SPRITE,
             &[player.address(), sprite_argument],
@@ -253,6 +253,20 @@ fn source_call(
     call_at(context, id, arguments, site)
 }
 
+fn source_call_void(
+    context: &mut dyn Context,
+    id: FunctionId,
+    arguments: &[u32],
+    return_offset: u32,
+) -> Result<()> {
+    let site = CallSite::relative(
+        ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        context.revision(),
+        return_offset,
+    );
+    call_at_void(context, id, arguments, site)
+}
+
 fn retained_call(
     context: &mut dyn Context,
     id: FunctionId,
@@ -266,7 +280,7 @@ fn retained_call(
         context.revision(),
         return_offset,
     );
-    if let Err(error) = outgoing.call(context, dispatcher, id, site) {
+    if let Err(error) = outgoing.call_void(context, dispatcher, id, site) {
         if !error.preserves_call_frame() {
             outgoing.release(context)?;
         }

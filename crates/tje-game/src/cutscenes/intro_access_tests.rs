@@ -57,6 +57,43 @@ impl AuditContext {
             })
             .collect()
     }
+    fn original_effects(&mut self, function: FunctionId, _: &[u32]) -> Result<()> {
+        self.calls.push(function);
+        if self.interrupted_part == Some(function) {
+            return {
+                let value = 1;
+                if function.metadata().abi.returns_value {
+                    self.set_data_register(0, value);
+                }
+                Ok(())
+            };
+        }
+        if function == ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE
+            || function == ids::WAIT_FOR_NEXT_V_BLANK
+        {
+            // Accelerate the ROM-free state-machine test, never production code.
+            self.service_calls += 1;
+            assert!(self.service_calls < 500, "intro test did not terminate");
+            ram::g_cutscene_script_countdown(self.revision()).write(&mut self.memory, 1);
+        }
+        if function == ids::GET_CTRL2_INPUT {
+            self.pad_reads += 1;
+        }
+        {
+            let value = if function == ids::GET_CTRL2_INPUT
+                && self.action_held
+                && self.pad_reads % 3 == 2
+            {
+                0x10
+            } else {
+                0
+            };
+            if function.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 
 impl Bus for AuditContext {
@@ -175,29 +212,17 @@ impl Context for AuditContext {
         // Unit doubles cover every callee class without executing original code.
         self.call_original(function, arguments)
     }
-    fn call_original(&mut self, function: FunctionId, _: &[u32]) -> Result<u32> {
-        self.calls.push(function);
-        if self.interrupted_part == Some(function) {
-            return Ok(1);
-        }
-        if function == ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE
-            || function == ids::WAIT_FOR_NEXT_V_BLANK
-        {
-            // Accelerate the ROM-free state-machine test, never production code.
-            self.service_calls += 1;
-            assert!(self.service_calls < 500, "intro test did not terminate");
-            ram::g_cutscene_script_countdown(self.revision()).write(&mut self.memory, 1);
-        }
-        if function == ids::GET_CTRL2_INPUT {
-            self.pad_reads += 1;
-        }
-        Ok(
-            if function == ids::GET_CTRL2_INPUT && self.action_held && self.pad_reads % 3 == 2 {
-                0x10
-            } else {
-                0
-            },
-        )
+    fn call_original(&mut self, function: FunctionId, arguments: &[u32]) -> Result<u32> {
+        self.original_effects(function, arguments)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        function: FunctionId,
+        arguments: &[u32],
+        _class: crate::execution::ExecutionClass,
+    ) -> Result<()> {
+        self.original_effects(function, arguments)
     }
 }
 

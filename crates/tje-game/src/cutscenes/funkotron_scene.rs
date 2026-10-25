@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/cutscenes/funkotron_scene.c:15 (`FunkatronCreateSceneEntity`).
@@ -102,7 +102,7 @@ pub fn funkatron_update_scene_entities(
             && screen_y < maximum_y
         {
             if object_number == 0 {
-                call(
+                call_void(
                     context,
                     ids::FUNKATRON_CREATE_SCENE_ENTITY,
                     &[
@@ -177,7 +177,7 @@ pub fn funkatron_update_scene_entities(
                                 if (interaction == 31 && player_number == 1)
                                     || (interaction == 54 && player_number == 0)
                                 {
-                                    call(context, ids::DRAW_PRESENT_DISPLAY_PANEL, &[])?;
+                                    call_void(context, ids::DRAW_PRESENT_DISPLAY_PANEL, &[])?;
                                 }
                             }
                         }
@@ -193,7 +193,7 @@ pub fn funkatron_update_scene_entities(
                 }
             }
         } else if object_number != 0 {
-            call(context, ids::FREE_ENTITY, &[object_number as i32 as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[object_number as i32 as u32])?;
             super::ending::clear_byte_instruction(context, slot.address())?;
         }
         placement_number = placement_number.wrapping_add(1);

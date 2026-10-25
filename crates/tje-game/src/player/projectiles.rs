@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/player/projectiles.c:24 (`PlayerLaunchPresentProjectile`).
@@ -74,7 +74,7 @@ pub(super) fn player_launch_present_projectile(
         } else {
             projectile.velocity_height().write(context, 64);
             projectile.acceleration_height().write(context, -8);
-            call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[11])?;
+            call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[11])?;
             (1152, 768)
         };
         if direction & 1 != 0 {
@@ -132,7 +132,7 @@ pub(super) fn player_update_present_shooting(
     let number = i32::from(player.entity_index().read(context));
     if player.animation_group_mask().read(context) & 0x10_0000 != 0 {
         if player.frame().read(context) == 1 {
-            call(
+            call_void(
                 context,
                 ids::PLAYER_LAUNCH_PRESENT_PROJECTILE,
                 &[player.address(), number as u32, 3],
@@ -142,11 +142,11 @@ pub(super) fn player_update_present_shooting(
                 .write(context, player.frame().read(context).wrapping_add(1));
         } else if player.frame_duration().read(context) == 0 {
             let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         }
     } else if player.animation_group_mask().read(context) & 0x20_0000 != 0 {
         if player.frame().read(context) == 2 {
-            call(
+            call_void(
                 context,
                 ids::PLAYER_LAUNCH_PRESENT_PROJECTILE,
                 &[player.address(), number as u32, 4],
@@ -156,7 +156,7 @@ pub(super) fn player_update_present_shooting(
                 .write(context, player.frame().read(context).wrapping_add(1));
         } else if player.frame_duration().read(context) == 0 {
             let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-            call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
         }
     }
     if ram::g_player_elevator_flags(revision)
@@ -184,7 +184,7 @@ pub(super) fn player_update_present_shooting(
             sprite = direction + 84;
         }
         if sprite != -1 {
-            call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+            call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
         }
     }
     Ok(None)

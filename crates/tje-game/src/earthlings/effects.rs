@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/earthlings/mole_santa.c:33 (`EarthlingSpawnMoleEffect`).
@@ -61,7 +61,7 @@ pub fn release_finished_mole_effects_and_stolen_presents(
                 .read(context)
                 == 0
         {
-            call(context, ids::FREE_ENTITY, &[object as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[object as u32])?;
             entry.write(context, 0);
         }
     }
@@ -75,7 +75,7 @@ pub fn release_finished_mole_effects_and_stolen_presents(
                 .read(context)
                 <= 0
         {
-            call(context, ids::FREE_ENTITY, &[object as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[object as u32])?;
             entry.write(context, 0);
         }
     }
@@ -91,7 +91,7 @@ pub fn drop_presents_ability(context: &mut dyn Context, arguments: &[u32]) -> Re
     if earthling.state().read(context) > 1 {
         return Ok(None);
     }
-    call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
+    call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     object.frame().write(context, -1);
     let player = super::word_object(revision, player_number);
@@ -108,7 +108,7 @@ pub fn drop_presents_ability(context: &mut dyn Context, arguments: &[u32]) -> Re
     for (index, value) in saved_land.iter_mut().enumerate() {
         *value = nearby.offset(index as i32).read(context)
     }
-    call(
+    call_void(
         context,
         ids::UPDATE_LAND_AROUND_PLAYER,
         &[player_number as u32],
@@ -116,7 +116,7 @@ pub fn drop_presents_ability(context: &mut dyn Context, arguments: &[u32]) -> Re
     let mut count = ((call(context, ids::GET_RANDOM_NUMBER, &[])? as i16) & 1) + 2;
     while count > 0 {
         let present = call(context, ids::SELECT_RANDOM_PRESENT, &[])?;
-        call(context, ids::DROP_PRESENT, &[player_number as u32, present])?;
+        call_void(context, ids::DROP_PRESENT, &[player_number as u32, present])?;
         count -= 1;
     }
     for (index, value) in saved_land.into_iter().enumerate() {

@@ -1,5 +1,5 @@
 use crate::call_frame::CallSite;
-use crate::{Context, Result, call_at, exits, ids};
+use crate::{Context, Result, call_at_void, exits, ids};
 
 /// G/src/core/error_trap.c:5 (`ErrorTrap`, REV 02 0x000200).
 /// The original self-branch has no RTS. Stop game logic through the explicit
@@ -15,7 +15,7 @@ pub fn vdp_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Option
     let entry = ids::VDP_INITIALISATION
         .metadata()
         .address(context.revision());
-    call_at(
+    call_at_void(
         context,
         ids::RESET_VDP,
         &[],

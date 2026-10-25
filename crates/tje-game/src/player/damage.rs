@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingDefinition, EarthlingState, ObjectState, ram, rom};
 
 /// G/src/player/earthling_damage_reactions.c:152 (`Player_Squish`).
@@ -16,7 +16,7 @@ pub(super) fn player_squish(context: &mut dyn Context, arguments: &[u32]) -> Res
         )? != 0
     {
         player.animation_motion_axes().write(context, 3);
-        call(context, ids::SET_SPRITE, &[player.address(), 2])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), 2])?;
         player
             .draw_flags()
             .write(context, player.draw_flags().read(context) | 0x80);
@@ -45,7 +45,7 @@ pub(super) fn player_squish(context: &mut dyn Context, arguments: &[u32]) -> Res
                     .read(context),
             ),
         );
-        call(
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_squish(revision).address(), 50, 0],
@@ -76,7 +76,7 @@ pub(super) fn whirl_wind_ability(
     {
         return Ok(None);
     }
-    call(context, ids::SET_SPRITE, &[player.address(), 79])?;
+    call_void(context, ids::SET_SPRITE, &[player.address(), 79])?;
     player.animation_motion_axes().write(context, 3);
     player.x().write(context, earthling.x().read(context));
     player.y().write(context, earthling.y().read(context));
@@ -94,7 +94,7 @@ pub(super) fn whirl_wind_ability(
         .at(number)
         .write(context, 225);
     let object = earthling.object().read(context) as u32;
-    call(context, ids::FREE_ENTITY, &[object])?;
+    call_void(context, ids::FREE_ENTITY, &[object])?;
     earthling.object().write(context, 0);
     earthling.kind().write(context, -1);
     Ok(None)
@@ -112,7 +112,7 @@ pub(super) fn earthling_start_horizontal_attack(
         .read(context)
         .wrapping_sub(earthling.x().read(context));
     if i32::from(delta).abs() > 65 {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), if delta > 0 { 11 } else { 10 }],
@@ -161,7 +161,7 @@ pub(super) fn cupid_ability(context: &mut dyn Context, arguments: &[u32]) -> Res
             .read(context)
             .wrapping_sub(earthling.x().read(context));
         if i32::from(delta).abs() < 25 {
-            call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
+            call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 3])?;
             let object =
                 ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
             object.frame().write(context, -1);
@@ -186,7 +186,7 @@ pub(super) fn earthling_update_bouncing_damage_state(
     let revision = context.revision();
     let object = ram::g_player_info(revision).at(i32::from(earthling.object().read(context)));
     if earthling.object().read(context) == 0 {
-        call(
+        call_void(
             context,
             ids::EARTHLING_REMOVE_FROM_LEVEL,
             &[earthling.address()],
@@ -194,7 +194,7 @@ pub(super) fn earthling_update_bouncing_damage_state(
         return Ok(None);
     }
     if object.frame_duration().read(context) == 0 {
-        call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+        call_void(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
     } else if object.height().read(context) < 3 && object.velocity_height().read(context) < 0 {
         object.acceleration_height().write(context, -64);
         object.velocity_height().write(context, 512);
@@ -217,7 +217,7 @@ pub(super) fn earthling_update_bouncing_damage_state(
             object.y().read(context) as u32,
         ];
         if call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &args)? as u16 > 0x50 {
-            call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+            call_void(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
         }
     }
     Ok(None)

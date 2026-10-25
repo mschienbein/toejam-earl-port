@@ -1,7 +1,7 @@
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame},
-    ids,
+    call_void, ids,
 };
 use tje_mem::{Address, MenuItem};
 
@@ -18,7 +18,7 @@ pub fn menu_draw_text_items(context: &mut dyn Context, arguments: &[u32]) -> Res
                 .wrapping_add(x.wrapping_shl(17)),
         );
         let text = item.text().read(context).address();
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
         item = item.offset(1);
     }
     Ok(None)
@@ -60,7 +60,7 @@ pub fn text_write_decimal_tiles(
     }
     text.offset(i32::from(count)).write(context, 0);
     let site = CallSite::relative(ids::TEXT_WRITE_DECIMAL_TILES, context.revision(), 0x8a);
-    call_at(
+    call_at_void(
         context,
         ids::TEXT_WRITE_STRING_TILES,
         &[text.address()],

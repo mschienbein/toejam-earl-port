@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/presents/level_item_setup.c:116 (`ElevatorAllowsWorldPlacement`).
@@ -100,7 +100,7 @@ pub fn map_release_level_item_bank(
                     let object = item.object().read(context);
                     item.kind().write(context, -1);
                     if object != 0 {
-                        call(context, ids::FREE_ENTITY, &[object as u32])?;
+                        call_void(context, ids::FREE_ENTITY, &[object as u32])?;
                         item.object().write(context, 0);
                     }
                 }
@@ -131,7 +131,7 @@ pub fn drop_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Opti
     ));
     if destination.kind().read(context) != -1 && destination.object().read(context) != 0 {
         let number = destination.object().read(context);
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         destination.object().write(context, 0);
     }
     let random_index = ram::g_random_cache_index(revision);
@@ -220,10 +220,10 @@ pub fn setup_initial_inventory(context: &mut dyn Context, _: &[u32]) -> Result<O
     }
     ram::g_item_bank_levels(revision).at(0).write(context, -1);
     ram::g_item_bank_levels(revision).at(1).write(context, -1);
-    call(context, ids::SETUP_PRESENT_IDENTITIES, &[])?;
+    call_void(context, ids::SETUP_PRESENT_IDENTITIES, &[])?;
     for index in 0..2 {
         if ram::g_player_lives(revision).at(index).read(context) >= 0 {
-            call(context, ids::LOAD_LEVEL_ITEM_BANK, &[1])?;
+            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[1])?;
             let inventory = ram::g_player_inventory(revision).at(index);
             inventory.at(0).write(context, 27);
             inventory.at(1).write(context, 27);

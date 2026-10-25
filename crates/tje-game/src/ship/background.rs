@@ -41,7 +41,7 @@ fn upload_background(
         } else {
             (ids::SPRITE_UNPACK_RLE, 0x84)
         };
-        dispatcher.call_at(context, unpack, &[part.address(), 16], site(return_offset))?;
+        dispatcher.call_at_void(context, unpack, &[part.address(), 16], site(return_offset))?;
         let offset = ram::g_sprite_tile_buffer_offset(revision);
         let next = offset.read(context).wrapping_add(512);
         offset.write(context, next);
@@ -49,7 +49,7 @@ fn upload_background(
     queue_word(context, 1);
     queue_word(context, (parts * 16) as u16);
     let wait = OutgoingArguments::push(context, &[1])?;
-    wait.call(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0xd8))?;
+    wait.call_void(context, dispatcher, ids::WAIT_FOR_NEXT_V_BLANK, site(0xd8))?;
     let font = OutgoingArguments::push(context, &[8])?;
     font.call(
         context,
@@ -58,7 +58,7 @@ fn upload_background(
         site(0xe2),
     )?;
     let upload = OutgoingArguments::push(context, &[1, 1])?;
-    upload.call(
+    upload.call_void(
         context,
         dispatcher,
         ids::UPLOAD_QUEUED_SPRITE_GRAPHICS,
@@ -124,7 +124,7 @@ pub fn animate_ship_screen_background(
         } else {
             let dispatcher = context.dispatcher();
             let wait = OutgoingArguments::push(context, &[1])?;
-            wait.call(
+            wait.call_void(
                 context,
                 dispatcher,
                 ids::WAIT_FOR_NEXT_V_BLANK,
@@ -183,7 +183,7 @@ pub fn animate_transition_background(
         } else {
             let dispatcher = context.dispatcher();
             let wait = OutgoingArguments::push(context, &[1])?;
-            wait.call(
+            wait.call_void(
                 context,
                 dispatcher,
                 ids::WAIT_FOR_NEXT_V_BLANK,
@@ -265,7 +265,7 @@ pub fn initialize_ship_screen_tilemap_and_palettes(
         context.write_vdp_control(0x921c);
         let first =
             OutgoingArguments::push(context, &[rom::palette_ship_line1(revision).address(), 0])?;
-        first.call(
+        first.call_void(
             context,
             dispatcher,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -273,7 +273,7 @@ pub fn initialize_ship_screen_tilemap_and_palettes(
         )?;
         let second =
             OutgoingArguments::push(context, &[rom::palette_ship_line2(revision).address(), 1])?;
-        second.call(
+        second.call_void(
             context,
             dispatcher,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -281,7 +281,7 @@ pub fn initialize_ship_screen_tilemap_and_palettes(
         )?;
         let third =
             OutgoingArguments::push(context, &[rom::palette_ship_line3(revision).address(), 2])?;
-        third.call(
+        third.call_void(
             context,
             dispatcher,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -289,7 +289,7 @@ pub fn initialize_ship_screen_tilemap_and_palettes(
         )?;
         let black =
             OutgoingArguments::push(context, &[rom::palette_all_black(revision).address(), 3])?;
-        black.call(
+        black.call_void(
             context,
             dispatcher,
             ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -300,8 +300,8 @@ pub fn initialize_ship_screen_tilemap_and_palettes(
         second.release(context)?;
         first.release(context)?;
         context.write_vdp_control(0x8c81);
-        dispatcher.call_at(context, ids::ENABLE_TEXT_FONT_ANIMATION, &[], site(0x17a))?;
-        dispatcher.call_at(
+        dispatcher.call_at_void(context, ids::ENABLE_TEXT_FONT_ANIMATION, &[], site(0x17a))?;
+        dispatcher.call_at_void(
             context,
             ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
             &[1],
@@ -356,14 +356,14 @@ pub fn show_ship_piece_name(context: &mut dyn Context, arguments: &[u32]) -> Res
         context.write_vdp_command(
             0x5c00_0003_u32.wrapping_add(((20 - i32::from(count) / 2) as u32) << 17),
         );
-        dispatcher.call_at(
+        dispatcher.call_at_void(
             context,
             ids::TEXT_WRITE_STRING_TILES,
             &[piece_name],
             site(0xc4),
         )?;
         for _ in 0..90 {
-            dispatcher.call_at(
+            dispatcher.call_at_void(
                 context,
                 ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
                 &[0],
@@ -413,14 +413,14 @@ pub fn show_missing_ship_piece_summary(
         .expect("generated ship summary symbol")
         .address;
     context.write_vdp_command(command);
-    crate::call(context, ids::TEXT_WRITE_STRING_TILES, &[text + offset])?;
+    crate::call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text + offset])?;
     context.write_vdp_command(0x5c0e_0003);
-    crate::call(
+    crate::call_void(
         context,
         ids::TEXT_WRITE_DECIMAL_TILES,
         &[i32::from(missing) as u32],
     )?;
-    crate::call(context, ids::TEXT_WRITE_STRING_TILES, &[text + 180])?;
+    crate::call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text + 180])?;
     Ok(None)
 }
 
@@ -460,7 +460,7 @@ pub fn wait_for_ship_screen_acknowledgement(
                             & (i32::from(pressed) as u32)
                             != 0
                         {
-                            dispatcher.call_at(
+                            dispatcher.call_at_void(
                                 context,
                                 ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
                                 &[0],
@@ -472,7 +472,7 @@ pub fn wait_for_ship_screen_acknowledgement(
                     }
                 }
             }
-            dispatcher.call_at(
+            dispatcher.call_at_void(
                 context,
                 ids::ANIMATE_SHIP_SCREEN_BACKGROUND,
                 &[0],
@@ -517,10 +517,10 @@ pub fn restore_gameplay_graphics(
     ] {
         context.write_vdp_command(command);
         let words = (i32::from(size.read(context)) << 4) as u32;
-        crate::call(context, ids::MOVE_DATA_TO_VRAM, &[source, words])?;
+        crate::call_void(context, ids::MOVE_DATA_TO_VRAM, &[source, words])?;
     }
-    crate::call(context, ids::DRAW_HUD, &[])?;
-    crate::call(
+    crate::call_void(context, ids::DRAW_HUD, &[])?;
+    crate::call_void(
         context,
         ids::DMA_COPY_WORDS_TO_VRAM,
         &[
@@ -535,9 +535,9 @@ pub fn restore_gameplay_graphics(
         (rom::palette_game_line3(revision).address(), 2),
         (rom::palette_game_line4(revision).address(), 3),
     ] {
-        crate::call(context, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot])?;
+        crate::call_void(context, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, slot])?;
     }
-    crate::call(
+    crate::call_void(
         context,
         ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
         &[],

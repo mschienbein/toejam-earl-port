@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram};
 
 /// G/src/earthlings/spawning_and_banks.c:78 (`EarthlingIsSpecialRecordNearby`).
@@ -92,7 +92,7 @@ pub fn entity_trigger_target_status_event_once(
     if state.attachment_x_or_latch().read(context) == 0
         && target.animation_group_mask().read(context) & 0x0004_0800 != 0
     {
-        call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[9])?;
+        call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[9])?;
         state.attachment_x_or_latch().write(context, 1);
     }
     Ok(None)

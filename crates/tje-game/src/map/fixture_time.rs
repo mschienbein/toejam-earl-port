@@ -1,5 +1,5 @@
 use crate::{Result, check, fill_map};
-use tje_game::{Context, FunctionId, call, ids};
+use tje_game::{Context, FunctionId, call, call_void, ids};
 use tje_host::Host;
 use tje_mem::{Address, HardwareSprite, ram, rom};
 
@@ -40,11 +40,11 @@ fn prepare_effects(host: &mut Host) -> Result {
         object.frame_phase().write(&mut c, 2);
         let d4 = c.data_register(4);
         c.set_data_register(4, (d4 & 0xffff_0000) | animation as u32);
-        let result = call(
-            &mut c,
-            ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
-            &[object.address(), 0],
-        );
+        let result = call_void(
+                    &mut c,
+                    ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
+                    &[object.address(), 0],
+                );
         c.set_data_register(4, d4);
         result?;
         if object.draw_flags().read(&c) & 6 == 0 {
@@ -65,7 +65,7 @@ fn release_effects(host: &mut Host) -> Result {
         let slot = ram::g_land_path_animation_entities(r).at(animation);
         let object = slot.read(&c);
         if object != 0 {
-            call(&mut c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
+            call_void(&mut c, ids::FREE_ENTITY, &[i32::from(object) as u32])?;
         }
         slot.write(&mut c, 0);
     }

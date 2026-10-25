@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::ram;
 
 /// G/src/cutscenes/ending_player_release.c:8 (`EndingReleaseActivePlayerEntities`).
@@ -11,13 +11,13 @@ pub fn ending_release_active_player_entities(
     let first = ram::g_ending_player1_entity(revision);
     let slot = first.read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     first.write(context, 0);
     let second = ram::g_ending_player2_entity(revision);
     let slot = second.read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     second.write(context, 0);
     Ok(None)

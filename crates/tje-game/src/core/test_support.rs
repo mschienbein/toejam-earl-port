@@ -30,6 +30,8 @@ pub(crate) struct TestContext {
     pub frame: Option<FrameState>,
     pub sp: u32,
     pub stop_at_calls: bool,
+    pub dispatcher_override: Option<Dispatcher>,
+    pub execution: crate::execution::ExecutionClass,
     data: [u32; 8],
     address: [u32; 8],
     status: u16,
@@ -48,6 +50,8 @@ impl TestContext {
             frame: None,
             sp: 0xff7f00,
             stop_at_calls: false,
+            dispatcher_override: None,
+            execution: crate::execution::ExecutionClass::Atomic,
             data: [0; 8],
             address: [0; 8],
             status: 0x2000,
@@ -198,7 +202,21 @@ impl Context for TestContext {
         self.frame = Some(frame);
         Ok(())
     }
+    fn execution_class(&self) -> crate::execution::ExecutionClass {
+        self.execution
+    }
+    fn set_execution_class(&mut self, class: crate::execution::ExecutionClass) -> Result<()> {
+        self.execution = class;
+        Ok(())
+    }
+    fn enter_call_ceiling(&mut self, _: FunctionId) -> Result<crate::execution::CallCeilingScope> {
+        // Explicit frozen unit-fixture provider, never a timing proof.
+        Ok(crate::execution::CallCeilingScope::not_required())
+    }
     fn dispatcher(&self) -> Dispatcher {
+        if let Some(dispatcher) = self.dispatcher_override {
+            return dispatcher;
+        }
         if self.stop_at_calls {
             Dispatcher::hybrid_with(&[])
         } else {

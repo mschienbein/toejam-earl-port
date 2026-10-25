@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::{Address, EarthlingState, LevelItem, ObjectState, ram};
 
 /// G/src/presents/item_updates.c:230 (`PlayerCheckLevelItemHazards`).
@@ -123,7 +123,7 @@ fn terrain_effects_body(
         || player.sprite_state().read(context) == 6
     {
         if active.read(context) != 0 {
-            call_at(
+            call_at_void(
                 context,
                 ids::PRESENT_RETIRE_TERRAIN_EFFECT,
                 &[index as u32],
@@ -143,21 +143,21 @@ fn terrain_effects_body(
     {
         if terrain == 0x10 || terrain == 0x50 {
             if active.read(context) != 0 {
-                call_at(
+                call_at_void(
                     context,
                     ids::PRESENT_RETIRE_TERRAIN_EFFECT,
                     &[index as u32],
                     CallSite::relative(caller, revision, 0xb6),
                 )?;
             }
-            call_at(
+            call_at_void(
                 context,
                 ids::PRESENT_CREATE_ACTIVE_TERRAIN_EFFECT,
                 &[player.address(), index as u32],
                 CallSite::relative(caller, revision, 0xc4),
             )?;
         } else if terrain < 0x80 && one_shot.read(context) == 0 {
-            call_at(
+            call_at_void(
                 context,
                 ids::PRESENT_CREATE_TEMPORARY_TERRAIN_EFFECT,
                 &[player.address(), index as u32],
@@ -227,7 +227,7 @@ fn terrain_effects_body(
             .read(context)
             == 0
     {
-        call_at(
+        call_at_void(
             context,
             ids::FREE_ENTITY,
             &[number as u32],

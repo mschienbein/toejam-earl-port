@@ -1,6 +1,6 @@
 use crate::call_frame::{FrameError, FrameState};
 use crate::execution::WaitRequest;
-use crate::{Context, FunctionId, Result, call, ids};
+use crate::{Context, FunctionId, Result, call_void, ids};
 use tje_mem::{ObjectState, ram, rom};
 
 fn entry_arguments(context: &dyn Context, entry: FunctionId) -> Result<FrameState> {
@@ -41,11 +41,11 @@ pub fn reload_active_camera_views(context: &mut dyn Context, _: &[u32]) -> Resul
     let revision = context.revision();
     let y = i32::from(ram::g_camera1_pending_y(revision).read(context)) as u32;
     let x = i32::from(ram::g_camera1_pending_x(revision).read(context)) as u32;
-    call(context, ids::SET_CAMERA_POSITION, &[0, x, y])?;
+    call_void(context, ids::SET_CAMERA_POSITION, &[0, x, y])?;
     if ram::g_split_screen_enabled(revision).read(context) != 0 {
         let y = i32::from(ram::g_camera2_pending_y(revision).read(context)) as u32;
         let x = i32::from(ram::g_camera2_pending_x(revision).read(context)) as u32;
-        call(context, ids::SET_CAMERA_POSITION, &[1, x, y])?;
+        call_void(context, ids::SET_CAMERA_POSITION, &[1, x, y])?;
     }
     Ok(None)
 }
@@ -66,12 +66,12 @@ pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
             0xff,
             0,
         ))?;
-        call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
         context.write_vdp_control(0x9200);
-        call(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;
+        call_void(context, ids::HUD_HIDE_PLAYER_SPRITES, &[2])?;
         if animate != 0 {
-            call(context, ids::ANIMATE_SPLIT_SCREEN_WIPE, &[])?;
-            call(context, ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS, &[])?;
+            call_void(context, ids::ANIMATE_SPLIT_SCREEN_WIPE, &[])?;
+            call_void(context, ids::ANIMATE_PLAYERS_INTO_SPLIT_VIEWS, &[])?;
         }
     }
     ram::g_split_screen_enabled(revision).write(context, 1);
@@ -88,7 +88,7 @@ pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
             y = y.wrapping_sub(entity.height().read(context) / 2);
         }
         let x = i32::from(entity.x().read(context)) - 160;
-        call(
+        call_void(
             context,
             ids::SET_CAMERA_POSITION,
             &[0, x as u32, i32::from(y) as u32],
@@ -107,7 +107,7 @@ pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
             y = y.wrapping_sub(entity.height().read(context) / 2);
         }
         let x = i32::from(entity.x().read(context)) - 160;
-        call(
+        call_void(
             context,
             ids::SET_CAMERA_POSITION,
             &[1, x as u32, i32::from(y) as u32],
@@ -118,11 +118,11 @@ pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
         ram::g_camera2_committed_y(revision).write(context, y);
     }
     if ram::g_mode2_reg_softcopy(revision).read(context) & 0x40 != 0 {
-        call(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
+        call_void(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
         ram::g_hud_redraw_pending(revision).write(context, 1);
-        call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     } else {
-        call(context, ids::DRAW_HUD, &[])?;
+        call_void(context, ids::DRAW_HUD, &[])?;
     }
     Ok(None)
 }
@@ -161,15 +161,15 @@ pub fn enter_shared_screen(context: &mut dyn Context) -> Result<Option<u32>> {
     y = y.wrapping_add((distance_y / 2).wrapping_sub(96));
     let display_enabled = ram::g_mode2_reg_softcopy(revision).read(context) & 0x40;
     if display_enabled != 0 {
-        call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-        call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+        call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
         clear_display_and_publish(context);
     }
     // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:951: CLR.B reads
     // the destination for hardware effects without consuming its operand.
     context.discard_u8(ram::g_split_screen_enabled(revision).address())?;
     ram::g_split_screen_enabled(revision).write(context, 0);
-    call(
+    call_void(
         context,
         ids::SET_CAMERA_POSITION,
         &[0, i32::from(x) as u32, i32::from(y) as u32],
@@ -178,17 +178,17 @@ pub fn enter_shared_screen(context: &mut dyn Context) -> Result<Option<u32>> {
     ram::g_camera2_pending_x(revision).write(context, x);
     let y = ram::g_camera1_pending_y(revision).read(context);
     ram::g_camera2_pending_y(revision).write(context, y);
-    call(context, ids::DRAW_HUD, &[])?;
+    call_void(context, ids::DRAW_HUD, &[])?;
     let palette = if ram::g_player1_map_level(revision).read(context) < 26 {
         rom::palette_game_line1(revision).address()
     } else {
         rom::palette_ship_screen_bank3(revision).address()
     };
-    call(context, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, 0])?;
+    call_void(context, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, 0])?;
     if display_enabled != 0 {
-        call(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
+        call_void(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
         set_display_and_publish(context);
-        call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     }
     Ok(None)
 }
@@ -216,23 +216,23 @@ pub fn center_shared_camera_on_player(context: &mut dyn Context) -> Result<Optio
     }
     let display_enabled = ram::g_mode2_reg_softcopy(revision).read(context) & 0x40;
     if display_enabled != 0 {
-        call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-        call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+        call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
         clear_display_and_publish(context);
     }
     let x = i32::from(entity.x().read(context)) - 160;
-    call(
+    call_void(
         context,
         ids::SET_CAMERA_POSITION,
         &[0, x as u32, i32::from(y) as u32],
     )?;
     if display_enabled != 0 {
-        call(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
+        call_void(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
         ram::g_hud_redraw_pending(revision).write(context, 1);
         set_display_and_publish(context);
-        call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+        call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     } else {
-        call(context, ids::DRAW_HUD, &[])?;
+        call_void(context, ids::DRAW_HUD, &[])?;
     }
     Ok(None)
 }
@@ -249,13 +249,13 @@ pub fn update_screen_split_mode(context: &mut dyn Context) -> Result<Option<u32>
     let earl = ram::g_player_info(revision).at(1);
     if force != 0 {
         if ram::g_player_lives(revision).at(0).read(context) < 0 {
-            call(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER, &[1])?;
+            call_void(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER, &[1])?;
             return Ok(None);
         } else if ram::g_player2_lives(revision).read(context) < 0 {
-            call(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER, &[0])?;
+            call_void(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER, &[0])?;
             return Ok(None);
         } else if earl.level().read(context) != toejam.level().read(context) {
-            call(context, ids::ENTER_SPLIT_SCREEN, &[0])?;
+            call_void(context, ids::ENTER_SPLIT_SCREEN, &[0])?;
             return Ok(None);
         }
     } else {
@@ -304,9 +304,9 @@ pub fn update_screen_split_mode(context: &mut dyn Context) -> Result<Option<u32>
             || ram::g_player_inventory_open(revision).at(0).read(context) != 0
             || ram::g_player2_inventory_open(revision).read(context) != 0
         {
-            call(context, ids::ENTER_SPLIT_SCREEN, &[0])?;
+            call_void(context, ids::ENTER_SPLIT_SCREEN, &[0])?;
         } else {
-            call(
+            call_void(
                 context,
                 ids::ENTER_SHARED_SCREEN,
                 &[i32::from(distance_y) as u32, i32::from(distance_x) as u32],
@@ -315,14 +315,14 @@ pub fn update_screen_split_mode(context: &mut dyn Context) -> Result<Option<u32>
     } else if ram::g_split_screen_enabled(revision).read(context) == 0
         && (distance_y > 124 || distance_x > 220)
     {
-        call(context, ids::ENTER_SPLIT_SCREEN, &[1])?;
+        call_void(context, ids::ENTER_SPLIT_SCREEN, &[1])?;
     } else if ram::g_split_screen_enabled(revision).read(context) != 0
         && distance_y < 104
         && distance_x < 200
         && ram::g_player_inventory_open(revision).at(0).read(context) == 0
         && ram::g_player2_inventory_open(revision).read(context) == 0
     {
-        call(
+        call_void(
             context,
             ids::ENTER_SHARED_SCREEN,
             &[i32::from(distance_y) as u32, i32::from(distance_x) as u32],

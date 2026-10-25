@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
-use crate::{Context, Result, call, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/jamout/jamout.c:509 (`JamOutReleaseCharacterCopies`, REV 02 0x03B6D2).
@@ -12,13 +12,13 @@ pub fn release_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<
         if toejam.read(context) != 0 {
             let _object_number = toejam.read(context);
             let handle = i32::from(toejam.read(context)) as u32;
-            call(context, ids::FREE_ENTITY, &[handle])?;
+            call_void(context, ids::FREE_ENTITY, &[handle])?;
         }
         let earl = ram::g_jam_earl_entities(revision).at(slot);
         if earl.read(context) != 0 {
             let _object_number = earl.read(context);
             let handle = i32::from(earl.read(context)) as u32;
-            call(context, ids::FREE_ENTITY, &[handle])?;
+            call_void(context, ids::FREE_ENTITY, &[handle])?;
         }
     }
     Ok(None)
@@ -99,7 +99,7 @@ pub fn create_character_copies(context: &mut dyn Context, _: &[u32]) -> Result<O
                     object.sprite_ready().write(context, 0);
                     // D4.W is the slot number here. The callee's original shared
                     // tile failure path consumes entry D4.W as its unassigned tile.
-                    call_at(
+                    call_at_void(
                         context,
                         ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                         &[object.address(), 0],

@@ -1,5 +1,5 @@
 use super::super::draws::literal;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/ui/inventory.c:735 (`InventoryDrawBucks`), c_inventory.s REV02:2087–2136,
@@ -20,7 +20,7 @@ pub fn inventory_draw_bucks(context: &mut dyn Context, arguments: &[u32]) -> Res
         context.write_vdp_data(0x85b4);
     }
     let value = i32::from(bucks.read(context)) as u32;
-    call(context, ids::TEXT_WRITE_DECIMAL_TILES, &[value])?;
+    call_void(context, ids::TEXT_WRITE_DECIMAL_TILES, &[value])?;
     if bucks.read(context) < 10 {
         context.write_vdp_data(0x85b4);
     }
@@ -37,7 +37,7 @@ pub fn inventory_draw_player_stats(
     let revision = context.revision();
     let number = arguments[0] as i16;
     let mut column = 32_u32;
-    call(
+    call_void(
         context,
         ids::INVENTORY_DRAW_BUCKS,
         &[i32::from(number) as u32],
@@ -56,12 +56,12 @@ pub fn inventory_draw_player_stats(
         .wrapping_add(column << 17),
     );
     let value = u32::from(points.read(context));
-    call(context, ids::TEXT_WRITE_DECIMAL_TILES, &[value])?;
+    call_void(context, ids::TEXT_WRITE_DECIMAL_TILES, &[value])?;
     if points.read(context) > 999 {
         // Two separately addressed six-byte literals in the matching unit.
         let text =
             literal(context, "GameText_00A1C0")?.wrapping_add(if player == 0 { 0 } else { 6 });
-        call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+        call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
     }
     context.write_vdp_command(if player == 0 { 0x55a80003 } else { 0x5c280003 });
     let rank = i16::from(ram::g_player_rank(revision).at(player).read(context));
@@ -69,7 +69,7 @@ pub fn inventory_draw_player_stats(
         .at_word_index(rank)
         .read(context)
         .address();
-    call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+    call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
     Ok(None)
 }
 
@@ -141,16 +141,16 @@ pub fn inventory_draw_mail_order_offers(
             } else {
                 literal(context, "InventoryNameUnidentifiedStr")?
             };
-            call(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
+            call_void(context, ids::TEXT_WRITE_STRING_TILES, &[text])?;
             let leader = literal(context, "InventoryNameDotLeaderStr")?;
-            call(context, ids::TEXT_WRITE_STRING_TILES, &[leader])?;
+            call_void(context, ids::TEXT_WRITE_STRING_TILES, &[leader])?;
             let price = i32::from(
                 ram::g_player_mailbox_prices(revision)
                     .at_long_index(player)
                     .at_word_index(row)
                     .read(context),
             ) as u32;
-            call(context, ids::TEXT_WRITE_DECIMAL_TILES, &[price])?;
+            call_void(context, ids::TEXT_WRITE_DECIMAL_TILES, &[price])?;
         }
         object = object.offset_long_index(1);
     }

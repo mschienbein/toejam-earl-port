@@ -1,9 +1,6 @@
 //! Real compiled-IRQ/output failures through the prepared-callee ABI.
 use super::*;
-use tje_game::{
-    Context, Error,
-    call_frame::{CallSite, call_at},
-};
+use tje_game::{Context, Error, call_frame::CallSite};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FailureAt {
@@ -164,7 +161,7 @@ fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_argument
                 )
                 .unwrap()
                 .with_observer(&mut observer);
-                let error = call_at(
+                let error = tje_game::call_frame::call_at_void(
                     &mut context,
                     dispatcher,
                     ids::WAIT_FOR_NEXT_V_BLANK,

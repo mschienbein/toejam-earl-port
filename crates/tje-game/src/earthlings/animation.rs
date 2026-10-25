@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom};
 
 /// G/src/earthlings/terrain_animation.c:16 (`EarthlingSelectTerrainAnimationState`).
@@ -21,7 +21,7 @@ pub fn earthling_select_terrain_animation_state(
             if earthling.saved_x_or_status().read(context) >= 0x80 {
                 next = next.wrapping_add(8)
             } else {
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_ice_cream_honk(revision).address(), 50, 0],
@@ -85,7 +85,7 @@ pub fn earthling_update_terrain_animation_state(
                 next = i16::from(earthling.state().read(context)) + 4
             } else {
                 next = i16::from(earthling.state().read(context)) - 4;
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_ice_cream_honk(revision).address(), 50, 0],
@@ -118,7 +118,7 @@ pub fn earthling_update_terrain_animation_state(
         next = i16::from(earthling.state().read(context)) - 4;
     }
     if next >= 0 {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -151,7 +151,7 @@ pub fn earthling_think_timed_movement(
     let mut next = -1_i16;
     let mut separation = 0_u32;
     if earthling.kind().read(context) == 7 && earthling.state().read(context) == 3 {
-        call(
+        call_void(
             context,
             ids::EARTHLING_UPDATE_BOUNCING_DAMAGE_STATE,
             &[earthling.address()],
@@ -262,7 +262,7 @@ pub fn earthling_think_timed_movement(
             )? as i8 as i16;
         }
         if next != -1 && i16::from(earthling.state().read(context)) != next {
-            call(
+            call_void(
                 context,
                 ids::SET_EARTHLING_STATE,
                 &[earthling.address(), next as u32],
@@ -272,7 +272,7 @@ pub fn earthling_think_timed_movement(
                 && next == 0
                 && object.draw_flags().read(context) & 6 != 0
             {
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_cupid_sing(revision).address(), 40, 0],
@@ -297,7 +297,7 @@ pub fn earthling_think_timed_movement(
     if earthling.kind().read(context) == 19
         && (next == -1 || i16::from(earthling.state().read(context)) != next)
     {
-        call(
+        call_void(
             context,
             ids::EARTHLING_UPDATE_TERRAIN_ANIMATION_STATE,
             &[earthling.address(), object.address()],
@@ -305,7 +305,7 @@ pub fn earthling_think_timed_movement(
     }
     if earthling.kind().read(context) == 7 && i16::from(earthling.state().read(context)) & 252 == 8
     {
-        call(
+        call_void(
             context,
             ids::EARTHLING_UPDATE_CONTROL_REMAP_ATTACK,
             &[earthling.address(), object.address()],

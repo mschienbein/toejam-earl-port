@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{RenderFrameFourPieceView, ram, rom};
 
 /// G/src/cutscenes/title_and_transition.c:99 (`ClearLowerVramTilemap`).
@@ -14,7 +14,7 @@ pub fn clear_upper_vram_tilemap(context: &mut dyn Context, _: &[u32]) -> Result<
 }
 
 fn clear_plane(context: &mut dyn Context, base: u32) -> Result<Option<u32>> {
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     for row in 0..32_u32 {
         context.write_vdp_command(base.wrapping_add(row << 23));
         for _ in 0..64 {
@@ -91,7 +91,7 @@ pub fn animate_title_transition_background(
             } else {
                 ids::SPRITE_UNPACK_RLE
             };
-            call(context, decoder, &[part.address(), 16])?;
+            call_void(context, decoder, &[part.address(), 16])?;
             let offset = ram::g_sprite_tile_buffer_offset(revision);
             let current = offset.read(context);
             offset.write(context, current.wrapping_add(512));
@@ -109,12 +109,12 @@ pub fn animate_title_transition_background(
         ram::g_sprite_tile_upload_runs(revision)
             .at(i32::from(slot))
             .write(context, 64);
-        call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-        call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
+        call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+        call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
         ram::g_scene_background_frame_phase(revision).write(context, frame_phase as i8);
         context.write_vdp_control(0x8228);
     } else {
-        call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+        call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     }
     Ok(None)
 }
@@ -131,7 +131,7 @@ pub fn cutscene_draw_randomized_screen_border(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     if arguments[0] as i16 != 0 {
         for row in 0..28_u32 {
             context.write_vdp_command(0x6000_0002_u32.wrapping_add(row << 23));
@@ -178,7 +178,7 @@ pub fn cutscene_draw_randomized_rectangle_border(
     let top = arguments[1] as i16;
     let right = arguments[2] as i16;
     let bottom = arguments[3] as i16;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     let mut row = top;
     while row <= bottom {
         context.write_vdp_command(
@@ -210,15 +210,15 @@ pub fn ending_draw_nine_metatile_background(
     context: &mut dyn Context,
     _: &[u32],
 ) -> Result<Option<u32>> {
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[1, 0, 0])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[7, 16, 0])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[2, 32, 0])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[6, 0, 8])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[30, 16, 8])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[4, 32, 8])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[0, 0, 16])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[5, 16, 16])?;
-    call(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[3, 32, 16])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[1, 0, 0])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[7, 16, 0])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[2, 32, 0])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[6, 0, 8])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[30, 16, 8])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[4, 32, 8])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[0, 0, 16])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[5, 16, 16])?;
+    call_void(context, ids::CUTSCENE_DRAW_METATILE_BLOCK, &[3, 32, 16])?;
     Ok(None)
 }
 
@@ -230,7 +230,7 @@ pub fn ending_fill_repeated_metatile_background(
 ) -> Result<Option<u32>> {
     for column in 0..4 {
         for row in 0..4 {
-            call(
+            call_void(
                 context,
                 ids::CUTSCENE_DRAW_METATILE_BLOCK,
                 &[82, column * 16, row * 8],
@@ -244,11 +244,11 @@ pub fn ending_fill_repeated_metatile_background(
 /// TimeAware: first clears the upper plane after VBlank, then uploads the logo.
 pub fn title_draw_selected_logo(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    call(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+    call_void(context, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
     if ram::g_title_logo_selector(revision).read(context) == 0 {
         context.write_vdp_command(0x4880_0001);
         let count = i32::from(rom::logo_screen_size(revision).read(context)).wrapping_shl(4) as u32;
-        call(
+        call_void(
             context,
             ids::MOVE_DATA_TO_VRAM,
             &[rom::logo_screen(revision).address(), count],
@@ -267,7 +267,7 @@ pub fn title_draw_selected_logo(context: &mut dyn Context, _: &[u32]) -> Result<
         context.write_vdp_command(0x4880_0001);
         let count =
             i32::from(rom::t_and_e_logo_screen_size(revision).read(context)).wrapping_shl(4) as u32;
-        call(
+        call_void(
             context,
             ids::MOVE_DATA_TO_VRAM,
             &[rom::t_and_e_logo_screen(revision).address(), count],
@@ -296,7 +296,7 @@ pub fn cutscene_release_flagged_entity_range(
     for number in 6..40 {
         let object = ram::g_player_info(revision).at(number - 6);
         if object.draw_flags().read(context) & 1 != 0 {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         }
     }
     Ok(None)
@@ -327,7 +327,7 @@ pub fn initialize_title_transition_tilemap(
             }
         }
     }
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
     Ok(None)
 }
 
@@ -340,14 +340,14 @@ pub fn cutscene_step_frame_and_music_cadence(
     let revision = context.revision();
     let advance_period = arguments[0] as u16;
     let animate_objects = arguments[1] as i16;
-    call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
+    call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[0])?;
     // CLR pre-reads are discarded, not software operands (matching asm:639).
     context.discard_u8(ram::g_sprite_graphics_upload_pending(revision).address())?;
     ram::g_sprite_graphics_upload_pending(revision).write(context, 0);
-    call(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
-    call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-    call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+    call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+    call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
     let updates = ram::g_scene_update_counter(revision);
     let current = updates.read(context);
     updates.write(context, current.wrapping_add(1));
@@ -365,7 +365,7 @@ pub fn cutscene_step_frame_and_music_cadence(
     let current = counter.read(context);
     last.write(context, current);
     if animate_objects != 0 {
-        call(
+        call_void(
             context,
             ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
             &[
@@ -392,7 +392,7 @@ pub fn cutscene_step_frame_and_music_cadence(
         let pair = ram::g_scene_background_pair_index(revision);
         let current = pair.read(context);
         pair.write(context, ((i32::from(current) + 1) % 24) as i8);
-        call(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
+        call_void(context, ids::ANIMATE_TITLE_TRANSITION_BACKGROUND, &[1])?;
     }
     Ok(Some(1))
 }
@@ -402,26 +402,26 @@ pub fn cutscene_step_frame_and_music_cadence(
 pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let mode = ram::g_mode2_reg_softcopy(revision);
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     let current = mode.read(context);
     mode.write(context, current & 0x3c);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank0(revision).address(), 0],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank3(revision).address(), 3],
@@ -430,8 +430,8 @@ pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option
     // Both compiler revisions use CLR.W for these global resets.
     context.discard_u16(ram::g_camera_tile_attributes(revision).address())?;
     ram::g_camera_tile_attributes(revision).write(context, 0);
-    call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    call(context, ids::TITLE_DRAW_SELECTED_LOGO, &[])?;
+    call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
+    call_void(context, ids::TITLE_DRAW_SELECTED_LOGO, &[])?;
     ram::g_music_animation_channel(revision).write(context, 2);
     context.discard_u16(ram::g_scene_background_advance_counter(revision).address())?;
     ram::g_scene_background_advance_counter(revision).write(context, 0);
@@ -469,7 +469,7 @@ pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option
             let selector = ram::g_title_logo_selector(revision);
             let current = selector.read(context);
             selector.write(context, current ^ 1);
-            call(context, ids::TITLE_DRAW_SELECTED_LOGO, &[])?;
+            call_void(context, ids::TITLE_DRAW_SELECTED_LOGO, &[])?;
         }
         // MCC68K evaluates this bitwise OR right-to-left in both revisions.
         let second = call(context, ids::GET_CTRL2_INPUT, &[])?;
@@ -480,7 +480,7 @@ pub fn title_screen_video(context: &mut dyn Context, _: &[u32]) -> Result<Option
                 if (call(context, ids::GET_CTRL1_INPUT, &[])? | second) & 0x80 == 0 {
                     break;
                 }
-                call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+                call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
             }
             start_pressed = 1;
             break;
@@ -500,7 +500,7 @@ pub fn sega_and_intro_video_routine(context: &mut dyn Context, _: &[u32]) -> Res
     let service = ram::g_v_blank_audio_input_override(revision);
     service.write(context, 1);
     loop {
-        call(context, ids::SEGA_VIDEO, &[])?;
+        call_void(context, ids::SEGA_VIDEO, &[])?;
         if call(context, ids::TITLE_SCREEN_VIDEO, &[])? as u16 != 0 {
             break;
         }
@@ -514,22 +514,22 @@ pub fn sega_and_intro_video_routine(context: &mut dyn Context, _: &[u32]) -> Res
     if show_intro {
         call(context, ids::INTRO_VIDEO, &[])?;
     }
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line1(revision).address(), 0],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line2(revision).address(), 1],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line3(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line4(revision).address(), 3],
@@ -611,6 +611,42 @@ mod access_tests {
                 calls: Vec::new(),
                 title_results: VecDeque::new(),
                 intro_results: VecDeque::new(),
+            }
+        }
+        fn original_effects(&mut self, id: FunctionId, _: &[u32]) -> Result<()> {
+            self.calls.push(id);
+            let value = match id {
+                ids::TITLE_SCREEN_VIDEO => self.title_results.pop_front(),
+                ids::INTRO_VIDEO => self.intro_results.pop_front(),
+                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE => {
+                    let counter = ram::g_frame_counter(self.revision());
+                    let next = counter.read(&self.memory).wrapping_add(1200);
+                    counter.write(&mut self.memory, next);
+                    Some(1)
+                }
+                ids::SEGA_VIDEO
+                | ids::COPY_PALETTE_TO_CRAM_SLOT
+                | ids::SPRITE_UNPACK_INTERLEAVED_RLE
+                | ids::SPRITE_UNPACK_RLE
+                | ids::WAIT_FOR_NEXT_V_BLANK
+                | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
+                | ids::ANIMATE_TITLE_TRANSITION_BACKGROUND
+                | ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
+                | ids::SELECT_VIEWPORT_SPRITE_CHAIN
+                | ids::INITIALIZE_TITLE_TRANSITION_TILEMAP
+                | ids::TITLE_DRAW_SELECTED_LOGO
+                | ids::GET_RANDOM_NUMBER
+                | ids::GET_CTRL1_INPUT
+                | ids::GET_CTRL2_INPUT => Some(0),
+                _ => None,
+            }
+            .ok_or(Error::Untranslated(id))?;
+            self.data[0] = value;
+            {
+                if id.metadata().abi.returns_value {
+                    self.set_data_register(0, value);
+                }
+                Ok(())
             }
         }
     }
@@ -716,36 +752,17 @@ mod access_tests {
         fn leave_call_ceiling(&mut self, _: execution::CallCeilingScope) -> Result<()> {
             Ok(())
         }
-        fn call_original(&mut self, id: FunctionId, _: &[u32]) -> Result<u32> {
-            self.calls.push(id);
-            let value = match id {
-                ids::TITLE_SCREEN_VIDEO => self.title_results.pop_front(),
-                ids::INTRO_VIDEO => self.intro_results.pop_front(),
-                ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE => {
-                    let counter = ram::g_frame_counter(self.revision());
-                    let next = counter.read(&self.memory).wrapping_add(1200);
-                    counter.write(&mut self.memory, next);
-                    Some(1)
-                }
-                ids::SEGA_VIDEO
-                | ids::COPY_PALETTE_TO_CRAM_SLOT
-                | ids::SPRITE_UNPACK_INTERLEAVED_RLE
-                | ids::SPRITE_UNPACK_RLE
-                | ids::WAIT_FOR_NEXT_V_BLANK
-                | ids::UPLOAD_QUEUED_SPRITE_GRAPHICS
-                | ids::ANIMATE_TITLE_TRANSITION_BACKGROUND
-                | ids::UPDATE_AND_QUEUE_ENTITY_SPRITES
-                | ids::SELECT_VIEWPORT_SPRITE_CHAIN
-                | ids::INITIALIZE_TITLE_TRANSITION_TILEMAP
-                | ids::TITLE_DRAW_SELECTED_LOGO
-                | ids::GET_RANDOM_NUMBER
-                | ids::GET_CTRL1_INPUT
-                | ids::GET_CTRL2_INPUT => Some(0),
-                _ => None,
-            }
-            .ok_or(Error::Untranslated(id))?;
-            self.data[0] = value;
-            Ok(value)
+        fn call_original(&mut self, id: FunctionId, arguments: &[u32]) -> Result<u32> {
+            self.original_effects(id, arguments)?;
+            Ok(self.data_register(0))
+        }
+        fn call_original_void_with_execution(
+            &mut self,
+            id: FunctionId,
+            arguments: &[u32],
+            _class: crate::execution::ExecutionClass,
+        ) -> Result<()> {
+            self.original_effects(id, arguments)
         }
         fn call_original_with_execution(
             &mut self,

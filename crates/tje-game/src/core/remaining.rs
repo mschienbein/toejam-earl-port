@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/core/startup_and_main_loop.c:88 (`DrawStarfieldPlane`, REV 02 0x00046A).
@@ -49,7 +49,7 @@ pub fn select_viewport_sprite_chain(
     } else {
         ids::TERMINATE_PRIMARY_SPRITE_CHAIN
     };
-    call(context, selected, &[])?;
+    call_void(context, selected, &[])?;
     Ok(None)
 }
 
@@ -61,7 +61,7 @@ pub fn handle_hblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>
     if ram::g_h_blank_graphics_enabled(revision).read(context) != 0
         && ram::g_player1_map_level(revision).read(context) < 26
     {
-        call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[1])?;
+        call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[1])?;
         if ram::g_split_screen_enabled(revision).read(context) != 0
             || ram::g_player2_inventory_open(revision).read(context) != 0
         {
@@ -159,19 +159,19 @@ pub fn get_player_input(context: &mut dyn Context, _: &[u32]) -> Result<Option<u
 /// C. DelayIterations is the original finite countdown, not a BUSACK poll.
 pub fn initialise_the_z80(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     context.write_z80_reset(0);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     context.write_z80_bus_request(0x100);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     context.write_z80_reset(0x100);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     for (offset, value) in [0xed, 0x56, 0xf3, 0xc3, 3, 0].into_iter().enumerate() {
         context.write_z80_ram(offset as u16, value);
     }
     context.write_z80_reset(0);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     context.write_z80_bus_request(0);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     context.write_z80_reset(0x100);
-    call(context, ids::DELAY_ITERATIONS, &[10])?;
+    call_void(context, ids::DELAY_ITERATIONS, &[10])?;
     Ok(None)
 }

@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Address, ObjectState, ram};
 
 /// G/src/player/sleep.c:21 (`OpenSchoolBook`).
@@ -7,12 +7,12 @@ pub(super) fn open_school_book(
     arguments: &[u32],
 ) -> Result<Option<u32>> {
     let state = Address::<ObjectState>::new(arguments[0]);
-    call(context, ids::SET_SPRITE, &[state.address(), 116])?;
+    call_void(context, ids::SET_SPRITE, &[state.address(), 116])?;
     let player = i32::from(state.entity_index().read(context));
     ram::g_player_book_sleep_delay(context.revision())
         .at(player)
         .write(context, 60);
-    call(context, ids::STOP_PLAYER, &[state.address()])?;
+    call_void(context, ids::STOP_PLAYER, &[state.address()])?;
     state.animation_motion_axes().write(context, 0);
     state.height().write(context, 0);
     Ok(None)
@@ -42,7 +42,7 @@ pub(super) fn player_start_teetering_fall(
         23 => player.velocity_x().write(context, 512),
         _ => unreachable!(),
     }
-    call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+    call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     Ok(None)
 }
 
@@ -59,17 +59,17 @@ pub(super) fn kill_the_player(context: &mut dyn Context, arguments: &[u32]) -> R
         return Ok(None);
     }
     let player = super::indexing::player_by_word_index(revision, number);
-    call(context, ids::STOP_PLAYER, &[player.address()])?;
+    call_void(context, ids::STOP_PLAYER, &[player.address()])?;
     player.velocity_height().write(context, 256);
     super::frames::clear_byte(context, player.animation_motion_axes().address())?;
     if ram::g_player_powerups(revision).at(number).read(context) == 5 {
-        call(context, ids::PLAY_SOUND, &[6, 99])?;
-        call(context, ids::PLAY_SOUND, &[0, 98])?;
+        call_void(context, ids::PLAY_SOUND, &[6, 99])?;
+        call_void(context, ids::PLAY_SOUND, &[0, 98])?;
         ram::g_player_powerups(revision)
             .at(number)
             .write(context, -1);
-        call(context, ids::HUD_LOAD_ACTION_ICON_SPRITE, &[number as u32])?;
-        call(
+        call_void(context, ids::HUD_LOAD_ACTION_ICON_SPRITE, &[number as u32])?;
+        call_void(
             context,
             ids::HUD_POSITION_ACTION_ICON_SPRITE,
             &[number as u32],
@@ -94,7 +94,7 @@ pub(super) fn kill_the_player(context: &mut dyn Context, arguments: &[u32]) -> R
     ram::g_player_pre_death_sprite_state(revision)
         .at(number)
         .write(context, player.sprite_state().read(context));
-    call(context, ids::SET_SPRITE, &[player.address(), 5])?;
+    call_void(context, ids::SET_SPRITE, &[player.address(), 5])?;
     if ram::g_player_lives(revision).at(number).read(context) == 0 {
         player
             .behavior_flags()

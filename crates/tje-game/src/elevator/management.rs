@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ElevatorRecord, ram};
 
 /// G/src/elevator/elevator_scene.c:97 (`SetupElevator`).
@@ -36,9 +36,9 @@ pub fn setup_elevator(context: &mut dyn Context, args: &[u32]) -> Result<Option<
     elevator.level().write(context, level);
     if elevator.entity().read(context) != 0 {
         let number = i32::from(elevator.entity().read(context));
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         let number = i32::from(elevator.entity().read(context)) + 2;
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         elevator.entity().write(context, 0);
     }
     if kind == 0 {
@@ -118,7 +118,7 @@ pub fn elevator_create_entity_pair(context: &mut dyn Context, args: &[u32]) -> R
     elevator.entity().write(context, number as i8);
     for offset in [0, 2] {
         let entity = ram::g_player_info(revision).at(number + offset);
-        call(
+        call_void(
             context,
             ids::RESET_ENTITY_RUNTIME_STATE,
             &[entity.address()],
@@ -140,7 +140,7 @@ pub fn elevator_create_entity_pair(context: &mut dyn Context, args: &[u32]) -> R
         entity.behavior_flags().write(context, behavior);
     }
     let state = i32::from(elevator.state().read(context)) as u32;
-    call(
+    call_void(
         context,
         ids::ELEVATOR_SET_STATE,
         &[elevator.address(), state],
@@ -191,7 +191,7 @@ pub fn elevator_update_entity_visibility(
                         && secondary_y < 336))
             {
                 if elevator.entity().read(context) == 0 {
-                    call(
+                    call_void(
                         context,
                         ids::ELEVATOR_CREATE_ENTITY_PAIR,
                         &[elevator.address()],
@@ -200,9 +200,9 @@ pub fn elevator_update_entity_visibility(
             } else {
                 if elevator.entity().read(context) != 0 {
                     let number = i32::from(elevator.entity().read(context));
-                    call(context, ids::FREE_ENTITY, &[number as u32])?;
+                    call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                     let number = i32::from(elevator.entity().read(context)) + 2;
-                    call(context, ids::FREE_ENTITY, &[number as u32])?;
+                    call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                     elevator.entity().write(context, 0);
                 }
                 if elevator.state().read(context) == 11 {

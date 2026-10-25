@@ -210,7 +210,7 @@ pub fn queue_speech_text_tiles(
     let length = arguments[1] as i16;
     let tile = arguments[2] as i16;
     let font = rom::runtime_text_font_tiles(revision).address();
-    crate::call(
+    crate::call_void(
         context,
         ids::APPEND_SPRITE_TILES_TO_BUFFER,
         &[font.wrapping_add(27 * 32), 1],
@@ -218,7 +218,7 @@ pub fn queue_speech_text_tiles(
     let mut padding = ((12 - i32::from(length)) / 2) as i16;
     let mut index = 0_i16;
     while index < padding {
-        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        crate::call_void(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
         index = index.wrapping_add(1);
     }
     index = 0;
@@ -234,7 +234,7 @@ pub fn queue_speech_text_tiles(
             glyph = glyph.wrapping_add(1);
         }
         let source = font.wrapping_add((i32::from(glyph) << 5) as u32);
-        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[source, 1])?;
+        crate::call_void(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[source, 1])?;
         index = index.wrapping_add(1);
     }
     if length & 1 != 0 {
@@ -242,7 +242,7 @@ pub fn queue_speech_text_tiles(
     }
     index = 0;
     while index < padding {
-        crate::call(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
+        crate::call_void(context, ids::APPEND_SPRITE_TILES_TO_BUFFER, &[font, 1])?;
         index = index.wrapping_add(1);
     }
     for value in [tile, 13] {

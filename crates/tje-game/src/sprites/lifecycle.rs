@@ -2,7 +2,7 @@
 use crate::{
     Context, Result, call, call_at,
     call_frame::{CallSite, FrameLayout, LocalFrame},
-    ids,
+    call_void, ids,
 };
 use tje_mem::{Address, ObjectState, ram};
 
@@ -21,7 +21,7 @@ pub fn allocate_entity(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
             allocated.at(index).write(context, 1);
             let entity_number = index + 6;
             let entity = ram::g_player_info(revision).at(entity_number);
-            call(
+            call_void(
                 context,
                 ids::RESET_ENTITY_RUNTIME_STATE,
                 &[entity.address()],
@@ -41,7 +41,7 @@ pub fn release_entity_shadows(context: &mut dyn Context, arguments: &[u32]) -> R
             let handle = shadow.read(context) as i32 as u32;
             if call(context, ids::IS_SPRITE_SLOT_LOCKED, &[handle])? == 0 {
                 let handle = shadow.read(context) as i32 as u32;
-                call(context, ids::FREE_SPRITE_SLOT, &[handle])?;
+                call_void(context, ids::FREE_SPRITE_SLOT, &[handle])?;
                 shadow.write(context, 0);
             }
         }
@@ -134,7 +134,7 @@ fn allocate_viewport_inner(context: &mut dyn Context, arguments: &[u32]) -> Resu
     } else if entity.draw_flags().read(context) & 6 == 0 {
         let tile = context.data_register(4) as i16;
         let tile_count = context.data_register(5) as i16;
-        call(
+        call_void(
             context,
             ids::FREE_SPRITE_TILE_RUN,
             &[tile as i32 as u32, tile_count as i32 as u32],
@@ -167,12 +167,12 @@ pub fn release_entity_viewport_sprites(
         let handle = shadow.read(context) as i32 as u32;
         if call(context, ids::IS_SPRITE_SLOT_LOCKED, &[handle])? == 0 {
             let handle = shadow.read(context) as i32 as u32;
-            call(context, ids::FREE_SPRITE_SLOT, &[handle])?;
+            call_void(context, ids::FREE_SPRITE_SLOT, &[handle])?;
             shadow.write(context, 0);
         }
     }
     let sprite_count = u32::from(entity.sprite_count().read(context));
-    call(
+    call_void(
         context,
         ids::FREE_SPRITE_SLOTS,
         &[sprite_count, slots.address()],
@@ -181,7 +181,7 @@ pub fn release_entity_viewport_sprites(
     {
         let tile_count = i16::from(entity.tile_count().read(context));
         let tile = (entity.tile().read(context) & 0x07ff) as i16;
-        call(
+        call_void(
             context,
             ids::FREE_SPRITE_TILE_RUN,
             &[tile as i32 as u32, tile_count as i32 as u32],

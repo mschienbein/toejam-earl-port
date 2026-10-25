@@ -1,5 +1,5 @@
 use super::frames::{
-    advance_random_index, call_from, clear_byte, clear_word, read_long, with_frame,
+    advance_random_index, call_from, call_from_void, clear_byte, clear_word, read_long, with_frame,
 };
 use crate::call_frame::FrameLayout;
 use crate::{Context, Result, ids};
@@ -88,7 +88,7 @@ pub(super) fn hottub_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                     }
                 } else if read_long(context, player.animation_group_mask().address()) & 0x100 != 0 {
                     if player.frame_duration().read(context) == 0 {
-                        call_from(
+                        call_from_void(
                             context,
                             ids::HOTTUB_ABILITY,
                             ids::STOP_PLAYER,
@@ -107,7 +107,7 @@ pub(super) fn hottub_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                     }
                 } else if read_long(context, player.animation_group_mask().address()) & 0x200 != 0 {
                     if player.height().read(context) < 22 {
-                        call_from(
+                        call_from_void(
                             context,
                             ids::HOTTUB_ABILITY,
                             ids::STOP_PLAYER,
@@ -119,7 +119,7 @@ pub(super) fn hottub_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                             .draw_flags()
                             .write(context, player.draw_flags().read(context) & !0x40);
                         sprite = i16::from(player.sprite_state().read(context)) + 4;
-                        call_from(
+                        call_from_void(
                             context,
                             ids::HOTTUB_ABILITY,
                             ids::PLAY_SOUND_EFFECT,
@@ -262,7 +262,7 @@ pub(super) fn hottub_ability(context: &mut dyn Context) -> Result<Option<u32>> {
                 }
             }
             if sprite != -1 {
-                call_from(
+                call_from_void(
                     context,
                     ids::HOTTUB_ABILITY,
                     ids::SET_SPRITE,

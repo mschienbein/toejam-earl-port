@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom};
 
 /// G/src/presents/projectile_effects.c:338 (`EntityFindProjectileTargetHit`).
@@ -272,7 +272,7 @@ pub fn earthling_launch_aimed_projectile(
         .write(context, projectile.draw_flags().read(context) | 0x40);
     projectile.sprite_state().write(context, -1);
     if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
-        call(
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_chicken_cannon_fire(revision).address(), 40, 0],
@@ -342,7 +342,7 @@ pub fn earthling_launch_control_remap_projectile(
         .draw_flags()
         .write(context, projectile.draw_flags().read(context) | 0x40);
     projectile.sprite_state().write(context, -1);
-    call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[4])?;
+    call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[4])?;
     Ok(None)
 }
 
@@ -386,7 +386,7 @@ pub fn present_create_temporary_terrain_effect(
         effect
             .behavior_flags()
             .write(context, effect.behavior_flags().read(context) | 1);
-        call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[13])?;
+        call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[13])?;
     }
     Ok(None)
 }
@@ -401,7 +401,7 @@ pub fn present_release_first_shared_tomato(
     for slot in 4..12 {
         let number = handles.at(slot).read(context);
         if number != 0 {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handles.at(slot).write(context, 0);
             return Ok(Some(1));
         }
@@ -431,7 +431,7 @@ pub fn player_update_control_remap_effect(
         || matches!(player.sprite_state().read(context), 5 | 6)
     {
         let number = handle.read(context);
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
         handle.write(context, 0);
     } else if ram::g_player_elevator_flags(revision)
         .at(index)
@@ -440,7 +440,7 @@ pub fn player_update_control_remap_effect(
         && effect.frame_duration().read(context) & 2 != 0
         && (call(context, ids::GET_RANDOM_NUMBER, &[])? as i16) & 1 != 0
     {
-        call(context, ids::PLAY_SOUND, &[2, 20])?;
+        call_void(context, ids::PLAY_SOUND, &[2, 20])?;
     }
     Ok(None)
 }
@@ -457,7 +457,7 @@ pub fn present_retire_terrain_effect(
     let retired = ram::g_player_one_shot_terrain_effect_entities(revision).at(index);
     let number = retired.read(context);
     if number != 0 {
-        call(context, ids::FREE_ENTITY, &[number as u32])?;
+        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
     }
     let active = ram::g_player_active_terrain_effect_entities(revision).at(index);
     let number = active.read(context);
@@ -491,7 +491,7 @@ pub fn earthling_update_control_remap_attack(
         object
             .frame()
             .write(context, object.frame().read(context).wrapping_add(1));
-        call(
+        call_void(
             context,
             ids::EARTHLING_LAUNCH_CONTROL_REMAP_PROJECTILE,
             arguments,
@@ -502,7 +502,7 @@ pub fn earthling_update_control_remap_attack(
         } else {
             1
         };
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next],
@@ -579,7 +579,7 @@ pub fn earthling_update_aimed_projectile_attack(
                     ),
                 };
                 if distance > minimum && distance < maximum {
-                    call(
+                    call_void(
                         context,
                         ids::EARTHLING_LAUNCH_AIMED_PROJECTILE,
                         &[target.address(), earthling.address()],
@@ -590,8 +590,8 @@ pub fn earthling_update_aimed_projectile_attack(
             index ^= 1;
         }
     } else if object.frame_duration().read(context) == 0 {
-        call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
-        call(
+        call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 0])?;
+        call_void(
             context,
             ids::PLAY_SOUND_EFFECT,
             &[rom::sfx_chicken_cluck(revision).address(), 50, 0],
@@ -695,7 +695,7 @@ pub fn present_create_active_terrain_effect(
         effect
             .behavior_flags()
             .write(context, effect.behavior_flags().read(context) | 1);
-        call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[13])?;
+        call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[13])?;
     }
     Ok(None)
 }
@@ -717,7 +717,7 @@ pub fn earthling_update_control_remap_projectiles(
         let projectile = ram::g_player_info(revision).at(i32::from(number));
         if projectile.draw_flags().read(context) & 6 == 0 {
             if projectile.height().read(context) < 5 {
-                call(context, ids::FREE_ENTITY, &[number as u32])?;
+                call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                 handles.at(slot).write(context, 0);
             }
         } else if projectile.sprite_state().read(context) == -1 {
@@ -743,7 +743,7 @@ pub fn earthling_update_control_remap_projectiles(
                             .write(context, projectile.tile().read(context) & !0x8000);
                         projectile.sprite_ready().write(context, 0);
                     } else {
-                        call(context, ids::FREE_ENTITY, &[number as u32])?;
+                        call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                         handles.at(slot).write(context, 0);
                     }
                 }
@@ -766,7 +766,7 @@ pub fn earthling_update_control_remap_projectiles(
                             .read(context)
                             == 0
                     {
-                        call(
+                        call_void(
                             context,
                             ids::PLAYER_APPLY_CONTROL_REMAP_EFFECT,
                             &[hit as u32],
@@ -774,7 +774,7 @@ pub fn earthling_update_control_remap_projectiles(
                     } else {
                         call(context, ids::PRESENT_REGISTER_DECOY_HIT, &[hit as u32])?;
                     }
-                    call(context, ids::FREE_ENTITY, &[number as u32])?;
+                    call_void(context, ids::FREE_ENTITY, &[number as u32])?;
                     handles.at(slot).write(context, 0);
                 }
             }
@@ -797,7 +797,7 @@ pub fn process_tomato_rain(context: &mut dyn Context, _: &[u32]) -> Result<Optio
         let projectile = ram::g_player_info(revision).at(i32::from(number));
         if projectile.height().read(context) < 10 && projectile.draw_flags().read(context) & 6 == 0
         {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handles.at(slot).write(context, 0);
         } else if projectile.sprite_state().read(context) == -1 {
             if projectile.height().read(context) <= 0 {
@@ -847,7 +847,7 @@ pub fn process_tomato_rain(context: &mut dyn Context, _: &[u32]) -> Result<Optio
                         projectile.frame().write(context, -1);
                         projectile.frame_duration().write(context, 1);
                         if ram::g_fm_effect_template_status(revision).read(context) == 0 {
-                            call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[15])?;
+                            call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[15])?;
                         }
                     }
                 }
@@ -893,7 +893,7 @@ pub fn process_tomato_rain(context: &mut dyn Context, _: &[u32]) -> Result<Optio
                             .at(index)
                             .earthling()
                             .read(context);
-                        call(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
+                        call_void(context, ids::DAMAGE_EARTHLING, &[earthling.address()])?;
                     }
                     projectile.velocity_x().write(context, 0);
                     projectile.velocity_y().write(context, 0);
@@ -915,17 +915,17 @@ pub fn process_tomato_rain(context: &mut dyn Context, _: &[u32]) -> Result<Optio
                     projectile.frame().write(context, -1);
                     projectile.frame_duration().write(context, 1);
                     projectile.sprite_state().write(context, 0);
-                    call(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[2])?;
+                    call_void(context, ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, &[2])?;
                 }
             }
         } else if projectile.frame_duration().read(context) == 0
             && projectile.sprite_state().read(context) != 21
         {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             handles.at(slot).write(context, 0);
         }
     }
-    call(
+    call_void(
         context,
         ids::EARTHLING_UPDATE_CONTROL_REMAP_PROJECTILES,
         &[],

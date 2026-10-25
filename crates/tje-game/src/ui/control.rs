@@ -2,7 +2,7 @@ use super::draws::literal;
 use super::entities::entity;
 use super::hud_all::frame;
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, Result, call, call_at, ids};
+use crate::{Context, Result, call_at_void, call_void, ids};
 use tje_mem::{Address, Revision, ram, rom};
 
 pub(super) fn finish_inventory_frame(
@@ -61,7 +61,7 @@ pub fn inventory_initialize_display_entities(
                 context.set_data_register(4, residual);
                 let site =
                     CallSite::relative(ids::INVENTORY_INITIALIZE_DISPLAY_ENTITIES, revision, 0x7a);
-                call_at(
+                call_at_void(
                     context,
                     ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
                     &[object.address(), viewport],
@@ -70,7 +70,7 @@ pub fn inventory_initialize_display_entities(
                 if object.draw_flags().read(context) & ready != 0 {
                     break;
                 }
-                call(context, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[])?;
+                call_void(context, ids::ENTITY_RELEASE_ONE_BY_PRIORITY, &[])?;
             }
             object.sprite_ready().write(context, 0);
             let flags = object.behavior_flags().read(context) | 0x40;
@@ -112,7 +112,7 @@ pub fn inventory_redraw_synchronously(context: &mut dyn Context) -> Result<Optio
         if phase == 0 {
             break;
         }
-        frame::call(
+        frame::call_void(
             context,
             ids::INVENTORY_REDRAW_SYNCHRONOUSLY,
             ids::INVENTORY_SERVICE_REDRAW_PHASE,
@@ -192,7 +192,7 @@ fn inventory_service_redraw_phase_inner(context: &mut dyn Context) -> Result<Opt
             frame::push_pea(context, 1)?;
             OutgoingArguments::existing(context, 1)?
         };
-        background.call(
+        background.call_void(
             context,
             dispatcher,
             ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK,
@@ -204,7 +204,7 @@ fn inventory_service_redraw_phase_inner(context: &mut dyn Context) -> Result<Opt
             frame::push_move(context, argument)?;
             OutgoingArguments::existing(context, 1)?
         };
-        stats.call(
+        stats.call_void(
             context,
             dispatcher,
             ids::INVENTORY_DRAW_PLAYER_STATS,
@@ -233,13 +233,13 @@ fn inventory_service_redraw_phase_inner(context: &mut dyn Context) -> Result<Opt
             frame::push_move(context, argument)?;
             OutgoingArguments::existing(context, 1)?
         };
-        banner_player.call(
+        banner_player.call_void(
             context,
             dispatcher,
             ids::INVENTORY_DRAW_ACTION_BANNER,
             CallSite::relative(caller, revision, 0xee),
         )?;
-        OutgoingArguments::existing(context, 0)?.call(
+        OutgoingArguments::existing(context, 0)?.call_void(
             context,
             dispatcher,
             ids::DRAW_HUD,
@@ -261,24 +261,21 @@ fn inventory_service_redraw_phase_inner(context: &mut dyn Context) -> Result<Opt
             {
                 let argument = player as u32;
                 frame::push_move(context, argument)?;
-                let returned = frame::call(
+                frame::call_void(
                     context,
                     caller,
                     ids::INVENTORY_DRAW_MAIL_ORDER_OFFERS,
                     0x11c,
                 )?;
                 frame::release(context, 4)?;
-                returned
             };
         } else {
             let player = i32::from(player_slot.read(context));
             {
                 let argument = player as u32;
                 frame::push_move(context, argument)?;
-                let returned =
-                    frame::call(context, caller, ids::LOAD_PRESENTS_INTO_INVENTORY, 0x12c)?;
+                frame::call_void(context, caller, ids::LOAD_PRESENTS_INTO_INVENTORY, 0x12c)?;
                 frame::release(context, 4)?;
-                returned
             };
             let player = i32::from(player_slot.read(context));
             if ram::g_player_inventory_open(revision)
@@ -290,9 +287,8 @@ fn inventory_service_redraw_phase_inner(context: &mut dyn Context) -> Result<Opt
                 {
                     let argument = player as u32;
                     frame::push_move(context, argument)?;
-                    let returned = frame::call(context, caller, ids::INVENTORY_DRAW_BUCKS, 0x150)?;
+                    frame::call_void(context, caller, ids::INVENTORY_DRAW_BUCKS, 0x150)?;
                     frame::release(context, 4)?;
-                    returned
                 };
             }
         }
@@ -335,9 +331,8 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
         {
             let argument = viewport;
             frame::push_move(context, argument)?;
-            let returned = frame::call(context, caller, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, 0x42)?;
+            frame::call_void(context, caller, ids::ENTITY_CLEAR_VIEWPORT_SPRITES, 0x42)?;
             frame::release(context, 4)?;
-            returned
         };
         let flags = object.behavior_flags().read(context) | 0x10;
         object.behavior_flags().write(context, flags);
@@ -359,9 +354,8 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
             frame::push_move(context, second)?;
             let first = index as u32;
             frame::push_move(context, first)?;
-            let returned = frame::call(context, caller, ids::SET_MAIL_ORDER_PRESENTS, 0x82)?;
+            frame::call_void(context, caller, ids::SET_MAIL_ORDER_PRESENTS, 0x82)?;
             frame::release(context, 8)?;
-            returned
         };
     } else {
         ram::g_inventory_banner_mode(revision)
@@ -377,7 +371,7 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
     {
         let argument = index as u32;
         frame::push_move(context, argument)?;
-        let returned = frame::call(
+        frame::call_void(
             context,
             caller,
             ids::INVENTORY_INITIALIZE_DISPLAY_ENTITIES,
@@ -388,7 +382,6 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
             },
         )?;
         frame::release(context, 4)?;
-        returned
     };
     ram::g_inventory_redraw_player(revision).write(context, player as i8);
     ram::g_inventory_redraw_phase(revision).write(context, 4);
@@ -410,7 +403,7 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
         ram::g_camera2_pending_x(revision).write(context, 0);
         ram::g_camera2_pending_y(revision).write(context, 112);
     }
-    frame::call(
+    frame::call_void(
         context,
         caller,
         ids::ENABLE_TEXT_FONT_ANIMATION,
@@ -446,14 +439,13 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
         {
             let argument = index as u32;
             frame::push_move(context, argument)?;
-            let returned = frame::call(
+            frame::call_void(
                 context,
                 caller,
                 ids::INVENTORY_DEACTIVATE_DISPLAY_ENTITIES,
                 0x24,
             )?;
             frame::release(context, 4)?;
-            returned
         };
         if ram::g_split_screen_enabled(revision).read(context) != 0 {
             context.discard_u8(inventories.at(index).address())?;
@@ -464,10 +456,8 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
                 {
                     let argument = 1;
                     frame::push_pea(context, argument)?;
-                    let returned =
-                        frame::call(context, caller, ids::UPDATE_SCREEN_SPLIT_MODE, 0x5a)?;
+                    frame::call_void(context, caller, ids::UPDATE_SCREEN_SPLIT_MODE, 0x5a)?;
                     frame::release(context, 4)?;
-                    returned
                 };
             } else {
                 ram::g_hud_redraw_pending(revision).write(context, 1);
@@ -481,10 +471,8 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
             {
                 let argument = index as u32;
                 frame::push_move(context, argument)?;
-                let returned =
-                    frame::call(context, caller, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, 0x90)?;
+                frame::call_void(context, caller, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, 0x90)?;
                 frame::release(context, 4)?;
-                returned
             };
         } else {
             if inventories.at(index ^ 1).read(context) == 0 {
@@ -495,17 +483,17 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
             }
             context.discard_u8(inventories.at(index).address())?;
             inventories.at(index).write(context, 0);
-            frame::call(
+            frame::call_void(
                 context,
                 caller,
                 ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
                 0xc2,
             )?;
-            frame::call(context, caller, ids::DISABLE_BLANKING_GRAPHICS, 0xc8)?;
-            frame::call(context, caller, ids::DRAW_HUD, 0xce)?;
+            frame::call_void(context, caller, ids::DISABLE_BLANKING_GRAPHICS, 0xc8)?;
+            frame::call_void(context, caller, ids::DRAW_HUD, 0xce)?;
             if inventories.at(index ^ 1).read(context) == 0 {
                 frame::push_clear(context)?;
-                frame::call(
+                frame::call_void(
                     context,
                     caller,
                     ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK,
@@ -513,9 +501,9 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
                 )?;
                 frame::release(context, 4)?;
             }
-            frame::call(context, caller, ids::ENABLE_BLANKING_GRAPHICS, 0xea)?;
+            frame::call_void(context, caller, ids::ENABLE_BLANKING_GRAPHICS, 0xea)?;
         }
-        frame::call(
+        frame::call_void(
             context,
             caller,
             ids::DISABLE_TEXT_FONT_ANIMATION_IF_MENUS_CLOSED,
@@ -539,9 +527,8 @@ fn toggle_inventory_inner(context: &mut dyn Context, player: i16) -> Result<Opti
                 frame::push_pea(context, second)?;
                 let first = index as u32;
                 frame::push_move(context, first)?;
-                let returned = frame::call(context, caller, ids::DRAW_INVENTORY, 0x116)?;
+                frame::call_void(context, caller, ids::DRAW_INVENTORY, 0x116)?;
                 frame::release(context, 8)?;
-                returned
             };
         }
     }
@@ -627,9 +614,8 @@ fn open_present_inner(context: &mut dyn Context, player: i32) -> Result<Option<u
             frame::push_pea(context, second)?;
             let first = 26;
             frame::push_pea(context, first)?;
-            let returned = frame::call(context, ids::OPEN_PRESENT, ids::PLAY_SOUND, 0x96)?;
+            frame::call_void(context, ids::OPEN_PRESENT, ids::PLAY_SOUND, 0x96)?;
             frame::release(context, 8)?;
-            returned
         };
 
         return Ok(Some(0));
@@ -739,9 +725,8 @@ fn inventory_buy_selected_mail_order_present_inner(
             frame::push_pea(context, second)?;
             let first = 26;
             frame::push_pea(context, first)?;
-            let returned = frame::call(context, caller, ids::PLAY_SOUND, 0xe8)?;
+            frame::call_void(context, caller, ids::PLAY_SOUND, 0xe8)?;
             frame::release(context, 8)?;
-            returned
         };
         if slot == 16 {
             {
@@ -854,9 +839,8 @@ fn check_if_open_for_both_inner(
             {
                 let argument = (player ^ 1) as u32;
                 frame::push_move(context, argument)?;
-                let returned = frame::call(context, caller, ids::TOGGLE_INVENTORY, 0x7a)?;
+                frame::call_void(context, caller, ids::TOGGLE_INVENTORY, 0x7a)?;
                 frame::release(context, 4)?;
-                returned
             };
         }
         for excluded in [8, 15, 12, 19, 23, 25] {
@@ -897,14 +881,13 @@ fn check_if_open_for_both_inner(
             {
                 let argument = (player ^ 1) as u32;
                 frame::push_move(context, argument)?;
-                let returned = frame::call(
+                frame::call_void(
                     context,
                     caller,
                     ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                     0x10e,
                 )?;
                 frame::release(context, 4)?;
-                returned
             };
         }
     }

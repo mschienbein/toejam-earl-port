@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom};
 
 /// G/src/earthlings/generic_enemy.c:20 (`EarthlingProcessSpecialThinkStates`).
@@ -51,7 +51,7 @@ pub fn earthling_process_special_think_states(
                 && object.frame_duration().read(context) > 3
                 && earthling.saved_x_or_status().read(context) != 0
             {
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_dentist_laugh(revision).address(), 50, 0],
@@ -64,7 +64,7 @@ pub fn earthling_process_special_think_states(
             earthling.timer().write(context, 0);
         }
         if earthling.kind().read(context) == 15 {
-            call(
+            call_void(
                 context,
                 ids::EARTHLING_UPDATE_AIMED_PROJECTILE_ATTACK,
                 &[earthling.address(), object.address()],
@@ -101,7 +101,7 @@ fn generic_enemy_think(
     context: &mut dyn Context,
     earthling: Address<EarthlingState>,
 ) -> Result<Option<u32>> {
-    use super::framed::{invoke, invoke_on};
+    use super::framed::{invoke, invoke_on_void, invoke_void};
     use super::pending_access::next_cached_index;
     let revision = context.revision();
     let caller = ids::AI_GENERIC_ENEMY_THINK;
@@ -253,7 +253,7 @@ fn generic_enemy_think(
             }
         }
         if next != -1 && i16::from(earthling.state().read(context)) != next {
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::SET_EARTHLING_STATE,
@@ -290,7 +290,7 @@ fn generic_enemy_think(
                 context,
                 &[earthling.address(), object.address()],
             )?;
-            invoke_on(
+            invoke_on_void(
                 context,
                 caller,
                 ids::EARTHLING_SPAWN_MOLE_EFFECT,

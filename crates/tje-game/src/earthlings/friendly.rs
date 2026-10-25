@@ -1,4 +1,4 @@
-use crate::{Context, FunctionId, Result, call, ids};
+use crate::{Context, FunctionId, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom};
 
 fn can_interact(
@@ -25,7 +25,7 @@ fn inline_text(context: &dyn Context, id: FunctionId) -> u32 {
 
 fn restore_player_sprite(context: &mut dyn Context, player: Address<ObjectState>) -> Result<()> {
     let sprite = call(context, ids::GET_ACTIVE_PRESENT_SPRITE, &[player.address()])?;
-    call(context, ids::SET_SPRITE, &[player.address(), sprite])?;
+    call_void(context, ids::SET_SPRITE, &[player.address(), sprite])?;
     Ok(())
 }
 
@@ -89,7 +89,7 @@ pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<O
             let text = inline_text(context, ids::AI_WIZARD_TOUCH);
             let speaker = earthling.object().read(context) as u32;
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
                 &[number as u32],
@@ -108,14 +108,14 @@ pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<O
                     next = 2;
                     interaction.write(context, 3);
                     bucks.write(context, bucks.read(context).wrapping_sub(1));
-                    call(context, ids::SET_SPRITE, &[player.address(), 71])?;
-                    call(
+                    call_void(context, ids::SET_SPRITE, &[player.address(), 71])?;
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_hallelujah(revision).address(), 92, 1],
                     )?;
                 } else {
-                    call(context, ids::PLAY_SOUND, &[26, 50])?;
+                    call_void(context, ids::PLAY_SOUND, &[26, 50])?;
                 }
             } else {
                 interaction.write(context, 2);
@@ -141,7 +141,7 @@ pub fn ai_wizard_touch(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         }
     }
     if next != -1 {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -200,7 +200,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
             let text = inline_text(context, ids::AI_OPERA_SINGER_TOUCH);
             let speaker = earthling.object().read(context) as u32;
             call(context, ids::GENERATE_SPEECH, &[speaker, text, 0])?;
-            call(
+            call_void(
                 context,
                 ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
                 &[number as u32],
@@ -218,7 +218,7 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
                 next = 3;
                 interaction.write(context, 3);
                 bucks.write(context, bucks.read(context).wrapping_sub(3));
-                call(context, ids::SET_SPRITE, &[player.address(), 69])?;
+                call_void(context, ids::SET_SPRITE, &[player.address(), 69])?;
                 number ^= 1;
                 player = super::word_object(revision, number as i16);
                 if ram::g_player_lives(revision).at(number).read(context) >= 0
@@ -229,15 +229,15 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
                         || player.sprite_state().read(context) == 76
                         || player.animation_group_mask().read(context) & 0x0830_400c != 0)
                 {
-                    call(context, ids::SET_SPRITE, &[player.address(), 69])?;
+                    call_void(context, ids::SET_SPRITE, &[player.address(), 69])?;
                 }
-                call(
+                call_void(
                     context,
                     ids::PLAY_SOUND_EFFECT,
                     &[rom::sfx_opera_sing(revision).address(), 90, 1],
                 )?;
             } else {
-                call(context, ids::PLAY_SOUND, &[26, 50])?;
+                call_void(context, ids::PLAY_SOUND, &[26, 50])?;
             }
         } else {
             interaction.write(context, 2);
@@ -261,11 +261,11 @@ pub fn ai_opera_singer_touch(context: &mut dyn Context, arguments: &[u32]) -> Re
             }
         } else {
             let mask = u32::from(player.draw_flags().read(context) & 6);
-            call(context, ids::DO_VIKING_ABILITY, &[mask])?;
+            call_void(context, ids::DO_VIKING_ABILITY, &[mask])?;
         }
     }
     if next != -1 {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -294,7 +294,7 @@ fn mailbox_touch(
     number: i32,
     earthling: Address<EarthlingState>,
 ) -> Result<Option<u32>> {
-    use super::framed::{invoke, invoke_on};
+    use super::framed::{invoke, invoke_on, invoke_void};
     use crate::call_frame::OutgoingArguments;
     let revision = context.revision();
     let caller = ids::AI_MAILBOX_TOUCH;
@@ -345,7 +345,7 @@ fn mailbox_touch(
                     &speech_args,
                     0x02127e,
                 )?;
-                invoke(
+                invoke_void(
                     context,
                     caller,
                     ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
@@ -364,7 +364,7 @@ fn mailbox_touch(
                         .read(context)
                         == 2
                     {
-                        invoke(
+                        invoke_void(
                             context,
                             caller,
                             ids::INVENTORY_OPEN_MAIL_ORDER_MENU,
@@ -406,7 +406,7 @@ fn mailbox_touch(
         let timer = old.wrapping_sub(1);
         mailbox.timer().write(context, timer);
         if timer == 0 {
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::SET_EARTHLING_STATE,
@@ -419,7 +419,7 @@ fn mailbox_touch(
             let cooldown = ram::g_pcm_effect_cooldown_ticks(revision).read(context);
 
             if cooldown == 0 {
-                invoke(
+                invoke_void(
                     context,
                     caller,
                     ids::PLAY_SOUND_EFFECT,
@@ -451,7 +451,7 @@ fn mailbox_touch(
                     0x0213aa,
                 )? != 0;
             if close {
-                invoke(
+                invoke_void(
                     context,
                     caller,
                     ids::SET_EARTHLING_STATE,
@@ -462,7 +462,7 @@ fn mailbox_touch(
                 let random = invoke(context, caller, ids::GET_RANDOM_NUMBER, &[], 0x0213be)? & 255;
 
                 if random == 1 {
-                    invoke(
+                    invoke_void(
                         context,
                         caller,
                         ids::SET_EARTHLING_STATE,
@@ -480,7 +480,7 @@ fn mailbox_touch(
         let duration = object.frame_duration().read(context);
 
         if duration == 0 {
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::SET_EARTHLING_STATE,
@@ -497,7 +497,7 @@ fn mailbox_touch(
         let duration = object.frame_duration().read(context);
 
         if duration == 0 {
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::SET_EARTHLING_STATE,
@@ -533,7 +533,7 @@ fn wiseman_touch(
     number: i32,
     earthling: Address<EarthlingState>,
 ) -> Result<Option<u32>> {
-    use super::framed::{invoke, invoke_on};
+    use super::framed::{invoke, invoke_on, invoke_on_void, invoke_void};
     use crate::call_frame::OutgoingArguments;
     let revision = context.revision();
     let caller = ids::AI_WISEMAN_TOUCH;
@@ -603,7 +603,7 @@ fn wiseman_touch(
                 &speech_args,
                 0x02181c,
             )?;
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
@@ -624,14 +624,14 @@ fn wiseman_touch(
                 context,
                 &[rom::sfx_wiseman_think(revision).address(), 64, 1],
             )?;
-            invoke_on(
+            invoke_on_void(
                 context,
                 caller,
                 ids::PLAY_SOUND_EFFECT,
                 &sound_args,
                 0x02186a,
             )?;
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::INVENTORY_OPEN_IDENTIFICATION_MENU,
@@ -656,7 +656,7 @@ fn wiseman_touch(
     }
 
     if next != -1 {
-        invoke(
+        invoke_void(
             context,
             caller,
             ids::SET_EARTHLING_STATE,

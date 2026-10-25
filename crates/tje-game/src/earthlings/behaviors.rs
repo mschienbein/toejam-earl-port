@@ -1,5 +1,5 @@
 use super::decisions::next_cached_random;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, arithmetic, ram, rom};
 
 /// G c_animation_behaviours.s:90–108 and c_terrain_animation.s:230–248,
@@ -54,7 +54,7 @@ pub fn earthling_think_horizontal_wander(
         earthling
             .state_delay()
             .write(context, definition.state_delay().read(context));
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -117,7 +117,7 @@ pub fn earthling_think_horizontal_wander(
             earthling.timer().write(context, timer);
         }
         if next != -1 && i16::from(earthling.state().read(context)) != next {
-            call(
+            call_void(
                 context,
                 ids::SET_EARTHLING_STATE,
                 &[earthling.address(), next as u32],
@@ -172,7 +172,7 @@ pub fn earthling_advance_horizontal_turn_animation(
         }
     }
     if next != -1 && i16::from(earthling.state().read(context)) != next {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -217,7 +217,7 @@ pub fn earthling_think_horizontal_reversal(
         }
     }
     if next != -1 && i16::from(earthling.state().read(context)) != next {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],
@@ -241,7 +241,7 @@ pub fn earthling_think_targeted_reset_cycle(
         .at(i32::from(earthling.kind().read(context)));
     if earthling.state().read(context) == 2 {
         if object.frame_duration().read(context) == 0 {
-            call(
+            call_void(
                 context,
                 ids::EARTHLING_RESTORE_SAVED_POSITION,
                 &[earthling.address()],
@@ -278,7 +278,7 @@ pub fn earthling_think_targeted_reset_cycle(
                 }
                 earthling.timer().write(context, 3);
             } else if object.frame_duration().read(context) == 0 {
-                call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 4])?;
+                call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 4])?;
                 earthling.timer().write(context, 0);
                 earthling.health_visibility().at(0).write(context, 7);
             } else {
@@ -292,7 +292,7 @@ pub fn earthling_think_targeted_reset_cycle(
                 .at(0)
                 .write(context, stored_phase);
             if phase < 0 || next == -1 {
-                call(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 2])?;
+                call_void(context, ids::SET_EARTHLING_STATE, &[earthling.address(), 2])?;
                 object.frame().write(context, -1);
             }
         }

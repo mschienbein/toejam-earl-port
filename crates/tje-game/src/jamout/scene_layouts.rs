@@ -1,6 +1,6 @@
 use super::frame_support::{
-    add_word, clear_word, in_frame, release_arguments, retained_call, source_call, subtract_flags,
-    word_flags,
+    add_word, clear_word, in_frame, release_arguments, retained_call_void, source_call_void,
+    subtract_flags, word_flags,
 };
 use crate::call_frame::FrameLayout;
 use crate::{Context, Result, ids};
@@ -14,32 +14,32 @@ pub fn show_lead_pair_layout(context: &mut dyn Context, _: &[u32]) -> Result<Opt
         let revision = context.revision();
         let root = ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT;
         for slot in 1..9 {
-            retained_call(context, root, 0x10, ids::JAM_OUT_HIDE_TOEJAM_COPY, &[slot])?;
-            retained_call(context, root, 0x1a, ids::JAM_OUT_HIDE_EARL_COPY, &[slot])?;
+            retained_call_void(context, root, 0x10, ids::JAM_OUT_HIDE_TOEJAM_COPY, &[slot])?;
+            retained_call_void(context, root, 0x1a, ids::JAM_OUT_HIDE_EARL_COPY, &[slot])?;
             release_arguments(context, 2)?;
         }
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x32,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[0, 174, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x40,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[0, 144, 127],
         )?;
-        source_call(
+        source_call_void(
             context,
             root,
             0x46,
             ids::INITIALIZE_TITLE_TRANSITION_TILEMAP,
             &[],
         )?;
-        source_call(context, root, 0x4c, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+        source_call_void(context, root, 0x4c, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
         release_arguments(context, 6)?;
         for row in 0..16 {
             context.write_vdp_command(0x60120003_u32.wrapping_add(((row + 6) as u32) << 23));
@@ -73,89 +73,89 @@ pub fn show_four_pair_layout(context: &mut dyn Context, _: &[u32]) -> Result<Opt
     in_frame(context, FrameLayout::movem(0, 0x04, 0x1c), |context, _| {
         let root = ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT;
         for slot in 4..9 {
-            retained_call(context, root, 0x22, ids::JAM_OUT_HIDE_TOEJAM_COPY, &[slot])?;
-            retained_call(context, root, 0x2c, ids::JAM_OUT_HIDE_EARL_COPY, &[slot])?;
+            retained_call_void(context, root, 0x22, ids::JAM_OUT_HIDE_TOEJAM_COPY, &[slot])?;
+            retained_call_void(context, root, 0x2c, ids::JAM_OUT_HIDE_EARL_COPY, &[slot])?;
             release_arguments(context, 2)?;
         }
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x42,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[0, 65, 70],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x4e,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[0, 95, 70],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x5c,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[1, 225, 70],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x6a,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[1, 255, 70],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x78,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[2, 65, 182],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x86,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[2, 95, 182],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x94,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[3, 225, 182],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xa2,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[3, 255, 182],
         )?;
-        source_call(context, root, 0xa8, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
-        retained_call(
+        source_call_void(context, root, 0xa8, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+        retained_call_void(
             context,
             root,
             0xae,
             ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
             &[0, 0],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xb6,
             ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
             &[20, 0],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xbe,
             ids::JAM_OUT_DRAW_PACKED_BACKGROUND_BLOCK,
             &[0, 14],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xc8,
@@ -172,134 +172,134 @@ pub fn show_four_pair_layout(context: &mut dyn Context, _: &[u32]) -> Result<Opt
 pub fn show_nine_pair_layout(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     in_frame(context, FrameLayout::movem(0, 0, 0x0c), |context, _| {
         let root = ids::JAM_OUT_SHOW_NINE_PAIR_LAYOUT;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x1c,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[0, 38, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x28,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[0, 68, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x36,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[1, 144, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x44,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[1, 174, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x52,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[2, 250, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x60,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[2, 280, 53],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x6e,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[3, 38, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x7c,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[3, 68, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x8a,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[4, 144, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x98,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[4, 174, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xa6,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[5, 250, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xb4,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[5, 280, 127],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xc2,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[6, 38, 201],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xd0,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[6, 68, 201],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xde,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[7, 144, 201],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xec,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[7, 174, 201],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0xfa,
             ids::JAM_OUT_POSITION_TOEJAM_COPY,
             &[8, 250, 201],
         )?;
-        retained_call(
+        retained_call_void(
             context,
             root,
             0x108,
             ids::JAM_OUT_POSITION_EARL_COPY,
             &[8, 280, 201],
         )?;
-        source_call(context, root, 0x10e, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
-        source_call(
+        source_call_void(context, root, 0x10e, ids::CLEAR_UPPER_VRAM_TILEMAP, &[])?;
+        source_call_void(
             context,
             root,
             0x114,
@@ -339,7 +339,7 @@ fn update_layouts(context: &mut dyn Context, reset: i16) -> Result<Option<u32>> 
         context.write_vdp_data(horizontal.read(context) as u16);
         context.write_vdp_command(0x40000010);
         context.write_vdp_data(vertical.read(context) as u16);
-        source_call(context, root, 0x5a, ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT, &[])?;
+        source_call_void(context, root, 0x5a, ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT, &[])?;
     } else {
         if step.read(context) != 0 {
             let delta = step.read(context);
@@ -389,22 +389,22 @@ fn update_layouts(context: &mut dyn Context, reset: i16) -> Result<Option<u32>> 
             }
             match selected {
                 0 => {
-                    source_call(context, root, 0xf2, ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT, &[])?;
+                    source_call_void(context, root, 0xf2, ids::JAM_OUT_SHOW_LEAD_PAIR_LAYOUT, &[])?;
                     clear_word(context, step.address())?;
                 }
                 1 => {
-                    source_call(context, root, 0xfa, ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT, &[])?;
+                    source_call_void(context, root, 0xfa, ids::JAM_OUT_SHOW_FOUR_PAIR_LAYOUT, &[])?;
                     clear_word(context, step.address())?;
                 }
                 2 => {
-                    source_call(
+                    source_call_void(
                         context,
                         root,
                         0x106,
                         ids::CUTSCENE_RELEASE_TEXT_ENTITIES,
                         &[],
                     )?;
-                    source_call(
+                    source_call_void(
                         context,
                         root,
                         0x10a,

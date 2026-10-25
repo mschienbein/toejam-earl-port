@@ -63,6 +63,23 @@ impl ScriptedContext {
             })
             .collect()
     }
+    fn original_effects(&mut self, function: FunctionId, arguments: &[u32]) -> Result<()> {
+        let state = ram::g_cutscene_script_state(self.revision()).read(&self.memory);
+        self.events
+            .borrow_mut()
+            .push(Event::Call(function, arguments.to_vec(), state));
+        {
+            let value = if function == ids::GET_CTRL1_INPUT {
+                self.controller1_reads.pop_front().unwrap_or(0)
+            } else {
+                0
+            };
+            if function.metadata().abi.returns_value {
+                self.set_data_register(0, value);
+            }
+            Ok(())
+        }
+    }
 }
 
 impl Bus for ScriptedContext {
@@ -213,15 +230,16 @@ impl Context for ScriptedContext {
     }
 
     fn call_original(&mut self, function: FunctionId, arguments: &[u32]) -> Result<u32> {
-        let state = ram::g_cutscene_script_state(self.revision()).read(&self.memory);
-        self.events
-            .borrow_mut()
-            .push(Event::Call(function, arguments.to_vec(), state));
-        Ok(if function == ids::GET_CTRL1_INPUT {
-            self.controller1_reads.pop_front().unwrap_or(0)
-        } else {
-            0
-        })
+        self.original_effects(function, arguments)?;
+        Ok(self.data_register(0))
+    }
+    fn call_original_void_with_execution(
+        &mut self,
+        function: FunctionId,
+        arguments: &[u32],
+        _class: crate::execution::ExecutionClass,
+    ) -> Result<()> {
+        self.original_effects(function, arguments)
     }
 
     fn call_original_with_execution(

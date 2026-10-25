@@ -1,6 +1,7 @@
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call_at, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
+    call_void,
     execution::WaitRequest,
     ids,
 };
@@ -26,7 +27,7 @@ pub fn elevator_load_ride_background_tiles(
         } else {
             ids::SPRITE_UNPACK_RLE
         };
-        call(context, id, &[part.address(), 16])?;
+        call_void(context, id, &[part.address(), 16])?;
         let offset = ram::g_sprite_tile_buffer_offset(revision);
         let next = offset.read(context).wrapping_add(512);
         offset.write(context, next);
@@ -40,7 +41,7 @@ pub fn elevator_load_ride_background_tiles(
             .at(i32::from(index))
             .write(context, word);
     }
-    call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
+    call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[1, 1])?;
     Ok(None)
 }
 
@@ -61,13 +62,13 @@ pub fn elevator_alternate_ride_entities(
             second.sprite_ready().write(context, 0);
         }
         // No caller prologue. Absolute JSR returns at 0x13248/0x13218.
-        call_at(
+        call_at_void(
             context,
             ids::BUILD_VIEWPORT_SPRITE_LINKS,
             &[],
             CallSite::relative(ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES, revision, 0x3a),
         )?;
-        call(
+        call_void(
             context,
             ids::DMA_COPY_WORDS_TO_VRAM,
             &[
@@ -115,7 +116,7 @@ pub fn elevator_update_ride_dialogue(context: &mut dyn Context, _: &[u32]) -> Re
             counter.write(context, 419);
         }
     } else if counter.read(context) == 420 {
-        call(context, ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES, &[])?;
+        call_void(context, ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES, &[])?;
     }
     Ok(None)
 }
@@ -209,7 +210,7 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
                 }
                 let x = entity.x().read(context).wrapping_sub(16);
                 entity.x().write(context, x);
-                call_at(
+                call_at_void(
                     context,
                     ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
                     &[],
@@ -251,7 +252,7 @@ fn prepare_dialogue_body(context: &mut dyn Context, entity_address: u32) -> Resu
                         ready.write(context, 0);
                     }
                 }
-                call_at(
+                call_at_void(
                     context,
                     ids::BUILD_VIEWPORT_SPRITE_LINKS,
                     &[],
@@ -323,16 +324,16 @@ pub fn elevator_ride_v_blank(context: &mut dyn Context, _: &[u32]) -> Result<Opt
     fixed.write(context, next);
     context.write_vdp_command(0x40000010);
     context.write_vdp_data((fixed.read(context) >> 8) as u16);
-    call(context, ids::ELEVATOR_UPDATE_RIDE_DIALOGUE, &[])?;
+    call_void(context, ids::ELEVATOR_UPDATE_RIDE_DIALOGUE, &[])?;
     // PC-relative JSR at 0x13558/0x13528, with no RideVBlank prologue.
-    call_at(
+    call_at_void(
         context,
         ids::ELEVATOR_ALTERNATE_RIDE_ENTITIES,
         &[],
         CallSite::relative(ids::ELEVATOR_RIDE_V_BLANK, revision, 0x4e),
     )?;
-    call(context, ids::SELECT_PRIMARY_VIEWPORT_SPRITES, &[])?;
-    call(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
+    call_void(context, ids::SELECT_PRIMARY_VIEWPORT_SPRITES, &[])?;
+    call_void(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
     let counter = ram::g_frame_counter(revision);
     let next = counter.read(context).wrapping_add(1);
     counter.write(context, next);
@@ -364,13 +365,13 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
     context.discard_u16(callback)?;
     context.discard_u16(callback.wrapping_add(2))?;
     ram::g_v_blank_func(revision).write(context, tje_mem::Ptr::new(0));
-    call_at(
+    call_at_void(
         context,
         ids::CLEAR_SPEECH_BUBBLES_AND_REPLIES,
         &[],
         CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x26),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_BLANKING_GRAPHICS,
         &[],
@@ -380,14 +381,14 @@ pub fn elevator_end_ride_scene(context: &mut dyn Context, _: &[u32]) -> Result<O
     let value = mode.read(context) & 0x3c;
     mode.write(context, value);
     context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call_at(
+    call_at_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_game_line2(revision).address(), 1],
         CallSite::relative(ids::ELEVATOR_END_RIDE_SCENE, revision, 0x58),
     )?;
     context.write_vdp_command(0x40000000);
-    call_at(
+    call_at_void(
         context,
         ids::MOVE_DATA_TO_VRAM,
         &[rom::level_tiles(revision).address(), 1040],
@@ -448,13 +449,13 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
     context.discard_u8(second.sprite_ready().address())?;
     second.sprite_ready().write(context, 0);
     let state_arguments = OutgoingArguments::push(context, &[elevator.address(), 12])?;
-    state_arguments.call(
+    state_arguments.call_void(
         context,
         dispatcher,
         ids::ELEVATOR_SET_STATE,
         CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x6a),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::CLEAR_TRANSIENT_ENTITIES,
         &[],
@@ -462,7 +463,7 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
     )?;
     state_arguments.release(context)?;
     loop {
-        call_at(
+        call_at_void(
             context,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
             &[],
@@ -475,20 +476,20 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
         }
         context.poll_yield()?;
     }
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_BLANKING_GRAPHICS,
         &[],
         CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x92),
     )?;
     let dialogue_arguments = OutgoingArguments::push(context, &[first.address()])?;
-    dialogue_arguments.call(
+    dialogue_arguments.call_void(
         context,
         dispatcher,
         ids::ELEVATOR_PREPARE_RIDE_DIALOGUE,
         CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x98),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED,
         &[],
@@ -538,20 +539,20 @@ fn begin_ride_body(context: &mut dyn Context, elevator_address: u32) -> Result<(
         context,
         &[rom::palette_title_screen_bank1(revision).address(), 1],
     )?;
-    palette_arguments.call(
+    palette_arguments.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x138),
     )?;
-    call_at(
+    call_at_void(
         context,
         ids::ELEVATOR_LOAD_RIDE_BACKGROUND_TILES,
         &[],
         CallSite::relative(ids::ELEVATOR_BEGIN_RIDE_SCENE, revision, 0x13c),
     )?;
     let hud_arguments = OutgoingArguments::push(context, &[2])?;
-    hud_arguments.call(
+    hud_arguments.call_void(
         context,
         dispatcher,
         ids::HUD_HIDE_PLAYER_SPRITES,
@@ -620,7 +621,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             let entity = ram::g_player_info(revision).at(player);
             let level = i32::from(entity.level().read(context));
             let release_earthlings = OutgoingArguments::push(context, &[level as u32])?;
-            release_earthlings.call(
+            release_earthlings.call_void(
                 context,
                 dispatcher,
                 ids::EARTHLING_RELEASE_LEVEL_BANK,
@@ -628,7 +629,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             )?;
             let level = i32::from(entity.level().read(context));
             let release_items = OutgoingArguments::push(context, &[level as u32])?;
-            release_items.call(
+            release_items.call_void(
                 context,
                 dispatcher,
                 ids::MAP_RELEASE_LEVEL_ITEM_BANK,
@@ -657,7 +658,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
         let bank = (i32::from(handle) - 1) >> 1;
         elevator = ram::g_elevator_records(revision).at(bank).at(0);
         context.set_address_register(3, elevator.address());
-        call_at(
+        call_at_void(
             context,
             ids::ELEVATOR_BEGIN_RIDE_SCENE,
             &[elevator.address()],
@@ -669,7 +670,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             let entity = ram::g_player_info(revision).at(player);
             let level = i32::from(entity.level().read(context));
             let map_arguments = OutgoingArguments::push(context, &[player as u32, level as u32])?;
-            map_arguments.call(
+            map_arguments.call_void(
                 context,
                 dispatcher,
                 ids::MAP_LOAD_PLAYER_LEVEL,
@@ -677,7 +678,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             )?;
             let level = i32::from(entity.level().read(context));
             let retain_arguments = OutgoingArguments::push(context, &[level as u32])?;
-            retain_arguments.call(
+            retain_arguments.call_void(
                 context,
                 dispatcher,
                 ids::EARTHLING_RETAIN_LEVEL_BANK,
@@ -685,7 +686,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
             )?;
             let level = i32::from(entity.level().read(context));
             let item_arguments = OutgoingArguments::push(context, &[level as u32])?;
-            item_arguments.call(
+            item_arguments.call_void(
                 context,
                 dispatcher,
                 ids::LOAD_LEVEL_ITEM_BANK,
@@ -697,20 +698,20 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
         }
     }
     if ram::g_v_blank_func(revision).read(context).address() != 0 {
-        call_at(
+        call_at_void(
             context,
             ids::ELEVATOR_END_RIDE_SCENE,
             &[],
             CallSite::relative(caller, revision, 0x14c),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::ELEVATOR_SET_STATE,
             &[elevator.address(), 11],
             CallSite::relative(caller, revision, 0x156),
         )?;
     }
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_BLANKING_GRAPHICS,
         &[],
@@ -753,7 +754,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
                 tje_mem::Address::<i16>::new(context.address_register(6).wrapping_sub(2))
                     .read(context);
             entity.x().write(context, destination_x);
-            call_at(
+            call_at_void(
                 context,
                 ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
                 &[player as u32],
@@ -763,7 +764,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
                 .at(player)
                 .write(context, handle);
             if destination_level < 26 {
-                call_at(
+                call_at_void(
                     context,
                     ids::TELEPHONE_PLACE_OUTSIDE_PLAYER_VIEWS,
                     &[player as u32],
@@ -773,7 +774,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
         }
     }
     if destination_level == 26 {
-        call_at(
+        call_at_void(
             context,
             ids::LOAD_FINAL_LEVEL_MAP,
             &[],
@@ -783,7 +784,7 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
     context.discard_u8(ram::g_elevator_departure_in_progress(revision).address())?;
     ram::g_elevator_departure_in_progress(revision).write(context, 0);
     let split_arguments = OutgoingArguments::push(context, &[1])?;
-    split_arguments.call(
+    split_arguments.call_void(
         context,
         dispatcher,
         ids::UPDATE_SCREEN_SPLIT_MODE,
@@ -794,20 +795,20 @@ fn advance_riders_body(context: &mut dyn Context, mut handle: i8) -> Result<()> 
     let hardware_mode = 0x8104 | u16::from(mode.read(context));
     split_arguments.release(context)?;
     context.write_vdp_control(hardware_mode);
-    call_at(
+    call_at_void(
         context,
         ids::ENABLE_BLANKING_GRAPHICS,
         &[],
         CallSite::relative(caller, revision, 0x25e),
     )?;
     if ram::g_current_music_selection(revision).read(context) == 6 {
-        call_at(
+        call_at_void(
             context,
             ids::AUDIO_REQUEST_FM_CHANNEL_RELEASE,
             &[],
             CallSite::relative(caller, revision, 0x26e),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::MUSIC_REQUEST_TRACK_POINTER_RESET,
             &[],

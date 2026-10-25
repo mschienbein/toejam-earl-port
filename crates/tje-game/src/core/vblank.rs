@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame};
-use crate::{Context, Error, Result, call, call_at, function_at, ids};
+use crate::{Context, Error, Result, call, call_at_void, call_void, function_at, ids};
 use tje_mem::ram;
 
 fn increment_frame(context: &mut dyn Context) {
@@ -30,7 +30,7 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
         let id = function_at(revision, callback)
             .ok_or_else(|| Error::Platform(format!("unmapped VBlank callback {callback:08x}")))?;
         context.set_address_register(0, callback);
-        call_at(
+        call_at_void(
             context,
             id,
             &[],
@@ -57,7 +57,7 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
         } else {
             0
         };
-        call(context, ids::SELECT_SPRITE_CHAIN_START, &[chain])?;
+        call_void(context, ids::SELECT_SPRITE_CHAIN_START, &[chain])?;
         context.write_vdp_control(if chain != 0 { 0x8a70 } else { 0x8ab6 });
         context.write_vdp_control(0x8014);
         if ram::g_player_inventory_open(revision).at(0).read(context) != 0 {
@@ -78,31 +78,31 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                 context.write_vdp_data(x as u16);
             }
         }
-        call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+        call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
         if ram::g_terrain_priority_update_pending(revision).read(context) != 0 {
-            call(context, ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER, &[])?;
+            call_void(context, ids::MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER, &[])?;
             increment_frame(context);
             return Ok(None);
         } else if ram::g_v_blank_graphics_paused(revision).read(context) == 0 {
             if ram::g_inventory_redraw_phase(revision).read(context) != 0 {
-                call(context, ids::INVENTORY_SERVICE_REDRAW_PHASE, &[])?;
+                call_void(context, ids::INVENTORY_SERVICE_REDRAW_PHASE, &[])?;
             } else if ram::g_sprite_graphics_upload_pending(revision).read(context) != 0 {
-                call(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
-                call(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
+                call_void(context, ids::UPLOAD_QUEUED_SPRITE_GRAPHICS, &[0, 0])?;
+                call_void(context, ids::SELECT_VIEWPORT_SPRITE_CHAIN, &[0])?;
             } else if ram::g_hud_redraw_pending(revision).read(context) != 0 {
-                call(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[0])?;
-                call(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[1])?;
-                call(context, ids::DRAW_HUD, &[])?;
+                call_void(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[0])?;
+                call_void(context, ids::HUD_LOAD_LIVES_SPRITE_TILES, &[1])?;
+                call_void(context, ids::DRAW_HUD, &[])?;
             } else {
                 if call(context, ids::TEXT_ANIMATE_FONT_BANKS, &[4])? == 0 {
-                    call(context, ids::DRAW_LEVEL_GRAPHICS, &[])?;
-                    call(context, ids::UPDATE_CAMERA_Y, &[])?;
-                    call(context, ids::UPDATE_CAMERA_X, &[])?;
-                    call(context, ids::HUD_ANIMATE_HEALTH_BAR, &[0])?;
-                    call(context, ids::HUD_ANIMATE_HEALTH_BAR, &[1])?;
+                    call_void(context, ids::DRAW_LEVEL_GRAPHICS, &[])?;
+                    call_void(context, ids::UPDATE_CAMERA_Y, &[])?;
+                    call_void(context, ids::UPDATE_CAMERA_X, &[])?;
+                    call_void(context, ids::HUD_ANIMATE_HEALTH_BAR, &[0])?;
+                    call_void(context, ids::HUD_ANIMATE_HEALTH_BAR, &[1])?;
                 }
                 let parity = advance_player_parity(context);
-                call(
+                call_void(
                     context,
                     ids::HIDE_FLAGGED_PLAYER_SPRITES,
                     &[if parity & 1 != 0 { 0 } else { 1 }],
@@ -119,7 +119,7 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
         {
             let selection =
                 i32::from(ram::g_requested_music_selection(revision).read(context)) as u32;
-            call_at(
+            call_at_void(
                 context,
                 ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
                 &[selection],
@@ -128,7 +128,7 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
             let selection = ram::g_requested_music_selection(revision).read(context);
             ram::g_current_music_selection(revision).write(context, selection);
         } else {
-            call(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
+            call_void(context, ids::MUSIC_UPDATE_SEQUENCER, &[])?;
         }
         if ram::g_frame_counter_low_byte(revision).read(context) & 1 != 0 {
             let input = call(context, ids::GET_CTRL1_INPUT, &[])?;

@@ -1,6 +1,6 @@
-use super::frames::{call_from, with_frame};
+use super::frames::{call_from_void, with_frame};
 use crate::call_frame::FrameLayout;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 pub(super) fn next_random(context: &mut dyn Context) -> u16 {
@@ -61,7 +61,7 @@ pub(super) fn get_active_present_sprite(
         } else if powerup.read(context) == 5 {
             context.set_data_register(0, u32::from(land));
             context.set_data_register(2, number as u32);
-            call_from(
+            call_from_void(
                 context,
                 ids::GET_ACTIVE_PRESENT_SPRITE,
                 ids::OPEN_ROCKET_SKATES,
@@ -129,7 +129,7 @@ pub(super) fn player_update_teetering(
             if ram::g_elevator_departure_in_progress(revision).read(context) != 0 {
                 counter.write(context, counter.read(context).wrapping_sub(1));
             } else {
-                call(
+                call_void(
                     context,
                     ids::PLAYER_START_TEETERING_FALL,
                     &[player.address()],
@@ -141,7 +141,7 @@ pub(super) fn player_update_teetering(
             } else {
                 rom::sfx_teetering2(revision).address()
             };
-            call(context, ids::PLAY_SOUND_EFFECT, &[sample, 86, 0])?;
+            call_void(context, ids::PLAY_SOUND_EFFECT, &[sample, 86, 0])?;
         } else if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
             let choice = next_random(context) & 15;
             let sample = match choice {
@@ -151,7 +151,7 @@ pub(super) fn player_update_teetering(
                 _ => None,
             };
             if let Some(sample) = sample {
-                call(context, ids::PLAY_SOUND_EFFECT, &[sample, 20, 0])?;
+                call_void(context, ids::PLAY_SOUND_EFFECT, &[sample, 20, 0])?;
             }
         }
     }
@@ -182,7 +182,7 @@ pub(super) fn player_update_jump_landing_animation(
         }
     } else if player.animation_group_mask().read(context) & 0x100 != 0 {
         if player.frame_duration().read(context) == 0 {
-            call(context, ids::STOP_PLAYER, &[player.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[player.address()])?;
             player.height().write(context, 35);
             player
                 .draw_flags()
@@ -194,13 +194,13 @@ pub(super) fn player_update_jump_landing_animation(
         && player.height().read(context) < 4
     {
         if land == 0x80 {
-            call(context, ids::STOP_PLAYER, &[player.address()])?;
+            call_void(context, ids::STOP_PLAYER, &[player.address()])?;
             player.height().write(context, 0);
             player
                 .draw_flags()
                 .write(context, player.draw_flags().read(context) & !0x40);
             sprite = player.sprite_state().read(context).wrapping_add(4);
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_splash(revision).address(), 50, 0],
@@ -219,7 +219,7 @@ pub(super) fn player_update_jump_landing_animation(
         }
     }
     if sprite != -1 {
-        call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     }
     Ok(None)
 }
@@ -268,7 +268,7 @@ pub(super) fn player_update_spring_shoe_jump(
                 player.sprite_state().read(context).wrapping_add(4)
             };
             player.height().write(context, 1);
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_springing(revision).address(), 50, 0],
@@ -301,7 +301,7 @@ pub(super) fn player_update_spring_shoe_jump(
         sprite = direction + 56;
     }
     if sprite != -1 {
-        call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     }
     Ok(None)
 }
@@ -347,7 +347,7 @@ pub(super) fn player_update_present_completion_and_terrain_pose(
         }
     }
     if sprite != -1 {
-        call(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
+        call_void(context, ids::SET_SPRITE, &[player.address(), sprite as u32])?;
     }
     Ok(None)
 }

@@ -1,5 +1,5 @@
 use super::large_player_parts::entity_at;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/impact_and_planet_entities.c:15 (`IntroCreateRocketshipImpact`).
@@ -35,7 +35,7 @@ pub fn intro_create_rocketship_impact(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -81,7 +81,7 @@ pub fn cutscene_create_planet_entity(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -129,7 +129,7 @@ pub fn ending_create_stationary_composite(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -146,7 +146,7 @@ pub fn intro_release_rocketship_impact(
 ) -> Result<Option<u32>> {
     let slot = ram::g_intro_rocketship_impact_entity(context.revision()).read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     Ok(None)
 }
@@ -156,7 +156,7 @@ pub fn intro_release_rocketship_impact(
 pub fn cutscene_release_planet_entity(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let slot = ram::g_cutscene_planet_entity(context.revision()).read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     Ok(None)
 }
@@ -169,7 +169,7 @@ pub fn ending_release_stationary_composite(
 ) -> Result<Option<u32>> {
     let slot = ram::g_ending_stationary_composite_entity(context.revision()).read(context);
     if slot != 0 {
-        call(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(slot)])?;
     }
     Ok(None)
 }

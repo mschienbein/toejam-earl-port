@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/earthlings/nice_earthling_touch.c:65 (`CheckAButton`).
@@ -34,7 +34,7 @@ pub fn check_a_button(context: &mut dyn Context, _arguments: &[u32]) -> Result<O
                     },
                 );
             let object_number = handle.read(context) as u32;
-            call(context, ids::FREE_ENTITY, &[object_number])?;
+            call_void(context, ids::FREE_ENTITY, &[object_number])?;
             handle.write(context, 0);
             active.write(context, 0);
             previous.write(context, 0x40);
@@ -111,7 +111,7 @@ pub fn player_create_life_request_display(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         let object_number = handle.read(context) as u32;
-        call(
+        call_void(
             context,
             ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
             &[object_number],
@@ -120,7 +120,7 @@ pub fn player_create_life_request_display(
             return Ok(Some(0));
         }
         let object_number = handle.read(context) as u32;
-        call(context, ids::FREE_ENTITY, &[object_number])?;
+        call_void(context, ids::FREE_ENTITY, &[object_number])?;
     }
     Ok(Some(1))
 }
@@ -191,7 +191,7 @@ pub fn player_process_life_request(context: &mut dyn Context) -> Result<Option<u
 }
 
 fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
-    use super::framed::{invoke, invoke_on};
+    use super::framed::{invoke, invoke_on, invoke_on_void, invoke_void};
     use crate::call_frame::OutgoingArguments;
     let revision = context.revision();
     let caller = ids::PLAYER_PROCESS_LIFE_REQUEST;
@@ -246,14 +246,14 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
         // c_nice_earthling_touch.s:1259-1271: SetSprite's two slots stay
         // allocated through the later one-slot SetNextSpeechLifetime call.
         let sprite_args = OutgoingArguments::push(context, &[player.address(), sprite])?;
-        invoke_on(context, caller, ids::SET_SPRITE, &sprite_args, 0x021e22)?;
+        invoke_on_void(context, caller, ids::SET_SPRITE, &sprite_args, 0x021e22)?;
         let display = handle.read(context);
         player = super::word_object(revision, display);
 
         let height = player.height().read(context);
         let height = height.wrapping_add(30);
         player.height().write(context, height);
-        invoke(
+        invoke_void(
             context,
             caller,
             ids::SET_NEXT_SPEECH_LIFETIME,
@@ -284,7 +284,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
         let height = player.height().read(context);
         let height = height.wrapping_sub(30);
         player.height().write(context, height);
-        invoke(
+        invoke_void(
             context,
             caller,
             ids::PLAYER_CREATE_INTERACTION_CHOICE_DISPLAY,
@@ -303,7 +303,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
             return Ok(None);
         }
         let object = handle.read(context) as u32;
-        invoke(context, caller, ids::FREE_ENTITY, &[object], 0x021eae)?;
+        invoke_void(context, caller, ids::FREE_ENTITY, &[object], 0x021eae)?;
         context.discard_u16(handle.address())?;
         handle.write(context, 0);
         if response.read(context) == 2 {
@@ -314,7 +314,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
                 u8::MAX,
                 0,
             ))?;
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::DISABLE_BLANKING_GRAPHICS,
@@ -329,7 +329,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
                 let old = lives.read(context);
                 let next = old.wrapping_sub(1);
                 lives.write(context, next);
-                invoke(
+                invoke_void(
                     context,
                     caller,
                     ids::HUD_LOAD_LIVES_SPRITE_TILES,
@@ -337,7 +337,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
                     0x021f10,
                 )?;
             }
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::COPY_LEVEL_BETWEEN_PLAYERS,
@@ -353,14 +353,14 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
             context.discard_u8(player.sprite_state().address())?;
             player.sprite_state().write(context, 0);
             let reset_args = OutgoingArguments::push(context, &[number as u32])?;
-            invoke_on(
+            invoke_on_void(
                 context,
                 caller,
                 ids::PLAYER_RESET_RANK_AND_RESOURCES,
                 &reset_args,
                 0x021f4e,
             )?;
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::STOP_PLAYER,
@@ -372,7 +372,7 @@ fn life_request(context: &mut dyn Context, number: i16) -> Result<Option<u32>> {
             player.animation_motion_axes().write(context, 0);
             ram::g_player_selection(revision).write(context, 2);
             ram::g_split_screen_enabled(revision).write(context, 1);
-            invoke(
+            invoke_void(
                 context,
                 caller,
                 ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,

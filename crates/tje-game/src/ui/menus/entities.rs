@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids, ui::entities::entity};
+use crate::{Context, Result, call, call_void, ids, ui::entities::entity};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/ui/main_menu.c:295 (`CreateMenuCursorEntity`).
@@ -24,7 +24,7 @@ pub fn create_menu_cursor_entity(context: &mut dyn Context, _: &[u32]) -> Result
         cursor.frame_duration().write(context, 1);
         cursor.frame().write(context, -1);
         cursor.sprite_ready().write(context, 0);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[cursor.address(), 0],
@@ -38,7 +38,7 @@ pub fn release_menu_cursor_entity(context: &mut dyn Context, _: &[u32]) -> Resul
     let handle = ram::g_menu_cursor_entity(context.revision());
     if handle.read(context) != 0 {
         let argument = i32::from(handle.read(context)) as u32;
-        call(context, ids::FREE_ENTITY, &[argument])?;
+        call_void(context, ids::FREE_ENTITY, &[argument])?;
     }
     Ok(None)
 }
@@ -48,7 +48,7 @@ pub fn release_menu_cursor_entity(context: &mut dyn Context, _: &[u32]) -> Resul
 pub fn add_menu_header(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     let header_number = arguments[0] as i16;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::menu_header_palette(revision).address(), 1],
@@ -74,7 +74,7 @@ pub fn add_menu_header(context: &mut dyn Context, arguments: &[u32]) -> Result<O
         header.frame_duration().write(context, 1);
         header.frame().write(context, -1);
         header.sprite_ready().write(context, 0);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[header.address(), 0],
@@ -88,7 +88,7 @@ pub fn remove_menu_header(context: &mut dyn Context, _: &[u32]) -> Result<Option
     let handle = ram::g_menu_header_entity(context.revision());
     if handle.read(context) != 0 {
         let argument = i32::from(handle.read(context)) as u32;
-        call(context, ids::FREE_ENTITY, &[argument])?;
+        call_void(context, ids::FREE_ENTITY, &[argument])?;
     }
     Ok(None)
 }

@@ -1,5 +1,5 @@
 use super::intro::{action_buttons, caption, decrement, increment, set_display, start_pressed};
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/cutscenes/intro_part11.c:16 (`IntroPart11`).
@@ -13,22 +13,22 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     let actor = ram::g_cutscene_music_actor_animation_enabled(revision);
     let advance_mask = ram::g_cutscene_advance_button_mask(revision);
     let owner = ids::INTRO_PART11;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank2(revision).address(), 2],
     )?;
-    call(
+    call_void(
         context,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         &[rom::palette_title_screen_bank3(revision).address(), 3],
     )?;
-    call(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::INTRO_ALLOCATE_LARGE_PLAYER_PARTS, &[])?;
     ram::g_scene_background_pair_index(revision).write(context, 7);
-    call(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
-    call(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[0])?;
-    call(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
-    call(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
+    call_void(context, ids::INITIALIZE_TITLE_TRANSITION_TILEMAP, &[])?;
+    call_void(context, ids::CUTSCENE_DRAW_RANDOMIZED_SCREEN_BORDER, &[0])?;
+    call_void(context, ids::INTRO_POSITION_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[1])?;
     set_display(context, true);
     let mut advance_pressed = false;
     context.discard_u16(state.address())?;
@@ -64,7 +64,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 42);
             }
             2 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -76,7 +76,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 17);
             }
             3 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -94,7 +94,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             5 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -103,7 +103,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -115,7 +115,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 17);
             }
             6 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -124,7 +124,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -136,7 +136,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             7 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -155,7 +155,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
             9 => {
                 advance_pressed = false;
                 caption(context, owner, 0x5a2, 220, 80, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -167,8 +167,8 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 51);
             }
             10 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-                call(
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -185,7 +185,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             12 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -197,7 +197,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             13 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -206,11 +206,11 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 countdown.write(context, 17);
             }
             14 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -219,7 +219,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_POSITION_LARGE_PLAYER_PART,
                     &[3, 148, 112],
@@ -227,7 +227,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 8);
             }
             15 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -241,8 +241,8 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 42);
             }
             16 => {
-                call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES, &[3])?;
-                call(
+                call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PART_SPRITES, &[3])?;
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -254,7 +254,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 8);
             }
             17 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -266,7 +266,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 8);
             }
             18 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -280,7 +280,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
             19 => {
                 advance_pressed = false;
                 caption(context, owner, 0x5c6, 220, 80, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -298,7 +298,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 25);
             }
             21 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -310,7 +310,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 25);
             }
             22 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -322,7 +322,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 17);
             }
             23 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -331,7 +331,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -343,7 +343,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 17);
             }
             24 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -355,7 +355,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 25);
             }
             25 => {
-                call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+                call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
                 countdown.write(context, 17);
             }
             26 => {
@@ -365,7 +365,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             27 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -379,7 +379,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
             28 => {
                 advance_pressed = false;
                 caption(context, owner, 0x624, 220, 80, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -388,7 +388,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -400,7 +400,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 17);
             }
             29 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -409,7 +409,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                         6,
                     ],
                 )?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -421,7 +421,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
                 countdown.write(context, 34);
             }
             30 => {
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -435,7 +435,7 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
             31 => {
                 advance_pressed = false;
                 caption(context, owner, 0x630, 78, 54, false)?;
-                call(
+                call_void(
                     context,
                     ids::INTRO_SET_LARGE_PLAYER_PART_SEQUENCE,
                     &[
@@ -455,13 +455,13 @@ pub fn intro_part11(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
         }
     }
     set_display(context, false);
-    call(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
-    call(
+    call_void(context, ids::CUTSCENE_RELEASE_TEXT_ENTITIES, &[])?;
+    call_void(
         context,
         ids::INTRO_RELEASE_LARGE_PLAYER_SPRITES_AND_REFRESH,
         &[],
     )?;
-    call(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
+    call_void(context, ids::INTRO_RELEASE_LARGE_PLAYER_PARTS, &[])?;
     call(context, ids::CUTSCENE_STEP_FRAME_AND_MUSIC_CADENCE, &[0, 0])?;
     let interrupted = state.read(context) != -1;
     // c_intro_part11.s:451-458: SNE; NEG.B; EXT.W/L leaves X on an abort,

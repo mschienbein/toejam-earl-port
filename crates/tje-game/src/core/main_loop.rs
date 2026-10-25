@@ -4,7 +4,7 @@
 
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
 use crate::exits::{self, MainLoopBodies, MainLoopStage};
-use crate::{Context, Result, call_at, ids};
+use crate::{Context, Result, call_at, call_at_void, ids};
 use tje_mem::{Revision, ram, rom};
 
 pub static BODIES: MainLoopBodies = MainLoopBodies {
@@ -37,7 +37,7 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
         ids::COPY_PALETTE_TO_CRAM_SLOT.metadata().address(revision),
     );
     ram::g_mode2_reg_softcopy(revision).write(context, 0x60);
-    call_at(
+    call_at_void(
         context,
         ids::DISABLE_BLANKING_GRAPHICS,
         &[],
@@ -45,44 +45,44 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
     )?;
     let dispatcher = context.dispatcher();
     let dma = OutgoingArguments::push(context, &[ram::g_frame_counter(revision).address(), 0, 1])?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::DMA_COPY_WORDS_TO_VRAM,
         site(revision, 0x30),
     )?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::MUSIC_RESTORE_INITIAL_STATE,
         site(revision, 0x36),
     )?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::INITIALISE_THE_Z80,
         site(revision, 0x3a),
     )?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::LOAD_SOUND_DRIVER_TO_Z80,
         site(revision, 0x40),
     )?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::MUSIC_UPDATE_SEQUENCER,
         site(revision, 0x46),
     )?;
-    dma.call(
+    dma.call_void(
         context,
         dispatcher,
         ids::ENABLE_ALL_INTERRUPTS,
         site(revision, 0x4c),
     )?;
     let wait = OutgoingArguments::push(context, &[1])?;
-    wait.call(
+    wait.call_void(
         context,
         dispatcher,
         ids::WAIT_FOR_NEXT_V_BLANK,
@@ -101,25 +101,25 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
         ids::STACK_BASED_RANDOM,
         site(revision, 0x76),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::PRE_GENERATE_RANDOMS,
         site(revision, 0x7c),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::CLEAR_COLOUR_RAM,
         site(revision, 0x82),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::CLEAR_VERTICAL_SCROLL_RAM,
         site(revision, 0x88),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::CLEAR_VIDEO_RAM,
@@ -130,7 +130,7 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
     let bytes = (i32::from(rom::font_data_size(revision).read(context)) as u32) << 4;
     let font =
         OutgoingArguments::push(context, &[rom::image_text_base(revision).address(), bytes])?;
-    font.call(
+    font.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -143,19 +143,19 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
         context,
         &[rom::img_starfield_large(revision).address(), bytes],
     )?;
-    starfield.call(
+    starfield.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
         site(revision, 0xce),
     )?;
-    starfield.call(
+    starfield.call_void(
         context,
         dispatcher,
         ids::TEXT_COPY_FONT_BANKS_TO_RAM,
         site(revision, 0xd4),
     )?;
-    starfield.call(
+    starfield.call_void(
         context,
         dispatcher,
         ids::SET_RAM_INDEXES,
@@ -201,7 +201,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     context.write_vdp_command(0x40000000);
     let bytes = (i32::from(rom::level_tiles_size(revision).read(context)) as u32) << 4;
     let level = OutgoingArguments::push(context, &[rom::level_tiles(revision).address(), bytes])?;
-    level.call(
+    level.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -214,7 +214,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context,
         &[rom::inventory_label_open(revision).address(), bytes],
     )?;
-    label.call(
+    label.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -227,7 +227,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context,
         &[rom::inventory_label_identify(revision).address(), bytes],
     )?;
-    label.call(
+    label.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -239,7 +239,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context,
         &[rom::hud_additional_tiles(revision).address(), 304],
     )?;
-    hud.call(
+    hud.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
@@ -251,19 +251,19 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         context,
         &[rom::hud_additional_tiles_small(revision).address(), 64],
     )?;
-    small_hud.call(
+    small_hud.call_void(
         context,
         dispatcher,
         ids::MOVE_DATA_TO_VRAM,
         site(revision, 0x17c),
     )?;
-    small_hud.call(
+    small_hud.call_void(
         context,
         dispatcher,
         ids::DRAW_STARFIELD_PLANE,
         site(revision, 0x180),
     )?;
-    small_hud.call(
+    small_hud.call_void(
         context,
         dispatcher,
         ids::LOAD_LEVEL1_TILES,
@@ -271,7 +271,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     )?;
     let palette1 =
         OutgoingArguments::push(context, &[rom::palette_game_line1(revision).address(), 0])?;
-    palette1.call(
+    palette1.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -279,7 +279,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     )?;
     let palette2 =
         OutgoingArguments::push(context, &[rom::palette_game_line2(revision).address(), 1])?;
-    palette2.call(
+    palette2.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -287,7 +287,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     )?;
     let palette3 =
         OutgoingArguments::push(context, &[rom::palette_game_line3(revision).address(), 2])?;
-    palette3.call(
+    palette3.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
@@ -295,40 +295,40 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     )?;
     let palette4 =
         OutgoingArguments::push(context, &[rom::palette_game_line4(revision).address(), 3])?;
-    palette4.call(
+    palette4.call_void(
         context,
         dispatcher,
         ids::COPY_PALETTE_TO_CRAM_SLOT,
         site(revision, 0x1b4),
     )?;
-    palette4.call(
+    palette4.call_void(
         context,
         dispatcher,
         ids::SETUP_PLAYER,
         site(revision, 0x1ba),
     )?;
-    palette4.call(
+    palette4.call_void(
         context,
         dispatcher,
         ids::SETUP_THE_MAIN_GAME,
         site(revision, 0x1c0),
     )?;
     let position = OutgoingArguments::push(context, &[2])?;
-    position.call(
+    position.call_void(
         context,
         dispatcher,
         ids::SET_POSITION_ON_NEW_LEVEL,
         site(revision, 0x1ca),
     )?;
     let attributes = OutgoingArguments::push(context, &[1])?;
-    attributes.call(
+    attributes.call_void(
         context,
         dispatcher,
         ids::SET_CAMERA_TILE_PRIORITY_ENABLED,
         site(revision, 0x1d4),
     )?;
     let split = OutgoingArguments::push(context, &[1])?;
-    split.call(
+    split.call_void(
         context,
         dispatcher,
         ids::UPDATE_SCREEN_SPLIT_MODE,
@@ -350,32 +350,32 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         ids::STACK_BASED_RANDOM,
         site(revision, 0x1fa),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::GENERATE_LEVEL_SEEDS,
         site(revision, 0x200),
     )?;
-    seed.call(context, dispatcher, ids::DRAW_HUD, site(revision, 0x206))?;
-    seed.call(
+    seed.call_void(context, dispatcher, ids::DRAW_HUD, site(revision, 0x206))?;
+    seed.call_void(
         context,
         dispatcher,
         ids::SETUP_INITIAL_ELEVATOR,
         site(revision, 0x20c),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::SETUP_INITIAL_INVENTORY,
         site(revision, 0x212),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::SETUP_INITIAL_EARTHLINGS,
         site(revision, 0x218),
     )?;
-    seed.call(
+    seed.call_void(
         context,
         dispatcher,
         ids::GET_PLAYER_INPUT,
@@ -400,7 +400,7 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     ram::g_camera2_pending_y(revision).write(context, y);
     let mode = super::views::set_display_and_publish(context);
     context.set_data_register(0, 0x8104 | u32::from(mode));
-    call_at(
+    call_at_void(
         context,
         ids::ENABLE_BLANKING_GRAPHICS,
         &[],
@@ -421,25 +421,25 @@ pub fn begin(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let dispatcher = context.dispatcher();
     if phase & 1 != 0 {
         let argument = OutgoingArguments::push(context, &[0])?;
-        argument.call(
+        argument.call_void(
             context,
             dispatcher,
             ids::UPDATE_SCREEN_SPLIT_MODE,
             site(revision, 0x276),
         )?;
-        argument.call(
+        argument.call_void(
             context,
             dispatcher,
             ids::UPDATE_CAMERA_FOLLOWING,
             site(revision, 0x27c),
         )?;
-        argument.call(
+        argument.call_void(
             context,
             dispatcher,
             ids::PROCESS_LAND,
             site(revision, 0x282),
         )?;
-        argument.call(
+        argument.call_void(
             context,
             dispatcher,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
@@ -447,28 +447,28 @@ pub fn begin(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
         )?;
         argument.release(context)?;
     } else {
-        call_at(
+        call_at_void(
             context,
             ids::BUILD_PENDING_CAMERA_TILES,
             &[],
             site(revision, 0x292),
         )?;
         if phase & 2 != 0 {
-            call_at(context, ids::PROCESS_EARTHLINGS, &[], site(revision, 0x29e))?;
-            call_at(
+            call_at_void(context, ids::PROCESS_EARTHLINGS, &[], site(revision, 0x29e))?;
+            call_at_void(
                 context,
                 ids::ELEVATOR_UPDATE_ENTITY_VISIBILITY,
                 &[],
                 site(revision, 0x2a4),
             )?;
-            call_at(context, ids::PROCESS_ELEVATORS, &[], site(revision, 0x2aa))?;
-            call_at(
+            call_at_void(context, ids::PROCESS_ELEVATORS, &[], site(revision, 0x2aa))?;
+            call_at_void(
                 context,
                 ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
                 &[],
                 site(revision, 0x2b0),
             )?;
-            call_at(
+            call_at_void(
                 context,
                 ids::PROCESS_TOMATO_RAIN,
                 &[],
@@ -476,32 +476,32 @@ pub fn begin(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
             )?;
         } else {
             let first = OutgoingArguments::push(context, &[0])?;
-            first.call(
+            first.call_void(
                 context,
                 dispatcher,
                 ids::UPDATE_LAND_AROUND_PLAYER,
                 site(revision, 0x2c0),
             )?;
             let second = OutgoingArguments::push(context, &[1])?;
-            second.call(
+            second.call_void(
                 context,
                 dispatcher,
                 ids::UPDATE_LAND_AROUND_PLAYER,
                 site(revision, 0x2ca),
             )?;
-            second.call(
+            second.call_void(
                 context,
                 dispatcher,
                 ids::PROCESS_INPUT,
                 site(revision, 0x2ce),
             )?;
-            second.call(
+            second.call_void(
                 context,
                 dispatcher,
                 ids::PROCESS_PLAYERS,
                 site(revision, 0x2d4),
             )?;
-            second.call(
+            second.call_void(
                 context,
                 dispatcher,
                 ids::UPDATE_ALL_ENTITY_SHADOWS,
@@ -510,20 +510,20 @@ pub fn begin(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
             second.release(context)?;
             first.release(context)?;
         }
-        call_at(context, ids::PROCESS_MOVEMENT, &[], site(revision, 0x2e2))?;
-        call_at(
+        call_at_void(context, ids::PROCESS_MOVEMENT, &[], site(revision, 0x2e2))?;
+        call_at_void(
             context,
             ids::UPDATE_ALL_ENTITY_VIEWPORT_SPRITES,
             &[],
             site(revision, 0x2e8),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::PROCESS_ENTITY_ANIMATION_MOTION,
             &[],
             site(revision, 0x2ee),
         )?;
-        call_at(
+        call_at_void(
             context,
             ids::UPDATE_SPEECH_AND_DIALOGUE,
             &[],

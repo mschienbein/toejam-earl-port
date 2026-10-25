@@ -1,5 +1,5 @@
 use super::decisions::next_cached_random;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram};
 
 fn active_player_motion(context: &dyn Context, player: Address<ObjectState>) -> bool {
@@ -42,7 +42,7 @@ pub fn santa_logic(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
             santa
                 .draw_flags()
                 .write(context, santa.draw_flags().read(context) | 0x40);
-            call(context, ids::PLAY_SOUND, &[5, 94])?;
+            call_void(context, ids::PLAY_SOUND, &[5, 94])?;
         }
     } else if i16::from(earthling.state().read(context)) & 252 == 4 {
         if santa.height().read(context) > 20
@@ -86,7 +86,7 @@ pub fn santa_logic(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
         }
         if santa.draw_flags().read(context) & 6 == 0 {
             loop {
-                call(
+                call_void(
                     context,
                     ids::EARTHLING_RELOCATE_RECORD,
                     &[earthling.address()],
@@ -110,7 +110,7 @@ pub fn santa_logic(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
             if toejam.animation_group_mask().read(context) & 0x0780_0000 == 0
                 && earl.animation_group_mask().read(context) & 0x0780_0000 == 0
             {
-                call(context, ids::PLAY_SOUND, &[6, 99])?;
+                call_void(context, ids::PLAY_SOUND, &[6, 99])?;
             }
         }
     } else if earthling.state().read(context) == 1 {
@@ -148,7 +148,7 @@ pub fn santa_logic(context: &mut dyn Context, arguments: &[u32]) -> Result<Optio
         }
     }
     if next != -1 {
-        call(
+        call_void(
             context,
             ids::SET_EARTHLING_STATE,
             &[earthling.address(), next as u32],

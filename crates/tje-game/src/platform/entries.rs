@@ -1,6 +1,6 @@
 //! Reset and exception entry prefixes; completion is an explicit non-RTS event.
 use crate::{
-    Context, Result, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame},
     execution::{WaitCondition, WaitRequest},
     exits, ids,
@@ -35,7 +35,7 @@ fn write_device_long(context: &mut dyn Context, address: u32, value: u32) {
 pub fn level6_isr(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0xff, 0x7f))?;
     let site = CallSite::relative(ids::LEVEL6_ISR, context.revision(), 10);
-    call_at(context, ids::HANDLE_V_BLANK, &[], site)?;
+    call_at_void(context, ids::HANDLE_V_BLANK, &[], site)?;
     frame.leave(context)?;
     exits::exception_return(ids::LEVEL6_ISR)
 }
@@ -45,7 +45,7 @@ pub fn level6_isr(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
 pub fn level4_isr(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x03, 0x03))?;
     let site = CallSite::relative(ids::LEVEL4_ISR, context.revision(), 10);
-    call_at(context, ids::HANDLE_H_BLANK, &[], site)?;
+    call_at_void(context, ids::HANDLE_H_BLANK, &[], site)?;
     frame.leave(context)?;
     exits::exception_return(ids::LEVEL4_ISR)
 }
@@ -54,7 +54,7 @@ pub fn level4_isr(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
 /// the user's ROM vector SP, and tail-transfer to START without unwinding a caller.
 pub fn restart_from_reset_entry(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let site = CallSite::relative(ids::RESTART_FROM_RESET_ENTRY, context.revision(), 4);
-    call_at(context, ids::DISABLE_ALL_INTERRUPTS, &[], site)?;
+    call_at_void(context, ids::DISABLE_ALL_INTERRUPTS, &[], site)?;
     let vector = rom_symbol(context.revision(), "StartOfRom").expect("catalogued reset vectors");
     let initial_sp = context.read_u32(vector.address);
     context.set_stack_pointer(initial_sp)?;
@@ -70,7 +70,7 @@ pub fn game_program(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>>
     let status = context.read_vdp_status(source)?;
     test_flags(context, u32::from(status), 0x8000);
     let site = CallSite::relative(ids::GAME_PROGRAM, context.revision(), 10);
-    call_at(context, ids::DISABLE_ALL_INTERRUPTS, &[], site)?;
+    call_at_void(context, ids::DISABLE_ALL_INTERRUPTS, &[], site)?;
     let mut destination = ram::g_work_ram_start(context.revision()).address();
     for _ in 0..0x4000 {
         context.write_u32(destination, 0);

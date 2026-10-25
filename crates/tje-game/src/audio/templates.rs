@@ -1,9 +1,9 @@
 //! Original song-template copies and restart decisions.
 
 use crate::{
-    Context, Result, call, call_at,
+    Context, Result, call_at_void,
     call_frame::{CallSite, FrameError},
-    ids,
+    call_void, ids,
 };
 use tje_mem::{Address, ram, rom};
 
@@ -23,8 +23,8 @@ pub fn music_load_song_channel_templates(
     context: &mut dyn Context,
     arguments: &[u32],
 ) -> Result<Option<u32>> {
-    call(context, ids::AUDIO_RELEASE_ALL_FM_CHANNELS, &[])?;
-    call(context, ids::MUSIC_RESTORE_INITIAL_STATE, &[])?;
+    call_void(context, ids::AUDIO_RELEASE_ALL_FM_CHANNELS, &[])?;
+    call_void(context, ids::MUSIC_RESTORE_INITIAL_STATE, &[])?;
     let revision = context.revision();
     let mut source = rom::song_channel_templates(revision)
         .at(i32::from(arguments[0] as u16))
@@ -75,7 +75,7 @@ pub fn music_select_song_template_bank(
         slot.write(context, value);
     }
     let selection = frame.argument_slot(0).read(context);
-    call(
+    call_void(
         context,
         ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
         &[selection],
@@ -113,7 +113,7 @@ pub fn music_process_template_restart_hook(
             // MOVE.L D0,-(SP) supplies N/Z before BSR; ADDQ to SP leaves CCR.
             let argument = context.data_register(0);
             nz(context, argument, 32);
-            call_at(
+            call_at_void(
                 context,
                 ids::MUSIC_SELECT_SONG_TEMPLATE_BANK,
                 &[argument],
@@ -132,7 +132,7 @@ pub fn music_process_template_restart_hook(
         move_byte(context, 0, next);
         let argument = context.data_register(0);
         nz(context, argument, 32);
-        call_at(
+        call_at_void(
             context,
             ids::MUSIC_LOAD_SONG_CHANNEL_TEMPLATES,
             &[argument],

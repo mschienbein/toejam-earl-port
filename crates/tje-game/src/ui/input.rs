@@ -28,13 +28,13 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
     let caller = ids::RANDOMIZE_PRESENTS;
     let dispatcher = context.dispatcher();
     let mut close_other = false;
-    frame::call(context, caller, ids::SETUP_PRESENT_IDENTITIES, 0x16)?;
+    frame::call_void(context, caller, ids::SETUP_PRESENT_IDENTITIES, 0x16)?;
     let initial_refresh = {
         let argument = player as u32;
         frame::push_move(context, argument)?;
         OutgoingArguments::existing(context, 1)?
     };
-    initial_refresh.call(
+    initial_refresh.call_void(
         context,
         dispatcher,
         ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
@@ -53,7 +53,7 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
                 frame::push_move(context, (player ^ 1) as u32)?;
                 OutgoingArguments::existing(context, 2)?
             };
-            draw.call(
+            draw.call_void(
                 context,
                 dispatcher,
                 ids::DRAW_INVENTORY,
@@ -62,10 +62,8 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
             {
                 let argument = (player ^ 1) as u32;
                 frame::push_move(context, argument)?;
-                let returned =
-                    frame::call(context, caller, ids::INVENTORY_UPDATE_SELECTOR_ENTITY, 0x5c)?;
+                frame::call_void(context, caller, ids::INVENTORY_UPDATE_SELECTOR_ENTITY, 0x5c)?;
                 frame::release(context, 4)?;
-                returned
             };
             draw.release(context)?;
             close_other = true;
@@ -74,14 +72,13 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
             {
                 let argument = (player ^ 1) as u32;
                 frame::push_move(context, argument)?;
-                let returned = frame::call(
+                frame::call_void(
                     context,
                     caller,
                     ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                     0x70,
                 )?;
                 frame::release(context, 4)?;
-                returned
             };
         }
     }
@@ -102,25 +99,24 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
         frame::push_pea(context, second)?;
         let first = sound;
         frame::push_move(context, first)?;
-        let returned = frame::call(context, caller, ids::PLAY_SOUND_EFFECT, 0x9e)?;
+        frame::call_void(context, caller, ids::PLAY_SOUND_EFFECT, 0x9e)?;
         frame::release(context, 12)?;
-        returned
     };
     context.set_data_register(3, context.data_register(3) & 0xffff0000);
     for frame in 0..60 {
-        frame::call(context, caller, ids::RANDOMIZE_INVENTORY, 0xa8)?;
+        frame::call_void(context, caller, ids::RANDOMIZE_INVENTORY, 0xa8)?;
         let own = {
             let argument = player as u32;
             frame::push_move(context, argument)?;
             OutgoingArguments::existing(context, 1)?
         };
-        own.call(
+        own.call_void(
             context,
             dispatcher,
             ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
             CallSite::relative(caller, revision, 0xac),
         )?;
-        OutgoingArguments::existing(context, 0)?.call(
+        OutgoingArguments::existing(context, 0)?.call_void(
             context,
             dispatcher,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
@@ -131,13 +127,13 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
             frame::push_move(context, argument)?;
             OutgoingArguments::existing(context, 1)?
         };
-        other.call(
+        other.call_void(
             context,
             dispatcher,
             ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
             CallSite::relative(caller, revision, 0xbc),
         )?;
-        OutgoingArguments::existing(context, 0)?.call(
+        OutgoingArguments::existing(context, 0)?.call_void(
             context,
             dispatcher,
             ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
@@ -148,7 +144,7 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
             frame::push_move(context, argument)?;
             OutgoingArguments::existing(context, 1)?
         };
-        wait.call(
+        wait.call_void(
             context,
             dispatcher,
             ids::WAIT_FOR_NEXT_V_BLANK,
@@ -159,7 +155,7 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
             frame::push_pea(context, 7)?;
             OutgoingArguments::existing(context, 2)?
         };
-        sound.call(
+        sound.call_void(
             context,
             dispatcher,
             ids::PLAY_SOUND,
@@ -176,7 +172,7 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
     }
     context.discard_u8(ram::g_inventory_labels_suppressed(revision).address())?;
     ram::g_inventory_labels_suppressed(revision).write(context, 0);
-    frame::call(
+    frame::call_void(
         context,
         caller,
         ids::PRESENT_CLEAR_WORLD_ENTITY_READINESS,
@@ -187,9 +183,8 @@ fn randomize_presents_inner(context: &mut dyn Context, player: i32) -> Result<Op
         {
             let argument = (player ^ 1) as u32;
             frame::push_move(context, argument)?;
-            let returned = frame::call(context, caller, ids::TOGGLE_INVENTORY, 0x10a)?;
+            frame::call_void(context, caller, ids::TOGGLE_INVENTORY, 0x10a)?;
             frame::release(context, 4)?;
-            returned
         };
     }
     Ok(None)
@@ -230,9 +225,8 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                 {
                     let argument = player as u32;
                     frame::push_move(context, argument)?;
-                    let returned = frame::call(context, caller, ids::TOGGLE_INVENTORY, 0x80)?;
+                    frame::call_void(context, caller, ids::TOGGLE_INVENTORY, 0x80)?;
                     frame::release(context, 4)?;
-                    returned
                 };
                 return Ok(None);
             }
@@ -254,7 +248,7 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                         frame::push_move(context, player as u32)?;
                         OutgoingArguments::existing(context, 2)?
                     };
-                    banner_arguments.call(
+                    banner_arguments.call_void(
                         context,
                         dispatcher,
                         ids::INVENTORY_DRAW_ACTION_BANNER,
@@ -265,9 +259,8 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                         frame::push_pea(context, second)?;
                         let first = 7;
                         frame::push_pea(context, first)?;
-                        let returned = frame::call(context, caller, ids::PLAY_SOUND, 0xfc)?;
+                        frame::call_void(context, caller, ids::PLAY_SOUND, 0xfc)?;
                         frame::release(context, 8)?;
-                        returned
                     };
                     banner_arguments.release(context)?;
                     blanked.release(context)?;
@@ -278,7 +271,7 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                             frame::push_move(context, argument)?;
                             OutgoingArguments::existing(context, 1)?
                         };
-                        toggle.call(
+                        toggle.call_void(
                             context,
                             dispatcher,
                             ids::TOGGLE_INVENTORY,
@@ -287,14 +280,13 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                         {
                             let argument = player as u32;
                             frame::push_move(context, argument)?;
-                            let returned = frame::call(
+                            frame::call_void(
                                 context,
                                 caller,
                                 ids::INVENTORY_BUY_SELECTED_MAIL_ORDER_PRESENT,
                                 0x146,
                             )?;
                             frame::release(context, 4)?;
-                            returned
                         };
                         toggle.release(context)?;
                     } else if inventory.read(context) == 3 {
@@ -316,7 +308,7 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                                 frame::push_move(context, argument)?;
                                 OutgoingArguments::existing(context, 1)?
                             };
-                            refresh.call(
+                            refresh.call_void(
                                 context,
                                 dispatcher,
                                 ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
@@ -331,14 +323,13 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                                 {
                                     let argument = (player ^ 1) as u32;
                                     frame::push_move(context, argument)?;
-                                    let returned = frame::call(
+                                    frame::call_void(
                                         context,
                                         caller,
                                         ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                                         0x196,
                                     )?;
                                     frame::release(context, 4)?;
-                                    returned
                                 };
                             }
                         }
@@ -352,7 +343,7 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                             frame::push_move(context, argument)?;
                             OutgoingArguments::existing(context, 1)?
                         };
-                        drop.call(
+                        drop.call_void(
                             context,
                             dispatcher,
                             ids::INVENTORY_DROP_SELECTED_PRESENT,
@@ -361,14 +352,13 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                         {
                             let argument = player as u32;
                             frame::push_move(context, argument)?;
-                            let returned = frame::call(
+                            frame::call_void(
                                 context,
                                 caller,
                                 ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                                 0x1c0,
                             )?;
                             frame::release(context, 4)?;
-                            returned
                         };
                         drop.release(context)?;
                     } else {
@@ -391,19 +381,15 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                             {
                                 let argument = player as u32;
                                 frame::push_move(context, argument)?;
-                                let returned =
-                                    frame::call(context, caller, ids::RANDOMIZE_PRESENTS, 0x1f4)?;
+                                frame::call_void(context, caller, ids::RANDOMIZE_PRESENTS, 0x1f4)?;
                                 frame::release(context, 4)?;
-                                returned
                             };
                         } else {
                             {
                                 let argument = player as u32;
                                 frame::push_move(context, argument)?;
-                                let returned =
-                                    frame::call(context, caller, ids::TOGGLE_INVENTORY, 0x204)?;
+                                frame::call_void(context, caller, ids::TOGGLE_INVENTORY, 0x204)?;
                                 frame::release(context, 4)?;
-                                returned
                             };
                             Address::<i16>::new(context.address_register(6).wrapping_sub(4))
                                 .offset(player)
@@ -423,14 +409,13 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                             {
                                 let argument = player as u32;
                                 frame::push_move(context, argument)?;
-                                let returned = frame::call(
+                                frame::call_void(
                                     context,
                                     caller,
                                     ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                                     0x29a,
                                 )?;
                                 frame::release(context, 4)?;
-                                returned
                             };
                         }
                     } else if input.read(context) & 2 != 0 {
@@ -450,14 +435,13 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                                 {
                                     let argument = player as u32;
                                     frame::push_move(context, argument)?;
-                                    let returned = frame::call(
+                                    frame::call_void(
                                         context,
                                         caller,
                                         ids::INVENTORY_REFRESH_CONTENTS_AND_WAIT,
                                         0x29a,
                                     )?;
                                     frame::release(context, 4)?;
-                                    returned
                                 };
                             }
                         }
@@ -471,23 +455,21 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                         frame::push_pea(context, second)?;
                         let first = 7;
                         frame::push_pea(context, first)?;
-                        let returned = frame::call(context, caller, ids::PLAY_SOUND, 0x344)?;
+                        frame::call_void(context, caller, ids::PLAY_SOUND, 0x344)?;
                         frame::release(context, 8)?;
-                        returned
                     };
                 }
                 if inventory.read(context) != 0 {
                     {
                         let argument = player as u32;
                         frame::push_move(context, argument)?;
-                        let returned = frame::call(
+                        frame::call_void(
                             context,
                             caller,
                             ids::INVENTORY_UPDATE_SELECTOR_ENTITY,
                             0x35a,
                         )?;
                         frame::release(context, 4)?;
-                        returned
                     };
                 }
                 if Address::<i16>::new(context.address_register(6).wrapping_sub(4))
@@ -504,7 +486,7 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
         context.set_data_register(2, residue);
         let opening_pointer = context.address_register(6).wrapping_sub(4);
         frame::push_pea(context, opening_pointer)?;
-        frame::call(context, caller, ids::CHECK_IF_OPEN_FOR_BOTH, 0x37c)?;
+        frame::call_void(context, caller, ids::CHECK_IF_OPEN_FOR_BOTH, 0x37c)?;
         frame::release(context, 4)?;
         if ram::g_pending_unfall_player(revision).read(context) != 0 {
             let player =
@@ -519,22 +501,20 @@ pub fn process_inventory(context: &mut dyn Context) -> Result<Option<u32>> {
                 {
                     let argument = (player ^ 1) as u32;
                     frame::push_move(context, argument)?;
-                    let returned = frame::call(context, caller, ids::TOGGLE_INVENTORY, 0x3ac)?;
+                    frame::call_void(context, caller, ids::TOGGLE_INVENTORY, 0x3ac)?;
                     frame::release(context, 4)?;
-                    returned
                 };
             }
             {
                 let argument = player as u32;
                 frame::push_move(context, argument)?;
-                let returned = frame::call(
+                frame::call_void(
                     context,
                     caller,
                     ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
                     0x3ba,
                 )?;
                 frame::release(context, 4)?;
-                returned
             };
             context.discard_u8(ram::g_pending_unfall_player(revision).address())?;
             ram::g_pending_unfall_player(revision).write(context, 0);
@@ -552,7 +532,7 @@ pub fn check_b_button(context: &mut dyn Context) -> Result<Option<u32>> {
     let caller = ids::CHECK_B_BUTTON;
     context.set_address_register(2, ram::g_player_inventory_open(revision).address());
     let result = (|| -> Result<Option<u32>> {
-        frame::call(context, caller, ids::PROCESS_INVENTORY, 0xe)?;
+        frame::call_void(context, caller, ids::PROCESS_INVENTORY, 0xe)?;
         let inventories = ram::g_player_inventory_open(revision);
         if (inventories.at(0).read(context) != 0 || inventories.at(1).read(context) != 0)
             && ram::g_split_screen_enabled(revision).read(context) == 0
@@ -567,19 +547,17 @@ pub fn check_b_button(context: &mut dyn Context) -> Result<Option<u32>> {
                 context.set_data_register(1, 3);
 
                 if remainder == 0 {
-                    frame::call(context, caller, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, 0x46)?;
+                    frame::call_void(context, caller, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, 0x46)?;
                 } else {
                     {
                         let argument = 1;
                         frame::push_pea(context, argument)?;
-                        let returned =
-                            frame::call(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x52)?;
+                        frame::call_void(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x52)?;
                         frame::release(context, 4)?;
-                        returned
                     };
                 }
-                frame::call(context, caller, ids::GET_PLAYER_INPUT, 0x5a)?;
-                frame::call(context, caller, ids::PROCESS_INVENTORY, 0x5e)?;
+                frame::call_void(context, caller, ids::GET_PLAYER_INPUT, 0x5a)?;
+                frame::call_void(context, caller, ids::PROCESS_INVENTORY, 0x5e)?;
             }
         }
         Ok(None)
@@ -623,9 +601,8 @@ fn open_special_inventory(context: &mut dyn Context, menu: u32) -> Result<Option
             frame::push_pea(context, second)?;
             let first = i32::from(player) as u32;
             frame::push_move(context, first)?;
-            let returned = frame::call(context, caller, ids::DRAW_INVENTORY, 0x14)?;
+            frame::call_void(context, caller, ids::DRAW_INVENTORY, 0x14)?;
             frame::release(context, 8)?;
-            returned
         };
         ram::g_player_processed_input(revision)
             .at(i32::from(player))
@@ -633,7 +610,7 @@ fn open_special_inventory(context: &mut dyn Context, menu: u32) -> Result<Option
         ram::g_player_previous_processed_input(revision)
             .at(i32::from(player))
             .write(context, 0x40);
-        frame::call(context, caller, ids::CHECK_B_BUTTON, 0x3a)?;
+        frame::call_void(context, caller, ids::CHECK_B_BUTTON, 0x3a)?;
         Ok(None)
     })();
     let result = result.map_err(|error| context.protect_timing_failure(error));

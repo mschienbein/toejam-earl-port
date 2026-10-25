@@ -1,5 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
-use crate::{Context, FunctionId, Result, call, call_at, ids};
+use crate::{Context, FunctionId, Result, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, LevelItem, ram, rom};
 
 /// G/src/presents/item_updates.c:116 (`PresentReleaseDroppedEntities`).
@@ -13,7 +13,7 @@ pub fn present_release_dropped_entities(
         let item = items.at(index);
         let number = item.object().read(context);
         if number != 0 {
-            call(context, ids::FREE_ENTITY, &[number as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[number as u32])?;
             item.object().write(context, 0);
         }
     }
@@ -84,7 +84,7 @@ fn reduce_timer_body(context: &mut dyn Context) -> Result<Option<u32>> {
             != 0
         {
             if icon.y().read(context) == 1 {
-                item_call(
+                item_call_void(
                     context,
                     caller,
                     ids::HUD_POSITION_ACTION_ICON_SPRITE,
@@ -110,7 +110,7 @@ fn reduce_timer_body(context: &mut dyn Context) -> Result<Option<u32>> {
                 timer_show_nonzero(context, timer)
             };
             if show {
-                item_call(
+                item_call_void(
                     context,
                     caller,
                     ids::HUD_POSITION_ACTION_ICON_SPRITE,
@@ -205,7 +205,7 @@ fn collect_items_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
                                 &[1, 50],
                                 0x112,
                             )?;
-                            let clear = item_call(
+                            let clear = item_call_void(
                                 context,
                                 caller,
                                 ids::EARTHLING_CLEAR_MOLE_PLAYER_CONTACT_FLAGS,
@@ -254,7 +254,7 @@ fn collect_items_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
                     if item.kind().read(context) == 80 {
                         let bucks = ram::g_player_bucks(revision).at(index);
                         bucks.write(context, bucks.read(context).wrapping_add(1));
-                        item_call(
+                        item_call_void(
                             context,
                             caller,
                             ids::PLAY_SOUND_EFFECT,
@@ -289,7 +289,7 @@ fn collect_items_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
                                 &[index as u32, text, 1],
                                 0x1e6,
                             )?;
-                            let sound = item_call(
+                            let sound = item_call_void(
                                 context,
                                 caller,
                                 ids::PLAY_SOUND_EFFECT,
@@ -308,7 +308,7 @@ fn collect_items_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
                         } else {
                             health.write(context, health.read(context).wrapping_add(amount as i8));
                             if amount > 0 {
-                                item_call(
+                                item_call_void(
                                     context,
                                     caller,
                                     ids::PLAY_SOUND_EFFECT,
@@ -316,7 +316,7 @@ fn collect_items_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
                                     0x192,
                                 )?;
                             } else {
-                                item_call(context, caller, ids::PLAY_SOUND, &[18, 40], 0x230)?;
+                                item_call_void(context, caller, ids::PLAY_SOUND, &[18, 40], 0x230)?;
                             }
                         }
                     }
@@ -374,7 +374,7 @@ fn map_items_body(context: &mut dyn Context) -> Result<Option<u32>> {
     }
     for (bank, site) in [(0, 0x30), (1, 0x46)] {
         if ram::g_item_bank_users(revision).at(bank).read(context) != 0 {
-            item_call(
+            item_call_void(
                 context,
                 caller,
                 ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
@@ -383,7 +383,7 @@ fn map_items_body(context: &mut dyn Context) -> Result<Option<u32>> {
             )?;
         }
     }
-    item_call(
+    item_call_void(
         context,
         caller,
         ids::ENTITY_UPDATE_LEVEL_ITEM_VISIBILITY,
@@ -409,7 +409,7 @@ fn map_items_body(context: &mut dyn Context) -> Result<Option<u32>> {
                 )?;
                 // The pickup's four argument slots remain below the hazard's
                 // two slots until LEA 24(SP),SP after both calls (s:979-991).
-                let hurt = item_call(
+                let hurt = item_call_void(
                     context,
                     caller,
                     ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
@@ -425,7 +425,7 @@ fn map_items_body(context: &mut dyn Context) -> Result<Option<u32>> {
                 pickup.release(context)?;
                 hurt?;
             }
-            item_call(
+            item_call_void(
                 context,
                 caller,
                 ids::PLAYER_COLLECT_NEARBY_ITEMS,
@@ -439,12 +439,12 @@ fn map_items_body(context: &mut dyn Context) -> Result<Option<u32>> {
             )?;
         }
     }
-    item_call(context, caller, ids::REDUCE_PRESENT_TIMER, &[], 0x112)?;
-    item_call(context, caller, ids::PROCESS_PRESENTS, &[], 0x118)?;
+    item_call_void(context, caller, ids::REDUCE_PRESENT_TIMER, &[], 0x112)?;
+    item_call_void(context, caller, ids::PROCESS_PRESENTS, &[], 0x118)?;
     let level = ram::g_player1_map_level(revision).read(context);
     super::expiry::compare(context, u32::from(level as u8), 26, 8);
     if level == 26 {
-        item_call(
+        item_call_void(
             context,
             caller,
             ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
@@ -547,7 +547,12 @@ fn item_retained_call(
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let dispatcher = context.dispatcher();
     let site = CallSite::relative(caller, context.revision(), return_offset);
-    if let Err(error) = outgoing.call(context, dispatcher, callee, site) {
+    let result = if callee.metadata().abi.returns_value {
+        outgoing.call(context, dispatcher, callee, site).map(|_| ())
+    } else {
+        outgoing.call_void(context, dispatcher, callee, site)
+    };
+    if let Err(error) = result {
         if !error.preserves_call_frame() {
             outgoing.release(context)?;
         }
@@ -565,6 +570,17 @@ fn item_call(
 ) -> Result<u32> {
     let site = CallSite::relative(caller, context.revision(), return_offset);
     call_at(context, callee, arguments, site)
+}
+
+fn item_call_void(
+    context: &mut dyn Context,
+    caller: FunctionId,
+    callee: FunctionId,
+    arguments: &[u32],
+    return_offset: u32,
+) -> Result<()> {
+    let site = CallSite::relative(caller, context.revision(), return_offset);
+    call_at_void(context, callee, arguments, site)
 }
 
 #[cfg(test)]

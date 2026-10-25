@@ -128,7 +128,7 @@ fn choose_direction(
         vy.read(context) as u32,
         mode.read(context) as u32,
     ];
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,
         ids::PLAYER_APPLY_DIRECTIONAL_MOVEMENT_ANIMATION,
@@ -175,7 +175,7 @@ fn sprite_checks_body(
         if ticks.read(context) > 0 {
             ticks.write(context, ticks.read(context).wrapping_sub(1));
         } else {
-            super::frames::call_from(
+            super::frames::call_from_void(
                 context,
                 ids::SPRITE_CHECKS,
                 ids::SET_SPRITE,
@@ -259,7 +259,7 @@ fn sprite_checks_body(
         player.velocity_x().write(context, 0);
         player.velocity_y().write(context, 0);
     }
-    super::frames::call_from(
+    super::frames::call_from_void(
         context,
         ids::SPRITE_CHECKS,
         ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT,

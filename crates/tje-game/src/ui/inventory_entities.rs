@@ -1,5 +1,5 @@
 use super::entities::entity;
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call_void, ids};
 use tje_mem::ram;
 
 /// G/src/ui/inventory.c:855 (`InventoryDeactivateDisplayEntities`).
@@ -20,7 +20,7 @@ pub fn inventory_deactivate_display_entities(
     };
     for index in first..first + 7 {
         let object = entity(context, index);
-        call(
+        call_void(
             context,
             ids::RELEASE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), viewport],

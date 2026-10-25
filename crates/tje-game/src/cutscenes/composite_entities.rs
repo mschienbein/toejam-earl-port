@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Ptr, ram, rom};
 
 /// G/src/cutscenes/composite_entities.c:33 (`EndingCreatePoseComposite`).
@@ -32,7 +32,7 @@ pub fn ending_create_pose_composite(context: &mut dyn Context, _: &[u32]) -> Res
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -74,7 +74,7 @@ pub fn ending_create_six_piece_composite(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -117,7 +117,7 @@ pub fn ending_create_right_offset_composite(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -158,7 +158,7 @@ pub fn intro_create_falling_rocketship(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 6);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -203,7 +203,7 @@ pub fn ending_create_elevated_three_piece_composite(
         object.frame_duration().write(context, 1);
         object.frame().write(context, -1);
         object.frame_phase().write(context, 4);
-        call(
+        call_void(
             context,
             ids::ALLOCATE_ENTITY_VIEWPORT_SPRITES,
             &[object.address(), 0],
@@ -262,7 +262,7 @@ pub fn ending_release_elevated_three_piece_composite(
 fn release_composite(context: &mut dyn Context, slot: tje_mem::Address<u8>) -> Result<Option<u32>> {
     if slot.read(context) != 0 {
         let handle = slot.read(context);
-        call(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
+        call_void(context, ids::FREE_ENTITY, &[u32::from(handle)])?;
     }
     slot.write(context, 0);
     Ok(None)

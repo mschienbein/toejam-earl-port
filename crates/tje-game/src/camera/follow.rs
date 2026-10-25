@@ -224,7 +224,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
         ],
     )?;
     // JSR d16(PC) at 0x29d2/0x29ee, four-byte instructions in both revisions.
-    primary.call(
+    primary.call_void(
         context,
         dispatcher,
         ids::GET_PLAYER_CAMERA_VELOCITY,
@@ -240,7 +240,7 @@ fn following_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<()> {
             i32::from(secondary_y) as u32,
         ],
     )?;
-    secondary.call(
+    secondary.call_void(
         context,
         dispatcher,
         ids::GET_PLAYER_CAMERA_VELOCITY,

@@ -1,4 +1,4 @@
-use crate::{Context, Result, call, ids};
+use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, ObjectState, Ptr, Revision, ram, rom};
 
 /// G/src/player/sleep.c:34 (`ProcessSleep`). REV 02 alone excludes active choices
@@ -41,7 +41,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
                 false
             };
             if finished || wake.frame_duration().read(context) == 0 {
-                call(context, ids::FREE_ENTITY, &[effect as u32])?;
+                call_void(context, ids::FREE_ENTITY, &[effect as u32])?;
                 handle.write(context, 0);
                 if left.read(context) == 0 {
                     next_sprite =
@@ -78,7 +78,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
                     let sequence = rom::wake_whisper_animation_streams(revision)
                         .at(if left.read(context) & 1 != 0 { 0 } else { 2 });
                     wake.sequence().write(context, Ptr::new(sequence.address()));
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_wake_up_whisper(revision).address(), 50, 0],
@@ -88,7 +88,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
                         .write(context, animation.sequence().read(context));
                     wake.frame_phase()
                         .write(context, animation.period().read(context));
-                    call(
+                    call_void(
                         context,
                         ids::PLAY_SOUND_EFFECT,
                         &[rom::sfx_wake_up_shout(revision).address(), 88, 0],
@@ -97,7 +97,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
                 }
             }
         } else if ram::g_pcm_effect_cooldown_ticks(revision).read(context) == 0 {
-            call(
+            call_void(
                 context,
                 ids::PLAY_SOUND_EFFECT,
                 &[rom::sfx_snoring(revision).address(), 30, 0],
@@ -109,7 +109,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
     } else {
         let effect = handle.read(context);
         if effect != 0 {
-            call(context, ids::FREE_ENTITY, &[effect as u32])?;
+            call_void(context, ids::FREE_ENTITY, &[effect as u32])?;
             handle.write(context, 0);
         }
         if state.sprite_state().read(context) == 0
@@ -130,7 +130,7 @@ pub(super) fn process_sleep(context: &mut dyn Context, arguments: &[u32]) -> Res
         }
     }
     if next_sprite != -1 {
-        call(
+        call_void(
             context,
             ids::SET_SPRITE,
             &[state.address(), next_sprite as u32],

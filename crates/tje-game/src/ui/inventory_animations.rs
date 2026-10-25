@@ -38,10 +38,8 @@ fn entity_clear_viewport_sprites_inner(
                 frame::push_move(context, second)?;
                 let first = object.address();
                 frame::push_move(context, first)?;
-                let returned =
-                    frame::call(context, caller, ids::RELEASE_ENTITY_VIEWPORT_SPRITES, 0x44)?;
+                frame::call_void(context, caller, ids::RELEASE_ENTITY_VIEWPORT_SPRITES, 0x44)?;
                 frame::release(context, 8)?;
-                returned
             };
         }
         context.set_data_register(
@@ -58,13 +56,13 @@ fn entity_clear_viewport_sprites_inner(
         frame::push_move(context, argument)?;
         OutgoingArguments::existing(context, 1)?
     };
-    head_argument.call(
+    head_argument.call_void(
         context,
         dispatcher,
         ids::POSITION_ENTITY_SPRITES,
         CallSite::relative(caller, revision, 0x5e),
     )?;
-    OutgoingArguments::existing(context, 0)?.call(
+    OutgoingArguments::existing(context, 0)?.call_void(
         context,
         dispatcher,
         ids::BUILD_VIEWPORT_SPRITE_LINKS,
@@ -75,9 +73,8 @@ fn entity_clear_viewport_sprites_inner(
     {
         let argument = 1;
         frame::push_pea(context, argument)?;
-        let returned = frame::call(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x78)?;
+        frame::call_void(context, caller, ids::WAIT_FOR_NEXT_V_BLANK, 0x78)?;
         frame::release(context, 4)?;
-        returned
     };
     Ok(None)
 }

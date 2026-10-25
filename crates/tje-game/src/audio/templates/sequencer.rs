@@ -5,7 +5,7 @@ use super::registers::{
     subtract_byte, subtract_word,
 };
 use crate::{
-    Context, Error, FunctionId, Result, call_at,
+    Context, Error, FunctionId, Result, call_at_void,
     call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments},
     function_at, ids,
 };
@@ -74,7 +74,7 @@ fn service(context: &mut dyn Context, id: FunctionId, return_offset: u32) -> Res
         context.revision(),
         return_offset,
     );
-    call_at(context, id, &[], site)?;
+    call_at_void(context, id, &[], site)?;
     Ok(())
 }
 
@@ -151,7 +151,7 @@ fn tick_and_callback(context: &mut dyn Context) -> Result<()> {
         let outgoing = OutgoingArguments::push(context, &saved)?;
         let dispatcher = context.dispatcher();
         let site = CallSite::relative(ids::MUSIC_UPDATE_SEQUENCER, context.revision(), 0x2ea);
-        outgoing.call(context, dispatcher, id, site)?;
+        outgoing.call_void(context, dispatcher, id, site)?;
         let restored = outgoing.argument_slot(0).read(context);
         move_long(context, 0, restored);
         context.set_address_register(0, outgoing.argument_slot(1).read(context));
@@ -358,7 +358,7 @@ fn execute_commands(context: &mut dyn Context) -> Result<()> {
                     context.revision(),
                     return_offset,
                 );
-                call_at(
+                call_at_void(
                     context,
                     ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
                     &[sample],

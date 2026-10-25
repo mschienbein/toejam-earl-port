@@ -1,4 +1,4 @@
-use crate::{Context, FunctionId, Result, call, function_at, ids};
+use crate::{Context, FunctionId, Result, call_void, function_at, ids};
 use tje_mem::{Address, EarthlingState, ram, rom};
 
 fn callback(
@@ -12,7 +12,7 @@ fn callback(
         crate::Error::Platform(format!("unknown Earthling callback {address:08x}"))
     })?;
     context.set_address_register(0, address);
-    super::framed::invoke(context, caller, id, arguments, return_rev02)?;
+    super::framed::invoke_void(context, caller, id, arguments, return_rev02)?;
     Ok(())
 }
 
@@ -82,7 +82,7 @@ pub fn load_in_earthlings(context: &mut dyn Context, arguments: &[u32]) -> Resul
         }
         if visibility.read(context) & 6 != 0 {
             if earthling.object().read(context) == 0 {
-                call(
+                call_void(
                     context,
                     ids::EARTHLING_ALLOCATE_ENTITIES,
                     &[earthling.address()],
@@ -91,12 +91,12 @@ pub fn load_in_earthlings(context: &mut dyn Context, arguments: &[u32]) -> Resul
         } else {
             if earthling.object().read(context) != 0 {
                 let object = earthling.object().read(context) as u32;
-                call(context, ids::FREE_ENTITY, &[object])?;
+                call_void(context, ids::FREE_ENTITY, &[object])?;
                 earthling.object().write(context, 0);
             }
             if earthling.second_object().read(context) != 0 {
                 let object = earthling.second_object().read(context) as u32;
-                call(context, ids::FREE_ENTITY, &[object])?;
+                call_void(context, ids::FREE_ENTITY, &[object])?;
                 earthling.second_object().write(context, 0);
             }
         }
@@ -226,7 +226,7 @@ fn dispatch_player_contacts(context: &mut dyn Context) -> Result<Option<u32>> {
                         if definition.behavior_flags().read(context) & 1 != 0
                             && earthling.state().read(context) == 2
                         {
-                            super::framed::invoke(
+                            super::framed::invoke_void(
                                 context,
                                 caller,
                                 ids::SET_EARTHLING_STATE,
@@ -249,7 +249,7 @@ fn dispatch_player_contacts(context: &mut dyn Context) -> Result<Option<u32>> {
                 number ^= 1;
             }
             if earthling.kind().read(context) == 7 {
-                super::framed::invoke(
+                super::framed::invoke_void(
                     context,
                     caller,
                     ids::EARTHLING_CHECK_DECOY_ATTACK_RANGE,
@@ -274,7 +274,7 @@ pub fn process_earthlings(context: &mut dyn Context) -> Result<Option<u32>> {
         }
     }
     if ram::g_earthling_bank_users(revision).at(0).read(context) != 0 {
-        super::framed::invoke(
+        super::framed::invoke_void(
             context,
             caller,
             ids::LOAD_IN_EARTHLINGS,
@@ -283,7 +283,7 @@ pub fn process_earthlings(context: &mut dyn Context) -> Result<Option<u32>> {
         )?;
     }
     if ram::g_earthling_bank2_users(revision).read(context) != 0 {
-        super::framed::invoke(
+        super::framed::invoke_void(
             context,
             caller,
             ids::LOAD_IN_EARTHLINGS,
@@ -291,35 +291,35 @@ pub fn process_earthlings(context: &mut dyn Context) -> Result<Option<u32>> {
             0x019148,
         )?;
     }
-    super::framed::invoke(
+    super::framed::invoke_void(
         context,
         caller,
         ids::EARTHLING_DISPATCH_ABILITIES,
         &[],
         0x01914e,
     )?;
-    super::framed::invoke(
+    super::framed::invoke_void(
         context,
         caller,
         ids::EARTHLING_DISPATCH_PLAYER_CONTACTS,
         &[],
         0x019152,
     )?;
-    super::framed::invoke(
+    super::framed::invoke_void(
         context,
         caller,
         ids::EARTHLING_APPLY_NEARBY_SLEEP,
         &[],
         0x019156,
     )?;
-    super::framed::invoke(
+    super::framed::invoke_void(
         context,
         caller,
         ids::SHIP_UPDATE_PENDING_PIECE_INDICATOR,
         &[],
         0x01915c,
     )?;
-    super::framed::invoke(
+    super::framed::invoke_void(
         context,
         caller,
         ids::RELEASE_FINISHED_MOLE_EFFECTS_AND_STOLEN_PRESENTS,
