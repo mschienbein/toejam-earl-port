@@ -1,4 +1,5 @@
-use crate::{Context, Result, call, call_void, ids};
+use crate::call_frame::{CallSite, FrameError};
+use crate::{Context, Result, call, call_at_void, call_void, ids};
 use tje_mem::{Address, TelephoneState, ram, rom};
 
 /// G/src/presents/telephone.c:52 (`TelephoneStartRing`).
@@ -161,9 +162,10 @@ pub fn telephone_create_display_entity(
 
 /// G/src/presents/telephone.c:72 (`CheckForTelephone`).
 /// TimeAware: answering enters DrawGameMap's VBlank and controller-input loops.
-pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn check_for_telephone(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
+    let index = i32::from(frame.argument_word(0).read(context));
     let telephone = ram::g_telephone_states(revision).at(index);
     if telephone.level().read(context) == 0 {
         return Ok(None);
@@ -307,7 +309,12 @@ pub fn check_for_telephone(context: &mut dyn Context, arguments: &[u32]) -> Resu
                 context.discard_u8(telephone.object().address())?; // CLR.B.
                 telephone.object().write(context, 0);
                 ram::g_map_reveal_mode(revision).write(context, 1);
-                call_void(context, ids::DRAW_GAME_MAP, &[player_number as u32])?;
+                call_at_void(
+                    context,
+                    ids::DRAW_GAME_MAP,
+                    &[player_number as u32],
+                    CallSite::relative(ids::CHECK_FOR_TELEPHONE, revision, 0x304),
+                )?;
                 context.discard_u16(ram::g_map_reveal_mode(revision).address())?; // CLR.W.
                 ram::g_map_reveal_mode(revision).write(context, 0);
                 context.discard_u8(telephone.level().address())?; // CLR.B.

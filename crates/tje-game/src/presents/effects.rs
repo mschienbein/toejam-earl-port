@@ -1,4 +1,5 @@
-use crate::{Context, Result, call, call_void, ids};
+use crate::call_frame::{CallSite, FrameError, OutgoingArguments};
+use crate::{Context, Result, call, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
 /// G/src/presents/present_effects.c:40 (`PresentStartTransientEffect`).
@@ -502,11 +503,12 @@ pub fn present_update_boom_box(
 /// G/src/presents/present_effects.c:325 (`PerformPromotion`).
 /// TimeAware: the immediate fallback can enter GenerateSpeech's IRQ wait.
 /// Its rank fallback passes the object pointer as speaker, exactly as the bug does.
-pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn perform_promotion(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
-    let promotion = arguments[1] as i16;
-    let terrain = arguments[2] as u16;
+    let index = i32::from(frame.argument_word(0).read(context));
+    let promotion = frame.argument_word(1).read(context);
+    let terrain = frame.argument_word(2).read(context) as u16;
     let handle = ram::g_player_promotion_display_entities(revision).at(index);
     let allocated = if handle.read(context) == 0 {
         let number = call(context, ids::ALLOCATE_ENTITY_WITH_EVICTION, &[0])? as i8;
@@ -615,9 +617,10 @@ pub fn perform_promotion(context: &mut dyn Context, arguments: &[u32]) -> Result
 
 /// G/src/presents/present_effects.c:447 (`PresentUpdateBurps`).
 /// TimeAware: dialogue/speech may wait for IRQ-owned graphics uploads.
-pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn present_update_burps(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
+    let index = i32::from(frame.argument_word(0).read(context));
     let burps = ram::g_player_burps_left(revision).at(index);
     if burps.read(context) != 0 {
         let timer = ram::g_player_burp_timers(revision).at(index);
@@ -659,10 +662,11 @@ pub fn present_update_burps(context: &mut dyn Context, arguments: &[u32]) -> Res
 
 /// G/src/presents/present_effects.c:395 (`BummerLifePromo`).
 /// TimeAware: completed displays can generate speech or another promotion display.
-pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn bummer_life_promo(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let terrain = arguments[1] as u16;
+    let player = Address::<ObjectState>::new(frame.argument_slot(0).read(context));
+    let terrain = frame.argument_word(1).read(context) as u16;
     let index = i32::from(player.entity_index().read(context));
     let handle = ram::g_player_promotion_display_entities(revision).at(index);
     if handle.read(context) == 0 {
@@ -754,10 +758,11 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
         if promotion_complete
             && (i32::from(ram::g_player_rank(revision).at(index).read(context)) - 2) % 3 == 0
         {
-            call_void(
+            call_at_void(
                 context,
                 ids::PERFORM_PROMOTION,
                 &[index as u32, 17, u32::from(terrain)],
+                CallSite::relative(ids::BUMMER_LIFE_PROMO, revision, 0x282),
             )?;
         }
     }
@@ -766,13 +771,11 @@ pub fn bummer_life_promo(context: &mut dyn Context, arguments: &[u32]) -> Result
 
 /// G/src/presents/present_effects.c:230 (`PlayerTeleportThroughDoorway`).
 /// TimeAware: explicit graphics-paused VBlank and screen-split redraw transactions.
-pub fn player_teleport_through_doorway(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn player_teleport_through_doorway(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
-    let player = Address::<ObjectState>::new(arguments[1]);
+    let index = i32::from(frame.argument_word(0).read(context));
+    let player = Address::<ObjectState>::new(frame.argument_slot(1).read(context));
     // Both camera-one words are fetched before the alternate-view predicate.
     let mut camera_x = ram::g_camera1_pending_x(revision).read(context);
     let mut camera_y = ram::g_camera1_pending_y(revision).read(context);
@@ -784,16 +787,34 @@ pub fn player_teleport_through_doorway(
         camera_y = ram::g_camera2_pending_y(revision).read(context);
     }
     loop {
-        call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[index as u32])?;
-        let y = player.y().read(context);
-        let x = player.x().read(context);
-        let args = [player.address(), x as u32, y as u32, 2];
-        if call(
-            context,
-            ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
-            &args,
-        )? == 0
+        let placement = OutgoingArguments::push(context, &[index as u32])?;
+        let collision = (|| {
+            let dispatcher = context.dispatcher();
+            placement.call_void(
+                context,
+                dispatcher,
+                ids::SET_POSITION_ON_NEW_LEVEL,
+                CallSite::relative(ids::PLAYER_TELEPORT_THROUGH_DOORWAY, revision, 0x4c),
+            )?;
+            let y = player.y().read(context);
+            let x = player.x().read(context);
+            call_at(
+                context,
+                ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION,
+                &[player.address(), x as u32, y as u32, 2],
+                CallSite::relative(ids::PLAYER_TELEPORT_THROUGH_DOORWAY, revision, 0x66),
+            )
+        })();
+        if collision
+            .as_ref()
+            .is_err_and(|error| error.preserves_call_frame())
         {
+            return collision.map(|_| None);
+        }
+        let release = placement.release(context);
+        let collision = collision?;
+        release?;
+        if collision == 0 {
             break;
         }
     }
@@ -819,9 +840,10 @@ pub fn player_teleport_through_doorway(
 
 /// G/src/presents/present_effects.c:260 (`PresentUpdateDoorway`).
 /// TimeAware: a centered crossing can teleport and redraw through VBlank.
-pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn present_update_doorway(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let owner = i32::from(arguments[0] as i16);
+    let owner = i32::from(frame.argument_word(0).read(context));
     let handle = ram::g_player_doorway_entities(revision).at(owner);
     let number = handle.read(context);
     if number == 0 {
@@ -856,10 +878,11 @@ pub fn present_update_doorway(context: &mut dyn Context, arguments: &[u32]) -> R
         let player = ram::g_player_info(revision).at(index);
         let doorway_y = object.y().read(context);
         if doorway_y > player.y().read(context) {
-            call_void(
+            call_at_void(
                 context,
                 ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
                 &[index as u32, player.address()],
+                CallSite::relative(ids::PRESENT_UPDATE_DOORWAY, revision, 0xd6),
             )?;
             let level = player.level().read(context);
             let y = i32::from(player.y().read(context)) + 1;

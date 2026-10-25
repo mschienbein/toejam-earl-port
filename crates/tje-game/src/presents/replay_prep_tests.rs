@@ -19,6 +19,10 @@ struct Machine {
     address: [u32; 8],
     status: u16,
     frame: FrameState,
+    sp: u32,
+    call_sps: Vec<(FunctionId, u32)>,
+    replace_setup_terrain: Option<u16>,
+    original_argument_bytes: Vec<u8>,
     collisions_left: usize,
     active_sprite: i8,
 }
@@ -31,12 +35,17 @@ impl Machine {
             address: [0; 8],
             status: 0x2000,
             frame: FrameState::new(0xff7000),
+            sp: 0xff7000,
+            call_sps: Vec::new(),
+            replace_setup_terrain: None,
+            original_argument_bytes: Vec::new(),
             collisions_left: 0,
             active_sprite: -1,
         }
     }
-    fn begin(&self) {
+    fn begin(&mut self) {
         self.accesses.borrow_mut().clear();
+        self.call_sps.clear();
     }
     fn reads_at(&self, address: u32) -> Vec<Access> {
         self.accesses
@@ -50,6 +59,12 @@ impl Machine {
         self.accesses
             .borrow_mut()
             .push(Access::Call(id, args.to_vec()));
+        self.call_sps.push((id, self.sp));
+        if id == ids::PLAY_SOUND
+            && let Some(terrain) = self.replace_setup_terrain
+        {
+            self.memory.write_u16(0xff7012, terrain);
+        }
         {
             let value = match id {
                 ids::GET_ACTIVE_PRESENT_SPRITE => i32::from(self.active_sprite) as u32,
@@ -84,6 +99,8 @@ impl Machine {
                 }
                 ids::STOP_PLAYER
                 | ids::HUD_LOAD_ACTION_ICON_SPRITE
+                | ids::OPEN_ROCKET_SKATES
+                | ids::OPEN_SELECTED_PRESENT
                 | ids::SETUP_SELECTED_PRESENT
                 | ids::SET_TOMATO_RAIN_TOMATOES
                 | ids::GENERATE_SPEECH
@@ -125,8 +142,8 @@ impl Bus for Machine {
         self.memory.read_u16(address)
     }
     fn read_u32(&self, address: u32) -> u32 {
-        self.accesses.borrow_mut().push(Access::Read(address, 4));
-        self.memory.read_u32(address)
+        (u32::from(self.read_u16(address)) << 16)
+            | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     fn write_u8(&mut self, address: u32, value: u8) {
         self.accesses
@@ -202,10 +219,10 @@ impl Context for Machine {
         self.status = value;
     }
     fn stack_pointer(&self) -> Result<u32> {
-        Ok(self.frame.entry_sp)
+        Ok(self.sp)
     }
     fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
-        self.frame.entry_sp = value;
+        self.sp = value;
         Ok(())
     }
     fn frame_state(&self) -> Option<FrameState> {
@@ -255,6 +272,16 @@ impl Context for Machine {
         Ok(())
     }
     fn call_original(&mut self, id: FunctionId, args: &[u32]) -> Result<u32> {
+        if id == ids::OPEN_SELECTED_PRESENT {
+            // Model the original backend's ordinary MCC68K outgoing slots,
+            // not a scalar-to-framed-Rust adapter.
+            let outgoing = crate::call_frame::OutgoingArguments::push(self, args)?;
+            let first = outgoing.argument_slot(0).address();
+            self.original_argument_bytes = (0..args.len() as u32 * 4)
+                .map(|offset| self.memory.read_u8(first + offset))
+                .collect();
+            outgoing.release(self)?;
+        }
         self.original_effects(id, args)?;
         Ok(self.data_register(0))
     }
@@ -268,6 +295,26 @@ impl Context for Machine {
     }
 }
 
+fn invoke(
+    context: &mut Machine,
+    function: crate::FramedTranslationFn,
+    arguments: &[u32],
+) -> Result<Option<u32>> {
+    let entry = context.sp;
+    context.frame = FrameState::new(entry);
+    for (index, value) in arguments.iter().copied().enumerate() {
+        // Fixture input writes are not body accesses.
+        context
+            .memory
+            .write_u32(entry + 4 + index as u32 * 4, value);
+    }
+    let result = function(context);
+    if result.is_ok() {
+        assert_eq!(context.sp, entry, "framed entry must balance SP");
+    }
+    result
+}
+
 #[test]
 fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
     for revision in [Revision::Rev02, Revision::Rev00] {
@@ -276,7 +323,7 @@ fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
         player.sprite_state().write(&mut c, 6);
         c.begin();
         assert_eq!(
-            dispatch::open_selected_present(&mut c, &[0, 8]).unwrap(),
+            invoke(&mut c, dispatch::open_selected_present, &[0, 8]).unwrap(),
             Some(1)
         );
         assert_eq!(
@@ -286,7 +333,12 @@ fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
 
         // Non-powerup presents return without reading the animation mask.
         c.begin();
-        dispatch::setup_selected_present(&mut c, &[player.address(), 0, 8, 0x10]).unwrap();
+        invoke(
+            &mut c,
+            dispatch::setup_selected_present,
+            &[player.address(), 0, 8, 0x10],
+        )
+        .unwrap();
         assert!(
             c.reads_at(player.animation_group_mask().address())
                 .is_empty()
@@ -296,7 +348,12 @@ fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
         player.animation_group_mask().write(&mut c, 0x20);
         ram::g_player_powerups(revision).at(0).write(&mut c, 1);
         c.begin();
-        dispatch::setup_selected_present(&mut c, &[player.address(), 0, 2, 0x10]).unwrap();
+        invoke(
+            &mut c,
+            dispatch::setup_selected_present,
+            &[player.address(), 0, 2, 0x10],
+        )
+        .unwrap();
         assert!(
             c.reads_at(player.animation_group_mask().address())
                 .is_empty()
@@ -311,7 +368,7 @@ fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
         player.animation_group_mask().write(&mut c, 0);
         c.begin();
         assert_eq!(
-            dispatch::open_selected_present(&mut c, &[0, 22]).unwrap(),
+            invoke(&mut c, dispatch::open_selected_present, &[0, 22]).unwrap(),
             Some(0)
         );
         let predicate: Vec<_> = c.accesses.borrow().iter().filter(|a| matches!(a, Access::Read(address, _) if *address == player.sprite_state().address() || *address == player.animation_group_mask().address())).cloned().collect();
@@ -322,7 +379,7 @@ fn dispatch_keeps_compiled_short_circuit_reads_and_btst_width() {
                 Access::Read(player.sprite_state().address(), 1),
                 Access::Read(player.sprite_state().address(), 1),
                 Access::Read(player.sprite_state().address(), 1),
-                Access::Read(player.animation_group_mask().address(), 4),
+                Access::Read(player.animation_group_mask().address(), 2),
                 Access::Read(player.sprite_state().address(), 1)
             ]
         );
@@ -351,7 +408,12 @@ fn rank_display_rereads_incremented_index_and_tests_only_low_cache_byte() {
             let cached = ram::g_cached_random_values(revision).at(i32::from(next));
             cached.write(&mut c, 0xff00);
             c.begin();
-            effects::bummer_life_promo(&mut c, &[player.address(), 0x10]).unwrap();
+            invoke(
+                &mut c,
+                effects::bummer_life_promo,
+                &[player.address(), 0x10],
+            )
+            .unwrap();
             assert_eq!(
                 c.reads_at(cache_index.address()).len(),
                 if index == 58 { 1 } else { 3 }
@@ -377,10 +439,15 @@ fn teleport_reads_primary_camera_first_and_collision_coordinates_right_to_left()
         ram::g_camera2_pending_y(revision).write(&mut c, 0);
         c.collisions_left = 1;
         c.begin();
-        effects::player_teleport_through_doorway(&mut c, &[1, player.address()]).unwrap();
+        invoke(
+            &mut c,
+            effects::player_teleport_through_doorway,
+            &[1, player.address()],
+        )
+        .unwrap();
         let accesses = c.accesses.borrow();
         assert_eq!(
-            &accesses[..3],
+            &accesses[3..6],
             &[
                 Access::Read(ram::g_camera1_pending_x(revision).address(), 2),
                 Access::Read(ram::g_camera1_pending_y(revision).address(), 2),
@@ -392,7 +459,10 @@ fn teleport_reads_primary_camera_first_and_collision_coordinates_right_to_left()
             .position(|a| matches!(a, Access::Call(id, _) if *id == ids::SET_POSITION_ON_NEW_LEVEL))
             .unwrap();
         assert_eq!(
-            &accesses[first_call + 1..first_call + 4],
+            &accesses[first_call + 1..].iter().filter(|access| {
+                matches!(access, Access::Read(address, _) if *address == player.x().address() || *address == player.y().address())
+                    || matches!(access, Access::Call(id, _) if *id == ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION)
+            }).take(3).cloned().collect::<Vec<_>>()[..],
             &[
                 Access::Read(player.y().address(), 2),
                 Access::Read(player.x().address(), 2),
@@ -424,7 +494,7 @@ fn doorway_tile_arguments_read_column_before_row() {
             .at(0)
             .write(&mut c, 6);
         c.begin();
-        effects::present_update_doorway(&mut c, &[0]).unwrap();
+        invoke(&mut c, effects::present_update_doorway, &[0]).unwrap();
         let accesses = c.accesses.borrow();
         for index in 0..2 {
             let player = ram::g_player_info(revision).at(index);
@@ -447,13 +517,18 @@ fn promotion_and_terrain_keep_each_compiled_state_comparison() {
         let player = ram::g_player_info(revision).at(0);
         player.sprite_state().write(&mut c, 77);
         c.begin();
-        effects::perform_promotion(&mut c, &[0, 17, 0x10]).unwrap();
+        invoke(&mut c, effects::perform_promotion, &[0, 17, 0x10]).unwrap();
         assert_eq!(c.reads_at(player.sprite_state().address()).len(), 5);
 
         ram::g_player_powerups(revision).at(0).write(&mut c, 6);
         player.sprite_state().write(&mut c, 6);
         c.begin();
-        hazard_frames::present_update_terrain_effects(&mut c, &[player.address(), 0x10]).unwrap();
+        invoke(
+            &mut c,
+            hazard_frames::present_update_terrain_effects,
+            &[player.address(), 0x10],
+        )
+        .unwrap();
         assert_eq!(c.reads_at(player.sprite_state().address()).len(), 2);
     }
 }
@@ -473,7 +548,12 @@ fn cleared_game_storage_keeps_discarded_68000_pre_reads() {
         let player = ram::g_player_info(revision).at(0);
         c.active_sprite = 0;
         c.begin();
-        dispatch::setup_selected_present(&mut c, &[player.address(), 0, 2, 0x10]).unwrap();
+        invoke(
+            &mut c,
+            dispatch::setup_selected_present,
+            &[player.address(), 0, 2, 0x10],
+        )
+        .unwrap();
         assert_clear(&c.accesses.borrow(), player.velocity_x().address(), 2);
         assert_clear(&c.accesses.borrow(), player.velocity_y().address(), 2);
 
@@ -481,7 +561,7 @@ fn cleared_game_storage_keeps_discarded_68000_pre_reads() {
             .at(0)
             .write(&mut c, 6);
         c.begin();
-        effects::perform_promotion(&mut c, &[0, 16, 0x10]).unwrap();
+        invoke(&mut c, effects::perform_promotion, &[0, 16, 0x10]).unwrap();
         assert_clear(
             &c.accesses.borrow(),
             ram::g_player_health(revision).address(),
@@ -492,7 +572,12 @@ fn cleared_game_storage_keeps_discarded_68000_pre_reads() {
         display.sprite_state().write(&mut c, 16);
         display.frame_duration().write(&mut c, 0);
         c.begin();
-        effects::bummer_life_promo(&mut c, &[player.address(), 0x10]).unwrap();
+        invoke(
+            &mut c,
+            effects::bummer_life_promo,
+            &[player.address(), 0x10],
+        )
+        .unwrap();
         assert_clear(
             &c.accesses.borrow(),
             ram::g_player_health(revision).address(),
@@ -509,7 +594,7 @@ fn cleared_game_storage_keeps_discarded_68000_pre_reads() {
             .write(&mut c, 6);
         display.draw_flags().write(&mut c, 0);
         c.begin();
-        effects::present_update_doorway(&mut c, &[0]).unwrap();
+        invoke(&mut c, effects::present_update_doorway, &[0]).unwrap();
         assert_clear(
             &c.accesses.borrow(),
             ram::g_player_doorway_entities(revision).address(),
@@ -520,7 +605,12 @@ fn cleared_game_storage_keeps_discarded_68000_pre_reads() {
             .at(0)
             .write(&mut c, 6);
         c.begin();
-        hazard_frames::present_update_terrain_effects(&mut c, &[player.address(), 0x10]).unwrap();
+        invoke(
+            &mut c,
+            hazard_frames::present_update_terrain_effects,
+            &[player.address(), 0x10],
+        )
+        .unwrap();
         assert_clear(
             &c.accesses.borrow(),
             ram::g_player_one_shot_terrain_effect_entities(revision).address(),
@@ -547,7 +637,7 @@ fn telephone_preserves_operand_order_abs_calls_and_answer_clear_reads() {
             .at(0)
             .write(&mut c, 60);
         c.begin();
-        telephone::check_for_telephone(&mut c, &[0]).unwrap();
+        invoke(&mut c, telephone::check_for_telephone, &[0]).unwrap();
         let accesses = c.accesses.borrow();
         let map_read = accesses
             .iter()
@@ -604,7 +694,14 @@ fn process_presents_keeps_all_nine_callees_for_each_player() {
         let expected: Vec<_> = (0..2)
             .flat_map(|player| expected_ids.map(|id| Access::Call(id, vec![player])))
             .collect();
-        assert_eq!(*c.accesses.borrow(), expected);
+        let calls: Vec<_> = c
+            .accesses
+            .borrow()
+            .iter()
+            .filter(|access| matches!(access, Access::Call(..)))
+            .cloned()
+            .collect();
+        assert_eq!(calls, expected);
     }
 }
 
@@ -616,9 +713,9 @@ fn burp_start_and_expiry_preserve_call_and_store_order() {
         ram::g_player_burps_left(revision).at(0).write(&mut c, 2);
         timer.write(&mut c, -1);
         c.begin();
-        effects::present_update_burps(&mut c, &[0]).unwrap();
+        invoke(&mut c, effects::present_update_burps, &[0]).unwrap();
         assert_eq!(
-            &c.accesses.borrow()[2..],
+            &c.accesses.borrow()[3..],
             &[
                 Access::Call(ids::START_DIALOGUE, vec![24, 0]),
                 Access::Call(ids::AUDIO_REQUEST_CHANNEL_TEMPLATE_EFFECT, vec![14]),
@@ -627,7 +724,7 @@ fn burp_start_and_expiry_preserve_call_and_store_order() {
         );
         timer.write(&mut c, 0);
         c.begin();
-        effects::present_update_burps(&mut c, &[0]).unwrap();
+        invoke(&mut c, effects::present_update_burps, &[0]).unwrap();
         let accesses = c.accesses.borrow();
         let calls: Vec<_> = accesses
             .iter()
@@ -677,7 +774,12 @@ fn grown_terrain_effect_writes_only_source_fields_before_both_hurt_calls() {
             .at(0)
             .write(&mut c, 6);
         c.begin();
-        hazard_frames::present_update_terrain_effects(&mut c, &[player.address(), 0x10]).unwrap();
+        invoke(
+            &mut c,
+            hazard_frames::present_update_terrain_effects,
+            &[player.address(), 0x10],
+        )
+        .unwrap();
         let hurt_players: Vec<_> = c
             .accesses
             .borrow()
@@ -706,7 +808,7 @@ fn promotion_fallback_preserves_original_pointer_as_speaker_bug() {
             .write(&mut c, 6);
         ram::g_player_rank(revision).at(1).write(&mut c, 2);
         c.begin();
-        effects::perform_promotion(&mut c, &[1, 11, 0x10]).unwrap();
+        invoke(&mut c, effects::perform_promotion, &[1, 11, 0x10]).unwrap();
         let speech = c
             .accesses
             .borrow()
@@ -725,5 +827,197 @@ fn promotion_fallback_preserves_original_pointer_as_speaker_bug() {
             speech,
             vec![ram::g_player_info(revision).at(1).address(), 0, 1]
         );
+    }
+}
+
+#[test]
+fn every_scoped_argument_entry_loads_only_compiled_slot_words() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let player = ram::g_player_info(revision).at(0);
+        let cases: &[(FunctionId, &[u32], &[u32])] = &[
+            (
+                ids::OPEN_SELECTED_PRESENT,
+                &[0xabcd0000, 0x12340008],
+                &[6, 10],
+            ),
+            (
+                ids::SETUP_SELECTED_PRESENT,
+                &[player.address(), 0xabcd0000, 0x12340008, 0xaaaa0010],
+                &[4, 6, 10, 14],
+            ),
+            (
+                ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+                &[0xabcd0000, player.address()],
+                &[6, 8, 10],
+            ),
+            (ids::PRESENT_UPDATE_DOORWAY, &[0xabcd0000], &[6]),
+            (
+                ids::PERFORM_PROMOTION,
+                &[0xabcd0000, 0x12340000, 0xaaaa0010],
+                &[6, 10, 14],
+            ),
+            (
+                ids::BUMMER_LIFE_PROMO,
+                &[player.address(), 0xaaaa0010],
+                &[4, 6, 10],
+            ),
+            (ids::PRESENT_UPDATE_BURPS, &[0xabcd0000], &[6]),
+            (
+                ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
+                &[player.address(), 0xaaaa0010],
+                &[4, 6, 10],
+            ),
+            (ids::CHECK_FOR_TELEPHONE, &[0xabcd0000], &[6]),
+        ];
+        for &(id, arguments, offsets) in cases {
+            let mut c = Machine::new(revision);
+            player.x().write(&mut c, 200);
+            player.y().write(&mut c, 100);
+            ram::g_player_elevator_flags(revision)
+                .at(0)
+                .write(&mut c, i8::from(id == ids::OPEN_SELECTED_PRESENT));
+            ram::g_player_promotion_display_entities(revision)
+                .at(0)
+                .write(&mut c, if id == ids::PERFORM_PROMOTION { 6 } else { 0 });
+            let entry = super::PENDING_FRAMED_TRANSLATIONS
+                .iter()
+                .find(|entry| entry.id == id)
+                .expect("scoped argument root must stay pending framed");
+            assert!(!super::PENDING.iter().any(|entry| entry.id == id));
+            c.begin();
+            invoke(&mut c, entry.function, arguments).unwrap();
+            let reads: Vec<_> = c.accesses.borrow().iter().filter(|access| {
+                matches!(access, Access::Read(address, _) if (0xff7004..0xff7004 + arguments.len() as u32 * 4).contains(address))
+            }).cloned().collect();
+            let expected: Vec<_> = offsets
+                .iter()
+                .map(|offset| Access::Read(0xff7000 + offset, 2))
+                .collect();
+            assert_eq!(reads, expected, "{} {revision:?}", id.metadata().name);
+        }
+    }
+}
+
+#[test]
+fn setup_terrain_is_loaded_after_sound_and_only_on_the_rocket_path() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for falling in [0, 1] {
+            let mut c = Machine::new(revision);
+            let player = ram::g_player_info(revision).at(0);
+            c.replace_setup_terrain = Some(0xbeef);
+            ram::g_player_fall_states(revision)
+                .at(0)
+                .write(&mut c, falling);
+            c.begin();
+            invoke(
+                &mut c,
+                dispatch::setup_selected_present,
+                &[player.address(), 0xabcd0000, 0x12340005, 0xaaaa0010],
+            )
+            .unwrap();
+            let accesses = c.accesses.borrow();
+            let terrain_read = accesses
+                .iter()
+                .position(|access| *access == Access::Read(0xff7012, 2));
+            if revision == Revision::Rev02 && falling != 0 {
+                assert!(terrain_read.is_none());
+                assert!(!accesses.iter().any(|access| matches!(access, Access::Call(id, _) if *id == ids::PLAY_SOUND || *id == ids::OPEN_ROCKET_SKATES)));
+            } else {
+                let sound = accesses
+                    .iter()
+                    .position(
+                        |access| matches!(access, Access::Call(id, _) if *id == ids::PLAY_SOUND),
+                    )
+                    .unwrap();
+                assert!(terrain_read.unwrap() > sound);
+                assert!(accesses.contains(&Access::Call(
+                    ids::OPEN_ROCKET_SKATES,
+                    vec![player.address(), 0, 0xbeef]
+                )));
+            }
+        }
+    }
+}
+
+#[test]
+fn prepared_call_reaches_framed_open_selected_without_a_value_adapter() {
+    let dispatcher = Dispatcher::hybrid_with_frames(&[], super::PENDING_FRAMED_TRANSLATIONS);
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Machine::new(revision);
+        ram::g_player_elevator_flags(revision)
+            .at(1)
+            .write(&mut c, 1);
+        c.begin();
+        let result = dispatcher
+            .call_at(
+                &mut c,
+                ids::OPEN_SELECTED_PRESENT,
+                &[0xabcd0001, 0x12340008],
+                crate::call_frame::CallSite::relative(ids::OPEN_PRESENT, revision, 0x82),
+            )
+            .unwrap();
+        assert_eq!(result, 1);
+        assert_eq!(c.sp, 0xff7000);
+        assert_eq!(c.reads_at(0xff6ffa), vec![Access::Read(0xff6ffa, 2)]);
+        assert_eq!(c.reads_at(0xff6ffe), vec![Access::Read(0xff6ffe, 2)]);
+        assert!(!c.accesses.borrow().iter().any(
+            |access| matches!(access, Access::Call(id, _) if *id == ids::OPEN_SELECTED_PRESENT)
+        ));
+    }
+}
+
+#[test]
+fn unchanged_lemonade_value_caller_keeps_original_selected_present_argument_bytes() {
+    let lemonade = crate::player::PENDING_TRANSLATIONS
+        .iter()
+        .find(|entry| entry.id == ids::LEMONADE_ABILITY)
+        .expect("frozen Lemonade value entry");
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Machine::new(revision);
+        let earthling = ram::g_earthling_banks(revision).at(0).at(0);
+        ram::g_player_lemonade_reward_states(revision)
+            .at(1)
+            .write(&mut c, 1);
+        c.begin();
+        (lemonade.function)(&mut c, &[0xabcd0001, earthling.address()]).unwrap();
+        assert_eq!(c.original_argument_bytes, [0, 0, 0, 1, 0, 0, 0, 17]);
+        assert_eq!(c.sp, 0xff7000);
+        assert!(
+            c.accesses
+                .borrow()
+                .contains(&Access::Call(ids::OPEN_SELECTED_PRESENT, vec![1, 17]))
+        );
+    }
+}
+
+#[test]
+fn retained_prepared_caller_areas_match_the_source_lifetimes() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut c = Machine::new(revision);
+        dispatch::process_presents(&mut c, &[]).unwrap();
+        for player_calls in c.call_sps.as_chunks::<9>().0 {
+            for (index, &(_, sp)) in player_calls.iter().enumerate() {
+                assert_eq!(sp, 0xff7000 - (index as u32 + 2) * 4);
+            }
+        }
+        assert_eq!(c.sp, 0xff7000);
+        let player = ram::g_player_info(revision).at(0);
+        player.x().write(&mut c, 200);
+        player.y().write(&mut c, 100);
+        c.begin();
+        invoke(
+            &mut c,
+            effects::player_teleport_through_doorway,
+            &[0, player.address()],
+        )
+        .unwrap();
+        assert_eq!(
+            c.call_sps,
+            [
+                (ids::SET_POSITION_ON_NEW_LEVEL, 0xff6ff8),
+                (ids::ENTITY_FIND_NARROW_COLLISION_AT_POSITION, 0xff6fe8)
+            ]
+        );
+        assert_eq!(c.sp, 0xff7000);
     }
 }

@@ -245,9 +245,10 @@ pub static PENDING_FRAMES: &[crate::Translation] = &[];
 /// No framed presents entry has live replacement approval.
 pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
 
-/// Argument-taking pending roots retain their lazy, source-width incoming slots.
-/// The pickup recording byte is reloaded after callbacks; expiry consumes only
-/// the player's low word after its MOVEM prologue.
+/// Argument-taking pending roots consume the original argument slots lazily at their compiled
+/// widths and use sites; no eager four-byte argument snapshot is admitted for replay. The pickup
+/// recording byte is reloaded after callbacks; expiry consumes only the player's low word after
+/// its MOVEM prologue.
 pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
@@ -275,6 +276,43 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
         function: hazard_frames::player_check_level_item_hazards,
     },
+    crate::FramedTranslation {
+        id: ids::PERFORM_PROMOTION,
+        function: effects::perform_promotion,
+    },
+    crate::FramedTranslation {
+        id: ids::PRESENT_UPDATE_BURPS,
+        function: effects::present_update_burps,
+    },
+    crate::FramedTranslation {
+        id: ids::SETUP_SELECTED_PRESENT,
+        function: dispatch::setup_selected_present,
+    },
+    crate::FramedTranslation {
+        id: ids::OPEN_SELECTED_PRESENT,
+        function: dispatch::open_selected_present,
+    },
+    crate::FramedTranslation {
+        id: ids::BUMMER_LIFE_PROMO,
+        function: effects::bummer_life_promo,
+    },
+    crate::FramedTranslation {
+        id: ids::PRESENT_UPDATE_DOORWAY,
+        function: effects::present_update_doorway,
+    },
+    crate::FramedTranslation {
+        id: ids::CHECK_FOR_TELEPHONE,
+        function: telephone::check_for_telephone,
+    },
+    crate::FramedTranslation {
+        id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
+        function: hazard_frames::present_update_terrain_effects,
+    },
+    // Redraw remains pending for the retained Z80/IRQ ordering failures.
+    crate::FramedTranslation {
+        id: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
+        function: effects::player_teleport_through_doorway,
+    },
 ];
 
 /// Complete candidate bodies held outside production dispatch until their
@@ -292,50 +330,12 @@ pub static PENDING: &[crate::Translation] = &[
         function: items::reduce_present_timer,
     },
     crate::Translation {
-        id: ids::PERFORM_PROMOTION,
-        function: effects::perform_promotion,
-    },
-    crate::Translation {
-        id: ids::PRESENT_UPDATE_BURPS,
-        function: effects::present_update_burps,
-    },
-    crate::Translation {
-        id: ids::SETUP_SELECTED_PRESENT,
-        function: dispatch::setup_selected_present,
-    },
-    crate::Translation {
-        id: ids::OPEN_SELECTED_PRESENT,
-        function: dispatch::open_selected_present,
-    },
-    crate::Translation {
-        id: ids::BUMMER_LIFE_PROMO,
-        function: effects::bummer_life_promo,
-    },
-    crate::Translation {
         id: ids::PROCESS_PRESENTS,
         function: dispatch::process_presents,
     },
     crate::Translation {
-        id: ids::PRESENT_UPDATE_DOORWAY,
-        function: effects::present_update_doorway,
-    },
-    crate::Translation {
-        id: ids::CHECK_FOR_TELEPHONE,
-        function: telephone::check_for_telephone,
-    },
-    crate::Translation {
         id: ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
         function: items::map_update_items_and_presents,
-    },
-    crate::Translation {
-        id: ids::PRESENT_UPDATE_TERRAIN_EFFECTS,
-        function: hazard_frames::present_update_terrain_effects,
-    },
-    // Redraw fixture fails strict main/ISR observations in both revisions:
-    // REV02 Z80 A0004A operand0/1; REV00 missing/shifted vector28 boundary.
-    crate::Translation {
-        id: ids::PLAYER_TELEPORT_THROUGH_DOORWAY,
-        function: effects::player_teleport_through_doorway,
     },
 ];
 

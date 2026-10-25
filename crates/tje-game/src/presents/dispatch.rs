@@ -1,15 +1,17 @@
-use crate::{Context, Result, call, call_void, ids};
+use crate::call_frame::{CallSite, FrameError, OutgoingArguments};
+use crate::{Context, Result, call, call_at_void, call_void, ids};
 use tje_mem::{Address, ObjectState, Revision, ram};
 
 /// G/src/presents/present_dispatch.c:117 (`SetupSelectedPresent`).
 /// TimeAware: the action-icon upload and speech paths require graphics IRQ progress.
 /// REV 02's fall-state guard and additional hitops refresh mask remain explicit.
-pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn setup_selected_present(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let index = i32::from(arguments[1] as i16);
-    let present = arguments[2] as i16;
-    let terrain = arguments[3] as u16;
+    // G/build/rev02/asm/c_present_dispatch.s:392-394 (REV00 identical).
+    let player = Address::<ObjectState>::new(frame.argument_slot(0).read(context));
+    let index = i32::from(frame.argument_word(1).read(context));
+    let present = frame.argument_word(2).read(context);
     if present < 8 && present != 5 && player.height().read(context) > 0 {
         if ram::g_player_powerups(revision).at(index).read(context) == 0
             && player.animation_group_mask().read(context) & 0x8000 != 0
@@ -51,6 +53,9 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
                 || ram::g_player_fall_states(revision).at(index).read(context) == 0
             {
                 call_void(context, ids::PLAY_SOUND, &[5, 94])?;
+                // Both revisions load this word only after PlaySound returns.
+                // REV02 compiler line505; REV00 compiler line500.
+                let terrain = frame.argument_word(3).read(context) as u16;
                 call_void(
                     context,
                     ids::OPEN_ROCKET_SKATES,
@@ -115,10 +120,11 @@ pub fn setup_selected_present(context: &mut dyn Context, arguments: &[u32]) -> R
 
 /// G/src/presents/present_dispatch.c:41 (`OpenSelectedPresent`).
 /// TimeAware: accepted effects can call speech, dialogue and the HUD upload wait.
-pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn open_selected_present(context: &mut dyn Context) -> Result<Option<u32>> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
     let revision = context.revision();
-    let index = i32::from(arguments[0] as i16);
-    let mut present = arguments[1] as i16;
+    let index = i32::from(frame.argument_word(0).read(context));
+    let mut present = frame.argument_word(1).read(context);
     let player = super::word_indexed_player(revision, index);
     if ram::g_player_elevator_flags(revision)
         .at(index)
@@ -146,10 +152,11 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             call_void(context, ids::PRESENT_IS_DOORWAY, &[index as u32])?;
         }
         17 | 16 => {
-            call_void(
+            call_at_void(
                 context,
                 ids::PERFORM_PROMOTION,
                 &[index as u32, present as u32, u32::from(terrain)],
+                CallSite::relative(ids::OPEN_SELECTED_PRESENT, revision, 0xb6),
             )?;
         }
         11 => {
@@ -160,12 +167,18 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
                 .write(context, score.wrapping_sub(2) as u16);
         }
         9 => {
-            let food = if (call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 100 < 70 {
-                ids::EAT_YUMMY_FOOD
+            let (food, offset) = if (call(context, ids::GET_RANDOM_NUMBER, &[])? as u16) % 100 < 70
+            {
+                (ids::EAT_YUMMY_FOOD, 0x12c)
             } else {
-                ids::EAT_YUCKY_FOOD
+                (ids::EAT_YUCKY_FOOD, 0x13c)
             };
-            call_void(context, food, &[index as u32])?;
+            call_at_void(
+                context,
+                food,
+                &[index as u32],
+                CallSite::relative(ids::OPEN_SELECTED_PRESENT, revision, offset),
+            )?;
         }
         10 => {
             ram::g_player_burp_timers(revision)
@@ -204,7 +217,12 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             call_void(context, ids::PRESENT_IS_RAIN_CLOUD, &[index as u32])?;
         }
         14 => {
-            call_void(context, ids::EAT_FUDGE_SUNDAE, &[index as u32])?;
+            call_at_void(
+                context,
+                ids::EAT_FUDGE_SUNDAE,
+                &[index as u32],
+                CallSite::relative(ids::OPEN_SELECTED_PRESENT, revision, 0x260),
+            )?;
         }
         19 => {
             if terrain >= 0x80 {
@@ -248,7 +266,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
         1 if player.level().read(context) == 0 => return Ok(Some(1)),
         _ => {}
     }
-    call_void(
+    call_at_void(
         context,
         ids::SETUP_SELECTED_PRESENT,
         &[
@@ -257,6 +275,7 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
             present as u32,
             u32::from(terrain),
         ],
+        CallSite::relative(ids::OPEN_SELECTED_PRESENT, revision, 0x348),
     )?;
     Ok(Some(0))
 }
@@ -264,26 +283,41 @@ pub fn open_selected_present(context: &mut dyn Context, arguments: &[u32]) -> Re
 /// G/src/presents/present_dispatch.c:23 (`ProcessPresents`).
 /// TimeAware: doorway, speech and telephone map-input paths can suspend.
 pub fn process_presents(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    let revision = context.revision();
     for index in 0..2 {
-        for function in [
-            ids::PRESENT_UPDATE_DECOY,
-            ids::PRESENT_UPDATE_BOOM_BOX,
-            ids::PRESENT_UPDATE_DOORWAY,
-            ids::PRESENT_UPDATE_BURPS,
-            ids::PRESENT_UPDATE_RAIN_CLOUD,
-            ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
-            ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT,
-            ids::CHECK_FOR_TELEPHONE,
-            ids::CHECK_TOMATO_RAIN_TIMER,
-        ] {
-            if function.metadata().abi.returns_value {
-                // PresentUpdateTransientEffect has a declared int result,
-                // unlike the other effects; this caller deliberately ignores it.
-                call(context, function, &[index])?;
-            } else {
-                call_void(context, function, &[index])?;
+        let base = context.stack_pointer()?;
+        let result: Result<()> = (|| {
+            // The compiler retains all nine argument slots until LEA 36(SP),SP.
+            for (function, offset) in [
+                (ids::PRESENT_UPDATE_DECOY, 0x0e),
+                (ids::PRESENT_UPDATE_BOOM_BOX, 0x18),
+                (ids::PRESENT_UPDATE_DOORWAY, 0x22),
+                (ids::PRESENT_UPDATE_BURPS, 0x2c),
+                (ids::PRESENT_UPDATE_RAIN_CLOUD, 0x36),
+                (ids::PRESENT_UPDATE_TRANSIENT_EFFECT, 0x40),
+                (ids::ENTITY_RELEASE_FINISHED_TIMED_EFFECT, 0x4c),
+                (ids::CHECK_FOR_TELEPHONE, 0x58),
+                (ids::CHECK_TOMATO_RAIN_TIMER, 0x64),
+            ] {
+                let outgoing = OutgoingArguments::push(context, &[index])?;
+                let dispatcher = context.dispatcher();
+                let site = CallSite::relative(ids::PROCESS_PRESENTS, revision, offset);
+                if function.metadata().abi.returns_value {
+                    outgoing.call(context, dispatcher, function, site)?;
+                } else {
+                    outgoing.call_void(context, dispatcher, function, site)?;
+                }
             }
+            Ok(())
+        })();
+        if result
+            .as_ref()
+            .is_err_and(|error| error.preserves_call_frame())
+        {
+            return result.map(|()| None);
         }
+        context.set_stack_pointer(base)?;
+        result?;
     }
     Ok(None)
 }

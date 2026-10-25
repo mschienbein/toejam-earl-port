@@ -79,12 +79,9 @@ fn level_hazards_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<O
 /// G/src/presents/projectile_effects.c:568 (`PresentUpdateTerrainEffects`).
 /// TimeAware: a grown effect can call Player_Youch with its partial stack source.
 /// LINK -20; MOVEM D2-D4/A2-A4. Call-PC offsets are from object start 0xde2.
-pub fn present_update_terrain_effects(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn present_update_terrain_effects(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(20, 0x1c, 0x1c))?;
-    let result = terrain_effects_body(context, arguments, &frame);
+    let result = terrain_effects_body(context, &frame);
     let result = result.map_err(|error| context.protect_timing_failure(error));
     if result
         .as_ref()
@@ -96,15 +93,12 @@ pub fn present_update_terrain_effects(
     result
 }
 
-fn terrain_effects_body(
-    context: &mut dyn Context,
-    arguments: &[u32],
-    frame: &LocalFrame,
-) -> Result<Option<u32>> {
+fn terrain_effects_body(context: &mut dyn Context, frame: &LocalFrame) -> Result<Option<u32>> {
     let revision = context.revision();
     let caller = ids::PRESENT_UPDATE_TERRAIN_EFFECTS;
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let terrain = arguments[1] as u16;
+    // Matching compiler output loads the pointer, then only the terrain word.
+    let player = Address::<ObjectState>::new(frame.argument_slot(0).read(context));
+    let terrain = frame.argument_word(1).read(context) as u16;
     let index = i32::from(player.entity_index().read(context));
     let active = ram::g_player_active_terrain_effect_entities(revision).at(index);
     let one_shot = ram::g_player_one_shot_terrain_effect_entities(revision).at(index);
