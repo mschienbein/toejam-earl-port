@@ -8,7 +8,10 @@ use std::{
     path::Path,
     sync::{Arc, OnceLock},
 };
-use tje_game::{FunctionId, Translation, ids, ui::menus};
+use tje_game::{
+    FramedTranslation, FunctionId, Translation, ids,
+    ui::{self, menus},
+};
 use tje_host::{Host, Mode, execution::WaitInputPoller, hooks::HookRegistry};
 use tje_mem::{Bus, Revision, ram, rom};
 use tje_session::{CONNECTED, Session};
@@ -79,21 +82,35 @@ fn save(path: &Path, value: &serde_json::Value) -> Result {
     Ok(())
 }
 
+fn menu_ids() -> impl Iterator<Item = FunctionId> {
+    menus::PENDING_IDS
+        .iter()
+        .copied()
+        .chain(menus::PROVEN_ENTRIES.iter().map(|entry| entry.id))
+}
+
 fn registry(revision: Revision, names: &[String]) -> Result<HookRegistry> {
     static PROOF: OnceLock<Vec<Translation>> = OnceLock::new();
+    static FRAMED: OnceLock<Vec<FramedTranslation>> = OnceLock::new();
+    let selected = |id: FunctionId| names.iter().any(|name| name == id.metadata().name);
     let pending = PROOF.get_or_init(|| {
-        menus::CANDIDATES
+        ui::PENDING_TRANSLATIONS
             .iter()
-            .chain(menus::PROVEN_ENTRIES)
-            .filter(|translation| {
-                names
-                    .iter()
-                    .any(|name| name == translation.id.metadata().name)
-            })
+            .chain(ui::TRANSLATIONS)
+            .filter(|entry| selected(entry.id))
             .copied()
             .collect()
     });
-    Ok(HookRegistry::proof(revision, pending)?)
+    // The root literal table also includes newly framed resource candidates,
+    // without binding this harness to a sibling's owner-manifest alias.
+    let framed = FRAMED.get_or_init(|| {
+        ui::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .filter(|entry| selected(entry.id))
+            .copied()
+            .collect()
+    });
+    Ok(HookRegistry::proof_with_frames(revision, pending, framed)?)
 }
 
 fn session(
@@ -590,12 +607,10 @@ fn main() -> Result {
     fs::create_dir_all(output)?;
     let names: Vec<String> = arguments.get(2).map_or_else(
         || {
-            menus::CANDIDATES
-                .iter()
-                .chain(menus::PROVEN_ENTRIES)
-                .filter(|translation| {
+            menu_ids()
+                .filter(|&id| {
                     !matches!(
-                        translation.id,
+                        id,
                         ids::NEW_GAME_MAIN_MENU
                             | ids::SHOW_GAME_OVER_AND_RESET
                             | ids::MENU_WHO_HANDLER
@@ -607,17 +622,13 @@ fn main() -> Result {
                             | ids::GAME_PAUSED
                     )
                 })
-                .map(|translation| translation.id.metadata().name.to_owned())
+                .map(|id| id.metadata().name.to_owned())
                 .collect()
         },
         |names| names.split(',').map(str::to_owned).collect(),
     );
     for name in &names {
-        if !menus::CANDIDATES
-            .iter()
-            .chain(menus::PROVEN_ENTRIES)
-            .any(|translation| translation.id.metadata().name == name)
-        {
+        if !menu_ids().any(|id| id.metadata().name == name) {
             return Err(format!("unknown menu translation {name}").into());
         }
     }

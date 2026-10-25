@@ -316,48 +316,9 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::INVENTORY_OPEN_IDENTIFICATION_MENU,
         function: input::inventory_open_identification_menu,
     },
-    // Original modal calls exceed the host's timed-call ceiling; source-clocked
-    // controller polling and typed reset exits are separate pending contracts.
-    crate::Translation {
-        id: ids::NEW_GAME_MAIN_MENU,
-        function: menus::new_game_main_menu,
-    },
-    crate::Translation {
-        id: ids::SHOW_GAME_OVER_AND_RESET,
-        function: menus::show_game_over_and_reset,
-    },
-    crate::Translation {
-        id: ids::MENU_WHO_HANDLER,
-        function: menus::menu_who_handler,
-    },
-    crate::Translation {
-        id: ids::MENU_CONTROLLER_OPTIONS_HANDLER,
-        function: menus::menu_controller_options_handler,
-    },
-    crate::Translation {
-        id: ids::MENU_WHAT_HANDLER,
-        function: menus::menu_what_handler,
-    },
-    crate::Translation {
-        id: ids::MENU_JAM_OUT_HANDLER,
-        function: menus::menu_jam_out_handler,
-    },
-    crate::Translation {
-        id: ids::GENERAL_MENU_HANDLER,
-        function: menus::general_menu_handler,
-    },
-    crate::Translation {
-        id: ids::RUN_FINAL_LEVEL_PAUSE_MENU,
-        function: menus::run_final_level_pause_menu,
-    },
-    crate::Translation {
-        id: ids::GAME_PAUSED,
-        function: menus::game_paused,
-    },
 ];
 
-/// HUD canonical frames: lazy source-width arguments and original call areas.
-/// Pending only; no execution class, production entry or approval is changed.
+/// Canonical pending UI frames; no execution class, production or approval change.
 pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::CHECK_PROMOTION_SCORE,
@@ -382,6 +343,48 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
     crate::FramedTranslation {
         id: ids::HUD_INITIALIZE_HEALTH_BAR,
         function: hud_all::hud_initialize_health_bar,
+    },
+    crate::FramedTranslation {
+        id: ids::NEW_GAME_MAIN_MENU,
+        function: menus::new_game_main_menu,
+    },
+    // Hardware reset is a stronger, nonreturning control-effect obligation.
+    crate::FramedTranslation {
+        id: ids::SHOW_GAME_OVER_AND_RESET,
+        function: menus::show_game_over_and_reset,
+    },
+    crate::FramedTranslation {
+        id: ids::MENU_WHO_HANDLER,
+        function: menus::menu_who_handler,
+    },
+    // Natural checks: both ROMs, menus frame910/trace1520, VBlank versus
+    // C00004 word25886. Replay-environment evidence has not been collected.
+    crate::FramedTranslation {
+        id: ids::MENU_CONTROLLER_OPTIONS_HANDLER,
+        function: menus::menu_controller_options_handler,
+    },
+    // Natural check: REV02 frame734/trace1512, VBlank versus C00004 word25882.
+    crate::FramedTranslation {
+        id: ids::MENU_WHAT_HANDLER,
+        function: menus::menu_what_handler,
+    },
+    // Natural checks: both ROMs, jam-all/out frame838/trace1512, same ordering.
+    crate::FramedTranslation {
+        id: ids::MENU_JAM_OUT_HANDLER,
+        function: menus::menu_jam_out_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::GENERAL_MENU_HANDLER,
+        function: menus::general_menu_handler,
+    },
+    // Continue path and reset path remain separate; no fake reset return.
+    crate::FramedTranslation {
+        id: ids::RUN_FINAL_LEVEL_PAUSE_MENU,
+        function: menus::run_final_level_pause_menu,
+    },
+    crate::FramedTranslation {
+        id: ids::GAME_PAUSED,
+        function: menus::game_paused,
     },
 ];
 

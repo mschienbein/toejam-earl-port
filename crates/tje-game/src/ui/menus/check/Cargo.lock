@@ -284,6 +284,7 @@ name = "dsp"
 version = "0.14.1"
 dependencies = [
  "bincode",
+ "libm",
  "log",
  "num",
 ]
@@ -346,6 +347,7 @@ dependencies = [
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "libm",
  "log",
  "m68000-emu",
  "regex",
@@ -374,6 +376,7 @@ dependencies = [
  "genesis-config",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "libm",
  "log",
  "m68000-emu",
  "thiserror",
@@ -470,6 +473,12 @@ name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+
+[[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "log"
@@ -833,6 +842,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
+name = "tje-engine-core"
+version = "0.1.0"
+dependencies = [
+ "tje-game",
+ "tje-mem",
+]
+
+[[package]]
+name = "tje-engine-runtime"
+version = "0.1.0"
+dependencies = [
+ "tje-engine-core",
+ "tje-game",
+ "tje-mem",
+ "tje-rom",
+]
+
+[[package]]
 name = "tje-game"
 version = "0.1.0"
 dependencies = [
@@ -855,6 +882,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tje-engine-core",
+ "tje-engine-runtime",
  "tje-game",
  "tje-mem",
  "tje-rom",

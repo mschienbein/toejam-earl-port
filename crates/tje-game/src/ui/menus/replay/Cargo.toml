@@ -1,0 +1,20 @@
+[package]
+name = "tje-ui-menus-replay"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "tje-ui-menus-replay"
+path = "main.rs"
+
+[dependencies]
+serde_json = "1"
+tje-game = { path = "../../../.." }
+tje-host = { path = "../../../../../tje-host" }
+tje-mem = { path = "../../../../../tje-mem" }
+tje-session = { path = "../../../../../tje-session" }
+genesis-config = { path = "../../../../../../vendor/jgenesis/config/genesis-config" }

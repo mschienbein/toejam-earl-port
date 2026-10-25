@@ -10,6 +10,8 @@ mod resources;
 mod transactions;
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 
 pub(crate) use draws::{menu_draw_text_items, text_write_decimal_tiles};
@@ -84,54 +86,7 @@ pub const PROVEN_ENTRIES: &[Translation] = &[
 /// Do not hook every pending modal root indiscriminately. Original long-RTS
 /// menu calls exceed the current timed-call ceiling; the pause busy-input roots
 /// additionally need source-clocked Rust effect regions, not erased poll reads.
-pub const CANDIDATES: &[Translation] = &[
-    // Original natural entry exceeds the host's 1,000,000-tick timed-call ceiling.
-    Translation {
-        id: ids::NEW_GAME_MAIN_MENU,
-        function: new_game_main_menu,
-    },
-    // Typed nonreturning reset/exit comparison is absent from this base.
-    Translation {
-        id: ids::SHOW_GAME_OVER_AND_RESET,
-        function: show_game_over_and_reset,
-    },
-    // Original natural entry exceeds the same timed-call ceiling before return.
-    Translation {
-        id: ids::MENU_WHO_HANDLER,
-        function: menu_who_handler,
-    },
-    // Original GeneralMenuHandler closure needs a completed long-RTS receipt.
-    Translation {
-        id: ids::MENU_CONTROLLER_OPTIONS_HANDLER,
-        function: menu_controller_options_handler,
-    },
-    // Original GeneralMenuHandler closure needs a completed long-RTS receipt.
-    Translation {
-        id: ids::MENU_WHAT_HANDLER,
-        function: menu_what_handler,
-    },
-    // Original GeneralMenuHandler closure needs a completed long-RTS receipt.
-    Translation {
-        id: ids::MENU_JAM_OUT_HANDLER,
-        function: menu_jam_out_handler,
-    },
-    // VBlank-paced source/input effects need a long-RTS/phase-correct receipt.
-    Translation {
-        id: ids::GENERAL_MENU_HANDLER,
-        function: general_menu_handler,
-    },
-    // Needs source-clocked Rust effect regions across prefix/panels/input loops;
-    // a generic IRQ wait or whole-entry original bridge is not a Rust proof.
-    Translation {
-        id: ids::RUN_FINAL_LEVEL_PAUSE_MENU,
-        function: run_final_level_pause_menu,
-    },
-    // Same source-clocked Rust contract, including every controller call and IRQ.
-    Translation {
-        id: ids::GAME_PAUSED,
-        function: game_paused,
-    },
-];
+pub const CANDIDATES: &[Translation] = &[];
 
 /// HUD resource entries use authentic outgoing slots; pending status is unchanged.
 pub const RESOURCE_FRAME_CANDIDATES: &[FramedTranslation] = &[
@@ -150,6 +105,46 @@ pub const RESOURCE_FRAME_CANDIDATES: &[FramedTranslation] = &[
     FramedTranslation {
         id: ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
         function: player_update_health_and_lives,
+    },
+];
+
+/// Lazy menu/pause entries stay pending until the separate replay campaign.
+pub const MENU_FRAME_CANDIDATES: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: ids::NEW_GAME_MAIN_MENU,
+        function: new_game_main_menu,
+    },
+    crate::FramedTranslation {
+        id: ids::SHOW_GAME_OVER_AND_RESET,
+        function: show_game_over_and_reset,
+    },
+    crate::FramedTranslation {
+        id: ids::MENU_WHO_HANDLER,
+        function: menu_who_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::MENU_CONTROLLER_OPTIONS_HANDLER,
+        function: menu_controller_options_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::MENU_WHAT_HANDLER,
+        function: menu_what_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::MENU_JAM_OUT_HANDLER,
+        function: menu_jam_out_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::GENERAL_MENU_HANDLER,
+        function: general_menu_handler,
+    },
+    crate::FramedTranslation {
+        id: ids::RUN_FINAL_LEVEL_PAUSE_MENU,
+        function: run_final_level_pause_menu,
+    },
+    crate::FramedTranslation {
+        id: ids::GAME_PAUSED,
+        function: game_paused,
     },
 ];
 
