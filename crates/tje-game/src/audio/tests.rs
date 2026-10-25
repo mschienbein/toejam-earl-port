@@ -382,7 +382,6 @@ fn delivered_audio_roots_have_native_closures_and_pending_bodies_fail_closed() {
         );
     }
     for id in [
-        ids::LOAD_SOUND_DRIVER_TO_Z80,
         ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
         ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
         ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,

@@ -152,13 +152,23 @@ fn replay_preparation_low_level_real_reset_and_gate_states_both_revisions() {
             Revision::Rev00 => "TJE_REV00_ROM",
         };
         let bytes = std::fs::read(std::env::var_os(key).expect(key)).unwrap();
-        let registry = HookRegistry::proof_filtered_with_frames(
+        let mut registry = HookRegistry::proof_filtered_with_frames(
             revision,
             audio::PENDING_TRANSLATIONS,
             audio::PENDING_FRAMED_TRANSLATIONS,
-            ROOTS,
+            &ROOTS[1..],
         )
         .unwrap();
+        let selected = tje_game::Dispatcher::hybrid()
+            .resolve_entry(ids::LOAD_SOUND_DRIVER_TO_Z80)
+            .unwrap()
+            .expect("corpus-proven upload is canonical production");
+        registry
+            .register_translation_with_execution(
+                selected,
+                tje_game::execution::ExecutionClass::Functional,
+            )
+            .unwrap();
         let mut host = Host::new(&bytes, Mode::Reference, registry).unwrap();
         host.set_wait_input_poller(script.clone());
         for frame in 0..1300 {

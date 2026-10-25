@@ -968,7 +968,7 @@ fn prepared_call_reaches_framed_open_selected_without_a_value_adapter() {
 
 #[test]
 fn unchanged_lemonade_value_caller_keeps_original_selected_present_argument_bytes() {
-    let lemonade = crate::player::PENDING_TRANSLATIONS
+    let lemonade = crate::player::TRANSLATIONS
         .iter()
         .find(|entry| entry.id == ids::LEMONADE_ABILITY)
         .expect("frozen Lemonade value entry");

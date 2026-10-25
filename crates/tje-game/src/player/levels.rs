@@ -1,3 +1,4 @@
+use crate::call_frame::{CallSite, OutgoingArguments};
 use crate::{Context, Result, call, call_void, ids};
 use tje_mem::{Address, EarthlingState, ObjectState, ram, rom, rom_symbol};
 
@@ -60,18 +61,55 @@ pub(super) fn player_advance_to_next_level(context: &mut dyn Context) -> Result<
             ));
             let number = i32::from(stack.argument_word(1).read(context));
             let revision = context.revision();
-            // Compiler lines1765-1778 evaluate the field arguments right to left.
-            let level = player.level().read(context) as u32;
-            let height = (i32::from(player.height().read(context)) + 9) as u32;
-            let y = (i32::from(player.y().read(context)) + 1) as u32;
-            let x = player.x().read(context) as u32;
-            let args = [number as u32, x, y, height, level];
-            call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
+            let caller = ids::PLAYER_ADVANCE_TO_NEXT_LEVEL;
+            let dispatcher = context.dispatcher();
+            let outgoing_base = context.stack_pointer()?;
+            let visible = (|| -> Result<bool> {
+                // Both matching compiler outputs:1765-1784 interleave each
+                // field read with its push, retaining all twenty bytes.
+                let level = player.level().read(context) as u32;
+                OutgoingArguments::push(context, &[level])?;
+                let height = (i32::from(player.height().read(context)) + 9) as u32;
+                OutgoingArguments::push(context, &[height])?;
+                let y = (i32::from(player.y().read(context)) + 1) as u32;
+                OutgoingArguments::push(context, &[y])?;
+                let x = player.x().read(context) as u32;
+                OutgoingArguments::push(context, &[x])?;
+                OutgoingArguments::push(context, &[number as u32])?;
+                OutgoingArguments::existing(context, 5)?.call(
+                    context,
+                    dispatcher,
+                    ids::PRESENT_START_TRANSIENT_EFFECT,
+                    CallSite::relative(caller, revision, 0x44),
+                )?;
+                let handle = ram::g_player_transient_effect_entities(revision).at(number);
+                let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
+                let entity = handle.read(context) as u32;
+                let viewport_arguments = OutgoingArguments::push(context, &[entity])?;
+                viewport_arguments.call_void(
+                    context,
+                    dispatcher,
+                    ids::UPDATE_ENTITY_VIEWPORT_SPRITES,
+                    CallSite::relative(caller, revision, 0x6e),
+                )?;
+                // Compiler:1798-1801: the entity adds four more bytes;
+                // the viewport entry is S-44, and BTST precedes LEA24.
+                Ok(effect.draw_flags().read(context) & 2 != 0)
+            })()
+            .map_err(|error| context.protect_timing_failure(error));
+            if visible
+                .as_ref()
+                .is_err_and(|error| error.preserves_call_frame())
+            {
+                return visible.map(|_| None);
+            }
+            let release = context.set_stack_pointer(outgoing_base);
+            let visible = match (visible, release) {
+                (Err(error), _) | (_, Err(error)) => return Err(error),
+                (Ok(visible), Ok(())) => visible,
+            };
             let handle = ram::g_player_transient_effect_entities(revision).at(number);
-            let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-            let entity = handle.read(context) as u32;
-            call_void(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[entity])?;
-            if effect.draw_flags().read(context) & 2 != 0 {
+            if visible {
                 while handle.read(context) != 0 {
                     if call(
                         context,

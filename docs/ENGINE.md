@@ -240,6 +240,25 @@ Root selection always retains controlling inputs. Classifying private compiler
 frames and proving memory causality/identity restores remain Host obligations:
 never subtract a saved register globally when it may also feed algorithm uses.
 
+After a successful `Executed` analysis with one actual exit,
+`DependencyScratch::output_reads(field, bits)` follows the retained SSA binding
+for exactly those output bits. The result identifies its PC/opcode and path
+binding, includes every actual path control, and explicitly flags demanded
+memory values or memory-selected controls. An observed memory sample is never
+treated as a constant or a memory-causality proof. For example, the low bit of
+an even stack adjustment depends only on the old low bit, not a coarse union
+of all SSP carry inputs; this follows the existing SSA walker, not an opcode
+allowlist. All 25 canonical output fields can be queried.
+
+Every new analysis invalidates the prior output binding before ROM compilation
+or validation, including truncated/odd-ROM errors and non-executed inputs.
+Invalid register indices fail through the existing canonical-field validator
+instead of aliasing another domain or panicking. Conservative and partial Entry
+queries fail closed rather than select only normal-final bindings. An executed
+early exit retains its state at that exit, not unreachable later stores;
+multiple permitted exits are unsupported by this query. These results are
+analysis data only, never source, timing, interrupt or replacement authority.
+
 `DependencyFold` accumulates read-before-write and written masks, killing only
 proved definitions. `observe_outputs` includes pass-through declared outputs as
 inputs when a consumer intends to import them rather than preserve its own

@@ -232,6 +232,10 @@ const GUARDS: &[(&str, FunctionId)] = &[
 #[test]
 fn every_audio_entry_keeps_real_assembly_abi_entry_form_and_revision_source() {
     assert_eq!(FIXTURES.len(), 6);
+    let dispatcher = crate::Dispatcher::hybrid_with_overrides_and_frames(
+        crate::audio::PENDING_TRANSLATIONS,
+        crate::audio::PENDING_FRAMED_TRANSLATIONS,
+    );
     for (index, fixture) in FIXTURES.iter().enumerate() {
         assert!(
             !FIXTURES[..index]
@@ -244,20 +248,15 @@ fn every_audio_entry_keeps_real_assembly_abi_entry_form_and_revision_source() {
         assert_eq!(metadata.abi.preserved_address, fixture.preserved_address);
         assert!(!fixture.source.is_empty());
         assert!(!fixture.paths.is_empty());
-        assert!(crate::audio::PENDING.contains(&fixture.entry));
+        let selected = dispatcher
+            .resolve_entry(fixture.entry)
+            .unwrap()
+            .expect("canonical production or pending audio entry")
+            .entry();
         match fixture.form {
             EntryForm::LazyFramed => {
                 assert_eq!(metadata.abi.argument_count, 1);
-                assert!(
-                    crate::audio::PENDING_FRAMED_TRANSLATIONS
-                        .iter()
-                        .any(|body| body.id == fixture.entry)
-                );
-                assert!(
-                    !crate::audio::PENDING_TRANSLATIONS
-                        .iter()
-                        .any(|body| body.id == fixture.entry)
-                );
+                assert!(matches!(selected, crate::TranslatedEntry::Framed(_)));
             }
             EntryForm::ExistingOwnerFragment(owner) => {
                 assert_eq!(metadata.kind, "fragment");
@@ -273,7 +272,10 @@ fn every_audio_entry_keeps_real_assembly_abi_entry_form_and_revision_source() {
                     );
                 }
             }
-            EntryForm::Ordinary => assert_eq!(metadata.abi.argument_count, 0),
+            EntryForm::Ordinary => {
+                assert_eq!(metadata.abi.argument_count, 0);
+                assert!(matches!(selected, crate::TranslatedEntry::Values(_)));
+            }
         }
         for revision in [Revision::Rev02, Revision::Rev00] {
             let source = ControlSite {
@@ -389,10 +391,15 @@ fn real_guard_and_authored_retry_references_do_not_become_natural_or_stronger_pr
     // Consume session SHA1/complete typed receipts from the manifest at proof
     // time. No source payload, fabricated immediate-retry recipe or snapshot is
     // copied here. Guard-only10/revision and authored original-positive4 are NOT
-    // Rust success/retry/control-profile admission; all six remain pending.
+    // Rust success/retry/control-profile admission. Upload's separate corpus
+    // proof does not approve the five mailbox entries or weaken these requirements.
+    let dispatcher = crate::Dispatcher::hybrid_with_overrides_and_frames(
+        crate::audio::PENDING_TRANSLATIONS,
+        crate::audio::PENDING_FRAMED_TRANSLATIONS,
+    );
     assert!(
         FIXTURES
             .iter()
-            .all(|fixture| crate::audio::PENDING.contains(&fixture.entry))
+            .all(|fixture| dispatcher.resolve_entry(fixture.entry).unwrap().is_some())
     );
 }
