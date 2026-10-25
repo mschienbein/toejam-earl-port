@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     Dispatcher, Error, FunctionId, Translation,
     call_frame::FrameState,
-    execution::{CallCeilingScope, ExecutionClass},
+    execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest},
 };
 use std::{
     cell::RefCell,
@@ -18,6 +18,8 @@ enum Access {
     Write(u8, u32, u32),
     /// A tagged discarded read (e.g. the MOVEM terminal word before UNLK): never a semantic read.
     Discard(u8, u32),
+    Wait(WaitCondition),
+    Yield,
 }
 struct Machine {
     memory: AddressSpace,
@@ -30,6 +32,9 @@ struct Machine {
     frame: FrameState,
     class: ExecutionClass,
     controlled: bool,
+    yields_allowed: usize,
+    /// Controlled environment effects, intentionally not main-thread bus writes.
+    yield_changes: VecDeque<(u32, u16)>,
 }
 impl Machine {
     fn new(r: Revision) -> Self {
@@ -44,6 +49,8 @@ impl Machine {
             frame: FrameState::new(0xff7f00),
             class: ExecutionClass::TimeAware,
             controlled: false,
+            yields_allowed: 0,
+            yield_changes: VecDeque::new(),
         }
     }
     fn clear(&self) {
@@ -108,6 +115,41 @@ impl tje_mem::Platform for Machine {
     }
 }
 impl crate::Platform for Machine {
+    fn poll_yield(&mut self) -> Result<()> {
+        self.trace.borrow_mut().push(Access::Yield);
+        if self.yields_allowed == 0 {
+            return Err(Error::Platform(
+                "isolated unit context has no live progress".into(),
+            ));
+        }
+        self.yields_allowed -= 1;
+        if let Some((address, value)) = self.yield_changes.pop_front() {
+            self.memory.write_u16(address, value);
+        }
+        Ok(())
+    }
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.trace
+            .borrow_mut()
+            .push(Access::Wait(request.condition));
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            return Err(Error::Platform("unexpected unit wait predicate".into()));
+        };
+        loop {
+            let actual = u32::from(self.read_u8(address));
+            if comparison.satisfied(actual, mask, value) {
+                return Ok(());
+            }
+            crate::Platform::poll_yield(self)?;
+        }
+    }
     fn discard_u8(&mut self, address: u32) -> crate::Result<()> {
         self.trace.borrow_mut().push(Access::Discard(1, address));
         let _ = self.memory.read_u8(address);
@@ -539,6 +581,7 @@ fn marked_land_clr_bytes_keep_their_discarded_reads_separate_from_semantic_reads
                 .iter()
                 .filter(|event| match event {
                     Access::Read(_, a) | Access::Discard(_, a) | Access::Write(_, a, _) => *a == p,
+                    Access::Wait(_) | Access::Yield => false,
                 })
                 .cloned()
                 .collect();
@@ -560,6 +603,7 @@ fn marked_land_clr_bytes_keep_their_discarded_reads_separate_from_semantic_reads
                 .iter()
                 .filter(|event| match event {
                     Access::Read(_, a) | Access::Discard(_, a) | Access::Write(_, a, _) => *a == p,
+                    Access::Wait(_) | Access::Yield => false,
                 })
                 .cloned()
                 .collect();
@@ -571,6 +615,119 @@ fn marked_land_clr_bytes_keep_their_discarded_reads_separate_from_semantic_reads
                     Access::Write(1, p, 0)
                 ]
             );
+        }
+    }
+}
+
+#[test]
+fn fixed_pending_wait_owns_only_byte_polls_including_its_final_zero() {
+    for r in Revision::ALL {
+        let mut c = Machine::new(r);
+        let flag = ram::g_sprite_graphics_upload_pending(r).cast::<i8>();
+        c.scripted
+            .borrow_mut()
+            .insert(flag.address(), VecDeque::from([0x80, 1, 0]));
+        c.yields_allowed = 2;
+        super::super::waits::wait_pending_byte(&mut c, flag).unwrap();
+        assert_eq!(
+            *c.trace.borrow(),
+            vec![
+                Access::Wait(WaitRequest::ram_byte_equal(flag.address(), 0xff, 0).condition),
+                Access::Read(1, flag.address()),
+                Access::Yield,
+                Access::Read(1, flag.address()),
+                Access::Yield,
+                Access::Read(1, flag.address()),
+            ]
+        );
+    }
+}
+
+#[test]
+fn reservation_compound_polls_short_circuit_without_duplicate_row_samples() {
+    for r in Revision::ALL {
+        let mut c = Machine::new(r);
+        c.controlled = true;
+        c.seed_args(&[0, 0, 0]);
+        let row = ram::g_camera_row_upload_pending(r).at(0).address();
+        let column = ram::g_camera_column_upload_pending(r).at(0).address();
+        c.scripted
+            .borrow_mut()
+            .insert(row, VecDeque::from([1, 0, 0]));
+        c.scripted
+            .borrow_mut()
+            .insert(column, VecDeque::from([1, 0]));
+        c.yields_allowed = 2;
+        c.clear();
+        entity_reserve_land_path_animations(&mut c).unwrap();
+        let polls: Vec<_> = c
+            .trace
+            .borrow()
+            .iter()
+            .filter(|event| {
+                matches!(event, Access::Read(1, p) if *p == row || *p == column)
+                    || **event == Access::Yield
+            })
+            .cloned()
+            .collect();
+        assert_eq!(
+            polls,
+            vec![
+                Access::Read(1, row),
+                Access::Yield,
+                Access::Read(1, row),
+                Access::Read(1, column),
+                Access::Yield,
+                Access::Read(1, row),
+                Access::Read(1, column)
+            ]
+        );
+        assert!(
+            !c.trace
+                .borrow()
+                .iter()
+                .any(|event| matches!(event, Access::Wait(_)))
+        );
+    }
+}
+
+#[test]
+fn dynamic_queue_poll_reloads_camera_after_live_progress_changes_its_slot() {
+    for r in Revision::ALL {
+        for column_queue in [false, true] {
+            let mut c = Machine::new(r);
+            c.seed_args(&[30, 0, 0, 0, 0, 1000]); // clipped geometry: no tile callees
+            let camera_word = c.frame.argument_word(4).address();
+            let flags = if column_queue {
+                ram::g_camera_column_upload_pending(r)
+            } else {
+                ram::g_camera_row_upload_pending(r)
+            };
+            c.yields_allowed = 1;
+            c.yield_changes.push_back((camera_word, 1));
+            c.clear();
+            if column_queue {
+                crate::map::map_queue_visible_metatile_column(&mut c).unwrap();
+            } else {
+                crate::map::map_queue_visible_metatile_row(&mut c).unwrap();
+            }
+            let trace = c.trace.borrow();
+            let start = trace
+                .iter()
+                .position(|event| *event == Access::Write(1, flags.at(0).address(), 1))
+                .unwrap()
+                + 1;
+            assert_eq!(
+                &trace[start..start + 5],
+                &[
+                    Access::Read(2, camera_word),
+                    Access::Read(1, flags.at(0).address()),
+                    Access::Yield,
+                    Access::Read(2, camera_word),
+                    Access::Read(1, flags.at(1).address()),
+                ]
+            );
+            assert!(!trace.iter().any(|event| matches!(event, Access::Wait(_))));
         }
     }
 }

@@ -279,11 +279,9 @@ pub fn entity_reserve_land_path_animations(c: &mut dyn Context) -> Result<Option
     let row_pending = ram::g_camera_row_upload_pending(r).at(camera);
     let column_pending = ram::g_camera_column_upload_pending(r).at(camera);
     while row_pending.read(c) != 0 || column_pending.read(c) != 0 {
-        if row_pending.read(c) != 0 {
-            super::waits::wait_pending_byte(c, row_pending)?;
-        } else {
-            super::waits::wait_pending_byte(c, column_pending)?;
-        }
+        // Matching asm:1348-1358: one short-circuit row/column iteration.
+        // The yield supplies live progress but no extra replay cursor access.
+        c.poll_yield()?;
     }
     let level = if camera == 0 {
         ram::g_player1_map_level(r).read(c)

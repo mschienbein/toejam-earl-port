@@ -68,6 +68,9 @@ pub fn draw_game_map(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         ram::g_player_idle_ticks(r).at(player).write(c, 0);
     }
     let pending = ram::g_sprite_graphics_upload_pending(r);
+    // G c_map_drawing_and_controller.s:1576-1581: the outer TST is separate
+    // from the inner fixed-byte TST/BEQ/BRA loop. Only the inner polls belong
+    // to the RAM wait, including its final satisfying read.
     if pending.read(c) != 0 {
         super::waits::wait_pending_byte(c, pending.cast())?;
     } else {

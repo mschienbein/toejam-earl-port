@@ -2,7 +2,7 @@
 //! They are unit tests, not differential or replay-environment proof evidence.
 use super::*;
 use crate::call_frame::FrameState;
-use crate::execution::{CallCeilingScope, ExecutionClass};
+use crate::execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest};
 use std::{cell::RefCell, collections::VecDeque};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +13,7 @@ enum Access {
     Call(FunctionId, Vec<u32>),
     Stack(u32),
     Vdp(u32, u16),
+    Wait(WaitRequest),
 }
 
 struct RootMachine {
@@ -24,6 +25,7 @@ struct RootMachine {
     reject_generation: bool,
     load_rejections: u8,
     input: VecDeque<u32>,
+    pending_samples: RefCell<Option<(u32, VecDeque<u8>)>>,
 }
 impl RootMachine {
     fn new(r: Revision) -> Self {
@@ -41,6 +43,7 @@ impl RootMachine {
             reject_generation: false,
             load_rejections: 0,
             input: VecDeque::from([0, 0x20, 0]),
+            pending_samples: RefCell::new(None),
         }
     }
     fn clear_accesses(&self) {
@@ -66,10 +69,21 @@ impl RootMachine {
             })
             .collect()
     }
+    fn pending_samples(&mut self, samples: &[u8]) {
+        let address = ram::g_sprite_graphics_upload_pending(self.revision()).address();
+        *self.pending_samples.borrow_mut() = Some((address, samples.iter().copied().collect()));
+    }
 }
 impl Bus for RootMachine {
     fn read_u8(&self, address: u32) -> u8 {
         self.accesses.borrow_mut().push(Access::Read(address, 1));
+        if let Some((poll, samples)) = self.pending_samples.borrow_mut().as_mut()
+            && address == *poll
+        {
+            return samples
+                .pop_front()
+                .expect("unexpected poll after the final zero");
+        }
         self.inner.memory.read_u8(address)
     }
     fn read_u16(&self, address: u32) -> u16 {
@@ -112,6 +126,29 @@ impl tje_mem::Platform for RootMachine {
     }
 }
 impl crate::Platform for RootMachine {
+    fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.accesses.borrow_mut().push(Access::Wait(request));
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask,
+            value,
+            comparison,
+        } = request.condition
+        else {
+            panic!("unexpected proxy wait {request:?}");
+        };
+        assert_eq!(request, WaitRequest::ram_byte_equal(address, 0xff, 0));
+        for _ in 0..request.max_ticks {
+            let sample = u32::from(self.read_u8(address));
+            if comparison.satisfied(sample, mask, value) {
+                return Ok(());
+            }
+        }
+        Err(Error::Platform(
+            "unit byte wait exhausted its real polls".into(),
+        ))
+    }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.accesses.borrow_mut().push(Access::Discard(address, 1));
         Ok(())
@@ -648,5 +685,77 @@ fn rejected_generation_returns_one_without_restoring_the_rng() {
             1
         );
         assert_eq!(c.inner.address[7], 0xff7000);
+    }
+}
+
+fn assert_pending_polls(c: &RootMachine, samples: &[u8], outer_test: bool) {
+    let flag = ram::g_sprite_graphics_upload_pending(c.revision()).address();
+    let frame_counter = ram::g_frame_counter(c.revision()).address();
+    let accesses = c.accesses.borrow();
+    let pending: Vec<_> = accesses
+        .iter()
+        .filter(|access| match access {
+            Access::Read(address, _) => *address == flag || *address == (flag & !1),
+            Access::Wait(_) => true,
+            _ => false,
+        })
+        .cloned()
+        .collect();
+    let mut expected = Vec::new();
+    let remaining = if outer_test {
+        expected.push(Access::Read(flag, 1));
+        &samples[1..]
+    } else {
+        samples
+    };
+    if !outer_test || samples[0] != 0 {
+        expected.push(Access::Wait(WaitRequest::ram_byte_equal(flag, 0xff, 0)));
+    }
+    expected.extend(remaining.iter().map(|_| Access::Read(flag, 1)));
+    assert_eq!(pending, expected);
+    assert!(
+        !accesses
+            .iter()
+            .any(|access| matches!(access, Access::Read(address, _) if *address == frame_counter))
+    );
+    let pending_samples = c.pending_samples.borrow();
+    assert!(pending_samples.as_ref().unwrap().1.is_empty());
+}
+
+#[test]
+fn level_pending_wait_owns_all_byte_samples_including_the_final_zero() {
+    for r in Revision::ALL {
+        for samples in [&[0][..], &[0x80, 0x80, 0], &[0xff, 1, 0x40, 0]] {
+            let mut c = RootMachine::new(r);
+            ram::g_requested_map_level(r).write(&mut c, 2);
+            ram::g_player1_map_level(r).write(&mut c, 1);
+            ram::g_player2_map_level(r).write(&mut c, 1);
+            ram::g_saved_map_level(r).write(&mut c, -1);
+            c.pending_samples(samples);
+            c.clear_accesses();
+            assert_eq!(change_level(&mut c, &[0]).unwrap(), Some(0));
+            assert_pending_polls(&c, samples, false);
+        }
+    }
+}
+
+#[test]
+fn map_pending_wait_keeps_the_outer_test_without_duplicating_inner_polls() {
+    for r in Revision::ALL {
+        for samples in [&[0][..], &[0x80, 0], &[0xff, 0x80, 1, 0]] {
+            let mut c = RootMachine::new(r);
+            c.pending_samples(samples);
+            draw_game_map(&mut c, &[0]).unwrap();
+            assert_pending_polls(&c, samples, true);
+            let first_call = c.calls().into_iter().next().unwrap();
+            assert_eq!(
+                first_call,
+                if samples[0] == 0 {
+                    (ids::WAIT_FOR_NEXT_V_BLANK, vec![1])
+                } else {
+                    (ids::DISABLE_BLANKING_GRAPHICS, vec![])
+                }
+            );
+        }
     }
 }

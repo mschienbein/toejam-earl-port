@@ -6,16 +6,10 @@ use crate::{
 };
 use tje_mem::{Address, ram};
 
-/// Await an IRQ-written byte without fabricating readiness or advancing a fixed
-/// number of frames. The aligned word is only the scheduler wake condition;
-/// the original byte predicate is rechecked after every real hardware wakeup.
+/// Source-backed fixed byte TST/BNE poll. The platform owns every sample,
+/// including the final zero; an aligned-word proxy adds an invented access.
 pub(super) fn wait_pending_byte(c: &mut dyn Context, flag: Address<i8>) -> Result<()> {
-    while flag.read(c) != 0 {
-        let word = flag.address() & !1;
-        let previous = c.read_u16(word);
-        c.wait_until(WaitRequest::vblank_frame(word, previous))?;
-    }
-    Ok(())
+    c.wait_until(WaitRequest::ram_byte_equal(flag.address(), 0xff, 0))
 }
 
 /// G/src/map/land_processing.c:249 (`MapQueueVisibleMetatileRow`).
@@ -87,7 +81,15 @@ pub fn map_queue_visible_metatile_row(c: &mut dyn Context) -> Result<Option<u32>
         let camera = i32::from(frame.argument_word(4).read(c));
         let pending = ram::g_camera_row_upload_pending(r).at(camera);
         pending.write(c, 1);
-        wait_pending_byte(c, pending)?;
+        // Matching asm:872-876 reloads this caller argument on EVERY poll.
+        // Upload stores or IRQ work can change it through original aliases.
+        loop {
+            let camera = i32::from(frame.argument_word(4).read(c));
+            if ram::g_camera_row_upload_pending(r).at(camera).read(c) == 0 {
+                break;
+            }
+            c.poll_yield()?;
+        }
         Ok(None)
     })
 }
@@ -163,7 +165,14 @@ pub fn map_queue_visible_metatile_column(c: &mut dyn Context) -> Result<Option<u
         let camera = i32::from(frame.argument_word(4).read(c));
         let pending = ram::g_camera_column_upload_pending(r).at(camera);
         pending.write(c, 1);
-        wait_pending_byte(c, pending)?;
+        // Matching asm:999-1003: dynamic address, not a fixed-byte shortcut.
+        loop {
+            let camera = i32::from(frame.argument_word(4).read(c));
+            if ram::g_camera_column_upload_pending(r).at(camera).read(c) == 0 {
+                break;
+            }
+            c.poll_yield()?;
+        }
         Ok(None)
     })
 }

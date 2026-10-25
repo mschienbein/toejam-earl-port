@@ -148,6 +148,8 @@ pub fn change_level(c: &mut dyn Context, args: &[u32]) -> Result<Option<u32>> {
         frame.leave(c)?;
         return Ok(Some(0));
     }
+    // G c_level_generation_and_changes.s:2505-2506: one fixed-byte TST/BNE
+    // loop. The RAM predicate owns every poll, including the final zero.
     super::waits::wait_pending_byte(c, ram::g_sprite_graphics_upload_pending(r).cast())?;
     let highest = ram::g_highest_level(r);
     if requested.read(c) > highest.read(c) {
