@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 import re
 
+from tree_sitter import Node, Parser
+from tree_sitter_language_pack import get_parser
+
 
 
 def constant(name: str) -> str:
@@ -20,10 +23,107 @@ def quoted(value: str) -> str:
     return json.dumps(value, ensure_ascii=True)
 
 
-def generate(inventory: Path) -> dict[str, str]:
+def declarator_chain(declarator: Node) -> list[Node]:
+    chain = []
+    while declarator is not None:
+        chain.append(declarator)
+        if declarator.type == "parenthesized_declarator":
+            declarator = declarator.named_children[0]
+        else:
+            declarator = declarator.child_by_field_name("declarator")
+    return chain
+
+
+def array_parameter_types(header: bytes, name: str, parser: Parser) -> dict[str, dict[str, str]]:
+    """Apply C's array-parameter adjustment, not an array object's element width."""
+    # Isolate the inventory-identified header. Parsing an entire K&R unit lets
+    # tree-sitter mistake later identifier-list formals for typedef names.
+    tree = parser.parse(header + b"{}")
+    definitions = [
+        node for node in tree.root_node.named_children if node.type == "function_definition"
+    ]
+    if tree.root_node.has_error or len(definitions) != 1:
+        raise ValueError(f"cannot parse C parameter declarations for {name}")
+    definition = definitions[0]
+    function = definition.child_by_field_name("declarator")
+    while function is not None and function.type != "function_declarator":
+        function = function.child_by_field_name("declarator")
+    if function is None or function.child_by_field_name("declarator").text.decode() != name:
+        raise ValueError(f"C definition does not match inventory function {name}")
+    parameters = function.child_by_field_name("parameters")
+    declarations = [
+        node for node in definition.named_children if node.type == "declaration"
+    ] + [
+        node for node in parameters.named_children if node.type == "parameter_declaration"
+    ]
+    adjusted = {}
+    for declaration in declarations:
+        base_nodes = [
+            node for node in declaration.named_children
+            if node == declaration.child_by_field_name("type") or node.type == "type_qualifier"
+        ]
+        base = " ".join(node.text.decode() for node in base_nodes)
+        for declarator in declaration.children_by_field_name("declarator"):
+            chain = declarator_chain(declarator)
+            if len(chain) < 2 or chain[-2].type != "array_declarator":
+                continue
+            # The operation adjacent to the identifier determines whether this
+            # is an array parameter. A pointer-to-array parameter stays a pointer.
+            array, identifier = chain[-2:]
+            if identifier.type != "identifier":
+                raise ValueError(f"unsupported array parameter declarator in {name}")
+            outer_arrays = any(node.type == "array_declarator" for node in chain[:-2])
+            pointer = b"(*)" if outer_arrays else b"*"
+            start = array.start_byte - declarator.start_byte
+            end = array.end_byte - declarator.start_byte
+            abstract = declarator.text[:start] + pointer + declarator.text[end:]
+            adjusted[identifier.text.decode()] = {
+                "type": f"{base} {abstract.decode()}".strip(),
+                "source_declaration": f"{base} {declarator.text.decode()}".strip(),
+            }
+    return adjusted
+
+
+def source_abis(functions: list[dict], decomp: Path) -> tuple[list[dict], str]:
+    parser = get_parser("c")
+    sources: dict[str, list[bytes]] = {}
+    declaration_hash = hashlib.sha256()
+    abis = []
+    for entry in functions:
+        abi = entry["calling_convention"]
+        if abi["kind"] == "mcc68k_c":
+            path = entry["source_file"]
+            if path not in sources:
+                sources[path] = (decomp / path).read_bytes().splitlines(keepends=True)
+            tail = b"".join(sources[path][entry["source_line"] - 1:])
+            header, body, _ = tail.partition(b"{")
+            if not body:
+                raise ValueError(f"missing C definition body for {entry['name']}")
+            arrays = array_parameter_types(header, entry["name"], parser)
+            declaration_hash.update(path.encode() + b"\0" + header + b"\0")
+            if arrays:
+                arguments = abi["arguments"]
+                unknown = arrays.keys() - {argument["name"] for argument in arguments}
+                if unknown:
+                    raise ValueError(f"array parameters missing from {entry['name']} ABI: {unknown}")
+                abi = abi | {"arguments": [
+                    argument | arrays[argument["name"]] | {
+                        "declared_width_bits": 32,
+                        "entry_sp_value_offset": argument["entry_sp_slot_offset"],
+                    } if argument["name"] in arrays else argument
+                    for argument in arguments
+                ]}
+        abis.append(abi)
+    return abis, declaration_hash.hexdigest()
+
+
+
+
+def generate(inventory: Path, decomp: Path) -> dict[str, str]:
     raw = inventory.read_bytes()
     data = json.loads(raw)
     functions = data["functions"]
+    abis, declaration_hash = source_abis(functions, decomp)
     indices = {entry["id"]: index for index, entry in enumerate(functions)}
     names = {entry["name"]: index for index, entry in enumerate(functions)}
     constants = [constant(entry["name"]) for entry in functions]
@@ -32,6 +132,7 @@ def generate(inventory: Path) -> dict[str, str]:
     header = (
         "// Generated by tools/generate_metadata.py; metadata only.\n"
         f"// Inventory SHA-256: {hashlib.sha256(raw).hexdigest()}\n"
+        f"// C declaration SHA-256: {declaration_hash}\n"
     )
     ids = header + "use crate::FunctionId;\n\n"
     for index, name in enumerate(constants):
@@ -45,7 +146,7 @@ def generate(inventory: Path) -> dict[str, str]:
         text += "#[rustfmt::skip]\n"
         text += f"pub static FUNCTIONS: [FunctionMetadata; {len(functions[chunk_start:chunk_start + 108])}] = [\n"
         for index, entry in enumerate(functions[chunk_start:chunk_start + 108], chunk_start):
-            abi = entry["calling_convention"]
+            abi = abis[index]
             result = abi.get("return", {}).get("declared_type", "register-defined")
             arguments = abi.get("arguments", [])
             signature = f"{result} {entry['name']}(" + ", ".join(
@@ -103,10 +204,11 @@ def generate(inventory: Path) -> dict[str, str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", type=Path, required=True)
+    parser.add_argument("--decomp", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args()
     destination = Path(__file__).resolve().parents[1] / "src" / "metadata"
-    outputs = generate(arguments.inventory)
+    outputs = generate(arguments.inventory, arguments.decomp)
     if arguments.check:
         differences = [name for name, text in outputs.items() if not (destination / name).exists() or (destination / name).read_text() != text]
         if differences:

@@ -295,6 +295,27 @@ does **not** apply to aggregate-by-value parameters. With the return address at
 extend at the call site's original declared expression type; a K&R callee then
 reads the portion selected by its own parameter declaration.
 
+An array **parameter** is a pointer, not a scalar element or an inline array:
+`char text[]` and `char text[32]` both receive a 32-bit address (at entry `SP+4`
+when first). For multiple dimensions only the outer array adjusts, so `char rows[][16]`
+receives a pointer to a 16-character row. This differs from the aggregate-by-value
+case below. Both centered cutscene text queues demonstrate the rule: G declares
+`char text[]`, and each matching listing loads the complete longword pointer.
+
+Function ABI metadata is generated, not hand-patched. The private inventory's
+older scalar-width field is insufficient to recover a discarded array
+declarator, so regeneration also requires G's authoritative function headers.
+The generator parses every catalogued C header, retains each adjusted argument's
+`source_declaration` separately from its effective pointer ABI, and records
+both inventory and C-declaration hashes. Regenerate or check with:
+
+```sh
+uv run --python 3.12 --with-requirements tools/audit_requirements.txt \
+  python crates/tje-game/tools/generate_metadata.py \
+  --inventory "$INVENTORY" --decomp "$G"
+# Add --check to compare without rewriting the committed metadata.
+```
+
 Integer results use D0. Do not assume that an original narrow result always
 cleared or sign-extended its unused upper bits. G explicitly marks several
 consumer-local `extern int` declarations as original mismatched-result bugs.
