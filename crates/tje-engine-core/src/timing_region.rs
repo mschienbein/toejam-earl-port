@@ -636,14 +636,7 @@ impl<'a> TimingCursor<'a> {
             Node::Compare(op, a, b) => {
                 let a = self.eval(a)?;
                 let b = self.eval(b)?;
-                u32::from(match op {
-                    CompareOp::Equal => a == b,
-                    CompareOp::NotEqual => a != b,
-                    CompareOp::UnsignedLess => a < b,
-                    CompareOp::UnsignedLessEqual => a <= b,
-                    CompareOp::SignedLess => (a as i32) < b as i32,
-                    CompareOp::SignedLessEqual => (a as i32) <= b as i32,
-                })
+                op.evaluate(a, b)
             }
             Node::Select(c, a, b) => {
                 let c = self.eval(c)?;
@@ -905,43 +898,8 @@ impl<'a> TimingCursor<'a> {
     }
 }
 fn state_field(cpu: &CpuState, field: StateField) -> u32 {
-    match field {
-        StateField::Data(n) => cpu.d[usize::from(n)],
-        StateField::Address(n) => cpu.a[usize::from(n)],
-        StateField::Usp => cpu.usp,
-        StateField::Ssp => cpu.ssp,
-        StateField::Pc => cpu.pc,
-        StateField::Sr => cpu.sr,
-        StateField::Prefetch => cpu.prefetch,
-        StateField::PendingInterrupt => cpu.pending_interrupt,
-        StateField::Stopped => cpu.stopped,
-        StateField::Frozen => cpu.frozen,
-        StateField::AddressError => cpu.address_error,
-        StateField::LastMulDiv => cpu.last_muldiv,
-    }
+    field.read(cpu)
 }
 fn binary(op: BinaryOp, a: u32, b: u32) -> Result<u32, TimingError> {
-    Ok(match op {
-        BinaryOp::Add => a.wrapping_add(b),
-        BinaryOp::Subtract => a.wrapping_sub(b),
-        BinaryOp::Multiply => a.wrapping_mul(b),
-        BinaryOp::And => a & b,
-        BinaryOp::Or => a | b,
-        BinaryOp::Xor => a ^ b,
-        BinaryOp::ShiftLeft => a.wrapping_shl(b),
-        BinaryOp::ShiftRight => a.wrapping_shr(b),
-        BinaryOp::ArithmeticShiftRight => (a as i32).wrapping_shr(b) as u32,
-        BinaryOp::DivideUnsigned
-        | BinaryOp::DivideSigned
-        | BinaryOp::RemainderUnsigned
-        | BinaryOp::RemainderSigned
-            if b == 0 =>
-        {
-            return Err(TimingError::ArithmeticDomain);
-        }
-        BinaryOp::DivideUnsigned => a / b,
-        BinaryOp::DivideSigned => (a as i32).wrapping_div(b as i32) as u32,
-        BinaryOp::RemainderUnsigned => a % b,
-        BinaryOp::RemainderSigned => (a as i32).wrapping_rem(b as i32) as u32,
-    })
+    op.evaluate(a, b).ok_or(TimingError::ArithmeticDomain)
 }

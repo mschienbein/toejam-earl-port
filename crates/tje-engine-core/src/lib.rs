@@ -2,6 +2,7 @@
 //! The instruction evaluator is deliberately a separate, development-only crate.
 
 pub mod decode;
+pub mod dependencies;
 pub mod ir;
 pub mod lower;
 pub mod metadata;

@@ -1,5 +1,5 @@
 //! Linear, typed, side-effect-explicit SSA at original instruction granularity.
-use crate::ReadKind;
+use crate::{CpuState, ReadKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Value(pub u32);
@@ -20,6 +20,40 @@ pub enum StateField {
     LastMulDiv,
 }
 impl StateField {
+    pub const COUNT: usize = 25;
+    pub const fn from_index(index: usize) -> Option<Self> {
+        Some(match index {
+            0..=7 => Self::Data(index as u8),
+            8..=14 => Self::Address((index - 8) as u8),
+            15 => Self::Usp,
+            16 => Self::Ssp,
+            17 => Self::Pc,
+            18 => Self::Sr,
+            19 => Self::Prefetch,
+            20 => Self::PendingInterrupt,
+            21 => Self::Stopped,
+            22 => Self::Frozen,
+            23 => Self::AddressError,
+            24 => Self::LastMulDiv,
+            _ => return None,
+        })
+    }
+    pub fn read(self, state: &CpuState) -> u32 {
+        match self {
+            Self::Data(n) => state.d[usize::from(n)],
+            Self::Address(n) => state.a[usize::from(n)],
+            Self::Usp => state.usp,
+            Self::Ssp => state.ssp,
+            Self::Pc => state.pc,
+            Self::Sr => state.sr,
+            Self::Prefetch => state.prefetch,
+            Self::PendingInterrupt => state.pending_interrupt,
+            Self::Stopped => state.stopped,
+            Self::Frozen => state.frozen,
+            Self::AddressError => state.address_error,
+            Self::LastMulDiv => state.last_muldiv,
+        }
+    }
     pub const fn index(self) -> u32 {
         match self {
             Self::Data(n) => {
@@ -64,6 +98,35 @@ pub enum BinaryOp {
     RemainderUnsigned,
     RemainderSigned,
 }
+impl BinaryOp {
+    /// Exact primitive semantics shared by compiler analyses and timing SSA.
+    /// Division/remainder require a nonzero divisor, as established by IR guards.
+    pub const fn evaluate(self, lhs: u32, rhs: u32) -> Option<u32> {
+        Some(match self {
+            Self::Add => lhs.wrapping_add(rhs),
+            Self::Subtract => lhs.wrapping_sub(rhs),
+            Self::Multiply => lhs.wrapping_mul(rhs),
+            Self::And => lhs & rhs,
+            Self::Or => lhs | rhs,
+            Self::Xor => lhs ^ rhs,
+            Self::ShiftLeft => lhs.wrapping_shl(rhs),
+            Self::ShiftRight => lhs.wrapping_shr(rhs),
+            Self::ArithmeticShiftRight => (lhs as i32).wrapping_shr(rhs) as u32,
+            Self::DivideUnsigned
+            | Self::DivideSigned
+            | Self::RemainderUnsigned
+            | Self::RemainderSigned
+                if rhs == 0 =>
+            {
+                return None;
+            }
+            Self::DivideUnsigned => lhs / rhs,
+            Self::DivideSigned => (lhs as i32).wrapping_div(rhs as i32) as u32,
+            Self::RemainderUnsigned => lhs % rhs,
+            Self::RemainderSigned => (lhs as i32).wrapping_rem(rhs as i32) as u32,
+        })
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompareOp {
     Equal,
@@ -72,6 +135,18 @@ pub enum CompareOp {
     UnsignedLessEqual,
     SignedLess,
     SignedLessEqual,
+}
+impl CompareOp {
+    pub const fn evaluate(self, lhs: u32, rhs: u32) -> u32 {
+        (match self {
+            Self::Equal => lhs == rhs,
+            Self::NotEqual => lhs != rhs,
+            Self::UnsignedLess => lhs < rhs,
+            Self::UnsignedLessEqual => lhs <= rhs,
+            Self::SignedLess => (lhs as i32) < rhs as i32,
+            Self::SignedLessEqual => (lhs as i32) <= rhs as i32,
+        }) as u32
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Width {

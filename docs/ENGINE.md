@@ -138,6 +138,59 @@ into the application's function table. The runtime calls that table entry withou
 crossing JavaScript at instruction boundaries. JavaScript is used for asynchronous
 compilation/instantiation and IndexedDB, not register or bus-operation dispatch.
 
+### ISA register dependency analysis
+
+`tje-engine-core::dependencies` analyzes the **same compiled instruction SSA**,
+not an independent opcode dependency table. `analyze_instruction` accepts cached
+`InstructionIr`; `analyze_rom_instruction` decodes the user's actual opcode and
+extension words through the existing compiler. Reusable scratch/report buffers
+retain their largest analyzed workload. No bus call, device advance or published
+CPU update occurs.
+
+`StateMask` covers all **25** canonical domains: D0–D7, A0–A6, USP/SSP, SR and
+every PC/prefetch/pending/halt/fault/timing word. A7 is represented by its physical
+USP/SSP banks and SR.S selection, not an invented independent register slot.
+CCR is the low five SR bits. Non-register domains require explicit consumer
+handling; `registers_only` is an explicit projection, never the default.
+
+The report separates live entry reads, physical stores, possible non-identity
+writes, proved new definitions and preserved bits. Byte/word upper halves,
+unchanged CCR bits and inactive stack banks remain distinguishable from new
+definitions. The default read/fold includes identity-passthrough uses; the
+effect-only/provenance views do not license importing preserved oracle outputs.
+New-definition masks are conservative sufficient proofs, intersected across
+**all permitted exits**. An early `ExitIf` cannot grant a later normal-path
+definition. RMW/conditional cases may conservatively prove fewer definitions.
+
+Three input modes have distinct authority:
+
+* `Conservative` unions possible inputs and intersects exit definitions.
+* `Entry` refines choices from the actual before-state while unresolved
+  memory-derived choices remain conservative and flagged.
+* `Executed` additionally consumes actual recorded reads exactly once, in order,
+  matching the explicit address domain, width/purpose and value width. `Raw32`
+  matches logical SSA EAs exactly; `M68000Bus24` requires a journal address with
+  no high bits and matches only the low 24 address lines. This never normalizes
+  RAM mirrors, register values or data, and the domain remains in `PathBinding`.
+  Missing, extra or mismatched observations fail closed. The caller must bind
+  those values to its accepted original trace and compare controlling entry-input
+  bits before using outputs; the API does not attest caller-authored observations.
+  Path-refined results
+  cannot be cached under opcode/PC alone.
+
+Per-operation provenance separates memory address and write-value roots,
+register outputs, passthrough, selection controls, timing and exception uses.
+Root selection always retains controlling inputs. Classifying private compiler
+frames and proving memory causality/identity restores remain Host obligations:
+never subtract a saved register globally when it may also feed algorithm uses.
+
+`DependencyFold` accumulates read-before-write and written masks, killing only
+proved definitions. `observe_outputs` includes pass-through declared outputs as
+inputs when a consumer intends to import them rather than preserve its own
+values. `Finish` IRQ/trace admission and exception frame/vector effects lie
+outside instruction SSA; explicit scheduler obligations must be rejected or
+separately accounted for, not mistaken for a complete empty dependency set.
+
 ## Timeline, exceptions and devices
 
 Base instruction charges are not elapsed time. The runtime retains the reference
