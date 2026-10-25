@@ -119,6 +119,42 @@ fn aggregate_rejects_cross_service_references_and_config_tampering() {
 }
 
 #[test]
+fn input_and_publication_crossrefs_are_validated_together() {
+    let mut state = session(123);
+    let phase_input = InputFrame::neutral(0);
+    let Admission::Step(stamp) = state
+        .clock
+        .admit(Phase::PresentationA, phase_input)
+        .unwrap()
+    else {
+        panic!("first phase was not admitted");
+    };
+    state.publish(stamp).unwrap();
+    state
+        .players
+        .latch_inputs(InputFrame::new(0, [0x101, 0, 0, 0], [0; 4]).unwrap())
+        .unwrap();
+    assert!(state.validate().is_err());
+    state.players.inputs = Some(phase_input);
+    state.validate().unwrap();
+    for (frame, phase) in [
+        Phase::Population,
+        Phase::PresentationB,
+        Phase::Players,
+        Phase::PresentationA,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        state
+            .clock
+            .admit(phase, InputFrame::neutral(frame as u64 + 1))
+            .unwrap();
+    }
+    assert!(state.validate().is_err());
+}
+
+#[test]
 fn roles_never_turn_the_director_into_a_fourth_hero() {
     let roles = Roles {
         inputs: SeatMask::ALL,

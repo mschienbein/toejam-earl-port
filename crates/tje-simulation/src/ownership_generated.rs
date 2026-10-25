@@ -3,7 +3,7 @@ use super::{Disposition, Node, OriginalAbi};
 use tje_game::ids;
 
 #[rustfmt::skip]
-pub const IDENTITY: [u8; 32] = [2, 61, 153, 75, 240, 16, 249, 103, 21, 182, 110, 93, 53, 92, 189, 35, 209, 39, 114, 130, 185, 112, 232, 183, 123, 22, 76, 138, 195, 231, 138, 62];
+pub const IDENTITY: [u8; 32] = [101, 193, 55, 96, 208, 82, 88, 159, 98, 185, 25, 237, 209, 210, 188, 221, 205, 221, 24, 93, 239, 49, 203, 8, 202, 3, 149, 25, 15, 121, 47, 34];
 #[rustfmt::skip]
 pub static NODES: &[Node] = &[
     Node { function: ids::ERROR_TRAP, body_version: 1, disposition: Disposition::ModeOwned("core"), references: &[], indirect: false },

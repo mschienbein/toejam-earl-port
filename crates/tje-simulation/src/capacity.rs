@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn reserves_all_independent_floors_and_full_effect_drop_pools() {
         let reservation = CapacityPlan::STOCK_COOP.reserve(4).unwrap();
-        assert_eq!(reservation.required_actors, 592);
+        assert_eq!(reservation.required_actors, 492);
         assert!(reservation.authoritative_bytes < AUTHORITATIVE_LIMIT);
         let maximum = CapacityPlan {
             floors: 32,

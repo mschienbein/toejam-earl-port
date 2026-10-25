@@ -196,6 +196,7 @@ impl SetupTransaction {
             failed: false,
         };
         session.validate_references()?;
+        session.validate_encoded_reservation()?;
         Ok(Self { session })
     }
     pub fn world_mut(&mut self) -> &mut WorldState {
@@ -213,6 +214,7 @@ impl SetupTransaction {
         }
         self.session.clock.complete_setup()?;
         self.session.validate()?;
+        self.session.validate_encoded_reservation()?;
         Ok(self.session)
     }
 }
@@ -354,14 +356,44 @@ impl Session {
                     "persistent population exceeds its admitted joint caps",
                 ));
             }
+        }
+        if self.world.dropped().len() > usize::from(self.config.capacities.drops) {
+            return Err(Error::Capacity("persistent global drop reservation"));
+        }
+        if let Some(player_input) = self.players.inputs {
+            let phase_input = self.clock.input().ok_or(Error::State(
+                "hero input exists before any admitted hardware phase",
+            ))?;
+            if player_input.frame > phase_input.frame
+                || (player_input.frame == phase_input.frame && &player_input != phase_input)
+            {
+                return Err(Error::State("hero and phase input latches disagree"));
+            }
+        }
+        if let Some(stamp) = self.publication
+            && (!stamp.phase.publishes()
+                || stamp.epoch == 0
+                || stamp.epoch > self.clock.epoch()
+                || self.clock.last_admission(stamp.phase) != Some(stamp.hardware_frame)
+                || self
+                    .clock
+                    .input()
+                    .is_none_or(|input| stamp.hardware_frame > input.frame))
+        {
+            return Err(Error::State("invalid saved publication boundary"));
+        }
+        Ok(())
+    }
+    /// Exact wire-size checks are admission/setup work. Capture/restore already
+    /// serialize through the registry's global bound; their invariant pass uses
+    /// the admitted per-field cardinalities, not additional full-world encodes.
+    fn validate_encoded_reservation(&self) -> Result<()> {
+        for floor in self.world.floors() {
             if encoded_size(floor)? > FLOOR_RESERVATION {
                 return Err(Error::Capacity(
                     "floor exceeds its worst-case codec reservation",
                 ));
             }
-        }
-        if self.world.dropped().len() > usize::from(self.config.capacities.drops) {
-            return Err(Error::Capacity("persistent global drop reservation"));
         }
         if let Some(pending) = self.world.pending()
             && encoded_size(pending)? > GENERATION_RESERVATION
@@ -369,17 +401,6 @@ impl Session {
             return Err(Error::Capacity(
                 "pending generation exceeds its codec reservation",
             ));
-        }
-        if let Some(stamp) = self.publication
-            && (!stamp.phase.publishes()
-                || stamp.epoch == 0
-                || stamp.epoch > self.clock.epoch()
-                || self
-                    .clock
-                    .input()
-                    .is_none_or(|input| stamp.hardware_frame > input.frame))
-        {
-            return Err(Error::State("invalid saved publication boundary"));
         }
         if encoded_size(self)? > self.reservation.authoritative_bytes {
             return Err(Error::Capacity(
@@ -400,6 +421,7 @@ impl Session {
     /// Pure pre-mutation gate; constructing valid data never selects gameplay.
     pub fn admit(&self) -> Result<()> {
         self.validate()?;
+        self.validate_encoded_reservation()?;
         if self.config.roles.director.is_some() {
             return Err(Error::Ownership(
                 "Overlord role/effect closure is not admitted",

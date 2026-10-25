@@ -207,8 +207,8 @@ def generate(root: Path, decomp: Path) -> str:
               "scope": "conservative transitive closure; indirect calls include all catalogued functions",
               "runtime_callback_policy": "unknown, interior, unimplemented or ABI-incompatible targets reject before mutation",
               "roots": roots, "irq_roots": irq_roots,
-              "closure": [entries[index]["constant"] for index in closure(entries, references, indirect, roots)],
-              "irq_closure": [entries[index]["constant"] for index in closure(entries, references, indirect, irq_roots)],
+              "closure": [{"function": entries[index]["constant"]} for index in closure(entries, references, indirect, roots)],
+              "irq_closure": [{"function": entries[index]["constant"]} for index in closure(entries, references, indirect, irq_roots)],
               "functions": entries, "source_references": references,
               "indirect_sites": indirect, "descriptor_schemas": descriptor_schemas(decomp),
               "source_identities": hashes}

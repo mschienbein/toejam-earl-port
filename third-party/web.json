@@ -3102,7 +3102,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "a6cdb15e8fb1eea790ac04b5ce234e740155f50bfad2f9c63730c46acc470034",
+  "source_fingerprint": "016b1e66e9e631273cd4a6d9489bb9e4ca5389741e4a42bdf2bca3d1243fbd1b",
   "targets": [
     "wasm32-unknown-unknown"
   ]

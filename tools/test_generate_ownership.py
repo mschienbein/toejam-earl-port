@@ -71,12 +71,12 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(identity, hashlib.sha256(canonical).hexdigest())
         entries = document["functions"]
         self.assertEqual(len(entries), 648)
-        expected = [entry["constant"] for entry in entries]
+        expected = [{"function": entry["constant"]} for entry in entries]
         self.assertEqual(document["closure"], expected)
         self.assertEqual(document["irq_closure"], expected)
         reached = ownership.closure(entries, document["source_references"],
                                     document["indirect_sites"], document["roots"])
-        self.assertEqual([entries[index]["constant"] for index in reached], document["closure"])
+        self.assertEqual([{"function": entries[index]["constant"]} for index in reached], document["closure"])
         self.assertTrue(all(entry["disposition"] in {"mode_owned", "read_only", "device_audio_original"}
                             for entry in entries))
         self.assertTrue(all(entry["body_version"] > 0 for entry in entries))

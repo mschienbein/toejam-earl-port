@@ -100,7 +100,7 @@ Keep **participating input seats**, **hero-body seats** and **network ownership*
 
 Worst-case admission arithmetic (Main-approved S1 contract):
 
-- Stock four-player: `4 heroes + 4×20 Earthlings + 4×32 items + 28 progression actors + 60 companions + 64 effects + 128 drops = 592` logical actors. The former 256-entry stock proposal cannot guarantee four disjoint floors.
+- Stock four-player: `4 heroes + 4×20 Earthlings + 4×32 items + 28 progression actors + 60 companions + 64 effects + 128 drops = 492` logical actors. The former 256-entry stock proposal cannot guarantee four disjoint floors.
 - Maximum four-floor expanded profile: `4 + 4×64 + 4×112 + 28 + 60 + 64 + 128 = 988`, within 1024.
 - Requesting all individual maxima instead gives `4 + 4×64 + 4×128 + 28 + 60 + 64 + 128 = 1052`, exceeding 1024. Reject that request **before mutation**; never silently trim items, despawn required actors, or let allocation/render order choose a different world.
 - Reserve all simultaneously live authoritative storage as well: at most 32 floors × 48 KiB geometry/persistence, 512 KiB pending bounded generation, 1024 × 512 bytes runtime actor allowance, and 128 KiB aggregate/control/input/config/continuation allowance = **2.625 MiB**. This conservative reservation remains below the shared 4 MiB format-3 cap; actual codec bounds are also enforced at registration/capture/restore. The separate 64 MiB presentation allowance cannot authorize simulation allocation.
