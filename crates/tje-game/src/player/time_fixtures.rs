@@ -1,10 +1,11 @@
 //! Labelled live-state checks for pending TimeAware player bodies. This binary
 //! never registers them in the production translation list.
 use std::{fs, path::PathBuf, sync::Arc};
-use tje_game::{Context, FunctionId, ids};
+use tje_game::{FunctionId, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Address, ram};
 
+mod fixture_entries;
 mod proof_support;
 
 fn prepare(host: &mut Host) {
@@ -259,35 +260,8 @@ fn attempt(host: &mut Host, id: FunctionId, errors: &mut Vec<serde_json::Value>)
         ids::PLAYER_FINALIZE_LAST_LIFE_EXIT => args = vec![p.address(), 0],
         _ => unreachable!(),
     }
-    let result = if matches!(
-        id,
-        ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT | ids::SPRITE_CHECKS
-    ) {
-        // A labelled fixture prepares the actual source JSR return, not an
-        // eager host argument snapshot for a ctx-only frame consumer.
-        let mut context = host.context();
-        let base = context.stack_pointer().unwrap();
-        let mut sp = base;
-        for &argument in args.iter().rev() {
-            sp = sp.wrapping_sub(4);
-            context.write_u32(sp, argument);
-        }
-        let site = if id == ids::PLAYER_CHOOSE_DIRECTIONAL_MOVEMENT {
-            ids::SPRITE_CHECKS.metadata().address(r) + 0x212
-        } else {
-            ids::PROCESS_INPUT.metadata().address(r) + 0xaa
-        };
-        sp = sp.wrapping_sub(4);
-        context.write_u32(sp, site);
-        context.set_stack_pointer(sp).unwrap();
-        let result = host
-            .check_entry_fixture(id.metadata().address(r))
-            .map(|_| 0);
-        host.context().set_stack_pointer(base).unwrap();
-        result
-    } else {
-        host.check_fixture(id.metadata().address(r), &args)
-    };
+    let result = fixture_entries::check_argument_root(host, id, &args)
+        .unwrap_or_else(|| host.check_fixture(id.metadata().address(r), &args));
     if let Err(error) = result {
         errors.push(serde_json::json!({"function":id.metadata().name,"arguments":args,"error":error.to_string()}));
     }

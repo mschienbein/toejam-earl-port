@@ -273,6 +273,46 @@ pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
         id: ids::CHICKEN_ABILITY,
         function: reactions::chicken_ability,
     },
+    crate::FramedTranslation {
+        id: ids::KILL_THE_PLAYER,
+        function: state::kill_the_player,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_START_FALLING,
+        function: falling::player_start_falling,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_UPDATE_TERRAIN_SINKING,
+        function: falling::player_update_terrain_sinking,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
+        function: falling::player_update_hurt_recovery_and_idle,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
+        function: falling::player_resolve_descending_terrain,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+        function: levels::player_advance_to_next_level,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+        function: levels::player_relocate_to_partner_or_next_level,
+    },
+    crate::FramedTranslation {
+        id: ids::MAKE_PLAYER_FALL,
+        function: levels::make_player_fall,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_UPDATE_DEATH_ANIMATION,
+        function: update::player_update_death_animation,
+    },
+    crate::FramedTranslation {
+        id: ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
+        function: finalize::player_finalize_last_life_exit,
+    },
 ];
 
 /// Complete bodies not yet admitted to production: both-revision proofs are
@@ -306,28 +346,8 @@ pub static PENDING: &[crate::FunctionId] = &[
 /// Non-registered pending bodies retained for the opt-in lane proof harness.
 pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     crate::Translation {
-        id: ids::KILL_THE_PLAYER,
-        function: state::kill_the_player,
-    },
-    crate::Translation {
         id: ids::CHECK_PLAYER_FALLING,
         function: falling_check::check_player_falling,
-    },
-    crate::Translation {
-        id: ids::PLAYER_START_FALLING,
-        function: falling::player_start_falling,
-    },
-    crate::Translation {
-        id: ids::PLAYER_UPDATE_TERRAIN_SINKING,
-        function: falling::player_update_terrain_sinking,
-    },
-    crate::Translation {
-        id: ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
-        function: falling::player_update_hurt_recovery_and_idle,
-    },
-    crate::Translation {
-        id: ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
-        function: falling::player_resolve_descending_terrain,
     },
     crate::Translation {
         id: ids::AI_BOOGIE_TOUCH,
@@ -338,28 +358,8 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: levels::lemonade_ability,
     },
     crate::Translation {
-        id: ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
-        function: levels::player_advance_to_next_level,
-    },
-    crate::Translation {
-        id: ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
-        function: levels::player_relocate_to_partner_or_next_level,
-    },
-    crate::Translation {
-        id: ids::MAKE_PLAYER_FALL,
-        function: levels::make_player_fall,
-    },
-    crate::Translation {
-        id: ids::PLAYER_UPDATE_DEATH_ANIMATION,
-        function: update::player_update_death_animation,
-    },
-    crate::Translation {
         id: ids::PROCESS_PLAYERS,
         function: update::process_players,
-    },
-    crate::Translation {
-        id: ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
-        function: finalize::player_finalize_last_life_exit,
     },
 ];
 

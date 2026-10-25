@@ -9,16 +9,16 @@ use tje_mem::{Address, ObjectState, ram};
 /// ShowGameOverAndReset's typed reset propagates through `?` with this live
 /// frame intact; the reset path must never execute the surviving-player tail.
 /// All return-PC offsets below agree in the two matched revision ELFs.
-pub(super) fn player_finalize_last_life_exit(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
-    with_frame(context, FrameLayout::movem(0, 4, 0x0c), |context, _| {
+pub(super) fn player_finalize_last_life_exit(context: &mut dyn Context) -> Result<Option<u32>> {
+    with_frame(context, FrameLayout::movem(0, 4, 0x0c), |context, stack| {
         let revision = context.revision();
         let caller = ids::PLAYER_FINALIZE_LAST_LIFE_EXIT;
         let dispatcher = context.dispatcher();
-        let mut player = Address::<ObjectState>::new(arguments[0]);
-        let number = i32::from(arguments[1] as i16);
+        let mut player = Address::<ObjectState>::new(super::frames::read_long(
+            context,
+            stack.argument_slot(0).address(),
+        ));
+        let number = i32::from(stack.argument_word(1).read(context));
         let mode = ram::g_mode2_reg_softcopy(revision);
         context.set_address_register(2, player.address());
         context.set_data_register(

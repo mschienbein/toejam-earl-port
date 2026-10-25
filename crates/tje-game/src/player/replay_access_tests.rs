@@ -79,6 +79,34 @@ impl Probe {
         self.waits.clear();
         self.spin_steps.get_mut().clear();
     }
+    /// Test caller setup only: the body receives ctx, never this argument slice.
+    fn invoke_framed(&mut self, id: FunctionId, arguments: &[u32]) -> Result<Option<u32>> {
+        let sp = self.stack_pointer()?;
+        for (index, &value) in arguments.iter().enumerate() {
+            self.memory.write_u32(sp + 4 + index as u32 * 4, value);
+        }
+        let previous = self.frame;
+        self.frame = FrameState::new(sp).for_prepared_entry(id);
+        let entry = super::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("pending framed root");
+        let result = (entry.function)(self);
+        if !result
+            .as_ref()
+            .is_err_and(|error| error.preserves_call_frame())
+        {
+            self.frame = previous;
+        }
+        result
+    }
+    /// Only the isolated catalogue boundary inspects raw caller-written bytes.
+    /// Those accesses are not attributed to the caller under test.
+    fn prepared_arguments(&self, id: FunctionId) -> Vec<u32> {
+        (0..u32::from(id.metadata().abi.argument_count))
+            .map(|index| self.memory.read_u32(self.address[7] + 4 + index * 4))
+            .collect()
+    }
     fn poll_sample(&self, address: u32, width: u8) -> Option<u32> {
         let mut script = self.polls.borrow_mut();
         let script = script.as_mut()?;
@@ -296,7 +324,10 @@ impl Context for Probe {
     }
     fn dispatcher(&self) -> Dispatcher {
         if self.rust_callees {
-            Dispatcher::hybrid_with_overrides(super::PENDING_TRANSLATIONS)
+            Dispatcher::hybrid_with_overrides_and_frames(
+                super::PENDING_TRANSLATIONS,
+                super::PENDING_FRAMED_TRANSLATIONS,
+            )
         } else {
             Dispatcher::hybrid_with(&[])
         }
@@ -342,6 +373,128 @@ impl Context for Probe {
         }
         Err(Error::Untranslated(id))
     }
+    fn call_original_entry(&mut self, id: FunctionId, class: ExecutionClass) -> Result<u32> {
+        let arguments = self.prepared_arguments(id);
+        let result = self.call_original_with_execution(id, &arguments, class);
+        if result.is_ok() {
+            self.address[7] = self.address[7].wrapping_add(4);
+        }
+        result
+    }
+    fn call_original_entry_void(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        let arguments = self.prepared_arguments(id);
+        let result = self.call_original_void_with_execution(id, &arguments, class);
+        if result.is_ok() {
+            self.address[7] = self.address[7].wrapping_add(4);
+        }
+        result
+    }
+}
+
+#[test]
+fn all_ten_argument_roots_read_only_the_compiled_lazy_slots_in_order() {
+    // Matching c_active_present_falling_and_respawn.s prologues in both revisions:
+    // 232, 743, 1163, 1316, 1615, 1761, 1878, 2118, 2208 and 2303.
+    let roots = [
+        ids::PLAYER_START_FALLING,
+        ids::MAKE_PLAYER_FALL,
+        ids::PLAYER_UPDATE_TERRAIN_SINKING,
+        ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
+        ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
+        ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+        ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+        ids::KILL_THE_PLAYER,
+        ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,
+        ids::PLAYER_UPDATE_DEATH_ANIMATION,
+    ];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for id in roots {
+            let mut c = Probe::new(revision);
+            let player = c.seed_player(0);
+            c.rust_callees = false;
+            for index in 2..8 {
+                c.data[index] = 0x1357_0000 + index as u32;
+            }
+            for index in 2..6 {
+                c.address[index] = 0x2468_0000 + index as u32;
+            }
+            let arguments = match id {
+                ids::MAKE_PLAYER_FALL => vec![0xff6000],
+                ids::KILL_THE_PLAYER | ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL => {
+                    vec![0xa55a_0000]
+                }
+                ids::PLAYER_START_FALLING
+                | ids::PLAYER_ADVANCE_TO_NEXT_LEVEL
+                | ids::PLAYER_FINALIZE_LAST_LIFE_EXIT => vec![player.address(), 0xa55a_0000],
+                _ => vec![player.address(), 0xa55a_0010],
+            };
+            assert_eq!(
+                usize::from(id.metadata().abi.argument_count),
+                arguments.len()
+            );
+            assert!(super::PENDING.contains(&id));
+            assert!(
+                !super::PENDING_TRANSLATIONS
+                    .iter()
+                    .any(|entry| entry.id == id)
+            );
+            assert!(!super::TRANSLATIONS.iter().any(|entry| entry.id == id));
+            let sp = c.stack_pointer().unwrap();
+            let data = c.data;
+            let address = c.address;
+            let frame = c.frame;
+            c.reset_log();
+            let result = c.invoke_framed(id, &arguments);
+            assert!(
+                matches!(&result, Ok(None) | Err(Error::Untranslated(_))),
+                "{} {revision:?}: {result:?}",
+                id.metadata().name
+            );
+            let accesses = c.accesses.borrow();
+            let argument_end = sp + 4 + arguments.len() as u32 * 4;
+            let actual: Vec<_> = accesses
+                .iter()
+                .filter(|access| {
+                    let address = match access {
+                        Access::Read(address, _)
+                        | Access::Discard(address, _)
+                        | Access::Write(address, _, _) => *address,
+                    };
+                    (sp + 4..argument_end).contains(&address)
+                })
+                .cloned()
+                .collect();
+            let expected = match id {
+                ids::KILL_THE_PLAYER | ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL => {
+                    vec![Access::Read(sp + 6, 2)]
+                }
+                ids::MAKE_PLAYER_FALL => {
+                    vec![Access::Read(sp + 4, 2), Access::Read(sp + 6, 2)]
+                }
+                _ => vec![
+                    Access::Read(sp + 4, 2),
+                    Access::Read(sp + 6, 2),
+                    Access::Read(sp + 10, 2),
+                ],
+            };
+            assert_eq!(actual, expected, "{} {revision:?}", id.metadata().name);
+            let first_game_read = accesses
+                .iter()
+                .position(|access| {
+                    matches!(access, Access::Read(address, _) if !(sp - 256..argument_end).contains(address))
+                })
+                .unwrap_or(accesses.len()); // Some roots immediately call a catalogue callee.
+            for access in &expected {
+                assert!(
+                    accesses.iter().position(|actual| actual == access).unwrap() < first_game_read
+                );
+            }
+            assert_eq!(&c.data[2..], &data[2..], "preserved D2-D7");
+            assert_eq!(&c.address[2..7], &address[2..7], "preserved A2-A6");
+            assert_eq!(c.stack_pointer().unwrap(), sp);
+            assert_eq!(c.frame, frame);
+        }
+    }
 }
 
 #[test]
@@ -380,7 +533,12 @@ fn sinking_preserves_each_short_circuit_state_read_and_long_word_beats() {
             let p = c.seed_player(0);
             p.sprite_state().write(&mut c, state);
             c.reset_log();
-            super::falling::player_update_terrain_sinking(&mut c, &[p.address(), 0x10]).unwrap();
+            Probe::invoke_framed(
+                &mut c,
+                ids::PLAYER_UPDATE_TERRAIN_SINKING,
+                &[p.address(), 0x10],
+            )
+            .unwrap();
             assert_eq!(c.reads(p.sprite_state().address()), count);
             assert_eq!(
                 c.at(p.animation_group_mask().address()),
@@ -403,8 +561,12 @@ fn descent_btst_is_one_byte_before_the_conditional_long_load() {
             p.animation_group_mask().write(&mut c, group);
             p.height().write(&mut c, 100);
             c.reset_log();
-            super::falling::player_resolve_descending_terrain(&mut c, &[p.address(), 0x10])
-                .unwrap();
+            Probe::invoke_framed(
+                &mut c,
+                ids::PLAYER_RESOLVE_DESCENDING_TERRAIN,
+                &[p.address(), 0x10],
+            )
+            .unwrap();
             let address = p.animation_group_mask().address();
             let actual: Vec<_> = c
                 .accesses
@@ -435,7 +597,12 @@ fn pending_damage_is_loaded_before_the_health_subtraction() {
         health.write(&mut c, 20);
         damage.write(&mut c, 7);
         c.reset_log();
-        super::falling::player_update_hurt_recovery_and_idle(&mut c, &[p.address(), 0x10]).unwrap();
+        Probe::invoke_framed(
+            &mut c,
+            ids::PLAYER_UPDATE_HURT_RECOVERY_AND_IDLE,
+            &[p.address(), 0x10],
+        )
+        .unwrap();
         let actual:Vec<_>=c.accesses.borrow().iter().filter(|a|matches!(a,Access::Read(at,_) if *at==health.address() || *at==damage.address())).cloned().collect();
         assert_eq!(
             actual,
@@ -459,7 +626,12 @@ fn death_bne_uses_rmw_result_without_an_extra_counter_reload() {
             let counter = ram::g_player_jump_counters(revision).at(0);
             counter.write(&mut c, previous);
             c.reset_log();
-            super::update::player_update_death_animation(&mut c, &[p.address(), 0x10]).unwrap();
+            Probe::invoke_framed(
+                &mut c,
+                ids::PLAYER_UPDATE_DEATH_ANIMATION,
+                &[p.address(), 0x10],
+            )
+            .unwrap();
             assert_eq!(c.reads(counter.address()), 2);
         }
         let mut c = Probe::new(revision);
@@ -468,7 +640,12 @@ fn death_bne_uses_rmw_result_without_an_extra_counter_reload() {
         suppression.write(&mut c, 1);
         p.behavior_flags().write(&mut c, 0x10);
         c.reset_log();
-        super::update::player_update_death_animation(&mut c, &[p.address(), 0x10]).unwrap();
+        Probe::invoke_framed(
+            &mut c,
+            ids::PLAYER_UPDATE_DEATH_ANIMATION,
+            &[p.address(), 0x10],
+        )
+        .unwrap();
         assert_eq!(c.reads(suppression.address()), 2);
         assert_eq!(p.behavior_flags().read(&c) & 0x10, 0);
         assert_eq!(c.reads(p.sprite_state().address()), 2);
@@ -483,7 +660,7 @@ fn kill_keeps_distinct_cmpi_reads_before_the_height_store() {
             let p = c.seed_player(0);
             p.sprite_state().write(&mut c, state);
             c.reset_log();
-            super::state::kill_the_player(&mut c, &[0]).unwrap();
+            Probe::invoke_framed(&mut c, ids::KILL_THE_PLAYER, &[0]).unwrap();
             let count_actual = c
                 .accesses
                 .borrow()
@@ -549,10 +726,10 @@ fn transient_effect_arguments_read_level_height_y_x_before_the_call() {
         c.rust_callees = false;
         c.reset_log();
         assert!(
-            matches!(super::levels::player_advance_to_next_level(&mut c,&[p.address(),0]),Err(Error::Untranslated(id)) if id==ids::PRESENT_START_TRANSIENT_EFFECT)
+            matches!(c.invoke_framed(ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,&[p.address(),0]),Err(Error::Untranslated(id)) if id==ids::PRESENT_START_TRANSIENT_EFFECT)
         );
         assert_eq!(
-            *c.accesses.borrow(),
+            c.accesses.borrow().iter().filter(|access| matches!(access, Access::Read(address, _) if *address >= p.address() && *address < p.address() + 0x80)).cloned().collect::<Vec<_>>(),
             vec![
                 Access::Read(p.level().address(), 1),
                 Access::Read(p.height().address(), 2),
@@ -574,7 +751,7 @@ fn relocate_compares_global_and_partner_before_player_level() {
         ram::g_highest_level(revision).write(&mut c, 2);
         c.reset_log();
         assert!(
-            matches!(super::levels::player_relocate_to_partner_or_next_level(&mut c,&[0]),Err(Error::Untranslated(id)) if id==ids::PLAYER_ADVANCE_TO_NEXT_LEVEL)
+            matches!(c.invoke_framed(ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,&[0]),Err(Error::Untranslated(id)) if id==ids::PLAYER_ADVANCE_TO_NEXT_LEVEL)
         );
         let highest = ram::g_highest_level(revision).address();
         let actual:Vec<_>=c.accesses.borrow().iter().filter(|a|matches!(a,Access::Read(address,1) if *address==highest || *address==p.level().address())).cloned().collect();
@@ -593,7 +770,7 @@ fn relocate_compares_global_and_partner_before_player_level() {
         other.level().write(&mut c, 2);
         c.reset_log();
         assert!(
-            matches!(super::levels::player_relocate_to_partner_or_next_level(&mut c,&[0]),Err(Error::Untranslated(id)) if id==ids::EARTHLING_RELEASE_LEVEL_BANK)
+            matches!(c.invoke_framed(ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,&[0]),Err(Error::Untranslated(id)) if id==ids::EARTHLING_RELEASE_LEVEL_BANK)
         );
         let actual:Vec<_>=c.accesses.borrow().iter().filter(|a|matches!(a,Access::Read(address,1) if *address==other.level().address() || *address==p.level().address())).cloned().collect();
         assert_eq!(
@@ -656,7 +833,7 @@ fn start_fall_delegates_every_poll_to_the_exact_word_zero_predicate() {
         let p = c.seed_player(0);
         c.reset_log();
         assert!(matches!(
-            super::falling::player_start_falling(&mut c, &[p.address(), 0]),
+            c.invoke_framed(ids::PLAYER_START_FALLING, &[p.address(), 0]),
             Err(Error::Platform(_))
         ));
         let pending = ram::g_terrain_priority_update_pending(revision).address();
@@ -704,7 +881,12 @@ fn sinking_cancellation_keeps_the_real_clr_reads_not_semantic_reloads() {
             .at(0)
             .write(&mut c, 1);
         c.reset_log();
-        super::falling::player_update_terrain_sinking(&mut c, &[p.address(), 0x10]).unwrap();
+        Probe::invoke_framed(
+            &mut c,
+            ids::PLAYER_UPDATE_TERRAIN_SINKING,
+            &[p.address(), 0x10],
+        )
+        .unwrap();
         let h = p.height().address();
         assert_eq!(
             c.at(h),
@@ -774,7 +956,7 @@ fn finalizer_publishes_its_actual_lives_base_before_terminal_callee_boundary() {
         ram::g_player_lives(revision).at(1).write(&mut c, -1);
         c.reset_log();
         assert!(
-            matches!(super::finalize::player_finalize_last_life_exit(&mut c,&[p.address(),0]),Err(Error::Untranslated(id)) if id==ids::SHOW_GAME_OVER_AND_RESET)
+            matches!(c.invoke_framed(ids::PLAYER_FINALIZE_LAST_LIFE_EXIT,&[p.address(),0]),Err(Error::Untranslated(id)) if id==ids::SHOW_GAME_OVER_AND_RESET)
         );
         assert!(
             c.address_writes
@@ -797,7 +979,7 @@ fn start_fall_wait_owns_busy_polls_and_the_only_terminal_zero_read() {
                 values: values.clone().into(),
             }));
             assert!(matches!(
-                super::falling::player_start_falling(&mut c, &[p.address(), 0]),
+                c.invoke_framed(ids::PLAYER_START_FALLING, &[p.address(), 0]),
                 Err(Error::Untranslated(id)) if id == ids::GENERATE_SPEECH
             ));
             assert_eq!(
@@ -852,7 +1034,7 @@ fn transient_effect_loop_keeps_calls_and_yields_before_each_next_byte_poll() {
             boundary(ids::EARTHLING_RELEASE_LEVEL_BANK, vec![1], None),
         ]));
         assert!(matches!(
-            super::levels::player_advance_to_next_level(&mut c, &[player.address(), 0]),
+            c.invoke_framed(ids::PLAYER_ADVANCE_TO_NEXT_LEVEL, &[player.address(), 0]),
             Err(Error::Untranslated(id)) if id == ids::EARTHLING_RELEASE_LEVEL_BANK
         ));
         let mut expected = vec![

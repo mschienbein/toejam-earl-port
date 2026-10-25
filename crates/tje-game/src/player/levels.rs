@@ -49,339 +49,398 @@ pub(super) fn lemonade_ability(
 }
 
 /// G/src/player/active_present_falling_and_respawn.c:811 (`PlayerAdvanceToNextLevel`).
-pub(super) fn player_advance_to_next_level(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
-    let player = Address::<ObjectState>::new(arguments[0]);
-    let number = i32::from(arguments[1] as i16);
-    let revision = context.revision();
-    // Compiler lines1765-1778 evaluate the field arguments right to left.
-    let level = player.level().read(context) as u32;
-    let height = (i32::from(player.height().read(context)) + 9) as u32;
-    let y = (i32::from(player.y().read(context)) + 1) as u32;
-    let x = player.x().read(context) as u32;
-    let args = [number as u32, x, y, height, level];
-    call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
-    let handle = ram::g_player_transient_effect_entities(revision).at(number);
-    let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
-    let entity = handle.read(context) as u32;
-    call_void(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[entity])?;
-    if effect.draw_flags().read(context) & 2 != 0 {
-        while handle.read(context) != 0 {
-            if call(
+pub(super) fn player_advance_to_next_level(context: &mut dyn Context) -> Result<Option<u32>> {
+    super::frames::with_frame(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x04, 0x1c),
+        |context, stack| {
+            let player = Address::<ObjectState>::new(super::frames::read_long(
                 context,
-                ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
-                &[number as u32],
-            )? != 0
-            {
+                stack.argument_slot(0).address(),
+            ));
+            let number = i32::from(stack.argument_word(1).read(context));
+            let revision = context.revision();
+            // Compiler lines1765-1778 evaluate the field arguments right to left.
+            let level = player.level().read(context) as u32;
+            let height = (i32::from(player.height().read(context)) + 9) as u32;
+            let y = (i32::from(player.y().read(context)) + 1) as u32;
+            let x = player.x().read(context) as u32;
+            let args = [number as u32, x, y, height, level];
+            call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
+            let handle = ram::g_player_transient_effect_entities(revision).at(number);
+            let effect = ram::g_player_info(revision).at(i32::from(handle.read(context)));
+            let entity = handle.read(context) as u32;
+            call_void(context, ids::UPDATE_ENTITY_VIEWPORT_SPRITES, &[entity])?;
+            if effect.draw_flags().read(context) & 2 != 0 {
+                while handle.read(context) != 0 {
+                    if call(
+                        context,
+                        ids::PRESENT_UPDATE_TRANSIENT_EFFECT,
+                        &[number as u32],
+                    )? != 0
+                    {
+                        player
+                            .behavior_flags()
+                            .write(context, player.behavior_flags().read(context) | 0x40);
+                    }
+                    call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[2])?;
+                    call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
+                    // Matching compiler lines1805-1822: retain the literal calls and
+                    // handle-byte polls; only yield at the compound loop's backedge.
+                    context.poll_yield()?;
+                }
                 player
                     .behavior_flags()
-                    .write(context, player.behavior_flags().read(context) | 0x40);
+                    .write(context, player.behavior_flags().read(context) & !0x40);
             }
-            call_void(context, ids::WAIT_FOR_NEXT_V_BLANK, &[2])?;
-            call_void(context, ids::UPDATE_AND_QUEUE_ENTITY_SPRITES, &[])?;
-            // Matching compiler lines1805-1822: retain the literal calls and
-            // handle-byte polls; only yield at the compound loop's backedge.
-            context.poll_yield()?;
-        }
-        player
-            .behavior_flags()
-            .write(context, player.behavior_flags().read(context) & !0x40);
-    }
-    let level = player.level().read(context) as u32;
-    call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
-    let level = player.level().read(context) as u32;
-    call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
-    player
-        .level()
-        .write(context, player.level().read(context).wrapping_add(1));
-    let level = player.level().read(context) as u32;
-    call_void(context, ids::MAP_LOAD_PLAYER_LEVEL, &[0, level])?;
-    let level = player.level().read(context) as u32;
-    call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
-    let level = player.level().read(context) as u32;
-    call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
-    let level = player.level().read(context) as u32;
-    call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
-    if player.level().read(context) > 1 {
-        call_void(
-            context,
-            ids::PLAYER_SET_POSITION_FROM_SAVED_MAP_CELL,
-            &[player.address()],
-        )?;
-    } else {
-        call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
-    }
-    player.height().write(context, 70);
-    Ok(None)
+            let level = player.level().read(context) as u32;
+            call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+            let level = player.level().read(context) as u32;
+            call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+            player
+                .level()
+                .write(context, player.level().read(context).wrapping_add(1));
+            let level = player.level().read(context) as u32;
+            super::frames::call_from_void(
+                context,
+                ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+                ids::MAP_LOAD_PLAYER_LEVEL,
+                &[0, level],
+                0xec,
+            )?;
+            let level = player.level().read(context) as u32;
+            call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
+            let level = player.level().read(context) as u32;
+            call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+            let level = player.level().read(context) as u32;
+            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
+            if player.level().read(context) > 1 {
+                call_void(
+                    context,
+                    ids::PLAYER_SET_POSITION_FROM_SAVED_MAP_CELL,
+                    &[player.address()],
+                )?;
+            } else {
+                super::frames::call_from_void(
+                    context,
+                    ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+                    ids::SET_POSITION_ON_NEW_LEVEL,
+                    &[number as u32],
+                    0x140,
+                )?;
+            }
+            player.height().write(context, 70);
+            Ok(None)
+        },
+    )
 }
 
 /// G/src/player/active_present_falling_and_respawn.c:844 (`PlayerRelocateToPartnerOrNextLevel`).
 pub(super) fn player_relocate_to_partner_or_next_level(
     context: &mut dyn Context,
-    arguments: &[u32],
 ) -> Result<Option<u32>> {
-    let number = i32::from(arguments[0] as i16);
-    let revision = context.revision();
-    let player = super::indexing::player_by_word_index(revision, number);
-    ram::g_player_terrain_sinking(revision)
-        .at(number)
-        .write(context, 0);
-    let alone = ram::g_player_lives(revision).at(number ^ 1).read(context) < 0;
-    // Compiler lines1909-1910 load the global before the player's byte.
-    let advance = alone && {
-        let highest = ram::g_highest_level(revision).read(context);
-        player.level().read(context) != highest
-    };
-    if advance {
-        call_void(
-            context,
-            ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
-            &[player.address(), number as u32],
-        )?;
-    } else {
-        let other = if alone {
-            player
-        } else {
-            ram::g_player_info(revision).at(number ^ 1)
-        };
-        player.x().write(context, other.x().read(context));
-        player.y().write(context, other.y().read(context));
-        if super::frames::read_long(context, other.animation_group_mask().address()) & 0x2000_0000
-            != 0
-        {
-            player
-                .y()
-                .write(context, player.y().read(context).wrapping_add(10));
-        }
-        if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
-            if ram::g_player_elevator_flags(revision)
-                .at(number ^ 1)
-                .read(context)
-                != 0
-            {
-                player
-                    .y()
-                    .write(context, player.y().read(context).wrapping_add(15));
-            }
-            player.height().write(context, 70);
-        } else {
-            super::frames::clear_word(context, player.height().address())?;
-        }
-        if ram::g_split_screen_enabled(revision).read(context) != 0 && {
-            // Compiler lines1947-1948 load the partner before the player.
-            let other_level = other.level().read(context);
-            player.level().read(context) != other_level
-        } {
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
-            player.level().write(context, other.level().read(context));
-            let source = ram::g_player_info(revision).at(if number == 0 { 0 } else { 1 });
-            let level = source.level().read(context) as u32;
-            call_void(
-                context,
-                ids::MAP_LOAD_PLAYER_LEVEL,
-                &[if number == 0 { 0 } else { 1 }, level],
-            )?;
-            let level = source.level().read(context) as u32;
-            call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
-            let level = source.level().read(context) as u32;
-            call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
-            let level = source.level().read(context) as u32;
-            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
-        }
-    }
-    call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
-    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-    let mode = ram::g_mode2_reg_softcopy(revision);
-    mode.write(context, mode.read(context) & 0x3c);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call_void(
+    super::frames::with_frame(
         context,
-        ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
-        &[number as u32],
-    )?;
-    call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
-    mode.write(context, mode.read(context) | 0x40);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
-    call_void(context, ids::UPDATE_LAND_AROUND_PLAYER, &[number as u32])?;
-    if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
-        call_void(context, ids::SET_SPRITE, &[player.address(), 21])?;
-        player.velocity_x().write(context, 0);
-        player.velocity_y().write(context, 0);
-        player.velocity_height().write(context, -128);
-        player.acceleration_height().write(context, -16);
-        player
-            .draw_flags()
-            .write(context, player.draw_flags().read(context) | 0x40);
-        // Compiler lines2047-2053 load Y before X for this call.
-        let y = player.y().read(context) as u32;
-        let x = player.x().read(context) as u32;
-        let terrain = call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &[0, x, y])? as u16;
-        if is_respawn_landing_terrain(terrain) {
-            ram::g_player_fall_states(revision)
+        crate::call_frame::FrameLayout::movem(0, 0x0c, 0x1c),
+        |context, stack| {
+            let number = i32::from(stack.argument_word(0).read(context));
+            let revision = context.revision();
+            let player = super::indexing::player_by_word_index(revision, number);
+            ram::g_player_terrain_sinking(revision)
                 .at(number)
-                .write(context, 2);
-            ram::g_player_jump_counters(revision)
-                .at(number)
-                .write(context, 3);
-        } else {
-            player
-                .y()
-                .write(context, player.y().read(context).wrapping_add(20));
-        }
-        // Compiler lines2073-2086: level, height, Y, X, then player number.
-        let level = player.level().read(context) as u32;
-        let height = player.height().read(context) as u32;
-        let y = (i32::from(player.y().read(context)) + 1) as u32;
-        let x = player.x().read(context) as u32;
-        let args = [number as u32, x, y, height, level];
-        call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
-    } else {
-        call_void(context, ids::STOP_PLAYER, &[player.address()])?;
-        ram::g_player_elevator_flags(revision).at(number).write(
-            context,
-            ram::g_player_elevator_flags(revision)
-                .at(number ^ 1)
-                .read(context),
-        );
-        player
-            .behavior_flags()
-            .write(context, player.behavior_flags().read(context) | 0x40);
-        call_void(context, ids::SET_SPRITE, &[player.address(), 0])?;
-    }
-    Ok(None)
-}
-
-/// G/src/player/active_present_falling_and_respawn.c:407 (`MakePlayerFall`).
-/// The level pre-decrement consumes SUBQ.B's overflow flag before BGE.
-pub(super) fn make_player_fall(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
-    let falling = Address::<i8>::new(arguments[0]);
-    let revision = context.revision();
-    if !((falling.read(context) != 0 && falling.offset(1).read(context) != 0)
-        || (falling.read(context) != 0
-            && ram::g_player_fall_states(revision).at(1).read(context) == 0)
-        || (falling.offset(1).read(context) != 0
-            && ram::g_player_fall_states(revision).at(0).read(context) == 0))
-    {
-        return Ok(None);
-    }
-    for number in 0..2 {
-        let player = ram::g_player_info(revision).at(number);
-        if falling.offset(number).read(context) != 0 {
-            player
-                .tile()
-                .write(context, player.tile().read(context) | 0x8000);
-            player.height().write(context, 600);
-            player.velocity_height().write(context, -640);
-            player.acceleration_height().write(context, -16);
-            player
-                .draw_flags()
-                .write(context, player.draw_flags().read(context) | 0x40);
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
-            let (stored, remaining) =
-                super::counters::predecrement_byte(player.level().read(context));
-            player.level().write(context, stored);
-            if remaining < 0 {
-                player
-                    .level()
-                    .write(context, ram::g_highest_level(revision).read(context));
-            }
-            ram::g_player_fall_states(revision)
-                .at(number)
-                .write(context, 2);
-        }
-        if ram::g_player_lives(revision).at(number).read(context) < 0 {
-            call_void(context, ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS, &[])?;
-        }
-    }
-    for number in 0..2 {
-        if falling.offset(number).read(context) != 0 {
-            let player = ram::g_player_info(revision).at(number);
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::MAP_LOAD_PLAYER_LEVEL, &[number as u32, level])?;
-            let level = player.level().read(context) as u32;
-            call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
-            let level = player.level().read(context) as u32;
-            call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
-        }
-    }
-    call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-    let mode = ram::g_mode2_reg_softcopy(revision);
-    mode.write(context, mode.read(context) & 0x3c);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    let first = ram::g_player_info(revision).at(0);
-    let second = ram::g_player_info(revision).at(1);
-    if players_share_level(context, first, second)
-        || ram::g_player_lives(revision).at(0).read(context) < 0
-        || ram::g_player2_lives(revision).read(context) < 0
-    {
-        if falling.read(context) != 0 && falling.offset(1).read(context) != 0 {
-            call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[2])?;
-        } else {
-            let (number, other) = if falling.read(context) != 0 {
-                (0, second)
-            } else {
-                (1, first)
+                .write(context, 0);
+            let alone = ram::g_player_lives(revision).at(number ^ 1).read(context) < 0;
+            // Compiler lines1909-1910 load the global before the player's byte.
+            let advance = alone && {
+                let highest = ram::g_highest_level(revision).read(context);
+                player.level().read(context) != highest
             };
-            let terrain = if number == 0 {
-                ram::g_player2_terrain_underfoot(revision).read(context)
+            if advance {
+                super::frames::call_from_void(
+                    context,
+                    ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+                    ids::PLAYER_ADVANCE_TO_NEXT_LEVEL,
+                    &[player.address(), number as u32],
+                    0x68,
+                )?;
             } else {
-                ram::g_player1_terrain_underfoot(revision).read(context)
-            };
-            if terrain >= 0x80
-                || super::frames::read_long(context, other.animation_group_mask().address())
-                    & 0x2000_0000
-                    != 0
-                || other.sprite_state().read(context) == 5
-                || other.sprite_state().read(context) == 6
-                || ram::g_player_lives(revision).at(number ^ 1).read(context) < 0
-            {
-                call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
-            } else {
-                let player = ram::g_player_info(revision).at(number);
+                let other = if alone {
+                    player
+                } else {
+                    ram::g_player_info(revision).at(number ^ 1)
+                };
                 player.x().write(context, other.x().read(context));
                 player.y().write(context, other.y().read(context));
-                if ram::g_player_elevator_flags(revision)
-                    .at(number ^ 1)
-                    .read(context)
+                if super::frames::read_long(context, other.animation_group_mask().address())
+                    & 0x2000_0000
                     != 0
                 {
                     player
                         .y()
-                        .write(context, player.y().read(context).wrapping_add(12));
+                        .write(context, player.y().read(context).wrapping_add(10));
+                }
+                if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
+                    if ram::g_player_elevator_flags(revision)
+                        .at(number ^ 1)
+                        .read(context)
+                        != 0
+                    {
+                        player
+                            .y()
+                            .write(context, player.y().read(context).wrapping_add(15));
+                    }
+                    player.height().write(context, 70);
+                } else {
+                    super::frames::clear_word(context, player.height().address())?;
+                }
+                if ram::g_split_screen_enabled(revision).read(context) != 0 && {
+                    // Compiler lines1947-1948 load the partner before the player.
+                    let other_level = other.level().read(context);
+                    player.level().read(context) != other_level
+                } {
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+                    player.level().write(context, other.level().read(context));
+                    let source = ram::g_player_info(revision).at(if number == 0 { 0 } else { 1 });
+                    let level = source.level().read(context) as u32;
+                    super::frames::call_from_void(
+                        context,
+                        ids::PLAYER_RELOCATE_TO_PARTNER_OR_NEXT_LEVEL,
+                        ids::MAP_LOAD_PLAYER_LEVEL,
+                        &[if number == 0 { 0 } else { 1 }, level],
+                        if number == 0 { 0x10c } else { 0x148 },
+                    )?;
+                    let level = source.level().read(context) as u32;
+                    call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
+                    let level = source.level().read(context) as u32;
+                    call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+                    let level = source.level().read(context) as u32;
+                    call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
                 }
             }
-        }
-    } else {
-        for number in 0..2 {
-            if falling.offset(number).read(context) != 0 {
-                call_void(context, ids::SET_POSITION_ON_NEW_LEVEL, &[number as u32])?;
+            call_void(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
+            call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+            let mode = ram::g_mode2_reg_softcopy(revision);
+            mode.write(context, mode.read(context) & 0x3c);
+            context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+            call_void(
+                context,
+                ids::HUD_LOAD_LEVEL_NUMBER_SPRITES,
+                &[number as u32],
+            )?;
+            call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+            mode.write(context, mode.read(context) | 0x40);
+            context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+            call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+            call_void(context, ids::UPDATE_LAND_AROUND_PLAYER, &[number as u32])?;
+            if ram::g_elevator_departure_in_progress(revision).read(context) == 0 {
+                call_void(context, ids::SET_SPRITE, &[player.address(), 21])?;
+                player.velocity_x().write(context, 0);
+                player.velocity_y().write(context, 0);
+                player.velocity_height().write(context, -128);
+                player.acceleration_height().write(context, -16);
+                player
+                    .draw_flags()
+                    .write(context, player.draw_flags().read(context) | 0x40);
+                // Compiler lines2047-2053 load Y before X for this call.
+                let y = player.y().read(context) as u32;
+                let x = player.x().read(context) as u32;
+                let terrain =
+                    call(context, ids::GET_MAP_TERRAIN_AT_WORLD_POSITION, &[0, x, y])? as u16;
+                if is_respawn_landing_terrain(terrain) {
+                    ram::g_player_fall_states(revision)
+                        .at(number)
+                        .write(context, 2);
+                    ram::g_player_jump_counters(revision)
+                        .at(number)
+                        .write(context, 3);
+                } else {
+                    player
+                        .y()
+                        .write(context, player.y().read(context).wrapping_add(20));
+                }
+                // Compiler lines2073-2086: level, height, Y, X, then player number.
+                let level = player.level().read(context) as u32;
+                let height = player.height().read(context) as u32;
+                let y = (i32::from(player.y().read(context)) + 1) as u32;
+                let x = player.x().read(context) as u32;
+                let args = [number as u32, x, y, height, level];
+                call(context, ids::PRESENT_START_TRANSIENT_EFFECT, &args)?;
+            } else {
+                call_void(context, ids::STOP_PLAYER, &[player.address()])?;
+                ram::g_player_elevator_flags(revision).at(number).write(
+                    context,
+                    ram::g_player_elevator_flags(revision)
+                        .at(number ^ 1)
+                        .read(context),
+                );
+                player
+                    .behavior_flags()
+                    .write(context, player.behavior_flags().read(context) | 0x40);
+                call_void(context, ids::SET_SPRITE, &[player.address(), 0])?;
             }
-        }
-    }
-    call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
-    call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[0])?;
-    call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[0])?;
-    call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[1])?;
-    call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
-    context.write_vdp_control(0x8c89);
-    mode.write(context, mode.read(context) | 0x40);
-    context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
-    call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
-    Ok(None)
+            Ok(None)
+        },
+    )
+}
+
+/// G/src/player/active_present_falling_and_respawn.c:407 (`MakePlayerFall`).
+/// The level pre-decrement consumes SUBQ.B's overflow flag before BGE.
+pub(super) fn make_player_fall(context: &mut dyn Context) -> Result<Option<u32>> {
+    super::frames::with_frame(
+        context,
+        crate::call_frame::FrameLayout::movem(0, 0x04, 0x1c),
+        |context, stack| {
+            let falling = Address::<i8>::new(super::frames::read_long(
+                context,
+                stack.argument_slot(0).address(),
+            ));
+            let revision = context.revision();
+            if !((falling.read(context) != 0 && falling.offset(1).read(context) != 0)
+                || (falling.read(context) != 0
+                    && ram::g_player_fall_states(revision).at(1).read(context) == 0)
+                || (falling.offset(1).read(context) != 0
+                    && ram::g_player_fall_states(revision).at(0).read(context) == 0))
+            {
+                return Ok(None);
+            }
+            for number in 0..2 {
+                let player = ram::g_player_info(revision).at(number);
+                if falling.offset(number).read(context) != 0 {
+                    player
+                        .tile()
+                        .write(context, player.tile().read(context) | 0x8000);
+                    player.height().write(context, 600);
+                    player.velocity_height().write(context, -640);
+                    player.acceleration_height().write(context, -16);
+                    player
+                        .draw_flags()
+                        .write(context, player.draw_flags().read(context) | 0x40);
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::EARTHLING_RELEASE_LEVEL_BANK, &[level])?;
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::MAP_RELEASE_LEVEL_ITEM_BANK, &[level])?;
+                    let (stored, remaining) =
+                        super::counters::predecrement_byte(player.level().read(context));
+                    player.level().write(context, stored);
+                    if remaining < 0 {
+                        player
+                            .level()
+                            .write(context, ram::g_highest_level(revision).read(context));
+                    }
+                    ram::g_player_fall_states(revision)
+                        .at(number)
+                        .write(context, 2);
+                }
+                if ram::g_player_lives(revision).at(number).read(context) < 0 {
+                    call_void(context, ids::ELEVATOR_INVALIDATE_SECONDARY_RECORDS, &[])?;
+                }
+            }
+            for number in 0..2 {
+                if falling.offset(number).read(context) != 0 {
+                    let player = ram::g_player_info(revision).at(number);
+                    let level = player.level().read(context) as u32;
+                    super::frames::call_from_void(
+                        context,
+                        ids::MAKE_PLAYER_FALL,
+                        ids::MAP_LOAD_PLAYER_LEVEL,
+                        &[number as u32, level],
+                        if number == 0 { 0xee } else { 0x13e },
+                    )?;
+                    let level = player.level().read(context) as u32;
+                    call(context, ids::SETUP_ELEVATOR, &[level, 0])?;
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::EARTHLING_RETAIN_LEVEL_BANK, &[level])?;
+                    let level = player.level().read(context) as u32;
+                    call_void(context, ids::LOAD_LEVEL_ITEM_BANK, &[level])?;
+                }
+            }
+            call_void(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
+            let mode = ram::g_mode2_reg_softcopy(revision);
+            mode.write(context, mode.read(context) & 0x3c);
+            context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+            let first = ram::g_player_info(revision).at(0);
+            let second = ram::g_player_info(revision).at(1);
+            if players_share_level(context, first, second)
+                || ram::g_player_lives(revision).at(0).read(context) < 0
+                || ram::g_player2_lives(revision).read(context) < 0
+            {
+                if falling.read(context) != 0 && falling.offset(1).read(context) != 0 {
+                    super::frames::call_from_void(
+                        context,
+                        ids::MAKE_PLAYER_FALL,
+                        ids::SET_POSITION_ON_NEW_LEVEL,
+                        &[2],
+                        0x28a,
+                    )?;
+                } else {
+                    let (number, other) = if falling.read(context) != 0 {
+                        (0, second)
+                    } else {
+                        (1, first)
+                    };
+                    let terrain = if number == 0 {
+                        ram::g_player2_terrain_underfoot(revision).read(context)
+                    } else {
+                        ram::g_player1_terrain_underfoot(revision).read(context)
+                    };
+                    if terrain >= 0x80
+                        || super::frames::read_long(context, other.animation_group_mask().address())
+                            & 0x2000_0000
+                            != 0
+                        || other.sprite_state().read(context) == 5
+                        || other.sprite_state().read(context) == 6
+                        || ram::g_player_lives(revision).at(number ^ 1).read(context) < 0
+                    {
+                        super::frames::call_from_void(
+                            context,
+                            ids::MAKE_PLAYER_FALL,
+                            ids::SET_POSITION_ON_NEW_LEVEL,
+                            &[number as u32],
+                            0x28a,
+                        )?;
+                    } else {
+                        let player = ram::g_player_info(revision).at(number);
+                        player.x().write(context, other.x().read(context));
+                        player.y().write(context, other.y().read(context));
+                        if ram::g_player_elevator_flags(revision)
+                            .at(number ^ 1)
+                            .read(context)
+                            != 0
+                        {
+                            player
+                                .y()
+                                .write(context, player.y().read(context).wrapping_add(12));
+                        }
+                    }
+                }
+            } else {
+                for number in 0..2 {
+                    if falling.offset(number).read(context) != 0 {
+                        super::frames::call_from_void(
+                            context,
+                            ids::MAKE_PLAYER_FALL,
+                            ids::SET_POSITION_ON_NEW_LEVEL,
+                            &[number as u32],
+                            if number == 0 { 0x278 } else { 0x28a },
+                        )?;
+                    }
+                }
+            }
+            call_void(context, ids::UPDATE_SCREEN_SPLIT_MODE, &[1])?;
+            call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[0])?;
+            call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[0])?;
+            call_void(context, ids::HUD_LOAD_LEVEL_NUMBER_SPRITES, &[1])?;
+            call_void(context, ids::HUD_POSITION_LEVEL_NUMBER_SPRITES, &[1])?;
+            context.write_vdp_control(0x8c89);
+            mode.write(context, mode.read(context) | 0x40);
+            context.write_vdp_control(0x8104 | u16::from(mode.read(context)));
+            call_void(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
+            Ok(None)
+        },
+    )
 }
 
 /// c_active_present_falling_and_respawn.s:2056-2060 compares the complete word.

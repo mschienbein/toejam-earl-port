@@ -9,6 +9,7 @@ use tje_host::{
 };
 use tje_mem::{Bus, Revision};
 use tje_session::{CONNECTED, Session};
+mod fixture_entries;
 mod proof_support;
 mod replay_fixture_cases;
 

@@ -1,6 +1,6 @@
 //! Labelled interventions on a separately reached, settled original gameplay state.
 //! These are not natural-session coverage, reset emulation or replacement admission.
-use tje_game::{Context, FunctionId, ids};
+use tje_game::{FunctionId, ids};
 use tje_host::Host;
 use tje_mem::{Address, ram};
 
@@ -89,7 +89,8 @@ fn attempt(
     let before = host.checks.by_function[name].calls_checked;
     let before_mismatches = host.checks.by_function[name].mismatches;
     let frame_counter = ram::g_frame_counter(host.revision()).read(&host.context());
-    let result = host.check_fixture(id.metadata().address(host.revision()), arguments);
+    let result = super::fixture_entries::check_argument_root(host, id, arguments)
+        .unwrap_or_else(|| host.check_fixture(id.metadata().address(host.revision()), arguments));
     rows.push(serde_json::json!({"function":name,"label":label,"arguments":arguments,"frame":host.frame_count(),"frame_counter":frame_counter,"checked":host.checks.by_function[name].calls_checked-before,"mismatches":host.checks.by_function[name].mismatches-before_mismatches,"error":result.err().map(|error|error.to_string())}));
 }
 
