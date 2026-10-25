@@ -567,6 +567,9 @@ pub struct Subsystem {
     pub name: &'static str,
     pub translations: &'static [Translation],
     pub framed_translations: &'static [FramedTranslation],
+    /// Check-only semantic proofs, never part of canonical production dispatch.
+    pub replayed_translations: &'static [Translation],
+    pub replayed_framed_translations: &'static [FramedTranslation],
     pub atomic_capable: &'static [FunctionId],
     pub execution_contracts: &'static [execution::ExecutionContract],
 }
@@ -650,6 +653,20 @@ pub fn framed_translations() -> impl Iterator<Item = &'static FramedTranslation>
     SUBSYSTEMS
         .iter()
         .flat_map(|subsystem| subsystem.framed_translations.iter())
+}
+
+/// Check-only bodies proven under the recorded environment, not live replacements.
+pub fn replayed_translations() -> impl Iterator<Item = &'static Translation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.replayed_translations.iter())
+}
+
+/// Framed check-only bodies; kept separate from canonical production entries.
+pub fn replayed_framed_translations() -> impl Iterator<Item = &'static FramedTranslation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.replayed_framed_translations.iter())
 }
 
 #[derive(Clone, Copy)]
@@ -964,6 +981,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "audio",
         translations: audio::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: audio::PROVEN_REPLAYED,
+        replayed_framed_translations: audio::PROVEN_REPLAYED_FRAMED,
         atomic_capable: audio::ATOMIC_CAPABLE,
         execution_contracts: audio::EXECUTION_CONTRACTS,
     },
@@ -971,6 +990,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "camera",
         translations: camera::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: camera::PROVEN_REPLAYED,
+        replayed_framed_translations: camera::PROVEN_REPLAYED_FRAMED,
         atomic_capable: camera::ATOMIC_CAPABLE,
         execution_contracts: camera::EXECUTION_CONTRACTS,
     },
@@ -978,6 +999,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "collision",
         translations: collision::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: collision::PROVEN_REPLAYED,
+        replayed_framed_translations: collision::PROVEN_REPLAYED_FRAMED,
         atomic_capable: collision::ATOMIC_CAPABLE,
         execution_contracts: collision::EXECUTION_CONTRACTS,
     },
@@ -985,6 +1008,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "core",
         translations: core::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: core::PROVEN_REPLAYED,
+        replayed_framed_translations: core::PROVEN_REPLAYED_FRAMED,
         atomic_capable: core::ATOMIC_CAPABLE,
         execution_contracts: core::EXECUTION_CONTRACTS,
     },
@@ -992,6 +1017,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "cutscenes",
         translations: cutscenes::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: cutscenes::PROVEN_REPLAYED,
+        replayed_framed_translations: cutscenes::PROVEN_REPLAYED_FRAMED,
         atomic_capable: cutscenes::ATOMIC_CAPABLE,
         execution_contracts: cutscenes::EXECUTION_CONTRACTS,
     },
@@ -999,6 +1026,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "earthlings",
         translations: earthlings::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: earthlings::PROVEN_REPLAYED,
+        replayed_framed_translations: earthlings::PROVEN_REPLAYED_FRAMED,
         atomic_capable: earthlings::ATOMIC_CAPABLE,
         execution_contracts: earthlings::EXECUTION_CONTRACTS,
     },
@@ -1006,6 +1035,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "elevator",
         translations: elevator::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: elevator::PROVEN_REPLAYED,
+        replayed_framed_translations: elevator::PROVEN_REPLAYED_FRAMED,
         atomic_capable: elevator::ATOMIC_CAPABLE,
         execution_contracts: elevator::EXECUTION_CONTRACTS,
     },
@@ -1013,6 +1044,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "jamout",
         translations: jamout::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: jamout::PROVEN_REPLAYED,
+        replayed_framed_translations: jamout::PROVEN_REPLAYED_FRAMED,
         atomic_capable: jamout::ATOMIC_CAPABLE,
         execution_contracts: jamout::EXECUTION_CONTRACTS,
     },
@@ -1020,6 +1053,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "map",
         translations: map::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: map::PROVEN_REPLAYED,
+        replayed_framed_translations: map::PROVEN_REPLAYED_FRAMED,
         atomic_capable: map::ATOMIC_CAPABLE,
         execution_contracts: map::EXECUTION_CONTRACTS,
     },
@@ -1027,6 +1062,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "platform",
         translations: platform::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: platform::PROVEN_REPLAYED,
+        replayed_framed_translations: platform::PROVEN_REPLAYED_FRAMED,
         atomic_capable: platform::ATOMIC_CAPABLE,
         execution_contracts: platform::EXECUTION_CONTRACTS,
     },
@@ -1034,6 +1071,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "player",
         translations: player::TRANSLATIONS,
         framed_translations: player::FRAMED_TRANSLATIONS,
+        replayed_translations: player::PROVEN_REPLAYED,
+        replayed_framed_translations: player::PROVEN_REPLAYED_FRAMED,
         atomic_capable: player::ATOMIC_CAPABLE,
         execution_contracts: player::EXECUTION_CONTRACTS,
     },
@@ -1041,6 +1080,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "presents",
         translations: presents::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: presents::PROVEN_REPLAYED,
+        replayed_framed_translations: presents::PROVEN_REPLAYED_FRAMED,
         atomic_capable: presents::ATOMIC_CAPABLE,
         execution_contracts: presents::EXECUTION_CONTRACTS,
     },
@@ -1048,6 +1089,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "runtime",
         translations: runtime::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: runtime::PROVEN_REPLAYED,
+        replayed_framed_translations: runtime::PROVEN_REPLAYED_FRAMED,
         atomic_capable: runtime::ATOMIC_CAPABLE,
         execution_contracts: runtime::EXECUTION_CONTRACTS,
     },
@@ -1055,6 +1098,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "ship",
         translations: ship::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: ship::PROVEN_REPLAYED,
+        replayed_framed_translations: ship::PROVEN_REPLAYED_FRAMED,
         atomic_capable: ship::ATOMIC_CAPABLE,
         execution_contracts: ship::EXECUTION_CONTRACTS,
     },
@@ -1062,6 +1107,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "speech",
         translations: speech::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: speech::PROVEN_REPLAYED,
+        replayed_framed_translations: speech::PROVEN_REPLAYED_FRAMED,
         atomic_capable: speech::ATOMIC_CAPABLE,
         execution_contracts: speech::EXECUTION_CONTRACTS,
     },
@@ -1069,6 +1116,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "sprites",
         translations: sprites::TRANSLATIONS,
         framed_translations: sprites::FRAMED_TRANSLATIONS,
+        replayed_translations: sprites::PROVEN_REPLAYED,
+        replayed_framed_translations: sprites::PROVEN_REPLAYED_FRAMED,
         atomic_capable: sprites::ATOMIC_CAPABLE,
         execution_contracts: sprites::EXECUTION_CONTRACTS,
     },
@@ -1076,6 +1125,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         name: "ui",
         translations: ui::TRANSLATIONS,
         framed_translations: &[],
+        replayed_translations: ui::PROVEN_REPLAYED,
+        replayed_framed_translations: ui::PROVEN_REPLAYED_FRAMED,
         atomic_capable: ui::ATOMIC_CAPABLE,
         execution_contracts: ui::EXECUTION_CONTRACTS,
     },
@@ -1179,6 +1230,59 @@ mod tests {
     }
 
     #[test]
+    fn replayed_availability_never_enters_default_production_selection() {
+        fn framed_fixture(_: &mut dyn Context) -> Result<Option<u32>> {
+            Ok(None)
+        }
+        // Availability metadata is not a proof or a production entry.
+        static OWNERS: &[Subsystem] = &[Subsystem {
+            name: "runtime",
+            translations: &[],
+            framed_translations: &[],
+            replayed_translations: &[Translation {
+                id: ids::ABS,
+                function: runtime::abs,
+            }],
+            replayed_framed_translations: &[FramedTranslation {
+                id: ids::LMODT,
+                function: framed_fixture,
+            }],
+            atomic_capable: &[],
+            execution_contracts: &[],
+        }];
+        let production = Dispatcher {
+            subsystems: OWNERS,
+            ..Dispatcher::hybrid()
+        };
+        assert_eq!(production.translations().count(), 0);
+        for id in [ids::ABS, ids::LMODT] {
+            assert!(production.resolve_entry(id).unwrap().is_none());
+        }
+        assert_eq!(
+            replayed_translations().count(),
+            SUBSYSTEMS
+                .iter()
+                .map(|owner| owner.replayed_translations.len())
+                .sum::<usize>()
+        );
+        assert_eq!(
+            replayed_framed_translations().count(),
+            SUBSYSTEMS
+                .iter()
+                .map(|owner| owner.replayed_framed_translations.len())
+                .sum::<usize>()
+        );
+        for id in replayed_translations()
+            .map(|entry| entry.id)
+            .chain(replayed_framed_translations().map(|entry| entry.id))
+        {
+            assert!(!translations().any(|entry| entry.id == id));
+            assert!(!framed_translations().any(|entry| entry.id == id));
+            assert!(Dispatcher::hybrid().resolve_entry(id).unwrap().is_none());
+        }
+    }
+
+    #[test]
     fn contract_index_rejects_duplicate_and_missing_declarations() {
         static ONE: &[FunctionId] = &[ids::ABS];
         static DUPLICATE: &[FunctionId] = &[ids::ABS, ids::ABS];
@@ -1186,6 +1290,8 @@ mod tests {
             name: "runtime",
             translations: &[],
             framed_translations: &[],
+            replayed_translations: &[],
+            replayed_framed_translations: &[],
             atomic_capable,
             execution_contracts: &[],
         };
