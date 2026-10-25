@@ -32,6 +32,7 @@ pub(crate) struct TestContext {
     pub stop_at_calls: bool,
     pub dispatcher_override: Option<Dispatcher>,
     pub execution: crate::execution::ExecutionClass,
+    pub wait_entry_d1: Option<u32>,
     data: [u32; 8],
     address: [u32; 8],
     status: u16,
@@ -52,6 +53,7 @@ impl TestContext {
             stop_at_calls: false,
             dispatcher_override: None,
             execution: crate::execution::ExecutionClass::Atomic,
+            wait_entry_d1: None,
             data: [0; 8],
             address: [0; 8],
             status: 0x2000,
@@ -115,6 +117,7 @@ impl Platform for TestContext {
 }
 impl crate::Platform for TestContext {
     fn wait_until(&mut self, request: WaitRequest) -> Result<()> {
+        self.wait_entry_d1 = Some(self.data[1]);
         self.record(Access::Wait(request));
         let WaitCondition::Ram {
             address,

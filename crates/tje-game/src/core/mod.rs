@@ -346,6 +346,11 @@ fn wait_for_next_vblank_count(context: &mut dyn Context, mut count: i16) -> Resu
         while count > 0 {
             let counter = ram::g_frame_counter(revision);
             let previous = counter.read(context);
+            // Matching asm:193 MOVE.W counter,D1 precedes the CMP poll loop.
+            // IRQ code can consume this interrupted register even though the
+            // C function does not export D1. CMP polls must not replace it.
+            let d1 = context.data_register(1);
+            context.set_data_register(1, (d1 & 0xffff0000) | u32::from(previous));
             // The initial MOVE.W is above; this owns the complete CMP.W loop
             // at matching c_startup_and_main_loop.s:194-196, terminal read too.
             context.wait_until(WaitRequest::ram_word_not_equal(

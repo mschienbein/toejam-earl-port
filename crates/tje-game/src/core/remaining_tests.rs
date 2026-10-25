@@ -112,11 +112,14 @@ fn vblank_wait_preserves_disabled_and_nonpositive_returns() {
             let frame = context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[count]);
             let shadow = ram::g_mode2_reg_softcopy(revision);
             shadow.write(&mut context, mode);
+            context.set_data_register(1, 0x9abcdef0);
             context.trace_accesses = true;
             assert_eq!(
                 wait_for_next_vblank_readable_framed(&mut context).unwrap(),
                 None
             );
+            assert_eq!(context.data_register(1), 0x9abcdef0);
+            assert_eq!(context.wait_entry_d1, None);
             assert_eq!(
                 *context.accesses.borrow(),
                 vec![
@@ -137,18 +140,22 @@ fn vblank_wait_preserves_disabled_and_nonpositive_returns() {
 fn readable_vblank_uses_one_word_predicate_after_each_initial_counter_load() {
     use crate::execution::WaitRequest;
     for revision in [Revision::Rev02, Revision::Rev00] {
-        for previous in [0, 0x7fff, 0xffff] {
+        for previous in [0, 0x0100, 0x7fff, 0x8000, 0xffff] {
             let mut context = TestContext::new(revision);
             let frame = context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[1]);
             let mode = ram::g_mode2_reg_softcopy(revision);
             let counter = ram::g_frame_counter(revision);
             mode.write(&mut context, 0x40);
             counter.write(&mut context, previous);
+            context.set_data_register(1, 0xabcd5a5a);
             context.trace_accesses = true;
             // A real unsatisfied first CMP poll is observed. No synthetic clock
             // or IRQ is granted merely to finish this unit fixture.
             let error = wait_for_next_vblank_readable_framed(&mut context).unwrap_err();
             assert!(matches!(error, crate::Error::Platform(_)));
+            let expected_d1 = 0xabcd0000 | u32::from(previous);
+            assert_eq!(context.wait_entry_d1, Some(expected_d1));
+            assert_eq!(context.data_register(1), expected_d1);
             assert_eq!(
                 *context.accesses.borrow(),
                 vec![
@@ -163,6 +170,26 @@ fn readable_vblank_uses_one_word_predicate_after_each_initial_counter_load() {
                     Access::Read(counter.address(), 2),
                 ],
             );
+        }
+    }
+}
+
+#[test]
+fn readable_vblank_materialises_the_initial_word_before_polling_for_every_word() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = TestContext::new(revision);
+        context.prepare_entry(crate::ids::WAIT_FOR_NEXT_V_BLANK, &[1]);
+        ram::g_mode2_reg_softcopy(revision).write(&mut context, 0x40);
+        let counter = ram::g_frame_counter(revision);
+        for high in [0, 0x12340000, 0xffff0000] {
+            for previous in 0..=u16::MAX {
+                counter.write(&mut context, previous);
+                context.set_data_register(1, high | 0xdead);
+                assert!(wait_for_next_vblank_readable_framed(&mut context).is_err());
+                let expected = high | u32::from(previous);
+                assert_eq!(context.wait_entry_d1, Some(expected));
+                assert_eq!(context.data_register(1), expected);
+            }
         }
     }
 }
