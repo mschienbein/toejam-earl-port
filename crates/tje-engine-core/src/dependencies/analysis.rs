@@ -23,6 +23,14 @@ struct Demand {
     control: bool,
 }
 #[derive(Clone, Copy, Debug)]
+struct ReadBinding {
+    value: Value,
+    ordinal: usize,
+    address: u32,
+    width: Width,
+    kind: ReadKind,
+}
+#[derive(Clone, Copy, Debug)]
 struct OutputBinding {
     state: [Option<Value>; StateField::COUNT],
     pc: u32,
@@ -46,6 +54,10 @@ pub struct DependencyScratch {
     reads_memory: bool,
     memory_controls: bool,
     path_memory_controls: bool,
+    executed_values: Vec<bool>,
+    current_reachable: bool,
+    read_bindings: Vec<ReadBinding>,
+    path_memory_demands: Vec<u32>,
 }
 impl DependencyScratch {
     /// Query the last successful `Executed` analysis using its retained SSA
@@ -82,6 +94,106 @@ impl DependencyScratch {
             memory_values: memory || output.memory_controls,
         })
     }
+
+    /// Exact physical memory leaves for the same selected output query as
+    /// `output_reads`. All path controls and the old summary are preserved.
+    /// The caller's reusable vector is cleared even when the query fails.
+    pub fn output_read_demands(
+        &mut self,
+        field: StateField,
+        bits: u32,
+        demands: &mut Vec<ExecutedReadDemand>,
+    ) -> Result<OutputDependencies, DependencyError> {
+        demands.clear();
+        let summary = self.output_reads(field, bits)?;
+        if self
+            .outputs
+            .as_ref()
+            .expect("successful output binding")
+            .state[field.index() as usize]
+            .is_none()
+        {
+            self.clear_demands();
+        }
+        self.collect_read_demands(demands);
+        Ok(summary)
+    }
+
+    /// Query any SSA value actually defined in the selected executed prefix.
+    /// Allocated/defined values in an unreachable suffix are not query roots.
+    /// `control=false` does not remove actual path or value-selection controls.
+    /// Read ordinals and address policy belong to the returned Executed binding.
+    pub fn value_read_demands(
+        &mut self,
+        value: Value,
+        bits: u32,
+        control: bool,
+        demands: &mut Vec<ExecutedReadDemand>,
+    ) -> Result<OutputDependencies, DependencyError> {
+        demands.clear();
+        self.outputs
+            .as_ref()
+            .ok_or(DependencyError::OutputQueryUnavailable)?;
+        let index = self.checked(value)?;
+        if !self.executed_values[index] {
+            return Err(DependencyError::OutputQueryUnavailable);
+        }
+        let (reads, controls) = self.reads(value, bits, control);
+        let output = self
+            .outputs
+            .as_ref()
+            .expect("read demand retains its successful binding");
+        let summary = OutputDependencies {
+            pc: output.pc,
+            opcode: output.opcode,
+            binding: output.path,
+            reads: reads | output.controls,
+            control_reads: controls | output.controls,
+            memory_values: self.reads_memory || output.memory_controls,
+        };
+        self.collect_read_demands(demands);
+        Ok(summary)
+    }
+
+    fn collect_read_demands(&self, demands: &mut Vec<ExecutedReadDemand>) {
+        for binding in &self.read_bindings {
+            let index = binding.value.0 as usize;
+            let mask = width_mask(binding.width);
+            let data_bits = self.data_demands[index] & mask;
+            let control_bits =
+                (self.control_demands[index] | self.path_memory_demands[index]) & mask;
+            if data_bits | control_bits != 0 {
+                demands.push(ExecutedReadDemand {
+                    ordinal: binding.ordinal,
+                    address: binding.address,
+                    width: binding.width,
+                    kind: binding.kind,
+                    data_bits,
+                    control_bits,
+                });
+            }
+        }
+    }
+
+    fn bind_read(
+        &mut self,
+        value: Value,
+        reads: Option<&[ObservedRead]>,
+        ordinal: usize,
+        consumed: usize,
+    ) {
+        if consumed == ordinal {
+            return;
+        }
+        let read = reads.expect("consumed executed read")[ordinal];
+        self.read_bindings.push(ReadBinding {
+            value,
+            ordinal,
+            address: read.address,
+            width: read.width,
+            kind: read.kind,
+        });
+    }
     pub(super) fn invalidate_outputs(&mut self) {
         self.outputs = None;
     }
@@ -109,6 +221,12 @@ impl DependencyScratch {
         self.touched.clear();
         self.work.clear();
         self.path_memory_controls = false;
+        self.executed_values.clear();
+        self.executed_values.resize(count, false);
+        self.current_reachable = false;
+        self.read_bindings.clear();
+        self.path_memory_demands.clear();
+        self.path_memory_demands.resize(count, 0);
         self.touched.reserve(count);
         self.work.reserve(count);
         Ok(())
@@ -140,6 +258,7 @@ impl DependencyScratch {
         }
         self.nodes[index] = node;
         self.facts[index] = fact;
+        self.executed_values[index] = self.current_reachable;
         self.definition_order.push(value);
         Ok(())
     }
@@ -166,7 +285,7 @@ impl DependencyScratch {
             });
         }
     }
-    fn reads(&mut self, value: Value, bits: u32, control: bool) -> (StateMask, StateMask) {
+    fn clear_demands(&mut self) {
         for index in self.touched.drain(..) {
             self.data_demands[index] = 0;
             self.control_demands[index] = 0;
@@ -174,6 +293,9 @@ impl DependencyScratch {
         self.work.clear();
         self.reads_memory = false;
         self.memory_controls = false;
+    }
+    fn reads(&mut self, value: Value, bits: u32, control: bool) -> (StateMask, StateMask) {
+        self.clear_demands();
         self.mark(value, bits, control);
         let mut data = StateMask::EMPTY;
         let mut controls = StateMask::EMPTY;
@@ -304,6 +426,10 @@ impl DependencyScratch {
         }
         let (reads, control_reads) = self.reads(value, bits, control);
         self.path_memory_controls |= self.memory_controls;
+        for binding in &self.read_bindings {
+            let index = binding.value.0 as usize;
+            self.path_memory_demands[index] |= self.control_demands[index];
+        }
         report.instruction.reads |= reads;
         report.instruction.effect_reads |= control_reads;
         if !matches!(kind, DependencyUseKind::PreservedState { .. }) {
@@ -505,6 +631,7 @@ fn analyze_inner(
     let mut definite = StateMask::ALL;
     let mut preserved = StateMask::ALL;
     for (operation, op) in instruction.ops.iter().enumerate() {
+        scratch.current_reachable = reachable;
         // Validate the entire SSA, even an unreachable suffix after a constant
         // exception. Unreachable arithmetic is not evaluated or granted effects.
         let check = |value| scratch.checked(value).map(|_| ());
@@ -561,6 +688,7 @@ fn analyze_inner(
                 kind,
             } => {
                 check(address)?;
+                let ordinal = reads_consumed;
                 let observed = if reachable {
                     scratch.use_(
                         report,
@@ -582,6 +710,7 @@ fn analyze_inner(
                 } else {
                     None
                 };
+                scratch.bind_read(dst, observations, ordinal, reads_consumed);
                 scratch.define(
                     dst,
                     Node::Memory,
@@ -599,6 +728,7 @@ fn analyze_inner(
                 check(address)?;
                 let fact = scratch.fact(condition)?;
                 let condition_value = fact.observed.or(fact.constant_value());
+                let ordinal = reads_consumed;
                 let observed = if reachable {
                     scratch.use_(
                         report,
@@ -640,6 +770,7 @@ fn analyze_inner(
                 } else {
                     Fact::memory(dst, width_mask(width), observed)
                 };
+                scratch.bind_read(dst, observations, ordinal, reads_consumed);
                 scratch.define(dst, Node::Memory, fact)?;
             }
             Op::StoreState { field, value } => {
