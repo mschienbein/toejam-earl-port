@@ -2,7 +2,9 @@ mod adventure;
 mod bot;
 mod content_bot;
 mod navigation;
+mod replayed;
 mod runner;
+mod selection;
 
 use anyhow::{Result, bail, ensure};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -39,6 +41,25 @@ enum Command {
         /// Collect checked failures and finish inputs; any counted failure still makes the exit unsuccessful.
         #[arg(long)]
         continue_after_mismatch: bool,
+        /// Root inventory ids or names; omitted means the full production registry.
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
+        function: Vec<String>,
+        /// Check only the explicitly selected pending bodies, without live eligibility.
+        #[arg(long, requires = "function")]
+        pending: bool,
+    },
+    /// Describe actual pending body availability and replay-worker capability.
+    ReplayCatalogue,
+    /// Check one session under the check-only modular replay environment.
+    ReplayEnvironment {
+        #[arg(long)]
+        rom: PathBuf,
+        #[arg(long)]
+        session: PathBuf,
+        #[arg(long, required = true, num_args = 1.., value_delimiter = ',')]
+        function: Vec<String>,
+        #[arg(long)]
+        report: PathBuf,
     },
     /// Compare full video frames or completed logic ticks; report first divergence.
     Compare {
@@ -92,11 +113,14 @@ fn main() -> Result<()> {
             mode,
             report,
             continue_after_mismatch,
+            function,
+            pending,
         } => {
             ensure!(
                 !continue_after_mismatch || mode == Mode::Check,
                 "--continue-after-mismatch requires --mode check"
             );
+            let selection = selection::Selection::parse(&function, pending)?;
             let bytes = fs::read(rom)?;
             let mut sessions = Vec::with_capacity(session.len());
             for path in &session {
@@ -107,6 +131,7 @@ fn main() -> Result<()> {
                     &report,
                     &sessions,
                     continue_after_mismatch,
+                    &selection,
                 )?);
             }
             for session in &sessions {
@@ -134,6 +159,22 @@ fn main() -> Result<()> {
                 report_data.status == runner::ReportStatus::Complete,
                 "check replay is {:?}: counted failures or unresolved future-frame provenance; report {}",
                 report_data.status,
+                report.display()
+            );
+        }
+        Command::ReplayCatalogue => {
+            println!("{}", serde_json::to_string(&replayed::catalogue())?);
+        }
+        Command::ReplayEnvironment {
+            rom,
+            session,
+            function,
+            report,
+        } => {
+            let complete = replayed::run(&fs::read(rom)?, &session, &function, &report)?;
+            ensure!(
+                complete,
+                "replayed environment is incomplete/failed; exact evidence {}",
                 report.display()
             );
         }
@@ -277,6 +318,37 @@ mod tests {
                 continue_after_mismatch: true,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn pending_proofs_require_an_explicit_root_selection() {
+        let common = [
+            "tje-session",
+            "replay",
+            "--rom",
+            "authored.bin",
+            "--session",
+            "authored.tje.json",
+            "--mode",
+            "check",
+            "--report",
+            "authored.json",
+        ];
+        assert!(Args::try_parse_from(common.into_iter().chain(["--pending"])).is_err());
+        let selected = Args::try_parse_from(common.into_iter().chain([
+            "--pending",
+            "--function",
+            "func_00059e",
+        ]))
+        .unwrap();
+        assert!(matches!(
+            selected.command,
+            Command::Replay {
+                pending: true,
+                function,
+                ..
+            } if function == ["func_00059e"]
         ));
     }
 }

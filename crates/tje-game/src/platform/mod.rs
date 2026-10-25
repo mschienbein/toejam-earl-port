@@ -177,6 +177,9 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
+/// Stable framed-candidate table; empty availability grants no admission.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+
 /// Reviewed entries with no clock/interrupt-dependent return paths or callees.
 /// Interrupt masks are straight-line SR operations (interrupts.s:33,41).
 /// Pad sampling has only fixed eleven-iteration DBRA delays (controllers.s:12,40);

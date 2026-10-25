@@ -41,6 +41,10 @@ pub static TRANSLATIONS: &[Translation] = &[
     },
 ];
 
+/// Canonical pending availability; never consulted by live dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+
 /// All five original collision queries are reviewed Atomic.
 pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[];
 

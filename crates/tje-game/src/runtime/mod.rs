@@ -79,6 +79,10 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
     },
 ];
 
+/// Canonical pending availability; never consulted by live dispatch.
+pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[];
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+
 /// Runtime entries need no non-atomic execution contract.
 pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[];
 

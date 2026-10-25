@@ -570,6 +570,9 @@ pub struct Subsystem {
     /// Check-only semantic proofs, never part of canonical production dispatch.
     pub replayed_translations: &'static [Translation],
     pub replayed_framed_translations: &'static [FramedTranslation],
+    /// Check-only candidate availability, never a live-dispatch or status grant.
+    pub pending_translations: &'static [Translation],
+    pub pending_framed_translations: &'static [FramedTranslation],
     pub atomic_capable: &'static [FunctionId],
     pub execution_contracts: &'static [execution::ExecutionContract],
 }
@@ -667,6 +670,20 @@ pub fn replayed_framed_translations() -> impl Iterator<Item = &'static FramedTra
     SUBSYSTEMS
         .iter()
         .flat_map(|subsystem| subsystem.replayed_framed_translations.iter())
+}
+
+/// Complete canonical pending value availability; callers select proof roots separately.
+pub fn pending_translations() -> impl Iterator<Item = &'static Translation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.pending_translations.iter())
+}
+
+/// Complete canonical pending frame availability, without live replacement eligibility.
+pub fn pending_framed_translations() -> impl Iterator<Item = &'static FramedTranslation> + Clone {
+    SUBSYSTEMS
+        .iter()
+        .flat_map(|subsystem| subsystem.pending_framed_translations.iter())
 }
 
 #[derive(Clone, Copy)]
@@ -983,6 +1000,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: audio::PROVEN_REPLAYED,
         replayed_framed_translations: audio::PROVEN_REPLAYED_FRAMED,
+        pending_translations: audio::PENDING_TRANSLATIONS,
+        pending_framed_translations: audio::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: audio::ATOMIC_CAPABLE,
         execution_contracts: audio::EXECUTION_CONTRACTS,
     },
@@ -992,6 +1011,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: camera::PROVEN_REPLAYED,
         replayed_framed_translations: camera::PROVEN_REPLAYED_FRAMED,
+        pending_translations: camera::PENDING_TRANSLATIONS,
+        pending_framed_translations: camera::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: camera::ATOMIC_CAPABLE,
         execution_contracts: camera::EXECUTION_CONTRACTS,
     },
@@ -1001,6 +1022,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: collision::PROVEN_REPLAYED,
         replayed_framed_translations: collision::PROVEN_REPLAYED_FRAMED,
+        pending_translations: collision::PENDING_TRANSLATIONS,
+        pending_framed_translations: collision::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: collision::ATOMIC_CAPABLE,
         execution_contracts: collision::EXECUTION_CONTRACTS,
     },
@@ -1010,6 +1033,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: core::PROVEN_REPLAYED,
         replayed_framed_translations: core::PROVEN_REPLAYED_FRAMED,
+        pending_translations: core::PENDING_TRANSLATIONS,
+        pending_framed_translations: core::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: core::ATOMIC_CAPABLE,
         execution_contracts: core::EXECUTION_CONTRACTS,
     },
@@ -1019,6 +1044,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: cutscenes::PROVEN_REPLAYED,
         replayed_framed_translations: cutscenes::PROVEN_REPLAYED_FRAMED,
+        pending_translations: cutscenes::PENDING_TRANSLATIONS,
+        pending_framed_translations: cutscenes::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: cutscenes::ATOMIC_CAPABLE,
         execution_contracts: cutscenes::EXECUTION_CONTRACTS,
     },
@@ -1028,6 +1055,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: earthlings::PROVEN_REPLAYED,
         replayed_framed_translations: earthlings::PROVEN_REPLAYED_FRAMED,
+        pending_translations: earthlings::PENDING_TRANSLATIONS,
+        pending_framed_translations: earthlings::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: earthlings::ATOMIC_CAPABLE,
         execution_contracts: earthlings::EXECUTION_CONTRACTS,
     },
@@ -1037,6 +1066,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: elevator::PROVEN_REPLAYED,
         replayed_framed_translations: elevator::PROVEN_REPLAYED_FRAMED,
+        pending_translations: elevator::PENDING_TRANSLATIONS,
+        pending_framed_translations: elevator::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: elevator::ATOMIC_CAPABLE,
         execution_contracts: elevator::EXECUTION_CONTRACTS,
     },
@@ -1046,6 +1077,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: jamout::PROVEN_REPLAYED,
         replayed_framed_translations: jamout::PROVEN_REPLAYED_FRAMED,
+        pending_translations: jamout::PENDING_TRANSLATIONS,
+        pending_framed_translations: jamout::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: jamout::ATOMIC_CAPABLE,
         execution_contracts: jamout::EXECUTION_CONTRACTS,
     },
@@ -1055,6 +1088,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: map::PROVEN_REPLAYED,
         replayed_framed_translations: map::PROVEN_REPLAYED_FRAMED,
+        pending_translations: map::PENDING_TRANSLATIONS,
+        pending_framed_translations: map::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: map::ATOMIC_CAPABLE,
         execution_contracts: map::EXECUTION_CONTRACTS,
     },
@@ -1064,6 +1099,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: platform::PROVEN_REPLAYED,
         replayed_framed_translations: platform::PROVEN_REPLAYED_FRAMED,
+        pending_translations: platform::PENDING_TRANSLATIONS,
+        pending_framed_translations: platform::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: platform::ATOMIC_CAPABLE,
         execution_contracts: platform::EXECUTION_CONTRACTS,
     },
@@ -1073,6 +1110,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: player::FRAMED_TRANSLATIONS,
         replayed_translations: player::PROVEN_REPLAYED,
         replayed_framed_translations: player::PROVEN_REPLAYED_FRAMED,
+        pending_translations: player::PENDING_TRANSLATIONS,
+        pending_framed_translations: player::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: player::ATOMIC_CAPABLE,
         execution_contracts: player::EXECUTION_CONTRACTS,
     },
@@ -1082,6 +1121,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: presents::PROVEN_REPLAYED,
         replayed_framed_translations: presents::PROVEN_REPLAYED_FRAMED,
+        pending_translations: presents::PENDING,
+        pending_framed_translations: presents::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: presents::ATOMIC_CAPABLE,
         execution_contracts: presents::EXECUTION_CONTRACTS,
     },
@@ -1091,6 +1132,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: runtime::PROVEN_REPLAYED,
         replayed_framed_translations: runtime::PROVEN_REPLAYED_FRAMED,
+        pending_translations: runtime::PENDING_TRANSLATIONS,
+        pending_framed_translations: runtime::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: runtime::ATOMIC_CAPABLE,
         execution_contracts: runtime::EXECUTION_CONTRACTS,
     },
@@ -1100,6 +1143,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: ship::PROVEN_REPLAYED,
         replayed_framed_translations: ship::PROVEN_REPLAYED_FRAMED,
+        pending_translations: ship::PENDING_TRANSLATIONS,
+        pending_framed_translations: ship::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: ship::ATOMIC_CAPABLE,
         execution_contracts: ship::EXECUTION_CONTRACTS,
     },
@@ -1109,6 +1154,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: speech::PROVEN_REPLAYED,
         replayed_framed_translations: speech::PROVEN_REPLAYED_FRAMED,
+        pending_translations: speech::PENDING_TRANSLATIONS,
+        pending_framed_translations: speech::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: speech::ATOMIC_CAPABLE,
         execution_contracts: speech::EXECUTION_CONTRACTS,
     },
@@ -1118,6 +1165,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: sprites::FRAMED_TRANSLATIONS,
         replayed_translations: sprites::PROVEN_REPLAYED,
         replayed_framed_translations: sprites::PROVEN_REPLAYED_FRAMED,
+        pending_translations: sprites::PENDING_TRANSLATIONS,
+        pending_framed_translations: sprites::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: sprites::ATOMIC_CAPABLE,
         execution_contracts: sprites::EXECUTION_CONTRACTS,
     },
@@ -1127,6 +1176,8 @@ pub static SUBSYSTEMS: &[Subsystem] = &[
         framed_translations: &[],
         replayed_translations: ui::PROVEN_REPLAYED,
         replayed_framed_translations: ui::PROVEN_REPLAYED_FRAMED,
+        pending_translations: ui::PENDING_TRANSLATIONS,
+        pending_framed_translations: ui::PENDING_FRAMED_TRANSLATIONS,
         atomic_capable: ui::ATOMIC_CAPABLE,
         execution_contracts: ui::EXECUTION_CONTRACTS,
     },
@@ -1239,6 +1290,8 @@ mod tests {
             name: "runtime",
             translations: &[],
             framed_translations: &[],
+            pending_translations: &[],
+            pending_framed_translations: &[],
             replayed_translations: &[Translation {
                 id: ids::ABS,
                 function: runtime::abs,
@@ -1292,6 +1345,8 @@ mod tests {
             framed_translations: &[],
             replayed_translations: &[],
             replayed_framed_translations: &[],
+            pending_translations: &[],
+            pending_framed_translations: &[],
             atomic_capable,
             execution_contracts: &[],
         };
