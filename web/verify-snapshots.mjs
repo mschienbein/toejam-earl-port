@@ -148,7 +148,7 @@ try {
   await page.locator('#enable-save-states').check();
   await page.locator('#enable-rewind').check();
   await page.locator('#enable-fast-forward').check();
-  await page.locator('#state-slot').selectOption('4');
+  await page.locator('#state-slot').selectOption({ value: '4' });
   await page.locator('#save-state').click();
   await page.waitForFunction(() => document.getElementById('convenience-notice').textContent.includes('Saved local slot 5'));
   await page.locator('#play').click();
@@ -184,6 +184,7 @@ try {
   await page.keyboard.press('F3');
   await page.waitForFunction(() => document.getElementById('convenience-notice').textContent.includes('Loaded local slot 1'));
   await page.locator('#play').click();
+  await page.waitForFunction(() => window.tje.metrics.state === 'running');
   await page.locator('#canvas').focus();
   const heldStart = await page.evaluate(() => window.tje.metrics.frames);
   await page.keyboard.down('Backquote');

@@ -126,3 +126,13 @@ fn execution_profile_identity_is_checked_before_any_mutation() {
         enhanced.as_bytes()
     );
 }
+
+#[test]
+fn native_output_rate_capture_does_not_double_the_initial_allocation() {
+    let mut engine = machine(0);
+    engine.set_audio_sample_rate(44_100).unwrap();
+    engine.play_frame(GenesisInputs::default()).unwrap();
+    let image = engine.snapshot().unwrap();
+    assert!(image.byte_len() <= 1152 * 1024);
+    assert_eq!(image.bytes.capacity(), 1152 * 1024);
+}

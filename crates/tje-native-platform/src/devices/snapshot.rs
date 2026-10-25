@@ -140,6 +140,9 @@ impl DeviceRuntime {
         if state.config.clamped_m68k_divider() != self.config.clamped_m68k_divider() {
             return Err("snapshot CPU divider does not match the compiled engine".into());
         }
+        if !(8_000..=192_000).contains(&state.audio_sample_rate) {
+            return Err("snapshot audio sample rate must be between 8000 and 192000 Hz".into());
+        }
         let bus = &mut self.bus;
         bus.memory.ram_mut().copy_from_slice(state.ram.as_slice());
         bus.audio_ram.copy_from_slice(state.audio_ram.as_slice());
@@ -174,9 +177,50 @@ impl DeviceRuntime {
         self.input_clock_remainder = state.input_clock_remainder;
         self.audio_sample_rate = state.audio_sample_rate;
         self.config = state.config;
+        // Decoding keeps sample contents, not Vec capacity. Preserve one full
+        // output frame of headroom even for a power-on/empty-audio snapshot.
+        let capacity = (f64::from(self.audio_sample_rate) / self.target_fps()).ceil() as usize + 16;
+        self.audio
+            .0
+            .reserve(capacity.saturating_sub(self.audio.0.len()));
         self.clear_trace();
         self.clear_ram_write_trace();
         self.reserve_startup_buffers();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tje_mem::Revision;
+
+    #[test]
+    fn restoring_empty_audio_retains_warm_output_queue_headroom() {
+        let mut devices = DeviceRuntime::new(
+            AddressSpace::new(vec![0; 1024], Revision::Rev02),
+            &GenesisEmulatorConfig::default(),
+        );
+        let mut bytes = Vec::new();
+        devices.encode_snapshot(&mut bytes).unwrap();
+        devices.restore_snapshot(&bytes).unwrap();
+        let required =
+            (f64::from(devices.audio_sample_rate) / devices.target_fps()).ceil() as usize + 16;
+        assert!(devices.audio_samples().is_empty());
+        assert!(devices.audio.0.capacity() >= required);
+    }
+
+    #[test]
+    fn invalid_saved_rate_is_rejected_before_mutation_or_queue_reservation() {
+        let mut devices = DeviceRuntime::new(
+            AddressSpace::new(vec![0; 1024], Revision::Rev02),
+            &GenesisEmulatorConfig::default(),
+        );
+        devices.audio_sample_rate = u32::MAX;
+        let mut bytes = Vec::new();
+        devices.encode_snapshot(&mut bytes).unwrap();
+        devices.audio_sample_rate = 48_000;
+        assert!(devices.restore_snapshot(&bytes).is_err());
+        assert_eq!(devices.audio_sample_rate, 48_000);
     }
 }

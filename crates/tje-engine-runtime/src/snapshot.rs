@@ -130,7 +130,10 @@ impl<B: Backend> Machine<PlatformDevices, B> {
     ) -> Result<(), SnapshotError> {
         let bytes = &mut snapshot.bytes;
         bytes.clear();
-        bytes.reserve(1024 * 1024);
+        // A 44.1 kHz image is slightly larger than 1 MiB. Leave headroom so
+        // normal native capture does not grow/copy its entire image or double
+        // the allocation charged to the rewind ring.
+        bytes.reserve_exact(1152 * 1024);
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
         bytes.extend_from_slice(&self.devices.snapshot_rom_hash());

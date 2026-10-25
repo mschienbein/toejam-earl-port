@@ -47,6 +47,9 @@ The canonical image contains all 25 CPU words, work/Z80 RAM, the entire VDP
 pending samples, deferred writes, controller latches, reset/IRQ/wait phases,
 master clocks and frame counters. Optional proof journals are not game state:
 restore clears them while retaining observer enablement.
+Restore also rewarms instruction, chip/resampler and output-audio queue capacity,
+including empty power-on images, so the next frame does not allocate merely
+because serialization discarded spare capacity.
 
 Format 2 has an eight-byte `TJESTATE` magic, little-endian version, actual ROM
 SHA-1, frame count, CPU words, execution-profile SHA-1, fixed-integer little-endian
