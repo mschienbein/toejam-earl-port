@@ -9,6 +9,14 @@ enum DiscardedRead {
     Word(u32),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PollEvent {
+    BusRequest(u16),
+    BusPoll { source: u32, value: u16 },
+    ReadByte { address: u32, value: u8 },
+    Yield,
+}
+
 struct Machine {
     memory: AddressSpace,
     data: [u32; 8],
@@ -23,6 +31,10 @@ struct Machine {
     writes: Vec<(u32, u16, bool)>,
     discarded_reads: Vec<DiscardedRead>,
     semantic_reads: RefCell<Vec<u32>>,
+    poll_trace: Vec<PollEvent>,
+    poll_yields: usize,
+    lock_reads: usize,
+    unlock_after_yields: Option<usize>,
 }
 impl Machine {
     fn new(revision: Revision) -> Self {
@@ -54,6 +66,10 @@ impl Machine {
             writes: Vec::new(),
             discarded_reads: Vec::new(),
             semantic_reads: RefCell::new(Vec::new()),
+            poll_trace: Vec::new(),
+            poll_yields: 0,
+            lock_reads: 0,
+            unlock_after_yields: None,
         }
     }
 }
@@ -77,7 +93,16 @@ impl tje_mem::Platform for Machine {
 impl Platform for Machine {
     fn read_device_u8(&mut self, address: u32) -> u8 {
         assert!(self.requested && !self.reset);
-        self.z80[(address - 0xa00000) as usize]
+        if address == 0xa00000 + u32::from(MAILBOX_LOCK) {
+            self.lock_reads += 1;
+            assert!(
+                self.lock_reads <= self.poll_yields + 1,
+                "mailbox re-polled without a released-bus iteration yield"
+            );
+        }
+        let value = self.z80[(address - 0xa00000) as usize];
+        self.poll_trace.push(PollEvent::ReadByte { address, value });
+        value
     }
     fn read_device_u16(&mut self, _: u32) -> u16 {
         panic!("BUSACK requires an explicit source");
@@ -89,13 +114,16 @@ impl Platform for Machine {
     ) -> Result<u16> {
         assert_eq!(address, 0xa11100);
         self.bus_reads += 1;
-        let operand = self.memory.read_u16(source.address()?);
-        Ok((operand & !0x100)
+        let source = source.address()?;
+        let operand = self.memory.read_u16(source);
+        let value = (operand & !0x100)
             | if self.requested && !self.reset {
                 0
             } else {
                 0x100
-            })
+            };
+        self.poll_trace.push(PollEvent::BusPoll { source, value });
+        Ok(value)
     }
     fn write_device_u8(&mut self, address: u32, value: u8) {
         assert!(self.requested && !self.reset);
@@ -106,6 +134,7 @@ impl Platform for Machine {
         assert_eq!(address, 0xa11100);
         self.requested = value & 0x100 != 0;
         self.writes.push((address, value, true));
+        self.poll_trace.push(PollEvent::BusRequest(value));
     }
     fn discard_u8(&mut self, address: u32) -> Result<()> {
         self.discarded_reads.push(DiscardedRead::Byte(address));
@@ -115,6 +144,26 @@ impl Platform for Machine {
     fn discard_u16(&mut self, address: u32) -> Result<()> {
         self.discarded_reads.push(DiscardedRead::Word(address));
         let _ = self.memory.read_u16(address);
+        Ok(())
+    }
+    fn poll_yield(&mut self) -> Result<()> {
+        assert!(
+            !self.requested,
+            "retry yield must precede fresh acquisition"
+        );
+        assert_eq!(
+            self.data[0], 0x0000_ffff,
+            "complete the inclusive DBRA first"
+        );
+        assert_eq!(self.status & 0x0f, 0, "MOVEQ/DBRA flags must be retained");
+        self.poll_trace.push(PollEvent::Yield);
+        self.poll_yields += 1;
+        if self
+            .unlock_after_yields
+            .is_some_and(|count| self.poll_yields >= count)
+        {
+            self.z80[MAILBOX_LOCK as usize] = 0;
+        }
         Ok(())
     }
 }
@@ -369,4 +418,132 @@ fn immediate_pcm_pending_entry_cannot_select_the_eager_value_adapter() {
         1
     );
     assert!(crate::audio::PENDING.contains(&id));
+}
+
+fn invoke_request(machine: &mut Machine, id: FunctionId) {
+    let result = if id == ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE {
+        audio_submit_pending_pcm_sample(machine, &[])
+    } else if id == ids::AUDIO_RETRY_PENDING_PCM_MAILBOX {
+        audio_retry_pending_pcm_mailbox(machine, &[])
+    } else if id == ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE {
+        audio_try_submit_sequencer_pcm_sample(machine)
+    } else if id == ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND {
+        audio_submit_pending_indexed_command(machine, &[])
+    } else if id == ids::AUDIO_RETRY_PENDING_PSG_MAILBOX {
+        audio_retry_pending_psg_mailbox(machine, &[])
+    } else {
+        panic!("unexpected test request {}", id.metadata().name);
+    };
+    result.unwrap();
+}
+
+fn expected_acquisition(trace: &mut Vec<PollEvent>, source: u32, lock: u8) {
+    trace.extend([
+        PollEvent::BusRequest(0x100),
+        PollEvent::BusPoll {
+            source,
+            value: 0x1234,
+        },
+        PollEvent::ReadByte {
+            address: 0xa00041,
+            value: lock,
+        },
+    ]);
+}
+
+#[test]
+fn compound_retries_keep_exact_poll_order_and_yield_only_while_released() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for id in [
+            ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+            ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+            ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+            ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND,
+            ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+        ] {
+            for busy_cycles in [0, 2] {
+                for reset in [false, true] {
+                    let mut machine = Machine::new(revision);
+                    let immediate = id == ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE;
+                    let retry_entry = [
+                        ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+                        ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
+                    ]
+                    .contains(&id);
+                    let pcm = [
+                        ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE,
+                        ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+                        ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+                    ]
+                    .contains(&id);
+                    let owner = if immediate {
+                        ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE
+                    } else if pcm {
+                        ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE
+                    } else {
+                        ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND
+                    };
+                    let source =
+                        owner.metadata().address(revision) + if immediate { 0x44 } else { 0x18 };
+                    let initial_yields = usize::from(retry_entry);
+                    machine.reset = reset;
+                    machine.z80[MAILBOX_LOCK as usize] = u8::from(busy_cycles != 0);
+                    if busy_cycles != 0 {
+                        // Synthetic unit environment progresses only at the
+                        // released-bus boundary, never on the read itself.
+                        machine.unlock_after_yields = Some(initial_yields + busy_cycles);
+                    }
+                    let sample = 0xff9200;
+                    machine
+                        .frame
+                        .argument_slot(0)
+                        .write(&mut machine.memory, sample);
+                    machine.memory.write_u16(sample, 138);
+                    ram::g_pending_pcm_sample(revision).write(&mut machine.memory, sample as i32);
+                    ram::g_pending_psg_effect(revision).write(&mut machine.memory, 6);
+                    invoke_request(&mut machine, id);
+                    let mut expected = Vec::new();
+                    if retry_entry {
+                        expected.extend([PollEvent::BusRequest(0), PollEvent::Yield]);
+                    }
+                    let repeated = if reset { 0 } else { busy_cycles };
+                    if reset {
+                        expected.push(PollEvent::BusRequest(0x100));
+                        for _ in 0..19 {
+                            expected.push(PollEvent::BusPoll {
+                                source,
+                                value: 0x1334,
+                            });
+                        }
+                    } else {
+                        for _ in 0..busy_cycles {
+                            expected_acquisition(&mut expected, source, 1);
+                            expected.extend([PollEvent::BusRequest(0), PollEvent::Yield]);
+                        }
+                        expected_acquisition(&mut expected, source, 0);
+                        if immediate {
+                            expected.push(PollEvent::ReadByte {
+                                address: 0xa0004b,
+                                value: 0,
+                            });
+                        }
+                    }
+                    expected.push(PollEvent::BusRequest(0));
+                    assert_eq!(machine.poll_trace, expected, "{}", id.metadata().name);
+                    assert_eq!(machine.poll_yields, initial_yields + repeated);
+                    assert_eq!(machine.bus_reads, if reset { 19 } else { busy_cycles + 1 });
+                    assert_eq!(machine.lock_reads, if reset { 0 } else { busy_cycles + 1 });
+                    let counter = ram::g_frame_counter(revision).address();
+                    assert!(
+                        !machine
+                            .semantic_reads
+                            .borrow()
+                            .iter()
+                            .any(|address| (counter..counter + 4).contains(address)),
+                        "no invented frame-counter polling proxy"
+                    );
+                }
+            }
+        }
+    }
 }

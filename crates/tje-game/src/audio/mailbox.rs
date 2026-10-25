@@ -91,7 +91,10 @@ fn post_register_byte(context: &mut dyn Context, offset: u16, register: usize) {
 
 /// Execute the actual MOVEQ/DBRA state changes; do not turn the released-bus
 /// interval into a wait on inaccessible Z80 RAM or omit its inclusive iteration.
-fn release_and_delay(context: &mut dyn Context, delay_minus_one: u8) {
+/// Yield only at the compound protocol's released-bus retry boundary. This
+/// scheduler marker adds no read or source timing claim; the stronger profile
+/// still needs its separate authenticated MOVEQ/DBRA delay receipt.
+fn release_and_delay(context: &mut dyn Context, delay_minus_one: u8) -> Result<()> {
     bus_request(context, 0);
     move_long(context, 0, u32::from(delay_minus_one));
     loop {
@@ -104,6 +107,7 @@ fn release_and_delay(context: &mut dyn Context, delay_minus_one: u8) {
             break;
         }
     }
+    context.poll_yield()
 }
 
 /// A fresh acquisition always reloads D2.low16 and predecrements before reading:
@@ -156,7 +160,7 @@ fn publish_pcm(context: &mut dyn Context, sample: u32) {
 
 fn submit_pending_pcm(context: &mut dyn Context, begin_at_retry: bool) -> Result<Option<u32>> {
     if begin_at_retry {
-        release_and_delay(context, 23);
+        release_and_delay(context, 23)?;
     }
     loop {
         if !take_bus(context, ids::AUDIO_SUBMIT_PENDING_PCM_SAMPLE, 0x18)? {
@@ -168,7 +172,7 @@ fn submit_pending_pcm(context: &mut dyn Context, begin_at_retry: bool) -> Result
         let lock = context.read_z80_ram(MAILBOX_LOCK);
         move_byte(context, 0, lock);
         if lock != 0 {
-            release_and_delay(context, 23);
+            release_and_delay(context, 23)?;
             continue;
         }
         let sample = ram::g_pending_pcm_sample(context.revision()).read(context) as u32;
@@ -245,7 +249,7 @@ pub fn audio_try_submit_sequencer_pcm_sample(context: &mut dyn Context) -> Resul
                 let lock = context.read_z80_ram(MAILBOX_LOCK);
                 move_byte(context, 0, lock);
                 if lock != 0 {
-                    release_and_delay(context, 23);
+                    release_and_delay(context, 23)?;
                     continue;
                 }
                 let active = context.read_z80_ram(PSG_ACTIVE);
@@ -265,7 +269,7 @@ pub fn audio_try_submit_sequencer_pcm_sample(context: &mut dyn Context) -> Resul
 
 fn submit_pending_psg(context: &mut dyn Context, begin_at_retry: bool) -> Result<Option<u32>> {
     if begin_at_retry {
-        release_and_delay(context, 123);
+        release_and_delay(context, 123)?;
     }
     loop {
         if !take_bus(context, ids::AUDIO_SUBMIT_PENDING_INDEXED_COMMAND, 0x18)? {
@@ -274,7 +278,7 @@ fn submit_pending_psg(context: &mut dyn Context, begin_at_retry: bool) -> Result
         let lock = context.read_z80_ram(MAILBOX_LOCK);
         move_byte(context, 0, lock);
         if lock != 0 {
-            release_and_delay(context, 123);
+            release_and_delay(context, 123)?;
             continue;
         }
         let effect = ram::g_pending_psg_effect(context.revision()).read(context) as u16;
