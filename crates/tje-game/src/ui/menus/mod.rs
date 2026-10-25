@@ -30,7 +30,7 @@ pub(crate) use transactions::{
     randomize_inventory, set_mail_order_presents,
 };
 
-use crate::{FunctionId, Translation, ids};
+use crate::{FramedTranslation, FunctionId, Translation, ids};
 
 /// Only exercised, zero-mismatch proofs in both revisions enter production.
 pub const PROVEN_ENTRIES: &[Translation] = &[
@@ -131,23 +131,23 @@ pub const CANDIDATES: &[Translation] = &[
         id: ids::GAME_PAUSED,
         function: game_paused,
     },
-    // Positive promotion waits need a settled mainline fixture boundary.
-    Translation {
+];
+
+/// HUD resource entries use authentic outgoing slots; pending status is unchanged.
+pub const RESOURCE_FRAME_CANDIDATES: &[FramedTranslation] = &[
+    FramedTranslation {
         id: ids::CHECK_PROMOTION_SCORE,
         function: check_promotion_score,
     },
-    // Graphics-disabled fixtures pass; settled-boundary TimeAware receipt needed.
-    Translation {
+    FramedTranslation {
         id: ids::PLAYER_RESET_RANK_AND_RESOURCES,
         function: player_reset_rank_and_resources,
     },
-    // Graphics-disabled fixtures pass; settled-boundary TimeAware receipt needed.
-    Translation {
+    FramedTranslation {
         id: ids::SETUP_THE_MAIN_GAME,
         function: setup_the_main_game,
     },
-    // All life-byte fixtures pass; settled-boundary TimeAware receipt needed.
-    Translation {
+    FramedTranslation {
         id: ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
         function: player_update_health_and_lives,
     },

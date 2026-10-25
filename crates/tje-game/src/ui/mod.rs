@@ -354,29 +354,32 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         id: ids::GAME_PAUSED,
         function: menus::game_paused,
     },
-    // Positive resource transitions need settled mainline TimeAware receipts.
-    crate::Translation {
+];
+
+/// HUD canonical frames: lazy source-width arguments and original call areas.
+/// Pending only; no execution class, production entry or approval is changed.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
         id: ids::CHECK_PROMOTION_SCORE,
         function: menus::check_promotion_score,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::PLAYER_RESET_RANK_AND_RESOURCES,
         function: menus::player_reset_rank_and_resources,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::SETUP_THE_MAIN_GAME,
         function: menus::setup_the_main_game,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::PLAYER_UPDATE_HEALTH_AND_LIVES,
         function: menus::player_update_health_and_lives,
     },
-    // Extra original ISR mutates observed frame/graphics state; no masking.
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::HUD_LOAD_ACTION_ICON_SPRITE,
         function: hud_all::hud_load_action_icon_sprite,
     },
-    crate::Translation {
+    crate::FramedTranslation {
         id: ids::HUD_INITIALIZE_HEALTH_BAR,
         function: hud_all::hud_initialize_health_bar,
     },

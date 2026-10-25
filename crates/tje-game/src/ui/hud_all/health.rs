@@ -1,4 +1,6 @@
 use super::super::animations::wait_upload;
+use super::frame as source;
+use crate::call_frame::{FrameLayout, LocalFrame};
 use crate::{Context, Result, call, ids};
 use tje_mem::{ram, rom};
 
@@ -6,34 +8,39 @@ use tje_mem::{ram, rom};
 /// TimeAware: the queued path waits for ISR upload; the immediate path animates.
 /// Preserve unsigned buffer-clear/DMA offsets, signed pixel offsets and byte
 /// queue postincrements, including their unchecked aliasing and wrap behavior.
-pub fn hud_initialize_health_bar(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn hud_initialize_health_bar(context: &mut dyn Context) -> Result<Option<u32>> {
+    // Both c_hud.s:443-446: LINK #-8 / MOVEM D2-D6/A2-A4, then two words.
+    // Scalar locals stay real because unchecked signed pixel offsets can alias
+    // this frame; no oracle may replace one of their causal stores.
+    let frame = LocalFrame::enter(context, FrameLayout::link(8, 0x7c, 0x1c))?;
     let revision = context.revision();
-    let player = i32::from(arguments[0] as i16);
-    let upload_now = arguments[1] as i16;
-    ram::g_hud_displayed_health(revision)
-        .at_long_index(player)
-        .write(context, 0);
-    let (tile, sprite, mut maximum) = if player == 0 {
+    let player = i32::from(frame.argument_word(0).read(context));
+    let upload_now = frame.argument_word(1).read(context);
+    let displayed = ram::g_hud_displayed_health(revision).at_long_index(player);
+    context.discard_u8(displayed.address())?;
+    displayed.write(context, 0);
+    let (tile, sprite, base_maximum) = if player == 0 {
         (0x7b4_u32, 15, 23_i16)
     } else {
         (0x7d4, 17, 31_i16)
     };
+    let maximum = frame.local::<i16>(-8);
+    let byte_offset = frame.local::<i16>(-6);
+    let row = frame.local::<i16>(-4);
+    let tile_row = frame.local::<i16>(-2);
+    maximum.write(context, base_maximum);
     if ram::g_player_lives(revision)
         .at_long_index(player)
         .read(context)
         >= 0
     {
-        maximum = maximum.wrapping_add(
-            i16::from(
-                ram::g_player_rank(revision)
-                    .at_long_index(player)
-                    .read(context),
-            )
-            .wrapping_mul(4),
-        );
+        let rank = ram::g_player_rank(revision)
+            .at_long_index(player)
+            .read(context);
+        let value = maximum
+            .read(context)
+            .wrapping_add(i16::from(rank).wrapping_mul(4));
+        maximum.write(context, value);
     }
     let sprites = ram::g_hardware_sprite_table(revision);
     sprites.at_word_index(sprite).size().write(context, 12);
@@ -51,50 +58,86 @@ pub fn hud_initialize_health_bar(
         .write(context, (tile as u16).wrapping_add(0x8004));
     let buffer = ram::g_sprite_tile_upload_buffer(revision).cast::<i8>();
     let offset = ram::g_sprite_tile_buffer_offset(revision);
-    for row in 0..256 {
-        let index = i32::from(offset.read(context)).wrapping_add(row);
-        buffer.offset_long_index(index).write(context, 0);
-    }
-    let mut full = false;
-    for row in 0_i16..8 {
-        if full {
+    row.write(context, 0);
+    loop {
+        let buffer_offset = i32::from(offset.read(context));
+        let index = buffer_offset.wrapping_add(i32::from(row.read(context)));
+        let address = buffer.offset_long_index(index);
+        context.discard_u8(address.address())?;
+        address.write(context, 0);
+        let next = row.read(context).wrapping_add(1);
+        row.write(context, next);
+        if row.read(context) >= 256 {
             break;
         }
-        for unit in 0_i16..8 {
-            let health_unit = row.wrapping_shl(3).wrapping_add(unit);
-            if health_unit >= maximum {
+    }
+    let mut full = false;
+    row.write(context, 0);
+    while row.read(context) < 8 && !full {
+        let mut unit = 0_i16;
+        loop {
+            let health_unit = row.read(context).wrapping_shl(3).wrapping_add(unit);
+            if health_unit >= maximum.read(context) {
                 full = true;
                 break;
             }
             let pixels = if unit & 1 == 0 { 0xd0_u8 } else { 0x0d };
-            let byte_offset = (offset.read(context) as i16)
-                .wrapping_add(row.wrapping_mul(32))
-                .wrapping_add(unit / 2);
-            for tile_row in 0_i32..3 {
-                let address =
-                    buffer.offset_long_index((tile_row << 2).wrapping_add(i32::from(byte_offset)));
+            let current_offset = offset.read(context) as i16;
+            byte_offset.write(context, current_offset);
+            let displacement = row.read(context).wrapping_mul(32).wrapping_add(unit / 2);
+            let value = byte_offset.read(context).wrapping_add(displacement);
+            byte_offset.write(context, value);
+            tile_row.write(context, 0);
+            loop {
+                let index = i32::from(tile_row.read(context))
+                    .wrapping_shl(2)
+                    .wrapping_add(i32::from(byte_offset.read(context)));
+                let address = buffer.offset_long_index(index);
                 let value = address.read(context) as u8 | pixels;
                 address.write(context, value as i8);
+                let next = tile_row.read(context).wrapping_add(1);
+                tile_row.write(context, next);
+                if tile_row.read(context) >= 3 {
+                    break;
+                }
+            }
+            unit = unit.wrapping_add(1);
+            if unit >= 8 {
+                break;
             }
         }
+        let next = row.read(context).wrapping_add(1);
+        row.write(context, next);
     }
     if upload_now != 0 {
-        let source = buffer
+        // PEA count, MOVE.L destination, then load offset and PEA source.
+        source::push_pea(context, 128)?;
+        source::push_move(context, tile << 5)?;
+        let pointer = buffer
             .offset_long_index(i32::from(offset.read(context)))
             .address();
-        call(
+        source::push_pea(context, pointer)?;
+        source::call(
             context,
+            ids::HUD_INITIALIZE_HEALTH_BAR,
             ids::DMA_COPY_WORDS_TO_VRAM,
-            &[source, tile << 5, 128],
+            0x186,
         )?;
-        while ram::g_hud_displayed_health(revision)
+        source::release(context, 12)?;
+        // c_hud.s:595-602 loads actual health before displayed health.
+        while ram::g_player_health(revision)
             .at_long_index(player)
             .read(context)
-            < ram::g_player_health(revision)
-                .at_long_index(player)
-                .read(context)
+            > displayed.read(context)
         {
-            call(context, ids::HUD_ANIMATE_HEALTH_BAR, &[player as u32])?;
+            source::push_move(context, player as u32)?;
+            source::call(
+                context,
+                ids::HUD_INITIALIZE_HEALTH_BAR,
+                ids::HUD_ANIMATE_HEALTH_BAR,
+                0x196,
+            )?;
+            source::release(context, 4)?;
         }
     } else {
         let next = offset.read(context).wrapping_add(256);
@@ -112,10 +155,10 @@ pub fn hud_initialize_health_bar(
         runs.at_word_index(i16::from(index)).write(context, 8);
         ram::g_sprite_graphics_upload_pending(revision).write(context, 1);
         wait_upload(context)?;
-        ram::g_hud_displayed_health(revision)
-            .at_long_index(player)
-            .write(context, 0);
+        context.discard_u8(displayed.address())?;
+        displayed.write(context, 0);
     }
+    frame.leave(context)?;
     Ok(None)
 }
 

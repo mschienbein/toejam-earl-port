@@ -5,6 +5,7 @@
 
 mod animations;
 mod draws;
+pub(crate) mod frame;
 mod health;
 mod statistics;
 
@@ -15,7 +16,7 @@ pub(crate) use statistics::{
     inventory_draw_bucks, inventory_draw_mail_order_offers, inventory_draw_player_stats,
 };
 
-use crate::{FunctionId, Translation, ids};
+use crate::{FramedTranslation, FunctionId, Translation, ids};
 
 /// Entries with exercised, zero-mismatch proof in both revisions.
 pub static PROVEN_ENTRIES: &[Translation] = &[
@@ -49,22 +50,22 @@ pub static PROVEN_ENTRIES: &[Translation] = &[
     },
 ];
 
-/// TimeAware candidates awaiting the host projection bundle, not production hooks.
-/// Both fail natural checks on an extra original ISR: gFrameCounter FF800F
-/// differs by one (action icon at frame 917, initialization at frame 940).
-/// Their readable bodies do not fabricate CPU cycles or suppress ISR state.
-pub static CANDIDATES: &[Translation] = &[
-    Translation {
+/// TimeAware candidates, not production hooks: a source-clock contract is missing.
+/// Natural CPU-prefix paths accept one original ISR and no translated ISR;
+/// gFrameCounter FF800F differs (action icon frame 917, initialization frame 940).
+/// The ISR projection cannot erase a different invocation count. No cycle padding.
+pub static FRAME_CANDIDATES: &[FramedTranslation] = &[
+    FramedTranslation {
         id: ids::HUD_LOAD_ACTION_ICON_SPRITE,
         function: hud_load_action_icon_sprite,
     },
-    Translation {
+    FramedTranslation {
         id: ids::HUD_INITIALIZE_HEALTH_BAR,
         function: hud_initialize_health_bar,
     },
 ];
 
-/// Exact blocker for both: TimeAware ISR timing; awaiting host projection bundle.
+/// Exact blocker: missing source CPU clocks; unequal TimeAware ISR invocations.
 pub static PENDING_IDS: &[FunctionId] = &[
     ids::HUD_LOAD_ACTION_ICON_SPRITE,
     ids::HUD_INITIALIZE_HEALTH_BAR,

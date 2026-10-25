@@ -1,17 +1,18 @@
 use super::super::animations::wait_upload;
 use super::super::entities::entity;
+use super::frame as source;
+use crate::call_frame::{FrameLayout, LocalFrame};
 use crate::{Context, Result, call, ids};
 use tje_mem::{ram, rom};
 
 /// G/src/ui/hud.c:103 (`HudLoadActionIconSprite`), both c_hud.s:242–311.
 /// Default-icon indexing uses ASL.W/Dn.W; powerup indexing uses ASL.L/Dn.L.
 /// TimeAware: the graphics-enabled branch waits for the pending-upload ISR.
-pub fn hud_load_action_icon_sprite(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn hud_load_action_icon_sprite(context: &mut dyn Context) -> Result<Option<u32>> {
+    // c_hud.s:243-244: MOVEM D2/D3/A2, then consume only the argument word.
+    let frame = LocalFrame::enter(context, FrameLayout::movem(0, 0x0c, 0x04))?;
     let revision = context.revision();
-    let player = arguments[0] as i16;
+    let player = frame.argument_word(0).read(context);
     let (sprite, tile) = if player == 0 {
         (21, 0x7f1_u16)
     } else {
@@ -31,20 +32,32 @@ pub fn hud_load_action_icon_sprite(
             .read(context)
             .target()
     };
-    if call(context, ids::GET_V_BLANK_GRAPHICS_ENABLED, &[])? != 0 {
+    // Both linked listings: JSR returns at entry+0x56, pending-byte TST loop.
+    if source::call(
+        context,
+        ids::HUD_LOAD_ACTION_ICON_SPRITE,
+        ids::GET_V_BLANK_GRAPHICS_ENABLED,
+        0x56,
+    )? != 0
+    {
         wait_upload(context)?;
     }
-    call(
+    source::push_move(context, u32::from(tile))?;
+    source::push_move(context, icon.address())?;
+    source::call(
         context,
+        ids::HUD_LOAD_ACTION_ICON_SPRITE,
         ids::QUEUE_SPRITE_PIECE_TILES,
-        &[icon.address(), u32::from(tile)],
+        0x70,
     )?;
     let attributes =
         ((u16::from(icon.tile_format().read(context) as u8) & 3) << 13).wrapping_add(0x8000);
     let sprite = ram::g_hardware_sprite_table(revision).at_word_index(sprite);
+    source::release(context, 8)?;
     sprite.size().write(context, 5);
     sprite.tile().write(context, tile.wrapping_add(attributes));
     ram::g_sprite_graphics_upload_pending(revision).write(context, 1);
+    frame.leave(context)?;
     Ok(None)
 }
 
