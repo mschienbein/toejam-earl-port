@@ -86,7 +86,7 @@ fn next_channel(context: &mut dyn Context) -> bool {
     counter != u16::MAX
 }
 
-fn choose_owners(context: &mut dyn Context) {
+fn choose_owners(context: &mut dyn Context) -> Result<()> {
     let revision = context.revision();
     let owners = ram::g_music_fm_channel_owners(revision).at(0).cast::<u32>();
     context.set_address_register(3, owners.address());
@@ -112,14 +112,14 @@ fn choose_owners(context: &mut dyn Context) {
                 let previous = Address::<u8>::new(previous);
                 let priority = previous.byte_offset(PRIORITY).read(context) as i8;
                 if (context.data_register(2) as i8) < priority {
-                    write_byte(context, record.byte_offset(SELECTED), 0);
+                    clear_byte(context, record.byte_offset(SELECTED))?;
                     write_byte(context, previous.byte_offset(SELECTED), 1);
                     if next_channel(context) {
                         continue;
                     }
                     break;
                 }
-                write_byte(context, previous.byte_offset(SELECTED), 0);
+                clear_byte(context, previous.byte_offset(SELECTED))?;
             }
             write_byte(context, record.byte_offset(SELECTED), 1);
             write_long(context, owner_slot, record.address());
@@ -128,6 +128,7 @@ fn choose_owners(context: &mut dyn Context) {
             break;
         }
     }
+    Ok(())
 }
 
 fn tick_and_callback(context: &mut dyn Context) -> Result<()> {
@@ -212,15 +213,15 @@ fn execute_commands(context: &mut dyn Context) -> Result<()> {
                     shift_word_left(context, 6, 2);
                     let slot = Address::<u32>::new(context.address_register(3))
                         .byte_offset(i32::from(context.data_register(6) as i16));
-                    write_long(context, slot, 0);
+                    clear_long(context, slot)?;
                     service(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, 0x110)?;
                 }
-                write_long(context, record.byte_offset(STREAM).cast(), 0);
-                write_long(context, record.byte_offset(CALLBACK).cast(), 0);
-                write_byte(context, record.byte_offset(NOTE_ACTIVE), 0);
-                write_byte(context, record.byte_offset(SELECTED), 0);
-                ram::g_fm_effect_template_status(context.revision()).write(context, 0);
-                nz(context, 0, 16);
+                clear_long(context, record.byte_offset(STREAM).cast())?;
+                clear_long(context, record.byte_offset(CALLBACK).cast())?;
+                clear_byte(context, record.byte_offset(NOTE_ACTIVE))?;
+                clear_byte(context, record.byte_offset(SELECTED))?;
+                let template_status = ram::g_fm_effect_template_status(context.revision()).cast();
+                clear_word(context, template_status)?;
                 return Ok(());
             }
             1 => {
@@ -241,7 +242,7 @@ fn execute_commands(context: &mut dyn Context) -> Result<()> {
                     fm_channel(context);
                     service(context, ids::AUDIO_WRITE_FM_CHANNEL_RELEASE_MASK, 0x172)?;
                 }
-                write_byte(context, record.byte_offset(NOTE_ACTIVE), 0);
+                clear_byte(context, record.byte_offset(NOTE_ACTIVE))?;
             }
             3 => {
                 read_byte_into(context, 4);
@@ -443,7 +444,7 @@ pub fn music_update_sequencer(context: &mut dyn Context, _: &[u32]) -> Result<Op
             nz(context, 0, 16);
         }
     }
-    choose_owners(context);
+    choose_owners(context)?;
     context.set_address_register(0, ram::g_music_channels(revision).address());
     let count = ram::g_music_channel_scan_count_minus_one(revision)
         .cast::<u16>()
@@ -469,6 +470,28 @@ pub fn music_update_sequencer(context: &mut dyn Context, _: &[u32]) -> Result<Op
     }
     frame.leave(context)?;
     Ok(None)
+}
+
+// The original CLR instructions (sound.s:821-825,856-863,893) first perform
+// discarded reads. A long operand is read in high-word, low-word bus order.
+fn clear_byte(context: &mut dyn Context, address: Address<u8>) -> Result<()> {
+    context.discard_u8(address.address())?;
+    write_byte(context, address, 0);
+    Ok(())
+}
+
+fn clear_word(context: &mut dyn Context, address: Address<u16>) -> Result<()> {
+    context.discard_u16(address.address())?;
+    address.write(context, 0);
+    nz(context, 0, 16);
+    Ok(())
+}
+
+fn clear_long(context: &mut dyn Context, address: Address<u32>) -> Result<()> {
+    context.discard_u16(address.address())?;
+    context.discard_u16(address.address().wrapping_add(2))?;
+    write_long(context, address, 0);
+    Ok(())
 }
 
 #[cfg(test)]

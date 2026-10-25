@@ -125,10 +125,6 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: mailbox::audio_submit_pending_pcm_sample,
     },
     crate::Translation {
-        id: ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
-        function: mailbox::audio_try_submit_sequencer_pcm_sample,
-    },
-    crate::Translation {
         id: ids::AUDIO_RETRY_PENDING_PSG_MAILBOX,
         function: mailbox::audio_retry_pending_psg_mailbox,
     },
@@ -137,6 +133,13 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: mailbox::audio_submit_pending_indexed_command,
     },
 ];
+
+/// Read the immediate PCM argument at its original use site, after all gates.
+/// An eager scalar adapter would add a caller-slot read on early-return paths.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[crate::FramedTranslation {
+    id: ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+    function: mailbox::audio_try_submit_sequencer_pcm_sample,
+}];
 
 /// Reviewed original entries that return without clock/interrupt progress.
 /// The six W0 leaves have no callees; the copy/clear loops have fixed bounds.

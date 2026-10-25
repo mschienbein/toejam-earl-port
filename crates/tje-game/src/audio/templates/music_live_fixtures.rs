@@ -178,7 +178,7 @@ fn check(
     );
 }
 
-fn seed(host: &mut Host, flags: u16) -> Address<u8> {
+pub(super) fn seed(host: &mut Host, flags: u16) -> Address<u8> {
     let revision = host.revision();
     let mut context = host.context();
     for index in 0..8 {
@@ -227,7 +227,7 @@ fn seed(host: &mut Host, flags: u16) -> Address<u8> {
     channel
 }
 
-fn stream(host: &mut Host, bytes: &[u8]) {
+pub(super) fn stream(host: &mut Host, bytes: &[u8]) {
     let mut context = host.context();
     for (offset, &byte) in bytes.iter().enumerate() {
         context.write_u8(STREAM + offset as u32, byte);
@@ -618,7 +618,7 @@ fn every_sequencer_opcode_and_counter_flag_edges_both_revisions() {
     assert!(failures.is_empty(), "{failures:?}");
 }
 
-fn session(name: &str, revision: Revision) -> (Arc<InputScript>, u64) {
+pub(super) fn session(name: &str, revision: Revision) -> (Arc<InputScript>, u64) {
     let directory =
         PathBuf::from(std::env::var_os("TJE_MUSIC_SESSION_DIR").expect("TJE_MUSIC_SESSION_DIR"));
     let value: serde_json::Value = serde_json::from_slice(

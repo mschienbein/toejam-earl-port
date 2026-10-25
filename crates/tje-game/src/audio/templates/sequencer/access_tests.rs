@@ -1,7 +1,16 @@
-use super::music_update_sequencer;
+use super::{
+    CALLBACK, NOTE_ACTIVE, PRIORITY, SELECTED, STREAM, choose_owners, execute_commands,
+    music_update_sequencer,
+};
 use crate::{Context, Dispatcher, FunctionId, Platform, Result, call_frame::FrameState};
 use std::{cell::RefCell, collections::VecDeque};
 use tje_mem::{AddressSpace, Bus, Revision, ram};
+
+#[derive(Debug, PartialEq, Eq)]
+enum DiscardedRead {
+    Byte(u32),
+    Word(u32),
+}
 
 struct Machine {
     memory: AddressSpace,
@@ -12,6 +21,7 @@ struct Machine {
     frame: FrameState,
     operands: RefCell<VecDeque<(u32, u16)>>,
     word_reads: RefCell<Vec<u32>>,
+    discarded_reads: Vec<DiscardedRead>,
 }
 
 impl Machine {
@@ -28,6 +38,7 @@ impl Machine {
             frame: FrameState::new(0xff7f00),
             operands: RefCell::new(VecDeque::new()),
             word_reads: RefCell::new(Vec::new()),
+            discarded_reads: Vec::new(),
         }
     }
 }
@@ -64,16 +75,6 @@ impl tje_mem::Platform for Machine {
 }
 
 impl Platform for Machine {
-    fn discard_u16(&mut self, address: u32) -> Result<()> {
-        // Only LocalFrame's MOVEM terminal word is expected: a stack read, never a timer operand,
-        // so it stays out of `word_reads`.
-        assert!(
-            (0xff7000..0xff8000).contains(&address),
-            "unexpected discarded read {address:08x}"
-        );
-        let _ = self.memory.read_u16(address);
-        Ok(())
-    }
     fn read_device_u8(&mut self, _: u32) -> u8 {
         panic!("RAM-only sequencer timer fixture accessed a device");
     }
@@ -85,6 +86,16 @@ impl Platform for Machine {
     }
     fn write_device_u16(&mut self, _: u32, _: u16) {
         panic!("RAM-only sequencer timer fixture accessed a device");
+    }
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        self.discarded_reads.push(DiscardedRead::Byte(address));
+        let _ = self.memory.read_u8(address);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        self.discarded_reads.push(DiscardedRead::Word(address));
+        let _ = self.memory.read_u16(address);
+        Ok(())
     }
 }
 
@@ -212,5 +223,134 @@ fn timer_tests_and_memory_decrements_read_separate_operands_in_source_order() {
             assert_eq!(machine.addresses[2..], saved_addresses[2..]);
             assert_eq!(machine.sp, saved_sp);
         }
+    }
+}
+
+#[test]
+fn stop_opcode_keeps_discarded_byte_word_and_long_reads_in_source_order() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        let record = ram::g_music_channels(revision).cast::<u8>();
+        let program = 0xfff000;
+        record
+            .byte_offset(STREAM)
+            .cast::<u32>()
+            .write(&mut machine.memory, program);
+        record
+            .byte_offset(CALLBACK)
+            .cast::<u32>()
+            .write(&mut machine.memory, 0x89ab_cdef);
+        record
+            .byte_offset(NOTE_ACTIVE)
+            .write(&mut machine.memory, 1);
+        ram::g_fm_effect_template_status(revision)
+            .cast::<u16>()
+            .write(&mut machine.memory, 0x1234);
+        machine.memory.write_u8(program, 0);
+        machine.addresses[0] = record.address();
+        machine.addresses[1] = program;
+        execute_commands(&mut machine).unwrap();
+        assert_eq!(
+            machine.discarded_reads,
+            [
+                DiscardedRead::Word(record.byte_offset(STREAM).address()),
+                DiscardedRead::Word(record.byte_offset(STREAM + 2).address()),
+                DiscardedRead::Word(record.byte_offset(CALLBACK).address()),
+                DiscardedRead::Word(record.byte_offset(CALLBACK + 2).address()),
+                DiscardedRead::Byte(record.byte_offset(NOTE_ACTIVE).address()),
+                DiscardedRead::Byte(record.byte_offset(SELECTED).address()),
+                DiscardedRead::Word(ram::g_fm_effect_template_status(revision).address()),
+            ]
+        );
+        assert!(
+            machine.word_reads.borrow().is_empty(),
+            "discarded operands must not become semantic reads"
+        );
+        assert_eq!(
+            record
+                .byte_offset(STREAM)
+                .cast::<u32>()
+                .read(&machine.memory),
+            0
+        );
+        assert_eq!(
+            record
+                .byte_offset(CALLBACK)
+                .cast::<u32>()
+                .read(&machine.memory),
+            0
+        );
+        assert_eq!(record.byte_offset(NOTE_ACTIVE).read(&machine.memory), 0);
+        assert_eq!(machine.status, 0x2714);
+    }
+}
+
+#[test]
+fn owner_selection_clears_the_source_loser_with_a_discarded_byte_read() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for (priority, old_priority) in [(0_i8, 127_i8), (127, 0), (0, 0), (i8::MIN, -1)] {
+            let mut machine = Machine::new(revision);
+            let record = ram::g_music_channels(revision).cast::<u8>();
+            let previous = record.byte_offset(38);
+            record
+                .byte_offset(STREAM)
+                .cast::<u32>()
+                .write(&mut machine.memory, 0xfff000);
+            record
+                .byte_offset(PRIORITY)
+                .write(&mut machine.memory, priority as u8);
+            previous
+                .byte_offset(PRIORITY)
+                .write(&mut machine.memory, old_priority as u8);
+            let owner = ram::g_music_fm_channel_owners(revision).at(0).cast::<u32>();
+            owner.write(&mut machine.memory, previous.address());
+            choose_owners(&mut machine).unwrap();
+            let replaced = priority >= old_priority;
+            let loser = if replaced { previous } else { record };
+            assert_eq!(
+                machine.discarded_reads,
+                [DiscardedRead::Byte(loser.byte_offset(SELECTED).address())]
+            );
+            assert_eq!(
+                record.byte_offset(SELECTED).read(&machine.memory),
+                u8::from(replaced)
+            );
+            assert_eq!(
+                previous.byte_offset(SELECTED).read(&machine.memory),
+                u8::from(!replaced)
+            );
+            assert_eq!(
+                owner.read(&machine.memory),
+                if replaced {
+                    record.address()
+                } else {
+                    previous.address()
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn unowned_key_mask_opcode_keeps_its_note_clear_discarded() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        let record = ram::g_music_channels(revision).cast::<u8>();
+        let program = 0xfff000;
+        record
+            .byte_offset(NOTE_ACTIVE)
+            .write(&mut machine.memory, 1);
+        machine.memory.write_u8(program, 2);
+        machine.memory.write_u8(program + 1, 0x81);
+        machine.addresses[0] = record.address();
+        machine.addresses[1] = program;
+        execute_commands(&mut machine).unwrap();
+        assert_eq!(
+            machine.discarded_reads,
+            [DiscardedRead::Byte(
+                record.byte_offset(NOTE_ACTIVE).address()
+            )]
+        );
+        assert_eq!(record.byte_offset(NOTE_ACTIVE).read(&machine.memory), 0);
     }
 }

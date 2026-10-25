@@ -193,6 +193,10 @@ fn submit_pending_pcm(context: &mut dyn Context, begin_at_retry: bool) -> Result
         bus_request(context, 0);
         ram::g_pending_psg_effect(context.revision()).write(context, -1);
         nz(context, 0xffff, 16);
+        // sound_pcm.s:60 CLR.L reads both words before writing zero.
+        let pending = ram::g_pending_pcm_sample(context.revision()).address();
+        context.discard_u16(pending)?;
+        context.discard_u16(pending.wrapping_add(2))?;
         ram::g_pending_pcm_sample(context.revision()).write(context, 0);
         nz(context, 0, 32);
         return Ok(None);
@@ -222,10 +226,9 @@ pub fn audio_submit_pending_pcm_sample(
 /// G/src/asm/sound_pcm.s:74-131 (`AudioTrySubmitSequencerPcmSample`, REV 02 0x03f6c6).
 /// Preserve the exact LINK/MOVEM frame and D0-D2/A0, reject cooldown/inhibit or
 /// PSG-active requests, and post an immediate sample without starting cooldown.
-pub fn audio_try_submit_sequencer_pcm_sample(
-    context: &mut dyn Context,
-    _: &[u32],
-) -> Result<Option<u32>> {
+/// Keep the entry framed: sound_pcm.s:106 reads the actual pointer slot only on
+/// acceptance, never through an eager adapter before cooldown/inhibit/active gates.
+pub fn audio_try_submit_sequencer_pcm_sample(context: &mut dyn Context) -> Result<Option<u32>> {
     let frame = LocalFrame::enter(context, FrameLayout::link(0, 0x07, 0x01))?;
     let cooldown = ram::g_pcm_effect_cooldown_ticks(context.revision()).read(context) as u16;
     nz(context, u32::from(cooldown), 16);

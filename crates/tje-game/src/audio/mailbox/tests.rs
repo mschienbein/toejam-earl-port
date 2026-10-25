@@ -1,6 +1,13 @@
 use super::*;
 use crate::{Dispatcher, Platform, call_frame::FrameState};
+use std::cell::RefCell;
 use tje_mem::{AddressSpace, Bus, Revision};
+
+#[derive(Debug, PartialEq, Eq)]
+enum DiscardedRead {
+    Byte(u32),
+    Word(u32),
+}
 
 struct Machine {
     memory: AddressSpace,
@@ -14,6 +21,8 @@ struct Machine {
     reset: bool,
     bus_reads: usize,
     writes: Vec<(u32, u16, bool)>,
+    discarded_reads: Vec<DiscardedRead>,
+    semantic_reads: RefCell<Vec<u32>>,
 }
 impl Machine {
     fn new(revision: Revision) -> Self {
@@ -43,11 +52,14 @@ impl Machine {
             reset: false,
             bus_reads: 0,
             writes: Vec::new(),
+            discarded_reads: Vec::new(),
+            semantic_reads: RefCell::new(Vec::new()),
         }
     }
 }
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
+        self.semantic_reads.borrow_mut().push(address);
         self.memory.read_u8(address)
     }
     fn write_u8(&mut self, address: u32, value: u8) {
@@ -63,10 +75,6 @@ impl tje_mem::Platform for Machine {
     }
 }
 impl Platform for Machine {
-    fn discard_u16(&mut self, address: u32) -> Result<()> {
-        let _ = self.memory.read_u16(address);
-        Ok(())
-    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         assert!(self.requested && !self.reset);
         self.z80[(address - 0xa00000) as usize]
@@ -98,6 +106,16 @@ impl Platform for Machine {
         assert_eq!(address, 0xa11100);
         self.requested = value & 0x100 != 0;
         self.writes.push((address, value, true));
+    }
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        self.discarded_reads.push(DiscardedRead::Byte(address));
+        let _ = self.memory.read_u8(address);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        self.discarded_reads.push(DiscardedRead::Word(address));
+        let _ = self.memory.read_u16(address);
+        Ok(())
     }
 }
 impl Context for Machine {
@@ -187,6 +205,14 @@ fn direct_pcm_keeps_packet_order_timer_divu_residue_and_zero_length_request() {
             );
             assert_eq!(ram::g_pending_pcm_sample(revision).read(&machine.memory), 0);
             assert_eq!(machine.status, 0x2704);
+            let pending = ram::g_pending_pcm_sample(revision).address();
+            assert_eq!(
+                machine.discarded_reads,
+                [
+                    DiscardedRead::Word(pending),
+                    DiscardedRead::Word(pending + 2),
+                ]
+            );
         }
     }
 }
@@ -218,6 +244,7 @@ fn pcm_timeout_and_retry_fragment_keep_pending_pointer_and_exact_poll_limit() {
             );
             assert!(!machine.requested);
             assert_eq!(machine.status, 0x2708);
+            assert!(machine.discarded_reads.is_empty());
         }
     }
 }
@@ -279,10 +306,12 @@ fn immediate_pcm_preserves_saved_registers_and_all_early_return_paths() {
             let mut machine = Machine::new(revision);
             machine.reset = reset;
             machine.z80[PSG_ACTIVE as usize] = active;
-            machine
-                .frame
-                .argument_slot(0)
-                .write(&mut machine.memory, 0xff9200);
+            let accepted = cooldown == 0 && inhibit == 0 && active == 0 && !reset;
+            let argument = machine.frame.argument_slot(0);
+            // Gated paths deliberately have no supplied sample argument.
+            if accepted {
+                argument.write(&mut machine.memory, 0xff9200);
+            }
             machine.memory.write_u16(0xff9200, 138);
             ram::g_pcm_effect_cooldown_ticks(revision).write(&mut machine.memory, cooldown);
             ram::g_music_alternate_template_bank_enabled(revision)
@@ -290,10 +319,23 @@ fn immediate_pcm_preserves_saved_registers_and_all_early_return_paths() {
             let data = machine.data;
             let addresses = machine.addresses;
             let sp = machine.sp;
-            audio_try_submit_sequencer_pcm_sample(&mut machine, &[]).unwrap();
+            audio_try_submit_sequencer_pcm_sample(&mut machine).unwrap();
             assert_eq!(machine.data, data);
             assert_eq!(machine.addresses, addresses);
             assert_eq!(machine.sp, sp);
+            let argument_reads: Vec<_> = machine
+                .semantic_reads
+                .borrow()
+                .iter()
+                .copied()
+                .filter(|address| (argument.address()..argument.address() + 4).contains(address))
+                .collect();
+            let expected = if accepted {
+                (argument.address()..argument.address() + 4).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            assert_eq!(argument_reads, expected);
             assert_eq!(
                 ram::g_pcm_effect_cooldown_ticks(revision).read(&machine.memory),
                 cooldown
@@ -309,4 +351,22 @@ fn immediate_pcm_preserves_saved_registers_and_all_early_return_paths() {
             assert!(!machine.requested);
         }
     }
+}
+
+#[test]
+fn immediate_pcm_pending_entry_cannot_select_the_eager_value_adapter() {
+    let id = ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE;
+    assert!(
+        !crate::audio::PENDING_TRANSLATIONS
+            .iter()
+            .any(|entry| entry.id == id)
+    );
+    assert_eq!(
+        crate::audio::PENDING_FRAMED_TRANSLATIONS
+            .iter()
+            .filter(|entry| entry.id == id)
+            .count(),
+        1
+    );
+    assert!(crate::audio::PENDING.contains(&id));
 }
