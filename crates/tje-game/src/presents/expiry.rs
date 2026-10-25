@@ -175,8 +175,7 @@ fn ground_expiry(
     };
     if splash {
         direction_sprite(context, player, 64);
-        player.animation_motion_axes().write(context, 0);
-        logical(context, 0, 8);
+        clear_splash_motion(context, player)?;
     } else {
         if !refresh_eligible(context, player) || masked_group(context, player, 0x2000_0000) {
             return Ok(());
@@ -297,7 +296,7 @@ fn move_long(context: &mut dyn Context, register: usize, value: u32) {
     logical(context, value, 32);
 }
 
-fn logical(context: &mut dyn Context, value: u32, bits: u32) {
+pub(super) fn logical(context: &mut dyn Context, value: u32, bits: u32) {
     context.set_status_register(nz(context.status_register() & !0x0f, value, bits));
 }
 
@@ -305,7 +304,7 @@ fn nz(status: u16, value: u32, bits: u32) -> u16 {
     status | (u16::from(value == 0) << 2) | (u16::from(value & (1 << (bits - 1)) != 0) << 3)
 }
 
-fn compare(context: &mut dyn Context, left: u32, right: u32, bits: u32) {
+pub(super) fn compare(context: &mut dyn Context, left: u32, right: u32, bits: u32) {
     context.set_status_register(compare_flags(context.status_register(), left, right, bits));
 }
 
@@ -314,6 +313,17 @@ fn compare_flags(status: u16, left: u32, right: u32, bits: u32) -> u16 {
     let result = left.wrapping_sub(right) & mask;
     let overflow = (left ^ right) & (left ^ result) & (1 << (bits - 1)) != 0;
     nz(status & !0x0f, result, bits) | (u16::from(overflow) << 1) | u16::from(left < right)
+}
+
+/// c_item_updates.s:798: CLR.B performs a discarded byte read before storing.
+pub(super) fn clear_splash_motion(
+    context: &mut dyn Context,
+    player: Address<ObjectState>,
+) -> Result<()> {
+    context.discard_u8(player.animation_motion_axes().address())?;
+    player.animation_motion_axes().write(context, 0);
+    logical(context, 0, 8);
+    Ok(())
 }
 
 #[cfg(test)]

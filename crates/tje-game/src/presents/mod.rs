@@ -242,6 +242,16 @@ pub static TRANSLATIONS: &[crate::Translation] = &[
 /// with the nested-original audit enabled and are now in TRANSLATIONS.
 pub static PENDING_FRAMES: &[crate::Translation] = &[];
 
+/// No framed presents entry has live replacement approval.
+pub static FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[];
+
+/// The pickup recording byte is loaded after callbacks, so its incoming slot
+/// must remain authoritative instead of an eagerly copied four-value slice.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[crate::FramedTranslation {
+    id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
+    function: items::player_collect_nearby_items,
+}];
+
 /// Complete candidate bodies held outside production dispatch until their
 /// dual-revision differential proofs pass. The opt-in lane harness may register
 /// these explicitly; frontends and Dispatcher::hybrid never consult this list.
@@ -267,10 +277,6 @@ pub static PENDING: &[crate::Translation] = &[
     crate::Translation {
         id: ids::EAT_FUDGE_SUNDAE,
         function: items::eat_fudge_sundae,
-    },
-    crate::Translation {
-        id: ids::PLAYER_COLLECT_NEARBY_ITEMS,
-        function: items::player_collect_nearby_items,
     },
     crate::Translation {
         id: ids::PERFORM_PROMOTION,

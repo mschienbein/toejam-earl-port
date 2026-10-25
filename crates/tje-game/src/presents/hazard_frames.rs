@@ -32,21 +32,39 @@ fn level_hazards_body(
     let index = i32::from(arguments[0] as i16);
     let items = Address::<LevelItem>::new(arguments[1]);
     let player = super::word_indexed_player(revision, index);
-    if player.height().read(context) > 0 {
+    context.set_status_register(
+        (context.status_register() & !0x10) | (u16::from(index as u16 & 0x0200 != 0) << 4),
+    );
+    let height = player.height().read(context);
+    super::expiry::logical(context, u32::from(height as u16), 16);
+    if height > 0 {
         return Ok(None);
     }
     let source = frame.local::<EarthlingState>(-20);
     for slot in 0..4 {
         let item = items.offset(slot);
-        if item.kind().read(context) == 83
-            && item.object().read(context) != 0
-            && (i32::from(item.x().read(context)) - i32::from(player.x().read(context)))
-                .wrapping_abs()
-                < 24
-            && (i32::from(item.y().read(context)) - i32::from(player.y().read(context)))
-                .wrapping_abs()
-                < 12
-        {
+        if item.kind().read(context) != 83 || item.object().read(context) == 0 {
+            continue;
+        }
+        // c_item_updates.s:551-571 has actual libc abs calls, not inline abs.
+        let dx = i32::from(item.x().read(context)) - i32::from(player.x().read(context));
+        let dx = call_at(
+            context,
+            ids::ABS,
+            &[dx as u32],
+            CallSite::relative(ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS, revision, 0x58),
+        )? as i32;
+        if dx >= 24 {
+            continue;
+        }
+        let dy = i32::from(item.y().read(context)) - i32::from(player.y().read(context));
+        let dy = call_at(
+            context,
+            ids::ABS,
+            &[dy as u32],
+            CallSite::relative(ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS, revision, 0x76),
+        )? as i32;
+        if dy < 12 {
             source.kind().write(context, 1);
             source.x().write(context, item.x().read(context));
             source.y().write(context, item.y().read(context));
@@ -59,6 +77,8 @@ fn level_hazards_body(
             )?;
         }
     }
+    // ADDQ.W 3->4 clears X; CMPI.W #4,D4 leaves Z set at the loop exit.
+    context.set_status_register((context.status_register() & !0x1f) | 4);
     Ok(None)
 }
 

@@ -15,10 +15,29 @@ fn fixture(host: &mut Host, id: FunctionId, arguments: &[u32]) {
 }
 
 fn replay_roots(requested: &str) -> Vec<FunctionId> {
+    const ITEMS: &[FunctionId] = &[
+        ids::EAT_YUMMY_FOOD,
+        ids::EAT_YUCKY_FOOD,
+        ids::EAT_FUDGE_SUNDAE,
+        ids::PLAYER_COLLECT_NEARBY_ITEMS,
+        ids::PLAYER_CHECK_LEVEL_ITEM_HAZARDS,
+        ids::PRESENT_TRY_END_ACTIVE_POWERUP,
+        ids::REDUCE_PRESENT_TIMER,
+        ids::MAP_UPDATE_ITEMS_AND_PRESENTS,
+    ];
     let roots: Vec<_> = tje_game::presents::PENDING
         .iter()
-        .filter(|translation| requested == "all" || translation.id.metadata().name == requested)
         .map(|translation| translation.id)
+        .chain(
+            tje_game::presents::PENDING_FRAMED_TRANSLATIONS
+                .iter()
+                .map(|translation| translation.id),
+        )
+        .filter(|id| {
+            requested == "all"
+                || (requested == "items" && ITEMS.contains(id))
+                || id.metadata().name == requested
+        })
         .collect();
     assert!(
         !roots.is_empty(),
@@ -31,7 +50,7 @@ fn replay_registry(revision: Revision, requested: &str) -> HookRegistry {
     HookRegistry::proof_replayed_environment(
         revision,
         tje_game::presents::PENDING,
-        &[],
+        tje_game::presents::PENDING_FRAMED_TRANSLATIONS,
         &replay_roots(requested),
     )
     .unwrap()
@@ -310,7 +329,7 @@ fn main() {
         };
         let bytes = fs::read(root.join(format!("roms/{name}.bin"))).unwrap();
         let frame_mode = args.get(3).is_some_and(|argument| argument == "frames");
-        let time_mode = args.get(3).is_some_and(|argument| argument == "replay");
+        let replay_mode = args.get(3).is_some_and(|argument| argument == "replay");
         let expiry_register_mode = args.get(3).is_some_and(|argument| {
             matches!(
                 argument.as_str(),
@@ -338,7 +357,7 @@ fn main() {
                 ],
             )
             .unwrap()
-        } else if time_mode {
+        } else if replay_mode {
             replay_registry(revision, args.get(5).map(String::as_str).unwrap_or("all"))
         } else {
             registry(revision)
@@ -478,7 +497,7 @@ fn main() {
                 .unwrap();
             } else if frame_mode {
                 placement_frame_fixtures(&mut host);
-            } else if time_mode {
+            } else if replay_mode {
                 for id in replay_roots(args.get(5).map(String::as_str).unwrap_or("all")) {
                     time_fixtures::run(&mut host, id);
                 }
