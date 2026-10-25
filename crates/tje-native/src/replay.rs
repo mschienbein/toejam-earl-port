@@ -95,6 +95,7 @@ pub fn controllers(pads: [u16; 2]) -> Controllers {
     Controllers {
         connected: pads.map(|pad| pad & CONNECTED != 0),
         buttons: pads.map(|pad| std::array::from_fn(|bit| pad & (1 << bit) != 0)),
+        jam: [false; 2],
     }
 }
 

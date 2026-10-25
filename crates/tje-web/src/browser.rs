@@ -60,6 +60,14 @@ pub struct CompiledCartridge {
     sample_rate: u32,
     #[cfg(feature = "enhanced-mode")]
     enhanced: tje_engine_runtime::enhanced::EnhancedMode,
+    #[cfg(feature = "enhanced-mode")]
+    presenter: Option<tje_extended_view::presentation::Presenter>,
+    #[cfg(feature = "enhanced-mode")]
+    extended_width: u16,
+    #[cfg(feature = "enhanced-mode")]
+    jam_settings: tje_jam_out::Settings,
+    #[cfg(feature = "enhanced-mode")]
+    jam_capable: bool,
 }
 
 #[wasm_bindgen]
@@ -103,6 +111,14 @@ impl CompiledCartridge {
             sample_rate,
             #[cfg(feature = "enhanced-mode")]
             enhanced: Default::default(),
+            #[cfg(feature = "enhanced-mode")]
+            presenter: None,
+            #[cfg(feature = "enhanced-mode")]
+            extended_width: 0,
+            #[cfg(feature = "enhanced-mode")]
+            jam_settings: Default::default(),
+            #[cfg(feature = "enhanced-mode")]
+            jam_capable: false,
         })
     }
 
@@ -116,9 +132,13 @@ impl CompiledCartridge {
                 self.enhanced =
                     EnhancedMode::new(DEBUG_PROFILE, self.revision).map_err(js_error)?;
                 self.enhanced.reset(&mut self.engine);
+                self.presenter = None;
+                self.jam_capable = false;
             } else if self.enhanced.profile_id() != "faithful" {
                 self.enhanced = EnhancedMode::default();
                 self.enhanced.reset(&mut self.engine);
+                self.presenter = None;
+                self.jam_capable = false;
             }
             Ok(())
         }
@@ -129,6 +149,99 @@ impl CompiledCartridge {
             ))
         } else {
             Ok(())
+        }
+    }
+
+    pub fn set_extended_view(&mut self, width: u16) -> Result<(), JsValue> {
+        #[cfg(feature = "enhanced-mode")]
+        {
+            if width == 0 {
+                return Ok(());
+            }
+            if self.engine.frame_count() != 0 {
+                return Err(js_error(
+                    "select extended view before installing the cartridge",
+                ));
+            }
+            if !(width == 400 || ((408..=512).contains(&width) && width.is_multiple_of(8))) {
+                return Err(js_error(
+                    "extended view must be 400, or experimental 408..512 in steps of 8",
+                ));
+            }
+            if self.enhanced.profile_id() != "faithful" && self.presenter.is_none() {
+                return Err(js_error(
+                    "extended view cannot be combined with enhanced debug",
+                ));
+            }
+            self.enhanced =
+                tje_extras::new_mode(self.revision, width, self.jam_settings).map_err(js_error)?;
+            self.extended_width = width;
+            self.presenter = Some(tje_extended_view::presentation::Presenter::new(
+                tje_extras::view_mode(width).map_err(js_error)?,
+            ));
+            self.enhanced.reset(&mut self.engine);
+            self.jam_capable = self.jam_settings.enabled;
+            Ok(())
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        if width == 0 {
+            Ok(())
+        } else {
+            Err(js_error(
+                "this build has no enhanced-mode feature; rebuild with TJE_ENHANCED=1",
+            ))
+        }
+    }
+
+    pub fn set_jam_out(
+        &mut self,
+        enabled: bool,
+        sounds: bool,
+        busy: bool,
+        chord: bool,
+        backing: u8,
+    ) -> Result<bool, JsValue> {
+        if backing > 6 {
+            return Err(js_error("Jam backing must be 0..=6"));
+        }
+        #[cfg(feature = "enhanced-mode")]
+        {
+            let settings = tje_jam_out::Settings {
+                enabled,
+                performance_sounds: sounds,
+                sounds_while_busy: busy,
+                chord,
+                backing,
+            };
+            let mut reset = false;
+            if self.jam_capable {
+                tje_jam_out::configure(&mut self.enhanced, settings).map_err(js_error)?;
+            } else if enabled {
+                if self.enhanced.profile_id() != "faithful" && self.presenter.is_none() {
+                    return Err(js_error("Jam Out cannot be combined with enhanced debug"));
+                }
+                self.enhanced = tje_extras::new_mode(self.revision, self.extended_width, settings)
+                    .map_err(js_error)?;
+                self.presenter = Some(tje_extended_view::presentation::Presenter::new(
+                    tje_extras::view_mode(self.extended_width).map_err(js_error)?,
+                ));
+                self.enhanced.reset(&mut self.engine);
+                self.jam_capable = true;
+                reset = true;
+            }
+            self.jam_settings = settings;
+            Ok(reset)
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        {
+            let _ = (sounds, busy, chord);
+            if enabled {
+                Err(js_error(
+                    "this build has no enhanced-mode feature; rebuild with TJE_ENHANCED=1",
+                ))
+            } else {
+                Ok(false)
+            }
         }
     }
 
@@ -160,6 +273,65 @@ impl CompiledCartridge {
 }
 
 impl CompiledCartridge {
+    #[cfg(feature = "enhanced-mode")]
+    fn refresh_presentation(&mut self) -> Result<(), JsValue> {
+        use tje_extended_view::presentation::{FrameOverride, PublishedView};
+        let Some(presenter) = &mut self.presenter else {
+            return Ok(());
+        };
+        let devices = self.engine.devices();
+        let memory = devices.memory();
+        let (vram, cram, _) = devices.vdp().hybrid_memories();
+        let (original, _) = self.engine.frame_buffer();
+        let mut overrides = [FrameOverride {
+            entity: 0,
+            frame_address: 0,
+            horizontal_flip: false,
+            palette_index: None,
+        }; 2];
+        let mut count = 0;
+        let frames = if self.jam_capable {
+            tje_jam_out::presentation(&self.enhanced, memory, self.revision)
+        } else {
+            [None; 2]
+        };
+        for frame in frames.into_iter().flatten() {
+            overrides[count] = FrameOverride {
+                entity: frame.entity,
+                frame_address: frame.frame_address,
+                horizontal_flip: frame.horizontal_flip,
+                palette_index: Some(frame.palette_index),
+            };
+            count += 1;
+        }
+        presenter.set_shadow_highlight(devices.vdp().hybrid_registers().shadow_highlight_flag);
+        presenter
+            .compose(
+                memory,
+                vram,
+                cram,
+                original,
+                self.enhanced
+                    .sidecars()
+                    .get::<PublishedView>()
+                    .map_err(js_error)?,
+                &overrides[..count],
+            )
+            .map_err(js_error)
+    }
+
+    fn video(
+        &self,
+    ) -> (
+        &[jgenesis_common::frontend::Color],
+        jgenesis_common::frontend::FrameSize,
+    ) {
+        #[cfg(feature = "enhanced-mode")]
+        if let Some(presenter) = &self.presenter {
+            return presenter.frame();
+        }
+        self.engine.frame_buffer()
+    }
     fn profile_id(&self) -> &'static str {
         #[cfg(feature = "enhanced-mode")]
         return self.enhanced.profile_id();
@@ -179,6 +351,15 @@ impl CompiledCartridge {
         self.enhanced
             .restore(&mut self.engine, image)
             .map_err(js_error)?;
+        #[cfg(feature = "enhanced-mode")]
+        if self.jam_capable {
+            self.jam_settings = self
+                .enhanced
+                .sidecars()
+                .get::<tje_jam_out::State>()
+                .map_err(js_error)?
+                .requested_settings();
+        }
         #[cfg(not(feature = "enhanced-mode"))]
         self.engine.restore(image).map_err(js_error)?;
         Ok(())
@@ -202,6 +383,8 @@ pub struct WebGame {
     sample_rate: u32,
     rewind: Option<RewindBuffer>,
     netplay: Option<tje_netplay::Peer<tje_engine_runtime::MachineSnapshot>>,
+    #[cfg(feature = "enhanced-mode")]
+    jam_input: u8,
 }
 
 #[wasm_bindgen]
@@ -217,7 +400,47 @@ impl WebGame {
             sample_rate: 48_000,
             rewind: None,
             netplay: None,
+            #[cfg(feature = "enhanced-mode")]
+            jam_input: 0,
         })
+    }
+
+    pub fn has_enhanced_mode(&self) -> bool {
+        cfg!(feature = "enhanced-mode")
+    }
+
+    pub fn set_jam_input(&mut self, mask: u8) {
+        #[cfg(feature = "enhanced-mode")]
+        {
+            self.jam_input = mask & 3;
+        }
+        #[cfg(not(feature = "enhanced-mode"))]
+        let _ = mask;
+    }
+
+    pub fn set_jam_out(
+        &mut self,
+        enabled: bool,
+        sounds: bool,
+        busy: bool,
+        chord: bool,
+        backing: u8,
+    ) -> Result<bool, JsValue> {
+        if self.netplay.is_some() && enabled {
+            return Err(js_error("disconnect netplay before enabling Jam Out"));
+        }
+        if let Some(cartridge) = &mut self.cartridge {
+            let reset = cartridge.set_jam_out(enabled, sounds, busy, chord, backing)?;
+            if let Some(rewind) = &mut self.rewind {
+                rewind.clear();
+            }
+            self.audio.clear();
+            Ok(reset)
+        } else if enabled {
+            Err(js_error("import a ROM first"))
+        } else {
+            Ok(false)
+        }
     }
 
     pub fn install(&mut self, cartridge: CompiledCartridge) -> String {
@@ -364,7 +587,21 @@ impl WebGame {
         }
         let cartridge = self.cartridge_mut()?;
         #[cfg(feature = "enhanced-mode")]
-        cartridge.enhanced.reset(&mut cartridge.engine);
+        {
+            if cartridge.jam_capable {
+                cartridge.jam_settings = cartridge
+                    .enhanced
+                    .sidecars()
+                    .get::<tje_jam_out::State>()
+                    .map_err(js_error)?
+                    .requested_settings();
+            }
+            cartridge.enhanced.reset(&mut cartridge.engine);
+            if cartridge.jam_capable {
+                tje_jam_out::configure(&mut cartridge.enhanced, cartridge.jam_settings)
+                    .map_err(js_error)?;
+            }
+        }
         #[cfg(not(feature = "enhanced-mode"))]
         cartridge.engine.reset();
         #[cfg(feature = "replay-observer")]
@@ -390,9 +627,26 @@ impl WebGame {
         #[cfg(feature = "replay-observer")]
         cartridge.engine.devices_mut().clear_trace();
         #[cfg(feature = "enhanced-mode")]
+        let inputs = {
+            use genesis_config::GenesisController;
+            let mut inputs = tje_engine_runtime::enhanced::EnhancedInputs::from(input::inputs(
+                p1,
+                p2,
+                p2_connected,
+            ));
+            for (index, pad) in inputs.pads[..2].iter_mut().enumerate() {
+                if let GenesisController::ThreeButton(buttons)
+                | GenesisController::SixButton(buttons) = pad
+                {
+                    buttons.mode = self.jam_input & (1 << index) != 0;
+                }
+            }
+            inputs
+        };
+        #[cfg(feature = "enhanced-mode")]
         let samples = cartridge
             .enhanced
-            .play_frame(&mut cartridge.engine, input::inputs(p1, p2, p2_connected))
+            .play_frame(&mut cartridge.engine, inputs)
             .map_err(js_error)?;
         #[cfg(not(feature = "enhanced-mode"))]
         let samples = cartridge
@@ -424,10 +678,12 @@ impl WebGame {
     ) -> Result<bool, JsValue> {
         let display_shader = tje_display::DisplayShader::from_id(display_shader)
             .ok_or_else(|| js_error("unknown display shader preset"))?;
-        let Some(cartridge) = &self.cartridge else {
+        let Some(cartridge) = &mut self.cartridge else {
             return Ok(false);
         };
-        let (pixels, size) = cartridge.engine.frame_buffer();
+        #[cfg(feature = "enhanced-mode")]
+        cartridge.refresh_presentation()?;
+        let (pixels, size) = cartridge.video();
         self.video
             .render(
                 pixels,

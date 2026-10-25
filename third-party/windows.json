@@ -4491,6 +4491,23 @@
     {
       "authors": [],
       "declared_license": "GPL-3.0-only",
+      "name": "tje-jam-out",
+      "repository": "https://github.com/mschienbein/toejam-earl-port",
+      "selected": [
+        "GPL-3.0-only"
+      ],
+      "source_archive": null,
+      "targets": [
+        "x86_64-pc-windows-gnu"
+      ],
+      "texts": {
+        "selected:GPL-3.0-only:603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70": "603786a1317df708d0b14cd391efdf0202d7b26151f866583a3dc0a488315f70"
+      },
+      "version": "0.1.0"
+    },
+    {
+      "authors": [],
+      "declared_license": "GPL-3.0-only",
       "name": "tje-mem",
       "repository": "https://github.com/mschienbein/toejam-earl-port",
       "selected": [
@@ -5959,7 +5976,7 @@
   ],
   "format": 1,
   "graph": "windows",
-  "notice_sha256": "ceb34bb8903ffc56491cf8993a6c16080a43d13c74dbfd863d8a6f45e0c45027",
+  "notice_sha256": "1af15087c7856bc70724ffe08dd01c5d1120b458ba1d7e608eb930ac0cacc18f",
   "runtime_texts": {
     "rust/COPYRIGHT-library-part-1.txt": "866bf86b80d0e080619d00727930bebf80ea4b37e6a8c1bc82b41303b9cb2a4a",
     "rust/COPYRIGHT-library-part-2.txt": "c31540e87808a04c8f2aa93b748db188050f521154daba68707b66d981d55e6b",
@@ -5977,7 +5994,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "511d68c30dd2448326bada087b83c89cb994874bc4954baf7fb9178079445b7d",
+  "source_fingerprint": "db87daa3926759dc78f3a1ea73376d30fcc591ddde0487dd2076368208e2169f",
   "targets": [
     "x86_64-pc-windows-gnu"
   ]

@@ -1,4 +1,4 @@
-use crate::input::{GameButton, PadButton, PlayerBindings};
+use crate::input::{GameButton, JamBinding, PadButton, PlayerBindings};
 use anyhow::{Context, Result, bail, ensure};
 use clap::ValueEnum;
 use directories::ProjectDirs;
@@ -119,6 +119,9 @@ pub struct Settings {
     pub players: [PlayerBindings; 2],
     pub hotkeys: Hotkeys,
     pub convenience: ConvenienceSettings,
+    pub jam_out: tje_jam_out::Settings,
+    #[serde(default = "crate::input::jam_bindings")]
+    pub jam_bindings: [JamBinding; 2],
 }
 
 impl Default for Settings {
@@ -139,6 +142,8 @@ impl Default for Settings {
             players: [PlayerBindings::one(), PlayerBindings::two()],
             hotkeys: Hotkeys::default(),
             convenience: ConvenienceSettings::default(),
+            jam_out: tje_jam_out::Settings::default(),
+            jam_bindings: crate::input::jam_bindings(),
         }
     }
 }
@@ -208,6 +213,12 @@ impl Settings {
 
     pub fn validate(&self) -> Result<()> {
         ensure!(self.convenience.slot < 5, "save-state slot must be 1..5");
+        ensure!(self.jam_out.valid(), "Jam backing must be 0..=6");
+        if self.jam_out.enabled {
+            for (index, binding) in self.jam_bindings.iter().enumerate() {
+                self.validate_jam_binding(index, *binding)?;
+            }
+        }
         ensure!(
             self.gamepad_devices.len() <= 32,
             "at most 32 gamepad slot identities can be saved"
@@ -332,6 +343,66 @@ impl Settings {
             );
         }
         self.players[player].set_pad(button, pad);
+        Ok(())
+    }
+
+    fn validate_jam_binding(&self, player: usize, binding: JamBinding) -> Result<()> {
+        if let Some(key) = binding.key {
+            ensure!(
+                !self
+                    .hotkeys
+                    .entries()
+                    .iter()
+                    .any(|(_, other)| *other == key),
+                "{key:?} is reserved for a hotkey"
+            );
+            ensure!(
+                !self.players.iter().any(|controls| controls
+                    .bindings
+                    .iter()
+                    .any(|binding| binding.key == Some(key))),
+                "{key:?} is already an ordinary game action; choose another Jam modifier"
+            );
+            ensure!(
+                !self
+                    .jam_bindings
+                    .iter()
+                    .enumerate()
+                    .any(|(index, binding)| index != player && binding.key == Some(key)),
+                "{key:?} is already the other player's Jam modifier"
+            );
+        }
+        if let Some(pad) = binding.gamepad {
+            ensure!(
+                !self.players[player]
+                    .bindings
+                    .iter()
+                    .any(|binding| binding.gamepad == Some(pad)),
+                "{pad:?} is already an ordinary game action"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn bind_jam_key(&mut self, player: usize, key: Option<KeyCode>) -> Result<()> {
+        ensure!(player < 2, "invalid player");
+        let binding = JamBinding {
+            key,
+            ..self.jam_bindings[player]
+        };
+        self.validate_jam_binding(player, binding)?;
+        self.jam_bindings[player] = binding;
+        Ok(())
+    }
+
+    pub fn bind_jam_pad(&mut self, player: usize, gamepad: Option<PadButton>) -> Result<()> {
+        ensure!(player < 2, "invalid player");
+        let binding = JamBinding {
+            gamepad,
+            ..self.jam_bindings[player]
+        };
+        self.validate_jam_binding(player, binding)?;
+        self.jam_bindings[player] = binding;
         Ok(())
     }
 
@@ -739,5 +810,21 @@ mod tests {
         assert!(!second.cache_directory.join("engine-native").exists());
         assert!(second.config_directory.join("config.toml").is_file());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn jam_defaults_and_legacy_settings_do_not_opt_in_or_steal_controls() {
+        let settings = Settings::parse("version = 3\n").unwrap();
+        assert!(!settings.jam_out.enabled);
+        assert_eq!(settings.players, Settings::default().players);
+        let mut enabled = settings;
+        enabled.jam_out.enabled = true;
+        enabled.validate().unwrap();
+        assert!(enabled.bind_jam_key(0, Some(KeyCode::KeyJ)).is_err());
+        assert!(enabled.bind_jam_key(0, Some(KeyCode::F1)).is_err());
+        assert!(enabled.bind_jam_pad(0, Some(PadButton::West)).is_err());
+        enabled.bind_jam_key(0, Some(KeyCode::KeyI)).unwrap();
+        enabled.jam_out.backing = 7;
+        assert!(enabled.validate().is_err());
     }
 }

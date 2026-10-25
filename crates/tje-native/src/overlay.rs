@@ -11,6 +11,8 @@ use winit::{event::WindowEvent, keyboard::KeyCode, window::Window};
 enum Capture {
     Key(usize, GameButton),
     Pad(usize, GameButton),
+    JamKey(usize),
+    JamPad(usize),
 }
 
 #[derive(Default)]
@@ -114,13 +116,23 @@ impl Overlay {
     }
 
     pub fn capture_key(&mut self, settings: &mut Settings, key: KeyCode) -> bool {
-        let Some(Capture::Key(player, button)) = self.pending else {
-            return false;
+        let (player, label, result) = match self.pending {
+            Some(Capture::Key(player, button)) => (
+                player,
+                format!("{button:?}"),
+                settings.bind_key(player, button, Some(key)),
+            ),
+            Some(Capture::JamKey(player)) => (
+                player,
+                "Jam modifier".into(),
+                settings.bind_jam_key(player, Some(key)),
+            ),
+            _ => return false,
         };
-        match settings.bind_key(player, button, Some(key)) {
+        match result {
             Ok(()) => {
                 self.pending = None;
-                self.message = Some(format!("P{} {button:?} keyboard: {key:?}", player + 1));
+                self.message = Some(format!("P{} {label} keyboard: {key:?}", player + 1));
                 true
             }
             Err(error) => {
@@ -130,8 +142,9 @@ impl Overlay {
         }
     }
     pub fn capture_pad(&mut self, settings: &mut Settings, press: PadPress) -> bool {
-        let Some(Capture::Pad(player, button)) = self.pending else {
-            return false;
+        let player = match self.pending {
+            Some(Capture::Pad(player, _)) | Some(Capture::JamPad(player)) => player,
+            _ => return false,
         };
         if settings.players[player].gamepad_slot != press.slot {
             self.message = Some(format!(
@@ -141,11 +154,16 @@ impl Overlay {
             ));
             return false;
         }
-        match settings.bind_pad(player, button, Some(press.button)) {
+        let result = match self.pending {
+            Some(Capture::Pad(_, button)) => settings.bind_pad(player, button, Some(press.button)),
+            Some(Capture::JamPad(_)) => settings.bind_jam_pad(player, Some(press.button)),
+            _ => return false,
+        };
+        match result {
             Ok(()) => {
                 self.pending = None;
                 self.message = Some(format!(
-                    "P{} {button:?} gamepad: {:?}",
+                    "P{} gamepad binding: {:?}",
                     player + 1,
                     press.button
                 ));
@@ -262,6 +280,8 @@ impl Overlay {
                             ui.colored_label(egui::Color32::YELLOW, match capture {
                                 Capture::Key(player, button) => format!("P{} {button:?}: press a keyboard key. Escape cancels.", player + 1),
                                 Capture::Pad(player, button) => format!("P{} {button:?}: release controls, then press a pad button or move a stick. Escape cancels.", player + 1),
+                                Capture::JamKey(player) => format!("P{} Jam modifier: press an unused key. Escape cancels.", player + 1),
+                                Capture::JamPad(player) => format!("P{} Jam modifier: press an unused shoulder/button. Escape cancels.", player + 1),
                             });
                         }
                         if let Some(message) = &self.message { ui.separator(); ui.colored_label(egui::Color32::YELLOW, message); }
@@ -445,6 +465,86 @@ impl Overlay {
         ui.label(info.audio);
         if ui.button("Refresh audio devices").clicked() {
             actions.refresh_devices = true;
+        }
+        ui.separator();
+        ui.heading("Jam Out in play — optional extra");
+        ui.add_enabled_ui(
+            (cfg!(feature = "enhanced-mode") || settings.jam_out.enabled)
+                && !info.netplay_active
+                && !info.recording
+                && info.replay.is_none(),
+            |ui| {
+                actions.settings_changed |= ui
+                    .checkbox(&mut settings.jam_out.enabled, "Jam Out in play")
+                    .changed();
+                ui.add_enabled_ui(settings.jam_out.enabled, |ui| {
+                    actions.settings_changed |= ui
+                        .checkbox(
+                            &mut settings.jam_out.performance_sounds,
+                            "Performance sounds",
+                        )
+                        .changed();
+                    actions.settings_changed |= ui
+                        .checkbox(
+                            &mut settings.jam_out.sounds_while_busy,
+                            "Allow sounds when a pose is unavailable",
+                        )
+                        .changed();
+                    actions.settings_changed |= ui
+                        .checkbox(
+                            &mut settings.jam_out.chord,
+                            "Three-button B+C chord (10 input updates)",
+                        )
+                        .changed();
+                    egui::ComboBox::from_label("Backing music")
+                        .selected_text(if settings.jam_out.backing == 0 {
+                            "Normal soundtrack".into()
+                        } else {
+                            format!("Jam track {}", settings.jam_out.backing)
+                        })
+                        .show_ui(ui, |ui| {
+                            actions.settings_changed |= ui
+                                .selectable_value(
+                                    &mut settings.jam_out.backing,
+                                    0,
+                                    "Normal soundtrack",
+                                )
+                                .changed();
+                            for track in 1..=6 {
+                                actions.settings_changed |= ui
+                                    .selectable_value(
+                                        &mut settings.jam_out.backing,
+                                        track,
+                                        format!("Jam track {track}"),
+                                    )
+                                    .changed();
+                            }
+                        });
+                    for player in 0..2 {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("P{} Jam modifier", player + 1));
+                            if ui
+                                .button(format!("{:?}", settings.jam_bindings[player].key))
+                                .clicked()
+                            {
+                                self.pending = Some(Capture::JamKey(player));
+                            }
+                            if ui
+                                .button(format!("{:?}", settings.jam_bindings[player].gamepad))
+                                .clicked()
+                            {
+                                self.pending = Some(Capture::JamPad(player));
+                            }
+                        });
+                    }
+                });
+            },
+        );
+        ui.small("The first enable restarts the cartridge at power-on to activate the enhanced driver safely. Later Jam setting changes do not restart; disabling retains the enhanced session identity.");
+        ui.small("Hold the modifier: A/B/C drum/snare/clap; direction + action vocals; A+B scratch. Start is always pause. V / right Shift and left shoulder are the conflict-free defaults; J is already P2 C.");
+        ui.small("Dances are stationary, interruptible and cosmetic. The B+C fallback delays inventory/map; release cancels. Default/off never installs this enhanced profile. After enabling, the session retains its enhanced identity even if disabled again.");
+        if !cfg!(feature = "enhanced-mode") {
+            ui.small("Rebuild with --features enhanced-mode to use Jam Out.");
         }
     }
 

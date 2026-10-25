@@ -1,6 +1,8 @@
 // Wire order matches crates/tje-web/src/input.rs.
 export const ACTIONS = ['up', 'down', 'left', 'right', 'a', 'b', 'c', 'start'];
 export const ACTION_LABELS = ['Up', 'Down', 'Left', 'Right', 'A', 'B', 'C', 'Start'];
+export const CONTROL_ACTIONS = [...ACTIONS, 'jam'];
+export const CONTROL_LABELS = [...ACTION_LABELS, 'Jam modifier'];
 const DEFAULT_KEYS = [
   ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyZ', 'KeyX', 'KeyC', 'Enter'],
   ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyJ', 'KeyK', 'KeyL', 'ShiftRight'],
@@ -15,13 +17,14 @@ export function validKeyboardCode(code) {
 
 export function defaultPlayer(player) {
   return {
-    keys: Object.fromEntries(ACTIONS.map((action, index) => [action, DEFAULT_KEYS[player][index]])),
+    keys: { ...Object.fromEntries(ACTIONS.map((action, index) => [action, DEFAULT_KEYS[player][index]])), jam: player === 0 ? 'KeyV' : 'KeyN' },
     gamepad: {
       device: null, // Automatic assignment; explicit choices pin browser id + slot.
       bindings: {
         up: [button(12), axis(1, -1)], down: [button(13), axis(1, 1)],
         left: [button(14), axis(0, -1)], right: [button(15), axis(0, 1)],
         a: [button(0)], b: [button(1)], c: [button(2)], start: [button(9)],
+        jam: [button(4)],
       },
     },
   };
@@ -40,7 +43,7 @@ function normalizeSource(source) {
 
 export function normalizePlayer(value, player) {
   const result = defaultPlayer(player);
-  for (const action of ACTIONS) {
+  for (const action of CONTROL_ACTIONS) {
     if (validKeyboardCode(value?.keys?.[action])) result.keys[action] = value.keys[action];
     const sources = value?.gamepad?.bindings?.[action];
     if (Array.isArray(sources)) {
@@ -133,6 +136,15 @@ export class Inputs {
     this.held.clear();
     this.last[0] = this.last[1] = 0;
     this.last[2] = false;
+  }
+
+  jamMask() {
+    let mask = 0;
+    for (let player = 0; player < 2; player++) {
+      if (this.held.has(this.players[player].keys.jam)
+          || this.players[player].gamepad.bindings.jam.some(source => this.selected[player] && sourcePressed(this.selected[player], source))) mask |= 1 << player;
+    }
+    return mask;
   }
 
   samplePads() {

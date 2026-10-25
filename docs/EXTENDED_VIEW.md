@@ -1,12 +1,29 @@
-# Extended view: research, renderer contract and opt-in prototype
+# Extended view: opt-in 400 × 224 play
 
-Status: renderer-side experiment, not a shipping widescreen mode. Faithful is still the default.
+Status: selectable native/browser enhanced mode. Faithful 320 × 224 remains the default.
 The agreed target is **400 × 224** (approximately 16:9), with 408–512-pixel widths explicitly
 experimental. This is additional world coverage, not stretching a 320-pixel picture. HD art is
 out of scope. Generated pictures, decoded patterns, palette values and map contents remain private.
 The enhanced 400 × 224 surface uses square pixels for that approximate 16:9 presentation;
 frontends must not apply the original 320-wide Genesis pixel-aspect correction a second time.
 Faithful mode's existing native-NTSC/square-pixel and integer/fit choices remain unchanged.
+
+The host compositor now has a publication-state API in
+`tje_extended_view::presentation`: `PublishedView` freezes entity positions and
+piece descriptors at graphics publication, and `Presenter` owns reusable output,
+terrain and sprite layers. It decodes RLE, interleaved RLE and raw sprite pieces
+only from the user's cartridge, applies native piece/mirror offsets, mask and
+submerged-player clipping, sorts native draw order, composes shadows last, and
+clips each split half independently. Ordinary extended output preserves the exact
+hardware-rendered 320-pixel center. Authored scenes keep that centered image with
+black pillars; an inventory half independently keeps its authored center.
+
+The wider columns are host-owned: they do not allocate any additional native SAT
+slots or tile groups. The original viewport allocation stays 320 pixels wide;
+entities outside it still advance their canonical frame descriptors. Widening
+Earthling/elevator interest is separate from sprite allocation. This avoids
+turning a wider display into additional pressure on the native 54-slot and
+112-tile upload limits.
 
 ## Source and citation convention
 
@@ -158,83 +175,101 @@ bounds. Keep them unchanged. Sources:
    its 32 source columns repeats twice into a 64-column map, and scroll is half the original
    committed camera (`G:src/core/startup_and_main_loop.c:87-102,195-207`). Do not halve screen pixel
    coordinates: the background scroll, not the pixels themselves, is half speed.
-5. Start with a diagnostic background-only image. For useful play, construct host world-sprite
-   pieces from each entity's current frame, including normal/mirrored piece offsets, shadows,
-   draw order, clipping and text. Preserve the center's priority patches and publication timing.
-   A full host sprite atlas decoded from the user's ROM avoids the original 54-slot/VDP-scanline
-   limits; it must not feed host-only handles into emulated RAM arrays. Widening the SAT scan alone
-   cannot display entities that were never allocated or had no patterns uploaded.
+5. Construct host world-sprite pieces from published entity frames, including normal/mirrored
+   piece offsets, palette/priority, shadows, submerged-player clipping and mask pixels. Runtime
+   ROM decoding bypasses the native SAT/tile-upload limits for the wings without feeding host
+   handles into emulated RAM. RAM-authored speech pieces use their published native tile
+   descriptors and live VRAM patterns. Ordinary wider output keeps the exact hardware center.
 6. Compose each split half separately; no sprite crosses the split separator. UI, map, inventory,
    cutscenes, ship display, ride and transitions require an explicit published scene classification.
    Non-world authored scenes retain a centered original image; no automatic "map looks loaded"
    heuristic is sufficient. Avoid mixing completed-frame pixels with next-frame pending RAM state.
-7. Keep faithful frame/audio hashes as the oracle for unchanged output. For a renderer-only
-   diagnostic, a source dependency graph with **no incoming edge from shipping crates** proves it
-   cannot affect faithful execution. Activating behavioral hooks is a different enhanced identity,
-   never a faithful proof or a session accepted by faithful netplay.
+7. Keep faithful frame/audio replay observations as the oracle for unchanged output. The shipping
+   frontend links this renderer only in a non-default enhanced build and constructs no presenter
+   for faithful play. Behavioral hooks have a distinct enhanced identity and are not accepted by
+   faithful-only netplay or labeled as faithful controller-only report recordings.
 
-## Function overrides through EnhancedMode
+## Enhanced publication and behavior
 
-Use the integrated, non-default `tje-engine-runtime/enhanced-mode` registry, not a second hook
-table or edits to the proven faithful translations. Its callback API is
-`EnhancedProfile::new(name, value_translations, framed_translations)` with existing
-`tje_game::Context` callbacks. Original unselected callees run compiled original instructions.
-The existing `NativeCompiledOriginalCallees` transitional profile is a proven-readable timing
-composition tool, not permission to silently modify faithful behavior; it remains separate.
+All changes go through the separate, non-default EnhancedMode registry. Proven
+translations, original camera following, map fog/points, collision and random
+placement stay unchanged. `tje-extras` is the native/browser shared selector and
+combines extended view with the optional in-play Jam profile without duplicate
+function hooks.
 
-The symmetric-camera design needs only these initial behavioral changes:
+| Entry | Enhanced behavior |
+| --- | --- |
+| `LOAD_IN_EARTHLINGS` | X interest expands from (-160,480) to (-160-m,480+m), where m=(W-320)/2. At 400 pixels this is (-200,520), preserving 160 pixels of preactivation beyond each visible edge. Alternating parity, Y bounds and allocation/free behavior stay original. |
+| `ELEVATOR_UPDATE_ENTITY_VISIBILITY` | The same expanded X interest; all original state/level/entry semantics remain. |
+| `BUILD_VIEWPORT_SPRITE_LINKS` | After the original, capture a pending fixed-size entity/piece submission. No next-frame entity positions are sampled for an already published image. |
+| `HANDLE_V_BLANK` | Run original graphics/audio/input work, then publish the queued submission only when sprite graphics really upload. Capture committed cameras, split/inventory state and HUD. This is the C RTS callee, not the RTE interrupt entry. |
+| `MAP_CLEAR_TILE_PRIORITY_NEAR_PLAYER` | Record the world-keyed patch. Host terrain honors its cleared priority only while the corresponding native ring slot still contains that exact tile with priority cleared, naturally expiring cells as camera streaming replaces them. |
+| HUD positioning | After original positioning, split health/lives anchors move toward the wider left edge and level/action anchors toward the right. The center panel remains unscaled in shared mode. |
+| Authored scene entries / `PROCESS_INPUT` | Before-only scene markers classify maps, pause/menu, title/intro/ending/ship, elevator and split transitions. Original reset/nonlocal tails remain possible; a later normal input tick explicitly reclaims world ownership. Custom VBlank and graphics-disable state also prevent world sampling. |
 
-| Function ID | Prototype modification | Retained behavior |
-| --- | --- | --- |
-| `IS_ENTITY_VISIBLE_IN_VIEWPORT` | X predicates become entity.width+x >= -m and x-entity.width <= 320+m. | Level/inventory gating, height/elevation and split Y bounds. |
-| `LOAD_IN_EARTHLINGS` | X interest becomes (-160-m,480+m); at W=400 it is (-200,520). | Alternating parity, position sync, bank/level/split flags, allocation/free, original Y range. |
-| `ELEVATOR_UPDATE_ENTITY_VISIBILITY` | Same X-interest expansion. | Pair creation/free, blocked/absent states, levels and collision semantics. |
+`IS_ENTITY_VISIBLE_IN_VIEWPORT` deliberately remains original. Widening the
+native allocator would spend its 54 SAT slots and 112-tile upload budget on the
+wings and cause avoidable center dropouts. The host compositor instead clips
+published logical entity pieces to each widened viewport, independently of
+native sprite allocation. Full map banks are borrowed, not copied each frame.
+Atlas entries are lazy runtime-only decoded pieces from the user's ROM.
 
-Keep `UpdateEntityViewportSprites`, sprite positioning, camera following and random spawn
-selection original initially. Registry callbacks still need allocation/free through the registry's
-real call dispatch, not ad-hoc host mutations or fabricated return PCs. The mode/width is static
-per profile for deterministic snapshots/netplay; do not change profiles during a live session.
+The native center preserves hardware scanline limits, sprite priorities, font
+animation, raster effects and falling patches. The host wings honor piece draw
+order independently of terrain priority, native shadow/highlight DAC rules, and
+each split separator. Wider sight does **not** uncover extra map-screen fog or
+alter camera split/merge distances. Original entity allocation capacity remains
+unchanged; this is a view option, not a larger/denser-level mode.
 
-These three overrides alone are **not a complete widescreen game**: they can increase pressure on
-the original entity/tile/sprite pools and they intentionally alter simulation work. They belong in
-a diagnostic gated profile until host sprite composition and scene publication are complete.
+Enhanced state snapshots include both publication buffers, scene state and the
+immutable width. The renderer/atlas is derived presentation state, regenerated
+after restore. Width-specific profile identities prevent loading 400-pixel state
+into another width or faithful mode. A combined Jam profile has a separate
+identity; disabling Jam later does not relabel an enhanced trajectory faithful.
 
-## Prototype boundary and integration gate
+## Selecting the mode
 
-`crates/tje-extended-view` is an independent, opt-in experiment. Its background renderer is a
-real RAM-map/metatile/pattern implementation with synthetic ROM-free tests; it is not linked by
-any shipping crate. Its native preview example reads a user ROM and an input-only session,
-renders a requested gameplay frame, and writes a **private** image only to a path supplied by the
-caller. The original center may be preserved for comparison; wings are explicitly background-only,
-not evidence of widened sprites, HUD adaptation, full occlusion fidelity or a shipping toggle.
+Native, built with `--features enhanced-mode`:
 
-The non-default `enhanced-mode` feature adds explicit versioned profiles
-`extended-view-400/1` and `experimental-extended-view-512/1`, containing only the three
-overrides above. Other experimental renderer widths do not implicitly gain behavioral profiles.
-The native diagnostic can opt into those callbacks with `--enhanced-culling`; without that
-argument it replays the original engine unchanged. EnhancedMode's finite original-callee budget
-still applies: allocation-pressure relocation can reject rather than silently exceeding it.
+```sh
+toejam-earl --rom /private/rev02.bin --extended-view 400
+```
 
-Example (all output/cache paths are user-private; supply your own paths and a normal-world frame):
+The default argument is zero/off. Values 408–512 in multiples of eight are
+explicitly experimental, for example `--extended-view 512`. Choose width at
+cartridge load, not mid-session. Extended output uses square pixels even if the
+faithful NTSC pixel-shape setting is selected. Native `--enhanced-debug` is
+exclusive with extended view.
+
+Browser: build with `TJE_ENHANCED=1`, open **Extended view — default off**, choose
+400 or an explicitly experimental width, then import/reload the user's ROM.
+The setting is validated before replacing an installed cartridge. Changes apply
+on the next import/page reload; they never mutate a running simulation identity.
+Faithful-only builds keep the extra width choices unavailable.
+
+Maps, inventory halves, elevator rides, title/intro/ending, ship scenes and
+transitions keep their original 320-pixel centers with black pillars. Ordinary
+gameplay and both 112-line split halves get the extra world columns. The combined
+HUD keeps its original 320 × 40 center panel with neutral black side fill.
+
+## Private replay evidence
+
+The preview example uses the same profile and `Presenter`, and accepts authored
+scenes as well as gameplay. It never commits generated assets:
 
 ```sh
 cargo run --locked -p tje-extended-view --features preview --example preview -- \
   --rom /private/rev02.bin --session sessions/rev02-coop.tje.json --frame 2400 \
-  --data-dir /private/engine-cache --output /private/extended-view.ppm
+  --data-dir /private/engine-cache --output /private/after-400.ppm
 ```
 
-Add `--background-only` to inspect the entire map-derived image. The default image preserves
-the exact original 320-pixel center and adds background-only wings. To exercise behavior changes,
-build with `--features preview,enhanced-mode` and pass `--enhanced-culling`; add
-`--experimental-width 512` only for the explicitly experimental profile. The example's custom
-VBlank guard rejects ride scenes, but is **not** a complete scene detector: the caller must still
-choose a world frame. It is not a menu or a product setting.
+Add `--faithful` for the exact 320 × 224 before image and original execution.
+Add `--experimental-width 512` only for an experimental after image. Optional
+`--hash-output /private/frames.txt` records each original framebuffer and stereo
+f64 audio SHA-1 for unchanged-faithful evidence; it contains observations, not
+pixel/audio payloads. Existing output files are never overwritten.
 
+All screenshot, runtime atlas, ROM/cache and replay-observation artifacts remain
+private under scratch or outside the public repository. Main controls integration;
+there is no hosted service, asset download or spending in this option.
 
-Before turning this into a selectable frontend mode, require: coherent scene/camera/VRAM/CRAM
-publication; entity-piece and shadow sidecar composition; speech and HUD anchors; correct
-falling-priority patches; no object allocation pop-in under wider interest; both split halves on
-different levels; exterior fills; inventories/map/elevator ride/intro/ending; width-specific enhanced
-session identity; both revisions; and unchanged faithful frame/audio replay hashes. Main controls
-integration and shipping. No user decision is needed for the bounded 400-pixel default or the
-centered authored-scene policy; a wider gameplay/balance change remains explicitly experimental.

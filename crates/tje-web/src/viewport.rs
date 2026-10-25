@@ -12,7 +12,8 @@ pub(crate) fn viewport(
     if source.width == 0 || source.height == 0 || width == 0 || height == 0 {
         return [0.0; 4];
     }
-    let pixel_aspect = if native_pixels {
+    let extended = (400..=512).contains(&source.width) && source.height == 224;
+    let pixel_aspect = if native_pixels && !extended {
         let aspect = if source.width < 300 {
             8.0 / 7.0
         } else {

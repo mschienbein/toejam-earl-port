@@ -5,15 +5,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Opt-in RAM-map extended-view renderer experiment; not used by faithful frontends"
+description = "Opt-in extended world and sprite presentation from the user's cartridge"
 
 [features]
 default = []
-preview = ["dep:tje-engine-cranelift", "dep:tje-session", "dep:genesis-config", "dep:clap"]
-enhanced-mode = ["dep:tje-game", "dep:tje-engine-runtime", "tje-engine-runtime/enhanced-mode"]
+preview = ["enhanced-mode", "dep:tje-engine-cranelift", "dep:tje-session", "dep:genesis-config", "dep:clap", "dep:sha1"]
+enhanced-mode = ["dep:tje-game", "dep:tje-engine-runtime", "dep:bincode", "tje-engine-runtime/enhanced-mode"]
 
 [dependencies]
 tje-mem = { path = "../tje-mem" }
+jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
+bincode = { version = "2", features = ["derive"], optional = true }
 tje-rom = { path = "../tje-rom" }
 tje-game = { path = "../tje-game", optional = true }
 tje-engine-runtime = { path = "../tje-engine-runtime", default-features = false, optional = true }
@@ -21,6 +23,7 @@ tje-engine-cranelift = { path = "../tje-engine-cranelift", optional = true }
 tje-session = { path = "../tje-session", optional = true }
 genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
+sha1 = { version = "0.10", optional = true }
 
 [[example]]
 name = "preview"

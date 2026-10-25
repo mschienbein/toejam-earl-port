@@ -1,9 +1,9 @@
-//! Private, background-only extended-view proof using a user's ROM/session.
-//! No frontend installs or enables this example. Output must remain private.
+//! Private completed-frame view proof. All images and observations stay private.
 use clap::Parser;
 use genesis_config::{
     GenesisButton, GenesisController, GenesisControllerType, GenesisEmulatorConfig, GenesisInputs,
 };
+use sha1::{Digest, Sha1};
 use std::{
     error::Error,
     fs::OpenOptions,
@@ -11,40 +11,39 @@ use std::{
     path::PathBuf,
 };
 use tje_engine_cranelift::{CacheConfig, load_engine};
+use tje_engine_runtime::enhanced::EnhancedMode;
 use tje_extended_view::{
-    ExperimentalWidth, FULL_HEIGHT, IndexedPixel, MapRenderer, ViewMode, Viewport, WorldView,
+    ExperimentalWidth, ViewMode, enhanced,
+    presentation::{Presenter, PublishedView},
 };
 use tje_mem::Bus;
 use tje_rom::{Revision, Rom};
 use tje_session::{CONNECTED, Session};
 
 #[derive(Parser)]
-#[command(about = "Private terrain-only widescreen proof; not a selectable game mode")]
+#[command(about = "Private complete extended-view sprite/scene replay; supply your own ROM")]
 struct Args {
     #[arg(long)]
     rom: PathBuf,
     #[arg(long)]
     session: PathBuf,
-    /// Number of completed frames from power-on; choose a normal gameplay frame.
     #[arg(long)]
     frame: u64,
-    /// User-private PPM output; an existing file will never be overwritten.
+    /// Private PPM output. Existing files are never overwritten.
     #[arg(long)]
     output: PathBuf,
     #[arg(long)]
     data_dir: Option<PathBuf>,
-    /// Explicitly experimental; otherwise the extra view is 400x224.
-    #[arg(long)]
+    /// Explicitly experimental 408..512, in 8-pixel steps; ordinary mode is 400.
+    #[arg(long, conflicts_with = "faithful")]
     experimental_width: Option<u16>,
-    /// Omit the original center, showing that this proof has no entities or HUD.
+    /// Original engine and exact 320x224 output, for before/after evidence.
     #[arg(long)]
-    background_only: bool,
-    /// Diagnostic gameplay-changing visibility hooks; still no host sprite renderer.
-    #[cfg(feature = "enhanced-mode")]
+    faithful: bool,
+    /// Private per-frame original framebuffer/audio SHA-1 observations.
     #[arg(long)]
-    enhanced_culling: bool,
+    hash_output: Option<PathBuf>,
 }
-
 fn inputs(pads: [u16; 2]) -> GenesisInputs {
     use GenesisButton::*;
     let [p1, p2] = pads.map(|pad| {
@@ -63,12 +62,20 @@ fn inputs(pads: [u16; 2]) -> GenesisInputs {
     });
     GenesisInputs { p1, p2 }
 }
-
+fn private_writer(path: &PathBuf) -> std::io::Result<BufWriter<std::fs::File>> {
+    Ok(BufWriter::new(
+        OpenOptions::new().write(true).create_new(true).open(path)?,
+    ))
+}
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let mode = match args.experimental_width {
-        Some(width) => ViewMode::Experimental(ExperimentalWidth::new(width)?),
-        None => ViewMode::Widescreen,
+    let mode = if args.faithful {
+        ViewMode::Faithful
+    } else {
+        match args.experimental_width {
+            Some(width) => ViewMode::Experimental(ExperimentalWidth::new(width)?),
+            None => ViewMode::Widescreen,
+        }
     };
     let rom = Rom::import(&std::fs::read(&args.rom)?)?;
     let revision = rom.revision();
@@ -77,24 +84,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("session and cartridge revisions differ".into());
     }
     if args.frame == 0 || args.frame > session.frames {
-        return Err("--frame must be between 1 and the session's completed frame count".into());
+        return Err("--frame must be 1..=session completed frame count".into());
     }
     let cache = match args.data_dir {
         Some(data_dir) => CacheConfig { data_dir },
         None => CacheConfig::for_current_user()?,
     };
     let mut engine = load_engine(rom, &GenesisEmulatorConfig::default(), &cache, |_| {})?;
-    #[cfg(feature = "enhanced-mode")]
-    let mut enhanced = if args.enhanced_culling {
-        let profile = match mode.width() {
-            400 => tje_extended_view::enhanced::WIDESCREEN_PROFILE,
-            512 => tje_extended_view::enhanced::EXPERIMENTAL_512_PROFILE,
-            _ => return Err("behavioral profiles exist only for widths 400 and 512".into()),
-        };
-        tje_engine_runtime::enhanced::EnhancedMode::new(profile, revision)?
+    let mut enhanced = if args.faithful {
+        EnhancedMode::default()
     } else {
-        tje_engine_runtime::enhanced::EnhancedMode::default()
+        let mut enhanced = EnhancedMode::new(
+            enhanced::profile(mode.width() as u16).ok_or("unsupported view profile")?,
+            revision,
+        )?;
+        enhanced::configure(&mut enhanced, mode.width() as u16)?;
+        enhanced
     };
+    let mut hashes = args.hash_output.as_ref().map(private_writer).transpose()?;
     let mut writes = session.writes().iter().peekable();
     for (frame, pads) in session.inputs().take(args.frame as usize).enumerate() {
         while writes
@@ -107,79 +114,68 @@ fn main() -> Result<(), Box<dyn Error>> {
                 1 => memory.write_u8(write.address, write.value as u8),
                 2 => memory.write_u16(write.address, write.value as u16),
                 4 => memory.write_u32(write.address, write.value),
-                _ => unreachable!("validated session write width"),
+                _ => unreachable!("validated RAM recipe width"),
             }
         }
-        #[cfg(feature = "enhanced-mode")]
         enhanced.play_frame(&mut engine, inputs(pads))?;
-        #[cfg(not(feature = "enhanced-mode"))]
-        engine.play_frame(inputs(pads))?;
+        if let Some(hashes) = &mut hashes {
+            let (pixels, size) = engine.frame_buffer();
+            let mut video = Sha1::new();
+            for pixel in &pixels[..size.len() as usize] {
+                video.update([pixel.r, pixel.g, pixel.b, pixel.a]);
+            }
+            let mut audio = Sha1::new();
+            for sample in engine.devices().audio_samples() {
+                for channel in sample {
+                    audio.update(channel.to_bits().to_le_bytes());
+                }
+            }
+            writeln!(
+                hashes,
+                "{} {:x} {:x}",
+                frame + 1,
+                video.finalize(),
+                audio.finalize()
+            )?;
+        }
+    }
+    if let Some(hashes) = &mut hashes {
+        hashes.flush()?;
     }
     let devices = engine.devices();
-    let memory = devices.memory();
-    if tje_mem::ram::g_v_blank_func(revision)
-        .read(memory)
-        .address()
-        != 0
-    {
-        return Err("custom scene VBlank is active; choose an ordinary gameplay frame".into());
-    }
-    let (vram, cram, _) = devices.vdp().hybrid_memories();
-    let renderer = MapRenderer::new(memory, vram)?;
-    let mut output = vec![IndexedPixel::default(); mode.width() * FULL_HEIGHT];
-    let primary = WorldView::committed(memory, Viewport::Primary)?;
-    let primary_len = primary.height() * mode.width();
-    renderer.render_background(primary, mode, &mut output[..primary_len])?;
-    if primary.height() != FULL_HEIGHT {
-        renderer.render_background(
-            WorldView::committed(memory, Viewport::Secondary)?,
-            mode,
-            &mut output[primary_len..],
-        )?;
-    }
     let (original, size) = engine.frame_buffer();
     if size.width != 320 || size.height != 224 {
-        return Err("preview requires the original borderless 320x224 output".into());
+        return Err("expected borderless original 320x224 output".into());
     }
-    let file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&args.output)?;
-    let mut writer = BufWriter::new(file);
-    write!(writer, "P6\n{} {}\n255\n", mode.width(), FULL_HEIGHT)?;
-    // Hardware color scaling, not a game palette. Matches the default VDP's
-    // normal non-linear scale; this diagnostic does not model shadow/highlight.
-    let channel = [0, 52, 87, 116, 144, 172, 206, 255];
-    let margin = mode.margin() as usize;
-    for y in 0..FULL_HEIGHT {
-        for x in 0..mode.width() {
-            let rgb = if !args.background_only && (margin..margin + 320).contains(&x) {
-                let color = original[y * 320 + x - margin];
-                [color.r, color.g, color.b]
-            } else {
-                let pixel = output[y * mode.width() + x];
-                let index = if pixel.transparent() {
-                    0
-                } else {
-                    pixel.palette_index()
-                };
-                let color = cram[index];
-                [
-                    channel[((color >> 1) & 7) as usize],
-                    channel[((color >> 5) & 7) as usize],
-                    channel[((color >> 9) & 7) as usize],
-                ]
-            };
-            writer.write_all(&rgb)?;
-        }
+    let mut presenter = (!args.faithful).then(|| Presenter::new(mode));
+    if let Some(presenter) = &mut presenter {
+        let (vram, cram, _) = devices.vdp().hybrid_memories();
+        presenter.set_shadow_highlight(devices.vdp().hybrid_registers().shadow_highlight_flag);
+        presenter.compose(
+            devices.memory(),
+            vram,
+            cram,
+            original,
+            enhanced.sidecars().get::<PublishedView>()?,
+            &[],
+        )?;
+    }
+    let (pixels, size) = presenter
+        .as_ref()
+        .map_or((original, size), Presenter::frame);
+    let mut writer = private_writer(&args.output)?;
+    write!(writer, "P6\n{} {}\n255\n", size.width, size.height)?;
+    for pixel in pixels {
+        writer.write_all(&[pixel.r, pixel.g, pixel.b])?;
     }
     writer.flush()?;
     println!(
-        "{}: frame {}, {}x{}; wings contain background only, not widened entities or HUD",
+        "{}: completed frame {}, {}x{}, {}",
         revision,
         args.frame,
-        mode.width(),
-        FULL_HEIGHT
+        size.width,
+        size.height,
+        enhanced.profile_id()
     );
     Ok(())
 }

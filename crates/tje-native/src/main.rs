@@ -66,6 +66,14 @@ struct Args {
     #[cfg(feature = "enhanced-mode")]
     #[arg(long, conflicts_with = "replay_report")]
     enhanced_debug: bool,
+    /// Enable presentation-only Jam Out gestures and the optional Jam music banks.
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, conflicts_with_all = ["enhanced_debug", "replay", "replay_report"])]
+    jam_out: bool,
+    /// Opt-in extended view: 400, or experimental 408..=512 in eight-pixel steps.
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, default_value_t = 0, conflicts_with_all = ["enhanced_debug", "replay_report"])]
+    extended_view: u16,
     /// Override the OS-specific per-user data directory (also useful for isolated test sessions).
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -238,6 +246,14 @@ impl App {
         if let Some(volume) = args.volume {
             settings.volume = volume;
         }
+        #[cfg(feature = "enhanced-mode")]
+        if args.jam_out {
+            settings.jam_out.enabled = true;
+        }
+        ensure!(
+            !settings.jam_out.enabled || args.replay.is_none() && args.replay_report.is_none(),
+            "Jam Out requires enhanced inputs; controller-only replay cannot enable it"
+        );
         settings.validate()?;
         let input = Input::new(&settings.gamepad_devices)?;
         settings.gamepad_devices = input.saved_devices();
@@ -456,6 +472,9 @@ impl App {
                 if self.args.enhanced_debug {
                     backend.set_enhanced_debug(true)?;
                 }
+                #[cfg(feature = "enhanced-mode")]
+                backend.set_extended_view(self.args.extended_view)?;
+                backend.set_jam_out(self.settings.jam_out)?;
                 println!("PROFILE {}", backend.profile_id());
                 if loading.store {
                     self.storage.store_rom(backend.rom_bytes())?;
@@ -614,6 +633,22 @@ impl App {
     fn apply_settings(&mut self) -> Result<()> {
         self.settings.validate()?;
         self.convenience.configure(&self.settings.convenience);
+        ensure!(
+            !self.settings.jam_out.enabled
+                || !self.netplay.active() && self.replay.is_none() && !self.recorder.active(),
+            "Jam Out is unavailable during netplay or controller-only recording/replay"
+        );
+        if let Some(backend) = &mut self.backend
+            && backend.set_jam_out(self.settings.jam_out)?
+        {
+            self.convenience.clear();
+            self.reports.reset();
+            self.reports
+                .complete_frame(&backend.status(), backend.video());
+            if let Some(audio) = &self.audio {
+                audio.flush();
+            }
+        }
         let next = LiveSettings::from(&self.settings);
         if let Some(window) = &self.window {
             if next.fullscreen != self.applied.fullscreen {
@@ -856,6 +891,13 @@ impl App {
             }
             if self.recorder.active() {
                 self.stop_recording()?;
+            } else if self
+                .backend
+                .as_ref()
+                .is_some_and(|backend| backend.profile_id() != "faithful")
+            {
+                self.overlay.show_error("Enhanced sessions need enhanced input recording; controller-only recording is unavailable. Restart with extras off for faithful recording.");
+                return Ok(());
             } else if let (Some(backend), Some(revision)) = (&mut self.backend, self.revision) {
                 self.reports.reset();
                 self.convenience.clear();
@@ -972,13 +1014,18 @@ impl App {
             if !self.is_paused()
                 && let Some(backend) = &mut self.backend
             {
-                let controllers = if let Some(replay) = &self.replay {
+                let mut controllers = if let Some(replay) = &self.replay {
                     replay
                         .controllers()
                         .context("input replay ended before its advertised frame count")?
                 } else {
                     self.input.controllers(&self.settings.players)
                 };
+                if self.settings.jam_out.enabled && self.replay.is_none() {
+                    controllers.jam = self
+                        .input
+                        .jam_modifiers(&self.settings.players, &self.settings.jam_bindings);
+                }
                 if !self.netplay.active() {
                     self.reports.begin_frame(std::array::from_fn(|index| {
                         tje_session::encode_pad(

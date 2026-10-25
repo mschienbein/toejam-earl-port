@@ -76,6 +76,7 @@ mod tests {
         let controllers = Controllers {
             connected: [true, false],
             buttons: [[true; 8]; 2],
+            jam: [false; 2],
         };
         recorder.frame(controllers).unwrap();
         recorder.frame(controllers).unwrap();

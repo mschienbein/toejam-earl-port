@@ -5,7 +5,7 @@ export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', p2: false, players: [defaultPlayer(0), defaultPlayer(1)], convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', extendedView: 0, p2: false, players: [defaultPlayer(0), defaultPlayer(1)], jam: { enabled: false, sounds: true, soundsWhileBusy: false, chord: false, backing: 0 }, convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
 }
 
 export function normalizeSettings(value) {
@@ -20,10 +20,14 @@ export function normalizeSettings(value) {
   }
   if (['sharp', 'nearest', 'linear'].includes(value?.filter)) result.filter = value.filter;
   if (['off', 'smooth', 'crt', 'crt-curved'].includes(value?.displayShader)) result.displayShader = value.displayShader;
+  if (Number.isInteger(value?.extendedView) && (value.extendedView === 400 || (value.extendedView >= 408 && value.extendedView <= 512 && value.extendedView % 8 === 0))) result.extendedView = value.extendedView;
   result.p2 = value?.p2 === true;
   result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
   for (const key of ['saveStates', 'rewind', 'fastForward']) result.convenience[key] = value?.convenience?.[key] === true;
   if (Number.isInteger(value?.convenience?.slot) && value.convenience.slot >= 0 && value.convenience.slot < 5) result.convenience.slot = value.convenience.slot;
+  for (const key of ['enabled', 'soundsWhileBusy', 'chord']) result.jam[key] = value?.jam?.[key] === true;
+  result.jam.sounds = value?.jam?.sounds !== false;
+  if (Number.isInteger(value?.jam?.backing) && value.jam.backing >= 0 && value.jam.backing <= 6) result.jam.backing = value.jam.backing;
   return result;
 }
 

@@ -32,6 +32,7 @@ impl Machine for Adapter<'_> {
         self.0.advance(Controllers {
             connected: [true; 2],
             buttons: pads.map(|pad| std::array::from_fn(|bit| pad & (1 << bit) != 0)),
+            jam: [false; 2],
         })?;
         Ok(())
     }

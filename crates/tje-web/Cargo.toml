@@ -13,7 +13,7 @@ default = []
 replay-observer = ["dep:bincode"]
 reference-export = ["dep:bincode"]
 # Deliberate gameplay changes; still requires an explicit per-cartridge flag.
-enhanced-mode = ["tje-engine-runtime/enhanced-mode"]
+enhanced-mode = ["tje-engine-runtime/enhanced-mode", "dep:tje-extras", "tje-extras/enhanced-mode", "dep:tje-extended-view", "tje-extended-view/enhanced-mode", "dep:tje-jam-out", "tje-jam-out/enhanced-mode"]
 
 [[example]]
 name = "replay-reference"
@@ -41,6 +41,9 @@ tje-native-platform = { path = "../tje-native-platform", default-features = fals
 tje-rom = { path = "../tje-rom" }
 tje-session = { path = "../tje-session" }
 tje-netplay = { path = "../tje-netplay" }
+tje-jam-out = { path = "../tje-jam-out", optional = true }
+tje-extras = { path = "../tje-extras", optional = true }
+tje-extended-view = { path = "../tje-extended-view", optional = true }
 anyhow = "1"
 serde_json = "1"
 wasm-bindgen = "=0.2.129"

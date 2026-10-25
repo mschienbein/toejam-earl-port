@@ -7,6 +7,7 @@ import { defaultSettings, readSettings, saveSettings, SETTINGS_KEY, SETTINGS_VER
 import { AudioStream } from './audio.js';
 import { checkDependencies } from './check-dependencies.mjs';
 import { Conveniences, shortcutAvailable, stateSlot } from './convenience.js';
+import { validateJamBindings } from './jam.js';
 
 function standardPad() {
   return { id: 'Test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
@@ -23,6 +24,30 @@ test('standard gamepad buttons map independently to the Genesis wire order', () 
   unmapped.mapping = '';
   unmapped.buttons[0].pressed = true;
   assert.equal(gamepadMask(unmapped), 16, 'non-standard pads remain usable and remappable');
+});
+
+test('Jam modifier remains outside ordinary controller masks and defaults off', () => {
+  const settings = defaultSettings();
+  assert.equal(settings.jam.enabled, false);
+  validateJamBindings(settings.players);
+  const pad = standardPad();
+  pad.buttons[4].pressed = true;
+  assert.equal(gamepadMask(pad, settings.players[0].gamepad.bindings), 0);
+  settings.players[0].keys.jam = settings.players[1].keys.a;
+  assert.throws(() => validateJamBindings(settings.players), /conflicts/);
+});
+
+test('Jam settings roundtrip without changing faithful input bindings', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const settings = defaultSettings();
+  settings.jam = { enabled: true, sounds: false, soundsWhileBusy: true, chord: true, backing: 6 };
+  saveSettings(settings, storage);
+  const restored = readSettings(storage).settings;
+  assert.deepEqual(restored.jam, settings.jam);
+  assert.deepEqual(restored.players, settings.players);
+  values.set(SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION }));
+  assert.equal(readSettings(storage).settings.jam.enabled, false);
 });
 
 test('gamepad deadzone, analog thresholds and simultaneous buttons', () => {
@@ -182,6 +207,19 @@ test('display shaders are opt-in, round-trip independently and reject unknown pr
   }
   const storage = memoryStorage([[SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, displayShader: 'unknown' })]]);
   assert.equal(readSettings(storage).settings.displayShader, 'off');
+});
+
+test('extended view is default off and only explicit experimental widths persist', () => {
+  assert.equal(defaultSettings().extendedView, 0);
+  for (const extendedView of [400, 408, 432, 504, 512]) {
+    const storage = memoryStorage();
+    saveSettings({ ...defaultSettings(), extendedView }, storage);
+    assert.equal(readSettings(storage).settings.extendedView, extendedView);
+  }
+  for (const extendedView of [320, 399, 401, 409, 520, '400', true]) {
+    const storage = memoryStorage([[SETTINGS_KEY, JSON.stringify({ version: SETTINGS_VERSION, extendedView })]]);
+    assert.equal(readSettings(storage).settings.extendedView, 0);
+  }
 });
 
 test('versioned mappings, filters and device choices persist; malformed/future versions recover without destructive migration', () => {

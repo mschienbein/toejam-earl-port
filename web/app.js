@@ -6,6 +6,7 @@ import { cartridgeStore, readSettings, saveSettings } from './storage.js';
 import { Reports } from './reporting.js';
 import { Conveniences } from './convenience.js';
 import { NetplayControls } from './netplay.js';
+import { JamControls } from './jam.js';
 
 const $ = id => document.getElementById(id);
 const settingsState = readSettings();
@@ -20,6 +21,7 @@ let inputs;
 let controls;
 let conveniences;
 let netplay;
+let jam;
 let starting = false;
 let resumeOnVisible = false;
 let playbackVersion = 0;
@@ -204,6 +206,7 @@ function frame(now) {
         if (!game.netplay_step(p1)) break;
       } else {
         reports.begin(p1, p2, p2Connected);
+        game.set_jam_input(settings.jam.enabled ? inputs.jamMask() : 0);
         game.step(p1, p2, p2Connected);
         reports.complete(JSON.parse(game.report_state()));
       }
@@ -263,12 +266,15 @@ async function loadCartridge(bytes, name, origin) {
     await new Promise(resolve => setTimeout(resolve, 0));
     const cartridge = await CompiledCartridge.load(new Uint8Array(bytes), audio.context?.sampleRate ?? 48000, compiling);
     cartridge.set_enhanced_debug(new URLSearchParams(location.search).get('enhanced-debug') === '1');
+    cartridge.set_extended_view(settings.extendedView);
+    jam.configure(cartridge);
     revision = game.install(cartridge);
     source = origin;
     loaded = true;
     conveniences.reset();
     conveniences.configure();
     reports.start(JSON.parse(game.report_identity()));
+    if (settings.jam.enabled || settings.extendedView !== 0) reports.invalidateTimeline();
     reports.engine = JSON.parse(game.report_state());
     resetMeasurements();
     inputs.clear();
@@ -477,6 +483,12 @@ $('scale').value = settings.scale;
 $('filter').value = settings.filter;
 $('display-shader').value = settings.displayShader;
 $('p2').checked = settings.p2;
+$('extended-view').value = String(settings.extendedView);
+$('extended-view').addEventListener('input', () => {
+  settings.extendedView = Number($('extended-view').value);
+  persistSettings();
+  $('extended-view-notice').textContent = 'World width saved. Re-import your ROM or reload this page to apply; the current session is unchanged.';
+});
 canvas.classList.toggle('smooth-filter', settings.filter !== 'nearest' || settings.displayShader !== 'off');
 for (const id of ['volume', 'pixel-shape', 'scale', 'filter', 'display-shader', 'p2']) $(id).addEventListener('input', updateSettings);
 
@@ -532,6 +544,10 @@ async function boot() {
     }
   }
   if (!game) throw new Error(`No graphics backend is available. ${failures.join('; ')}`);
+  for (const option of $('extended-view').options) {
+    if (Number(option.value) !== 0) option.disabled = !game.has_enhanced_mode();
+  }
+  if (!game.has_enhanced_mode()) $('extended-view-notice').textContent = 'This build is faithful-only. Extended view requires TJE_ENHANCED=1.';
   reports.frontend.backend = game.backend();
   inputs = new Inputs(settings.players);
   conveniences = new Conveniences(settings, {
@@ -541,6 +557,15 @@ async function boot() {
     game: () => game,
   });
   controls = new ControlSettings(settings, inputs, persistSettings, () => { void pause('Paused for control assignment. Click Play when finished.'); });
+  jam = new JamControls(settings, {
+    game: () => game, loaded: () => loaded,
+    allowed: () => !busy && !reports.crashed && !netplay?.active,
+    pause, persist: persistSettings,
+    changed: reset => {
+      if (reset) { reports.reset(); conveniences.reset(); resetMeasurements(); }
+      reports.invalidateTimeline();
+    },
+  });
   netplay = new NetplayControls({
     game,
     available: () => loaded && !busy && !reports.crashed,

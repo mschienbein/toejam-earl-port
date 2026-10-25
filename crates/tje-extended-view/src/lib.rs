@@ -1,9 +1,8 @@
-//! Opt-in terrain rendering from the user's RAM map and ROM metatile tables.
+//! Explicit opt-in world presentation from the user's cartridge and live state.
 //!
-//! No shipping crate depends on this experiment. The renderer borrows state and
-//! caller-owned output, never reads VDP name tables, and cannot mutate simulation.
-//! Optional gameplay hooks live separately behind the `enhanced-mode` feature.
-//! See docs/EXTENDED_VIEW.md for the scene/sprite composition boundary.
+//! Faithful callers keep the original framebuffer and never construct a presenter.
+//! The wider view composes RAM-map terrain and runtime-decoded entity pieces,
+//! preserving the original center and pillarboxing authored scenes.
 #![forbid(unsafe_code)]
 
 use std::fmt;
@@ -11,6 +10,7 @@ use tje_mem::{AddressSpace, ram, rom};
 
 #[cfg(feature = "enhanced-mode")]
 pub mod enhanced;
+pub mod presentation;
 
 pub const NATIVE_WIDTH: usize = 320;
 pub const WIDESCREEN_WIDTH: usize = 400;
@@ -151,6 +151,7 @@ pub enum RenderError {
     InvalidMetatile(u8),
     InvalidOverlay(u8),
     OutputLength { expected: usize, actual: usize },
+    InvalidSprite(&'static str),
 }
 
 impl fmt::Display for RenderError {
@@ -176,6 +177,7 @@ impl fmt::Display for RenderError {
             Self::OutputLength { expected, actual } => {
                 write!(formatter, "expected {expected} output pixels, got {actual}")
             }
+            Self::InvalidSprite(reason) => write!(formatter, "invalid runtime sprite: {reason}"),
         }
     }
 }
@@ -389,7 +391,12 @@ impl<'a> MapRenderer<'a> {
             let x = if tile & 0x0800 != 0 { 7 - x } else { x };
             let byte = self.vram[pattern_row + x / 2];
             let color = if x & 1 == 0 { byte >> 4 } else { byte & 15 };
-            *pixel = IndexedPixel(flags | color);
+            let foreground_priority = if transparent_only && pixel.high_priority() {
+                0x80
+            } else {
+                0
+            };
+            *pixel = IndexedPixel(flags | color | foreground_priority);
         }
     }
 }

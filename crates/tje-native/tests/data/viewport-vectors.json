@@ -3659,6 +3659,22 @@
         320,
         480
       ]
+    },
+    {
+      "name": "400x224-extended-native-integer",
+      "source": [400, 224],
+      "target": [1200, 672],
+      "pixel_shape": "native",
+      "scale": "integer",
+      "expected": [0, 0, 1200, 672]
+    },
+    {
+      "name": "512x224-experimental-native-fit",
+      "source": [512, 224],
+      "target": [1024, 448],
+      "pixel_shape": "native",
+      "scale": "fit",
+      "expected": [0, 0, 1024, 448]
     }
   ]
 }

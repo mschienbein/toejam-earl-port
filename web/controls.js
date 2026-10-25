@@ -1,4 +1,4 @@
-import { ACTIONS, ACTION_LABELS, bindingLabel, defaultPlayer, keyLabel, sourcePressed, validKeyboardCode } from './input.js';
+import { CONTROL_ACTIONS, CONTROL_LABELS, bindingLabel, defaultPlayer, keyLabel, sourcePressed, validKeyboardCode } from './input.js';
 
 function element(tag, text, attributes = {}) {
   const value = document.createElement(tag);
@@ -43,10 +43,10 @@ export class ControlSettings {
       head.append(headings);
       table.append(head);
       const body = element('tbody');
-      for (let index = 0; index < ACTIONS.length; index++) {
-        const action = ACTIONS[index];
+      for (let index = 0; index < CONTROL_ACTIONS.length; index++) {
+        const action = CONTROL_ACTIONS[index];
         const row = element('tr');
-        row.append(element('th', ACTION_LABELS[index], { scope: 'row' }));
+        row.append(element('th', CONTROL_LABELS[index], { scope: 'row' }));
         for (const kind of ['keyboard', 'gamepad']) {
           const cell = element('td');
           const button = element('button', '', { type: 'button', 'data-player': player, 'data-action': action, 'data-kind': kind });
@@ -54,7 +54,7 @@ export class ControlSettings {
           cell.append(button);
           let clear;
           if (kind === 'gamepad') {
-            clear = element('button', 'Clear', { type: 'button', class: 'clear-binding', 'aria-label': `Clear Player ${player + 1} ${ACTION_LABELS[index]} gamepad binding` });
+            clear = element('button', 'Clear', { type: 'button', class: 'clear-binding', 'aria-label': `Clear Player ${player + 1} ${CONTROL_LABELS[index]} gamepad binding` });
             clear.addEventListener('click', () => {
               this.cancel();
               this.settings.players[player].gamepad.bindings[action] = [];
@@ -157,8 +157,9 @@ export class ControlSettings {
     }
     const { player, action } = this.capture;
     for (let other = 0; other < 2; other++) {
-      for (const candidate of ACTIONS) {
+      for (const candidate of CONTROL_ACTIONS) {
         if (other === player && candidate === action) continue;
+        if (candidate === 'jam' && action !== 'jam' && !this.settings.jam.enabled) continue;
         if (this.settings.players[other].keys[candidate] === event.code) {
           this.announce(`${keyLabel(event.code)} already controls Player ${other + 1} ${candidate}. Choose another key or Escape.`);
           return;
@@ -210,6 +211,15 @@ export class ControlSettings {
       }
     }
     if (source) {
+      for (const candidate of CONTROL_ACTIONS) {
+        if (candidate === action || candidate !== 'jam' && action !== 'jam'
+            || candidate === 'jam' && action !== 'jam' && !this.settings.jam.enabled) continue;
+        if (this.settings.players[player].gamepad.bindings[candidate].some(other =>
+          other.kind === source.kind && other.index === source.index && other.direction === source.direction)) {
+          this.announce(`That source already controls ${candidate}; choose an unused Jam modifier or clear it first.`);
+          return;
+        }
+      }
       this.settings.players[player].gamepad.bindings[action] = [source];
       this.changed();
       this.finish(`Player ${player + 1} ${action} assigned to ${bindingLabel([source])}.`);

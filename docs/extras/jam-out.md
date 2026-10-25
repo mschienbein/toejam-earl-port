@@ -1,6 +1,6 @@
-# Jam Out in normal play — design, not implementation
+# Jam Out in normal play
 
-Status: proposed opt-in extra, 2026-10-25. Faithful remains the default; no shipping files change in this assignment. HD art is excluded.
+Status: initial two-player implementation, opt-in and default off. The `tje-jam-out` crate owns the bounded deterministic gesture/audio sidecar and enhanced original-call hooks. Native and browser settings expose the extra; HD art and four-player gameplay remain excluded.
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -24,7 +24,7 @@ The H40 hardware model additionally limits a scanline to twenty sprite entries a
 ## Player-facing behavior
 
 - One master setting, **Jam Out in play**, defaults off. Enabling exposes poses, instruments and a backing-music choice; the normal soundtrack remains selected until the player chooses a Jam backing track. Performance sounds and backing music can each be muted without disabling the feature.
-- A remappable `JamModifier` (default unused shoulder / keyboard J) temporarily routes A/B/C to drum/snare/clap and direction-plus-action to vocal/scratch selection. Start always remains pause. This is an enhanced action channel, not a ninth bit inserted into the original input byte.
+- A remappable `JamModifier` (default unused shoulder; conflict-free V / right Shift on native and V / N in the browser) temporarily routes A/B/C to drum/snare/clap, direction-plus-action to vocals, and A+B to scratch. Start always remains pause. This is an enhanced action channel, not a ninth bit inserted into the original input byte.
 - For a three-button-only device, an explicitly enabled B+C chord arms Jam after ten **input-phase updates**; while arming, B/C are withheld, release cancels, and A triggers the selected gesture. The UI explains the delay and lost immediate B/C access. A modern binding is the default; no existing mapping changes when the feature is off.
 - Dancing is stationary. It gives no damage, healing, distraction, invulnerability, collision change, item pickup extension or score. Hurt, terrain fall, death, elevator, sleep, Hula, active-power motion or opening a menu immediately wins over the pose. Unsafe ground/air/water states cannot start a dance.
 - Sound can be requested while a pose is unavailable, if explicitly enabled; it still obeys the sound policy below. Dances are not the existing health-sharing clap and must not call that mechanic.
@@ -36,11 +36,11 @@ These are deliberate enhanced policies, not claims about the original Jam scene.
 
 EnhancedMode's coordinated contract is a non-default `enhanced-mode` feature, a separate `EnhancedProfile(name, &'static [Translation], &'static [FramedTranslation])`, and existing `Context` callback signatures. Selected nested `call_at` targets reenter that registry; unselected targets execute compiled originals. Atomic/Functional callbacks have a synthetic RTS charge, **not** original cycle equivalence or source-proof authority. The existing opt-in `NativeCompiledOriginalCallees` profile ([P `docs/ENGINE.md:437–506`](docs/ENGINE.md#L437)) is the dispatch/physical-frame precedent, not permission to label enhanced behavior faithful.
 
-The first EnhancedMode infrastructure has **no typed sidecar, enhanced input bus or host draw-command API**. The following are requirements to implement before this feature, not APIs already delivered:
+The resumable driver now provides typed, session-owned `Sidecar` storage, full enhanced controller inputs and scheduler-driven `CallOriginal`/`ContinueOriginal` actions. Jam's immutable initial configuration participates in the snapshot identity; mutable settings, release latches, pose clocks, pending requests and cooldowns are restored atomically with the machine. No Jam state is stored in guessed free 68000 RAM.
 
-1. An owned `EnhancedState::Jam` available through a narrow runtime context service; no global/thread-local singleton and no writes into guessed free 68000 RAM.
-2. Frame/phase-stamped enhanced input, plus a deterministic phase callback for gesture progression and music-request arbitration. It must resume at video boundaries; no blocking scene, wait-for-release or VBlank spin loop inside an atomic override.
-3. The ExtendedView render sidecar's per-actor presentation override, decoded from the imported ROM. A native/WebAssembly equivalent is required before browser exposure.
+The initial implementation keeps the original player actors and all their gameplay animation/motion fields intact. `GetPlayerInput` runs its compiled original before consuming explicit enhanced gestures. `ProcessPlayers` and the graphics-queue phase run their complete original bodies before Jam eligibility/animation work. The host presenter resolves the selected Jam frame from the imported cartridge without a new VDP allocation.
+
+The modifier is a separate enhanced action (the unused controller `Mode` field in the enhanced input envelope), not a ninth bit in a three-button wire byte. Conflict-free default keyboard bindings are V for player one and right Shift (native) / N (browser) for player two: J is already an ordinary player-two button in both frontends. Existing keyboard/gamepad mappings are never silently changed. Modifier bindings are remappable; conflicting bindings are rejected before activation.
 
 ### Override boundaries
 
@@ -99,4 +99,10 @@ Tests required before shipping:
 5. Simultaneous four-seat requests, boombox/cutscene changes, FM ownership, PCM cooldown and pause resume have repeatable request order. Capture/hash enhanced audio separately from faithful baselines.
 6. Snapshot/restore then replay identical inputs reproduces Jam state, pixels and audio; renderer cache destruction/rebuild gives the same result. Netplay cannot enable this until the enhanced envelope is negotiated.
 
-Main owns final workspace/replay gates. This assignment runs no games, builds or tests: only this design document is delivered.
+The initial implementation uses the existing sequencer and bank-loader cadence, not either Jam scene VBlank. The audio arbiter runs once per original service frame, drops losing requests and retains ordinary PCM/PSG/FM ownership. ToeJam uses PCM resources, Earl uses the original FM effect identities. Backing choice 0 preserves the normal soundtrack; choices 1–6 remap existing template loads to Jam banks. A bank transition consumes a normal music-service slot instead of calling the sequencer twice. Normal selection is resumed when the extra/backing choice is disabled.
+
+Authored pause/map/menu/elevator/ship/ending boundaries suspend Jam through before-only hooks; ordinary world input resumes ownership without reviving an old pose. The first frontend enable explicitly restarts the cartridge at power-on to activate the enhanced driver without discarding a suspended physical frame. Later settings changes are applied and counted at deterministic input/audio phases without restarting. Disabling clears the extra but never relabels the already-enhanced trajectory as faithful. A new default/off session never constructs the Jam profile. Controller-only recording/replay and netplay cannot opt into these unnegotiated enhanced inputs.
+
+Unit coverage includes every original input byte with the extra off, chord timing, independent release latches, pause priority, unsafe-state cancellation, runtime sequence stepping, draw-count independence, muted poses, original-audio priority, cooldown/drop order and sidecar roundtrips. The opt-in `tje-jam-out/native-tests` private-ROM test drives both characters through compiled original gameplay in both revisions, then compares snapshot-replayed frame/audio/presentation hashes. Private execution evidence and the exact gate results are kept in `scratch/JamOutPlay/report.md`, not published cartridge-derived captures.
+
+Four-seat gameplay/palettes, enhanced input-session file recording and negotiated enhanced netplay are outside this initial two-player phase; the existing default faithful paths remain unchanged.

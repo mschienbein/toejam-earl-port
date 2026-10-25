@@ -3448,14 +3448,28 @@ dependencies = [
 name = "tje-extended-view"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "clap",
  "genesis-config",
+ "jgenesis-common",
+ "sha1",
  "tje-engine-cranelift",
  "tje-engine-runtime",
  "tje-game",
  "tje-mem",
  "tje-rom",
  "tje-session",
+]
+
+[[package]]
+name = "tje-extras"
+version = "0.1.0"
+dependencies = [
+ "tje-engine-runtime",
+ "tje-extended-view",
+ "tje-game",
+ "tje-jam-out",
+ "tje-mem",
 ]
 
 [[package]]
@@ -3482,6 +3496,22 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tje-engine-core",
+ "tje-engine-runtime",
+ "tje-game",
+ "tje-mem",
+ "tje-rom",
+ "tje-session",
+]
+
+[[package]]
+name = "tje-jam-out"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "genesis-config",
+ "serde",
+ "sha2",
+ "tje-engine-cranelift",
  "tje-engine-runtime",
  "tje-game",
  "tje-mem",
@@ -3518,6 +3548,9 @@ dependencies = [
  "tje-display",
  "tje-engine-cranelift",
  "tje-engine-runtime",
+ "tje-extended-view",
+ "tje-extras",
+ "tje-jam-out",
  "tje-mem",
  "tje-netplay",
  "tje-rom",
@@ -3612,6 +3645,9 @@ dependencies = [
  "tje-engine-runtime",
  "tje-engine-verify",
  "tje-engine-wasmgen",
+ "tje-extended-view",
+ "tje-extras",
+ "tje-jam-out",
  "tje-mem",
  "tje-native-platform",
  "tje-netplay",

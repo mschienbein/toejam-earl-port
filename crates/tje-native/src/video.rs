@@ -492,6 +492,7 @@ fn viewport(
     // Genesis NTSC pixel aspect: H32=8/7, H40=32/35. An interlaced
     // doubled-height buffer needs the corresponding doubled PAR.
     let par = match pixel_shape {
+        PixelShape::Native if (400..=512).contains(&width) && height == 224 => 1.0,
         PixelShape::Native => {
             let normal_par = if width < 300 { 8.0 / 7.0 } else { 32.0 / 35.0 };
             normal_par * if height >= 448 { 2.0 } else { 1.0 }
@@ -538,7 +539,7 @@ mod tests {
         let data: Vectors =
             serde_json::from_str(include_str!("../tests/data/viewport-vectors.json")).unwrap();
         assert_eq!(data.version, 1);
-        assert_eq!(data.vectors.len(), 192);
+        assert_eq!(data.vectors.len(), 194);
         for vector in data.vectors {
             let actual = viewport(
                 vector.target[0],

@@ -140,6 +140,27 @@ pub struct Binding {
     pub key: Option<KeyCode>,
     pub gamepad: Option<PadButton>,
 }
+
+/// Enhanced-only action binding; never added to the original input byte.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct JamBinding {
+    pub key: Option<KeyCode>,
+    pub gamepad: Option<PadButton>,
+}
+
+pub fn jam_bindings() -> [JamBinding; 2] {
+    [
+        JamBinding {
+            key: Some(KeyCode::KeyV),
+            gamepad: Some(PadButton::LeftTrigger),
+        },
+        JamBinding {
+            key: Some(KeyCode::ShiftRight),
+            gamepad: Some(PadButton::LeftTrigger),
+        },
+    ]
+}
 fn enabled() -> bool {
     true
 }
@@ -246,6 +267,7 @@ impl PlayerBindings {
 pub struct Controllers {
     pub connected: [bool; 2],
     pub buttons: [[bool; 8]; 2],
+    pub jam: [bool; 2],
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -444,6 +466,29 @@ impl Input {
             }
         }
         result
+    }
+
+    pub fn jam_modifiers(
+        &self,
+        players: &[PlayerBindings; 2],
+        bindings: &[JamBinding; 2],
+    ) -> [bool; 2] {
+        std::array::from_fn(|index| {
+            let player = &players[index];
+            if !player.enabled {
+                return false;
+            }
+            let binding = bindings[index];
+            binding.key.is_some_and(|key| self.keys.contains(&key))
+                || player.gamepad_enabled
+                    && self.slots.id(player.gamepad_slot).is_some_and(|id| {
+                        let gamepad = self.gamepads.gamepad(id);
+                        gamepad.is_connected()
+                            && binding
+                                .gamepad
+                                .is_some_and(|button| button.pressed(&gamepad, player.deadzone))
+                    })
+        })
     }
 }
 

@@ -54,6 +54,27 @@
       <p id="metrics" class="small"></p>
       <p id="settings-notice" class="small" role="status"></p>
     </section>
+    <details id="extended-view-settings">
+      <summary>Extended view — default off</summary>
+      <label for="extended-view">World width <select id="extended-view" aria-describedby="extended-view-help">
+        <option value="0">Faithful (320 × 224)</option>
+        <option value="400">Extended 16:9 (400 × 224)</option>
+        <optgroup label="Explicitly experimental">
+          <option value="408">408 × 224</option><option value="416">416 × 224</option>
+          <option value="424">424 × 224</option><option value="432">432 × 224</option>
+          <option value="440">440 × 224</option><option value="448">448 × 224</option>
+          <option value="456">456 × 224</option><option value="464">464 × 224</option>
+          <option value="472">472 × 224</option><option value="480">480 × 224</option>
+          <option value="488">488 × 224</option><option value="496">496 × 224</option>
+          <option value="504">504 × 224</option><option value="512">512 × 224</option>
+        </optgroup>
+      </select></label>
+      <p id="extended-view-help" class="small">Choose before importing your ROM. Changes apply on the next import or page reload.
+        Extra world columns use square pixels. Both split-screen views widen independently; maps, inventory panels,
+        elevators and cutscenes keep their authored 320-pixel centers. Requires an enhanced build, and starts a distinct
+        enhanced session; faithful netplay and controller-only report recordings are unavailable.</p>
+      <p id="extended-view-notice" role="status" aria-live="polite"></p>
+    </details>
     <details id="convenience-settings">
       <summary>Convenience extras — default off</summary>
       <label><input id="enable-save-states" type="checkbox"> Local save states (F2 save / F3 load / F4 next slot)</label>
@@ -70,6 +91,28 @@
       <p class="small">Five private slots per ROM in local IndexedDB; no uploads. Save states contain copyrighted runtime RAM and must never be published.
         Loading a state or rewinding disables power-on input reports until Reset. Rewind samples every 3 frames and evicts old checkpoints.
         Existing custom key mappings win; Tab continues to move focus. Hold shortcuts work only while the game canvas has focus.</p>
+    </details>
+    <details id="jam-settings">
+      <summary>Jam Out in play — default off</summary>
+      <label><input id="jam-enabled" type="checkbox"> Jam Out in play (enhanced session)</label>
+      <label><input id="jam-sounds" type="checkbox" checked> Performance sounds</label>
+      <label><input id="jam-soundsWhileBusy" type="checkbox"> Allow sounds when a dance pose is unavailable</label>
+      <label><input id="jam-chord" type="checkbox"> Three-button B+C fallback: hold for ten input updates; A performs</label>
+      <label>Backing music <select id="jam-backing">
+        <option value="0">Normal soundtrack</option>
+        <option value="1">Jam track 1</option><option value="2">Jam track 2</option>
+        <option value="3">Jam track 3</option><option value="4">Jam track 4</option>
+        <option value="5">Jam track 5</option><option value="6">Jam track 6</option>
+      </select></label>
+      <p class="small">Hold the remappable Jam modifier (P1 V / P2 N, or left shoulder): A/B/C drum/snare/clap;
+        direction + action vocals; A+B scratch. Start always pauses. J is already assigned to Player 2, so no existing controls are stolen.
+        Dances are stationary, interruptible and cosmetic: no healing, damage or invulnerability.
+        The optional B+C fallback delays inventory/map and cancels on release.</p>
+      <p class="small">The first enable explicitly restarts the cartridge at power-on to activate the enhanced driver safely.
+        Later Jam settings changes do not restart the game; disabling retains the enhanced identity.</p>
+      <p class="small">Normal music remains selected until you choose a Jam track. Pause, boombox, elevators and authored scenes keep audio ownership.
+        Enabling retains an enhanced session identity even if later disabled; controller-only recordings and netplay cannot reproduce these extra inputs.</p>
+      <p id="jam-notice" role="status" aria-live="polite"></p>
     </details>
     <details id="control-settings">
       <summary>Controls and remapping</summary>

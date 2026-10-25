@@ -1,0 +1,24 @@
+[package]
+name = "tje-jam-out"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+enhanced-mode = ["dep:tje-engine-runtime", "dep:tje-game", "dep:genesis-config"]
+native-tests = ["enhanced-mode", "dep:tje-engine-cranelift", "dep:tje-session", "dep:sha2", "dep:tje-rom"]
+
+[dependencies]
+bincode = "2"
+serde = { version = "1", features = ["derive"] }
+tje-mem = { path = "../tje-mem" }
+tje-engine-runtime = { path = "../tje-engine-runtime", features = ["enhanced-mode"], optional = true }
+tje-game = { path = "../tje-game", features = ["enhanced-mode"], optional = true }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
+tje-engine-cranelift = { path = "../tje-engine-cranelift", features = ["devices", "enhanced-mode"], optional = true }
+tje-session = { path = "../tje-session", optional = true }
+tje-rom = { path = "../tje-rom", optional = true }
+sha2 = { version = "0.10", optional = true }
