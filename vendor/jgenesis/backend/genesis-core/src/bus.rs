@@ -89,6 +89,11 @@ impl PendingWrites {
         self.byte.clear();
         self.word.clear();
     }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    pub(crate) fn reference_is_empty(&self) -> bool {
+        self.byte.is_empty() && self.word.is_empty()
+    }
 }
 
 struct VdpView<'bus> {
@@ -763,6 +768,10 @@ impl GenesisBus {
         address: u32,
         purpose: m68000_emu::ReadPurpose,
     ) -> u16 {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.timing_survey {
+            survey.reference_proof.cpu_access();
+        }
         let value = self.m68k_read_inner::<WORD>(address, purpose);
         if let Some(trace) = &mut self.native_cpu_accesses {
             let purpose = match purpose {
@@ -872,6 +881,12 @@ impl GenesisBus {
 
     fn apply_write<const WORD: bool>(&mut self, address: u32, value: u16, actor: WriteActor) {
         let address = address & 0xFFFFFF;
+        #[cfg(feature = "reference-proof-hooks")]
+        if matches!(actor, WriteActor::M68k)
+            && let Some(survey) = &mut self.timing_survey
+        {
+            survey.reference_proof.physical_commit();
+        }
         // Device dispatch precedes any DMA it triggers; RAM is observed below
         // only after its queued write has actually committed.
         if (0x400000..0xE00000).contains(&address)
@@ -925,10 +940,25 @@ impl GenesisBus {
             0xA11100 => {
                 self.z80_signals.busreq = if WORD { value.bit(8) } else { value.bit(0) };
                 log::trace!("Set Z80 BUSREQ to {}", self.z80_signals.busreq);
+                #[cfg(feature = "reference-proof-hooks")]
+                if let Some(survey) = &mut self.timing_survey {
+                    survey.reference_proof.busreq_commit(
+                        &mut self.memory,
+                        self.cycles.m68k_mclk_cycles,
+                        WORD,
+                        value,
+                        matches!(actor, WriteActor::M68k),
+                        self.z80_signals.reset_asserted(),
+                    );
+                }
             }
             0xA11200 => {
                 let z80_reset = if WORD { !value.bit(8) } else { !value.bit(0) };
                 self.set_z80_reset(z80_reset);
+                #[cfg(feature = "reference-proof-hooks")]
+                if let Some(survey) = &mut self.timing_survey {
+                    survey.reference_proof.reset_commit(self.cycles.m68k_mclk_cycles);
+                }
             }
             0xA13000..=0xA13FFF if let Some(cartridge) = self.cartridge_mut() => {
                 // TIME signal; used by various cartridge mapper registers
@@ -1218,6 +1248,10 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.timing_survey {
+            survey.reference_proof.cpu_access();
+        }
         if let Some(trace) = &mut self.native_cpu_accesses {
             trace.push(crate::native::CpuAccess::Write {
                 address: address & 0xFFFFFF,
@@ -1230,6 +1264,10 @@ impl m68000_emu::BusInterface for GenesisBus {
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.timing_survey {
+            survey.reference_proof.cpu_access();
+        }
         if let Some(trace) = &mut self.native_cpu_accesses {
             trace.push(crate::native::CpuAccess::Write {
                 address: address & 0xFFFFFF,
@@ -1371,7 +1409,23 @@ impl z80_emu::BusInterface for GenesisBus {
         match address {
             0x0000..=0x3FFF => {
                 // Z80 RAM (mirrored at $2000-$3FFF)
+                #[cfg(feature = "reference-proof-hooks")]
+                if address & 0x1fff == 0x41
+                    && let Some(survey) = &mut self.timing_survey
+                {
+                    survey
+                        .reference_proof
+                        .check_unclaimed(&mut self.memory, self.cycles.m68k_mclk_cycles);
+                }
                 self.memory.write_audio_ram(address, value);
+                #[cfg(feature = "reference-proof-hooks")]
+                if address & 0x1fff == 0x41
+                    && let Some(survey) = &mut self.timing_survey
+                {
+                    survey
+                        .reference_proof
+                        .physical_audio_write(&mut self.memory, self.cycles.m68k_mclk_cycles);
+                }
             }
             0x4000..=0x5FFF => {
                 self.timing_write_ym(address, value);

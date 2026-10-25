@@ -1267,6 +1267,8 @@ dependencies = [
  "libm",
  "log",
  "m68000-emu",
+ "serde",
+ "sha1",
  "thiserror 2.0.21",
  "ti-sn76489",
  "z80-emu",

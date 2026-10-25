@@ -43,6 +43,11 @@ UPSTREAM_URL = "https://github.com/jsgroth/jgenesis"
 UPSTREAM_REVISION = "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb"
 VENDOR_PREFIX = "vendor/jgenesis/"
 VENDOR_MANIFEST = VENDOR_PREFIX + "UPSTREAM.json"
+# Exact project-authored proof-only additions, never upstream/content exemptions.
+LOCAL_VENDOR_FILES = frozenset({
+    "backend/genesis-core/src/reference_proof.rs",
+    "backend/genesis-core/src/reference_proof/tests.rs",
+})
 MAX_BYTES = 1_000_000
 MAX_DECODED_BYTES = 16 * MAX_BYTES
 MIN_SYNTAX_NODES = 4096
@@ -2020,14 +2025,16 @@ class VendorAudit:
                     or type(spec["modified"]) is not bool):
                 raise AuditError(f"invalid vendor manifest entry for {relative!r}")
             path, oid = spec["upstream_path"], spec["upstream_blob"]
-            if path is None and oid is None:
-                # This project-authored notice has no upstream counterpart and gets
-                # no exemption: its complete contents are audited normally.
+            if relative in LOCAL_VENDOR_FILES:
+                if path is not None or oid is not None or spec["modified"] is not True:
+                    raise AuditError("local vendor proof sources must be fully audited without an upstream baseline")
+            elif path is None and oid is None:
+                # The project-authored notice also receives no content exemption.
                 if relative != "NOTICE.md" or spec["modified"] is not True:
-                    raise AuditError("only the local NOTICE.md may lack an upstream baseline")
+                    raise AuditError("only declared local vendor sources may lack an upstream baseline")
             else:
                 path = safe_vendor_path(path)
-                if (not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}", oid)
+                if (path != relative or not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}", oid)
                         or self.upstream.files.get(path) != oid):
                     raise AuditError(f"vendor entry {relative!r} does not match the pinned upstream tree")
             entries[relative] = VendorEntry(path, oid, spec["modified"])
@@ -2093,8 +2100,10 @@ def generate_vendor_manifest(repo: Path) -> dict:
         if path.is_symlink():
             raise AuditError("cannot generate provenance for a vendored symlink")
         oid = upstream.files.get(relative)
-        if oid is None and relative != "NOTICE.md":
+        if oid is None and relative != "NOTICE.md" and relative not in LOCAL_VENDOR_FILES:
             raise AuditError(f"vendored file {relative!r} has no pinned upstream counterpart")
+        if relative in LOCAL_VENDOR_FILES and oid is not None:
+            raise AuditError("declared local vendor proof path collides with pinned upstream")
         modified = oid is None or not path.is_file() or git_blob_id(path.read_bytes()) != oid
         files[relative] = {"upstream_path": relative if oid is not None else None,
                            "upstream_blob": oid, "modified": modified}

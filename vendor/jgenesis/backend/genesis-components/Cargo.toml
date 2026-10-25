@@ -7,6 +7,8 @@ version.workspace = true
 [features]
 default = ["m68000-timing"]
 m68000-timing = ["dep:m68000-emu"]
+# TJE physical target-byte writer audit, used only by authored reference fixtures.
+reference-proof-hooks = []
 
 [dependencies]
 jgenesis-common = { workspace = true }

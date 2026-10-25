@@ -10,6 +10,13 @@ edition = "2024"
 [features]
 default = ["emulator"]
 emulator = ["dep:m68000-emu", "genesis-components/m68000-timing"]
+# TJE authored reference fixtures only; never enabled by a shipping frontend.
+reference-proof-hooks = [
+    "emulator",
+    "genesis-components/reference-proof-hooks",
+    "dep:serde",
+    "dep:sha1",
+]
 
 [dependencies]
 dsp = { workspace = true }
@@ -28,6 +35,8 @@ bincode = { workspace = true }
 libm = { workspace = true, default-features = false, features = ["force-soft-floats"] }
 log = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+sha1 = { version = "0.10", optional = true }
 
 [lints]
 workspace = true

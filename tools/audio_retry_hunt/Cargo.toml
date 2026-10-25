@@ -1,0 +1,24 @@
+[package]
+name = "audio-retry-hunt"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+bincode = "2"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+genesis-core = { path = "../../vendor/jgenesis/backend/genesis-core", features = ["reference-proof-hooks"] }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config" }
+jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
+tje-rom = { path = "../../crates/tje-rom" }
+tje-session = { path = "../../crates/tje-session" }
+
+[profile.release]
+debug = false
+strip = true

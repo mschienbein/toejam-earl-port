@@ -7,6 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 default-run = "tje-host"
 
+[features]
+reference-proof-hooks = ["genesis-core/reference-proof-hooks"]
+
 [dependencies]
 anyhow = "1"
 bincode = "2"

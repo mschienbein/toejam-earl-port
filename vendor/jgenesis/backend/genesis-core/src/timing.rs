@@ -299,6 +299,8 @@ pub mod survey {
         draining: bool,
         replaying: bool,
         previous_line: u16,
+        #[cfg(feature = "reference-proof-hooks")]
+        pub(crate) reference_proof: crate::reference_proof::ReferenceProof,
     }
 
     impl Default for TimingSurvey {
@@ -315,6 +317,8 @@ pub mod survey {
                 draining: false,
                 replaying: false,
                 previous_line: 0,
+                #[cfg(feature = "reference-proof-hooks")]
+                reference_proof: Default::default(),
             }
         }
     }

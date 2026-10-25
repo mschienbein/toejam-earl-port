@@ -68,7 +68,7 @@ addon hardware or pull addon code/firmware into the dependency graph.
 ## Modified files
 
 Local changes are marked `TJE hybrid`, `TJE standalone cutover`, `TJE timing survey`,
-or `TJE native` in code:
+`TJE native`, or `TJE reference proof` in code:
 
 - `backend/genesis-core/Cargo.toml`: remove CD, 32X, SH-2 and addon debugger-test dependencies.
 - `backend/genesis-core/src/api.rs`: standalone-only construction/reset/render/tick/save API, remove addon/channel-debugger paths, and add narrow CPU/bus borrow accessors for instruction-boundary interception.
@@ -186,6 +186,28 @@ Additional `TJE native` device-only interfaces:
   both construction and imported state, and on a cold output-rate change, never
   on source entry. All four paths already carry `modified: true` provenance in
   `UPSTREAM.json`; their original upstream paths/blobs are unchanged.
+
+- `backend/{genesis-core,genesis-components}/Cargo.toml` and
+  `backend/genesis-core/src/{lib,api,bus,timing}.rs`: default-off
+  `reference-proof-hooks` feature and opt-in original-execution/physical-commit/
+  actual-Z80-tick-tail bridge. The shared observer lives in the existing optional
+  timing survey, so strict full-control encodings retain its provenance without
+  weakening exhaustive bus-field bindings. Ordinary construction retains the
+  original reset execution and ignored charge; there is no added device advance.
+- `backend/genesis-core/src/reference_proof.rs` and its ROM-free tests are local
+  additions. One explicitly authored, non-natural audio fixture may write only
+  physical Z80 byte `0x41` once at the authenticated original owner BUSREQ take
+  and restore its saved zero once after exactly 112 eligible actual Z80 ticks
+  following the first original retry release. There is no persistent override,
+  CPU/request edit, inferred delay, readiness substitution or natural admission.
+  Typed commit/tick/byte receipts, sticky failures and nonserializable live-origin
+  authority prevent failed, decoded or speculative evidence from being upgraded.
+- `backend/genesis-components/src/memory.rs`: feature-gated physical target-byte
+  writer journal observes aliases and same-value writes, preserves unexpected
+  writes, and invalidates opaque mutable RAM access. No watch is installed in
+  normal operation. The feature and its optional dependencies are excluded from
+  shipping frontend graphs; the package shipping-graph test guards both native
+  and actual WebAssembly/browser dependency resolution. See the core README.
 
 Removed upstream source modules, rather than leaving unsupported feature paths:
 

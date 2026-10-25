@@ -29,3 +29,57 @@ This crate contains code for the following:
 * Genesis memory map
 * SVP chip, an auxiliary processor used by _Virtua Racing_
 * Genesis main loop
+
+## TJE reference proof hooks
+
+`reference-proof-hooks` is an explicitly enabled development feature. It is
+default-off and forbidden by the native/frontend shipping dependency-graph test,
+including the actual `wasm32-unknown-unknown` browser graph. It implies the
+reference emulator; it is not a peripheral-only shipping feature.
+
+`GenesisEmulator::create_with_reference_proof` installs passive original-opcode
+provenance before the existing power-on reset. It neither arms a perturbation nor
+adds a reset charge or device-clock advance. Ordinary `create` retains its prior
+behavior. The single `reference_proof` module owns this development-only bridge;
+normal source timing and pending-write order are unchanged.
+
+The authored audio fixture lane accepts only a pinned retail revision and a
+session/SHA-1/frame/original-instruction binding at a real pending PCM/PSG owner
+invocation. It authenticates the preceding original sequencer JSR, the retained
+caller frame and CPU exit state, and the actual cartridge identity. At that
+owner's committed word BUSREQ take, it physically writes only Z80 RAM byte
+`0x41` from its required initial zero to one. Initial command byte `0x40` must also
+be zero. From the first original retry-release commit, it counts exactly 112
+actually invoked Z80 ticks that are released, non-reset and not VDP-halted, then
+restores the saved zero at that exact tick tail.
+
+This is two one-shot physical writes, not a held value, read overlay, readiness
+override, guessed 68000 delay or clock change. A physical writer journal catches
+all target-byte aliases and same-value writes. Intervening writes are preserved
+and logged; an unexpected writer, opaque mutable RAM view, missing journal,
+non-original execution, reset or diagnostic-ceiling excess fails permanently before any
+successful receipt. Failure never reasserts one or silently restores zero.
+
+Typed receipts retain the original commit/access/instruction locators, every
+eligible tick and every physical target-byte event. Their event ordinals define
+chronology; clock fields retain the reference model's respective processor
+counters, not a claim of sub-instruction physical-console bus accuracy. A receipt
+can be completed only after the original owner returns through its real RTS and
+the existing caller frame. All such receipts are explicitly `natural: false`;
+they do not admit a Rust body or establish natural reachability.
+
+Live-origin authority is private and never serialized. Decoding or speculative
+cloning invalidates it; archival receipts and state-shaped copies cannot mint a
+live provider. Proof tooling must replay the input-only session from power-on and
+verify its source hash. Never publish machine snapshots, cartridge content or
+prefetch/open-bus payloads.
+
+Audio source authority is irreversibly invalidated by non-original execution even
+before arming, any public mutable CPU/bus escape (including same-value use), and
+public state/configuration mutation or import. The provider uses private internal
+access; tools drain only observer metadata through the dedicated read-only drain.
+Completion also requires a fresh actual owner RTS exit, identical CPU checkpoint
+and unchanged execution epoch. Unarmed archival clones may execute passive
+analysis, but cannot arm or seal; active mutating clones remain fail-closed.
+The 1,024-original-instruction limit is an operational diagnostic ceiling only,
+not a proved source bound, completion guarantee or extra runtime allowance.

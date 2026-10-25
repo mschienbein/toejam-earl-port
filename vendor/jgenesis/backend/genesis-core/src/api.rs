@@ -29,6 +29,9 @@ pub enum GenesisError<RErr, AErr, SErr> {
     Audio(AErr),
     #[error("Save write error: {0}")]
     Save(SErr),
+    #[cfg(feature = "reference-proof-hooks")]
+    #[error(transparent)]
+    ReferenceProof(#[from] crate::reference_proof::ProofFailure),
 }
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
@@ -96,6 +99,8 @@ impl GenesisEmulator {
 
     // TJE hybrid accessors: retain the upstream instruction/timing loop.
     pub fn hybrid_parts(&mut self) -> (&mut M68000, &mut GenesisBus) {
+        #[cfg(feature = "reference-proof-hooks")]
+        self.invalidate_reference_mutation();
         (&mut self.m68k, &mut self.bus)
     }
 
@@ -108,7 +113,40 @@ impl GenesisEmulator {
     }
 
     pub fn hybrid_bus_mut(&mut self) -> &mut GenesisBus {
+        #[cfg(feature = "reference-proof-hooks")]
+        self.invalidate_reference_mutation();
         &mut self.bus
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    pub(crate) fn reference_parts(&mut self) -> (&mut M68000, &mut GenesisBus) {
+        (&mut self.m68k, &mut self.bus)
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    fn invalidate_reference_mutation(&mut self) {
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey.reference_proof.public_mutable_escape(self.bus.cycles.m68k_mclk_cycles);
+        }
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    fn reject_reference_import(&mut self) -> bool {
+        let has_audio = self
+            .bus
+            .timing_survey
+            .as_ref()
+            .is_some_and(|survey| survey.reference_proof.has_audio_interval());
+        self.invalidate_reference_mutation();
+        has_audio
+    }
+
+    /// Drain observer metadata only; never expose a mutable CPU/device or proof credential.
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn drain_reference_timing_accesses(
+        &mut self,
+    ) -> Option<std::vec::Drain<'_, crate::timing_survey::TimingAccess>> {
+        self.bus.timing_survey.as_mut().map(|survey| survey.accesses.drain(..))
     }
 
     /// TJE native: fork the retained devices and data, not the 68000 engine.
@@ -146,6 +184,34 @@ impl GenesisEmulator {
     }
 
     pub fn create<S: SaveWriter>(
+        cartridge_rom: Option<Vec<u8>>,
+        config: GenesisEmulatorConfig,
+        save_writer: &mut S,
+    ) -> Self {
+        let mut emulator = Self::create_unreset(cartridge_rom, config, save_writer);
+        emulator.reset_initial_cpu();
+        emulator
+    }
+
+    /// Explicit reference proof observation from real power-on, before reset.
+    /// No perturbation is armed by this constructor or by enabling its Cargo feature.
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn create_with_reference_proof<S: SaveWriter>(
+        cartridge_rom: Option<Vec<u8>>,
+        config: GenesisEmulatorConfig,
+        save_writer: &mut S,
+    ) -> Self {
+        let mut emulator = Self::create_unreset(cartridge_rom, config, save_writer);
+        let mut survey = crate::timing_survey::TimingSurvey::default();
+        survey.reference_proof.observe_power_on();
+        emulator.bus.timing_survey = Some(survey);
+        emulator.m68k.hybrid_enable_instruction_counts();
+        emulator.reset_initial_cpu();
+        emulator
+    }
+
+    #[inline(always)]
+    fn create_unreset<S: SaveWriter>(
         mut cartridge_rom: Option<Vec<u8>>,
         config: GenesisEmulatorConfig,
         save_writer: &mut S,
@@ -179,14 +245,16 @@ impl GenesisEmulator {
 
         let audio_resampler = GenesisAudioResampler::new(timing_mode, &config);
 
-        let mut emulator = Self { m68k, z80, bus, timing_mode, audio_resampler, config };
+        Self { m68k, z80, bus, timing_mode, audio_resampler, config }
+    }
 
-        // Reset CPU so that execution will start from the right place
-        emulator.bus.m68k_reset = true;
-        emulator.m68k.execute_instruction(&mut emulator.bus);
-        emulator.bus.m68k_reset = false;
-
-        emulator
+    #[inline(always)]
+    fn reset_initial_cpu(&mut self) {
+        // Retain the original constructor's reset execution and ignored return
+        // charge. No device/master-clock advance is introduced by proof hooks.
+        self.bus.m68k_reset = true;
+        self.m68k.execute_instruction(&mut self.bus);
+        self.bus.m68k_reset = false;
     }
 
     #[must_use]
@@ -213,6 +281,13 @@ impl GenesisEmulator {
     /// TJE timing-only entry: publish input/opcode attribution before Rust
     /// performs this instruction's real reads and queues its writes.
     pub fn hybrid_begin_timing_instruction(&mut self, inputs: GenesisInputs) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey.reference_proof.reject_non_original(self.bus.cycles.m68k_mclk_cycles);
+            if survey.reference_proof.error().is_err() {
+                return;
+            }
+        }
         self.bus.input.set_inputs(inputs);
         self.bus.m68k_opcode = self.m68k.next_opcode();
         self.bus.timing_m68k(self.m68k.pc());
@@ -235,6 +310,11 @@ impl GenesisEmulator {
         A: AudioOutput,
         S: SaveWriter,
     {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey.reference_proof.reject_non_original(self.bus.cycles.m68k_mclk_cycles);
+            survey.reference_proof.error()?;
+        }
         let exception_return =
             !waiting && self.bus.timing_survey.is_some() && self.bus.m68k_opcode == 0x4e73;
         self.advance_devices(
@@ -259,6 +339,19 @@ impl GenesisEmulator {
         I: InputPoller<GenesisInputs>,
         S: SaveWriter,
     {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.bus.timing_survey {
+            survey
+                .reference_proof
+                .check_unclaimed(&mut self.bus.memory, self.bus.cycles.m68k_mclk_cycles);
+            survey.reference_proof.error()?;
+            survey.reference_proof.begin_original_attempt();
+        }
+        #[cfg(feature = "reference-proof-hooks")]
+        let previous_original = self
+            .m68k
+            .hybrid_instruction_counts()
+            .map(|counts| counts.main_thread + counts.exception_handler);
         self.bus.input.set_inputs(*input_poller.poll());
         self.bus.m68k_opcode = self.m68k.next_opcode();
 
@@ -273,6 +366,41 @@ impl GenesisEmulator {
         } else {
             self.m68k.execute_instruction(&mut self.bus)
         };
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &mut self.bus.timing_survey {
+            if m68k_wait {
+                survey.reference_proof.wait_step();
+            } else {
+                let original = self.m68k.hybrid_instruction_counts().and_then(|counts| {
+                    let ordinal = counts.main_thread + counts.exception_handler;
+                    let last = counts.last_instruction?;
+                    (Some(ordinal) != previous_original && last.pc == m68k_pc).then_some(
+                        crate::reference_proof::OriginalInstruction {
+                            frame: survey.reference_proof.current_frame(),
+                            ordinal,
+                            pc: last.pc,
+                            completed_successfully: last.completed_successfully,
+                        },
+                    )
+                });
+                let exit = self
+                    .m68k
+                    .hybrid_instruction_counts()
+                    .and_then(|counts| counts.last_instruction)
+                    .filter(|last| {
+                        survey.reference_proof.observing_original()
+                            && last.completed_successfully
+                            && (last.opcode == 0x4e75
+                                || (last.opcode == 0x4eb9 && (0x3ecfe..0x3f06a).contains(&last.pc)))
+                    })
+                    .map(|_| self.m68k.hybrid_state_words());
+                survey.reference_proof.original_step(
+                    original,
+                    exit,
+                    self.bus.cycles.m68k_mclk_cycles,
+                );
+            }
+        }
 
         self.advance_devices(
             ReferenceAdvance {
@@ -315,8 +443,32 @@ impl GenesisEmulator {
 
         while self.bus.cycles.should_tick_z80() {
             if !self.bus.cycles.z80_halt {
+                #[cfg(feature = "reference-proof-hooks")]
+                let proof_tick = (
+                    self.z80.pc(),
+                    self.bus.cycles.z80_mclk_cycles,
+                    !self.bus.z80_signals.bus_requested(),
+                    !self.bus.z80_signals.reset_asserted(),
+                    !self.bus.cycles.z80_halt,
+                );
+                #[cfg(feature = "reference-proof-hooks")]
+                if let Some(survey) = &mut self.bus.timing_survey {
+                    survey.reference_proof.begin_z80_tick(proof_tick.0, proof_tick.1);
+                }
                 self.bus.timing_z80(self.z80.pc());
                 self.z80.tick(&mut self.bus);
+                #[cfg(feature = "reference-proof-hooks")]
+                if let Some(survey) = &mut self.bus.timing_survey {
+                    survey.reference_proof.tick_tail(
+                        &mut self.bus.memory,
+                        proof_tick.0,
+                        proof_tick.1,
+                        proof_tick.2,
+                        proof_tick.3,
+                        proof_tick.4,
+                    );
+                    survey.reference_proof.end_z80_tick();
+                }
             }
             self.bus.cycles.z80_cycle();
         }
@@ -328,6 +480,10 @@ impl GenesisEmulator {
             m68k_wait,
             &mut self.audio_resampler,
         );
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(survey) = &self.bus.timing_survey {
+            survey.reference_proof.error()?;
+        }
         if timing_rte && !m68k_wait {
             self.bus.timing_return();
         }
@@ -335,6 +491,10 @@ impl GenesisEmulator {
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
         if vdp_tick_effect == VdpTickEffect::FrameComplete {
+            #[cfg(feature = "reference-proof-hooks")]
+            if let Some(survey) = &mut self.bus.timing_survey {
+                survey.reference_proof.frame_rendered();
+            }
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.persist_save_files(save_writer).map_err(GenesisError::Save)?;
@@ -431,6 +591,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
+        #[cfg(feature = "reference-proof-hooks")]
+        self.invalidate_reference_mutation();
         self.bus.reload_config(config);
         self.audio_resampler.reload_config(self.timing_mode, config);
 
@@ -438,6 +600,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn soft_reset(&mut self) {
+        #[cfg(feature = "reference-proof-hooks")]
+        self.invalidate_reference_mutation();
         log::info!("Soft resetting console");
 
         self.bus.reset();
@@ -448,6 +612,10 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if self.reject_reference_import() {
+            return;
+        }
         log::info!("Hard resetting console");
 
         let cartridge_rom = self.bus.cartridge_mut().map(Cartridge::take_rom);
@@ -456,6 +624,13 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn load_state(&mut self, mut state: Self::SaveState) {
+        #[cfg(feature = "reference-proof-hooks")]
+        {
+            if self.reject_reference_import() {
+                return;
+            }
+            state.invalidate_reference_mutation();
+        }
         if let Some(state_cartridge) = state.bus.cartridge_mut()
             && let Some(self_cartridge) = self.bus.cartridge_mut()
         {
@@ -474,6 +649,8 @@ impl EmulatorTrait for GenesisEmulator {
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        #[cfg(feature = "reference-proof-hooks")]
+        self.invalidate_reference_mutation();
         self.audio_resampler.update_output_frequency(output_frequency);
     }
 

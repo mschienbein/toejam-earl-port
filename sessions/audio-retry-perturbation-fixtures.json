@@ -1,0 +1,4589 @@
+{
+  "format": 1,
+  "evidence_class": "authored_reference_fixture_not_natural",
+  "natural": false,
+  "scope": "Four reproducible, labelled one-byte perturbations on unmodified power-on corpus input tapes. These are original-reference positives only; no natural occurrence, Rust-body/control-profile admission, or shipping-engine equality is claimed.",
+  "single_perturbation": {
+    "target": "physical Z80 RAM byte 0x41 (68000 address 0xA00041)",
+    "preconditions": {
+      "busy": 0,
+      "command_byte_0x40": 0
+    },
+    "activation": "One physical write1 at the authenticated original owner committed WORD A11100=0100",
+    "expiry": "One restore0 at the tail of exactly112 actually invoked released/non-reset/non-VDP-halted Z80 ticks following the first original retry-release commit",
+    "semantics": "Two one-shot byte writes, never held/reasserted/overlaid; preserve and log intervening writes; first unexpected writer or missing provenance is sticky failure",
+    "other_cpu_state_time_or_requests_changed": false
+  },
+  "locator_conventions": {
+    "frames": "zero-based input/video-frame intervals; an instruction may cross a video boundary",
+    "original_instruction_ordinal": "actual one-based retired opcode attempts since the proof constructor power-on; not sampled PC or JSR counts",
+    "receipt_cpu_access_ordinal": "all original 68000 issued read/write accesses since arming",
+    "receipt_commit_ordinal": "all original 68000 physical apply_write dispatches since arming",
+    "lock_read_scoped_access_ordinal": "M68k device TimingSurvey accesses since arming; distinct from the complete CPU-access ordinal",
+    "clock_semantics": "retained processor counters at their actual hook phase; event_ordinal is chronology, not an inferred physical-console microcycle timestamp"
+  },
+  "reproduction": {
+    "build": "source /home/michael/.local/share/tje-dev/env.sh; CARGO_TARGET_DIR=target cargo build --locked --release --manifest-path tools/audio_retry_hunt/Cargo.toml",
+    "first_run": "target/release/audio-retry-hunt --rom roms/revXX.bin --session sessions/revXX-two-player.tje.json --fixture pcm-or-psg --report fixture.json",
+    "exact_selector_replay": "target/release/audio-retry-hunt --rom roms/revXX.bin --session sessions/revXX-two-player.tje.json --fixture-recipe fixture.json --report replay.json",
+    "source": "tools/audio_retry_hunt"
+  },
+  "entries": [
+    {
+      "format": 1,
+      "scope": "Labelled authored transient Z80 byte41 perturbation on a real input-only corpus state; original reference execution only; not natural coverage or Rust/body/control-profile admission",
+      "natural": false,
+      "source_session_frames": 12000,
+      "started_input_frames": 170,
+      "completed_video_frames": 169,
+      "recipe_replayed_exactly": false,
+      "stop_boundary": "Immediately after the original owner RTS reaches its retained existing caller frame; no fake return frame or synthetic fragment RTS",
+      "executed_retry_entries": [
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991035,
+          "pc": 259612
+        }
+      ],
+      "original_lock_reads": [
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991033,
+          "pc": 259656,
+          "scoped_access_ordinal": 3,
+          "clock": 151328177,
+          "value": 1
+        },
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991068,
+          "pc": 259656,
+          "scoped_access_ordinal": 7,
+          "clock": 151330830,
+          "value": 0
+        }
+      ],
+      "receipt": {
+        "recipe": {
+          "id": "rev02-audio-pcm-busy-window-owner-1",
+          "session": "sessions/rev02-two-player.tje.json",
+          "session_sha1": "3cdff86f1c26d68cb3a371ec5f0547c8afc2d2ae",
+          "revision": "rev02",
+          "frame": 168,
+          "original_instruction_ordinal": 2991026,
+          "owner": "pcm"
+        },
+        "natural": false,
+        "cartridge_identity_verified": true,
+        "status": "completed",
+        "expected_initial_busy": 0,
+        "expected_initial_command": 0,
+        "caller_sp": 16744230,
+        "caller_return_pc": 257444,
+        "source_call": {
+          "frame": 168,
+          "ordinal": 2991025,
+          "pc": 257438,
+          "completed_successfully": true
+        },
+        "activation": {
+          "instruction": {
+            "frame": 168,
+            "ordinal": 2991026,
+            "pc": 259626,
+            "completed_successfully": true
+          },
+          "event_ordinal": 1,
+          "clock": 151327771,
+          "scoped_cpu_access_ordinal": 5,
+          "scoped_physical_commit_ordinal": 1,
+          "address": 10555648,
+          "word": true,
+          "value": 256
+        },
+        "first_retry_release": {
+          "instruction": {
+            "frame": 169,
+            "ordinal": 2991035,
+            "pc": 259612,
+            "completed_successfully": true
+          },
+          "event_ordinal": 3,
+          "clock": 151328506,
+          "scoped_cpu_access_ordinal": 28,
+          "scoped_physical_commit_ordinal": 2,
+          "address": 10555648,
+          "word": true,
+          "value": 0
+        },
+        "eligible_ticks": [
+          {
+            "ordinal_after_release": 1,
+            "event_ordinal": 4,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151328505,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 2,
+            "event_ordinal": 5,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151328520,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 3,
+            "event_ordinal": 6,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328535,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 4,
+            "event_ordinal": 7,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328550,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 5,
+            "event_ordinal": 8,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328565,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 6,
+            "event_ordinal": 9,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328580,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 7,
+            "event_ordinal": 10,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328595,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 8,
+            "event_ordinal": 11,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328610,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 9,
+            "event_ordinal": 12,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328625,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 10,
+            "event_ordinal": 13,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328640,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 11,
+            "event_ordinal": 14,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328655,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 12,
+            "event_ordinal": 15,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328670,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 13,
+            "event_ordinal": 16,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328685,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 14,
+            "event_ordinal": 17,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328700,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 15,
+            "event_ordinal": 18,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328715,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 16,
+            "event_ordinal": 19,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328730,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 17,
+            "event_ordinal": 20,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328745,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 18,
+            "event_ordinal": 21,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328760,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 19,
+            "event_ordinal": 22,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328775,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 20,
+            "event_ordinal": 23,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328790,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 21,
+            "event_ordinal": 24,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328805,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 22,
+            "event_ordinal": 25,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328820,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 23,
+            "event_ordinal": 26,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328835,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 24,
+            "event_ordinal": 27,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328850,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 25,
+            "event_ordinal": 28,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328865,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 26,
+            "event_ordinal": 29,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328880,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 27,
+            "event_ordinal": 30,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328895,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 28,
+            "event_ordinal": 31,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328910,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 29,
+            "event_ordinal": 32,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328925,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 30,
+            "event_ordinal": 33,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328940,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 31,
+            "event_ordinal": 34,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328955,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 32,
+            "event_ordinal": 35,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328970,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 33,
+            "event_ordinal": 36,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151328985,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 34,
+            "event_ordinal": 37,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329000,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 35,
+            "event_ordinal": 38,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329015,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 36,
+            "event_ordinal": 39,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329030,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 37,
+            "event_ordinal": 40,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329045,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 38,
+            "event_ordinal": 41,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329060,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 39,
+            "event_ordinal": 42,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329075,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 40,
+            "event_ordinal": 43,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329090,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 41,
+            "event_ordinal": 44,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329105,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 42,
+            "event_ordinal": 45,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329120,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 43,
+            "event_ordinal": 46,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329135,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 44,
+            "event_ordinal": 47,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329150,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 45,
+            "event_ordinal": 48,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329165,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 46,
+            "event_ordinal": 49,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329180,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 47,
+            "event_ordinal": 50,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329195,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 48,
+            "event_ordinal": 51,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329210,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 49,
+            "event_ordinal": 52,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329225,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 50,
+            "event_ordinal": 53,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329240,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 51,
+            "event_ordinal": 54,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329255,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 52,
+            "event_ordinal": 55,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329270,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 53,
+            "event_ordinal": 56,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329285,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 54,
+            "event_ordinal": 57,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329300,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 55,
+            "event_ordinal": 58,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329315,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 56,
+            "event_ordinal": 59,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329330,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 57,
+            "event_ordinal": 60,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329345,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 58,
+            "event_ordinal": 61,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329360,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 59,
+            "event_ordinal": 62,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329375,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 60,
+            "event_ordinal": 63,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329390,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 61,
+            "event_ordinal": 64,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329405,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 62,
+            "event_ordinal": 65,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329420,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 63,
+            "event_ordinal": 66,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329435,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 64,
+            "event_ordinal": 67,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329450,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 65,
+            "event_ordinal": 68,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329465,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 66,
+            "event_ordinal": 69,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329480,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 67,
+            "event_ordinal": 70,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329495,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 68,
+            "event_ordinal": 71,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329510,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 69,
+            "event_ordinal": 72,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329525,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 70,
+            "event_ordinal": 73,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329540,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 71,
+            "event_ordinal": 74,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329555,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 72,
+            "event_ordinal": 75,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329570,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 73,
+            "event_ordinal": 76,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329585,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 74,
+            "event_ordinal": 77,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329600,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 75,
+            "event_ordinal": 78,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329615,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 76,
+            "event_ordinal": 79,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329630,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 77,
+            "event_ordinal": 80,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329645,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 78,
+            "event_ordinal": 81,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329660,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 79,
+            "event_ordinal": 82,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329675,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 80,
+            "event_ordinal": 83,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329690,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 81,
+            "event_ordinal": 84,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329705,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 82,
+            "event_ordinal": 85,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329720,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 83,
+            "event_ordinal": 86,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329735,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 84,
+            "event_ordinal": 87,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329750,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 85,
+            "event_ordinal": 88,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329765,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 86,
+            "event_ordinal": 89,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329780,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 87,
+            "event_ordinal": 90,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329795,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 88,
+            "event_ordinal": 91,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329810,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 89,
+            "event_ordinal": 92,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329825,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 90,
+            "event_ordinal": 93,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329840,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 91,
+            "event_ordinal": 94,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329855,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 92,
+            "event_ordinal": 95,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329870,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 93,
+            "event_ordinal": 96,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329885,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 94,
+            "event_ordinal": 97,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329900,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 95,
+            "event_ordinal": 98,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329915,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 96,
+            "event_ordinal": 99,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329930,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 97,
+            "event_ordinal": 100,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329945,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 98,
+            "event_ordinal": 101,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329960,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 99,
+            "event_ordinal": 102,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329975,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 100,
+            "event_ordinal": 103,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329990,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 101,
+            "event_ordinal": 104,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330005,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 102,
+            "event_ordinal": 105,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330020,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 103,
+            "event_ordinal": 106,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330035,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 104,
+            "event_ordinal": 107,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330050,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 105,
+            "event_ordinal": 108,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330065,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 106,
+            "event_ordinal": 109,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330080,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 107,
+            "event_ordinal": 110,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330095,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 108,
+            "event_ordinal": 111,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330110,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 109,
+            "event_ordinal": 112,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330125,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 110,
+            "event_ordinal": 113,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330140,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 111,
+            "event_ordinal": 114,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330155,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 112,
+            "event_ordinal": 115,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330170,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          }
+        ],
+        "byte_events": [
+          {
+            "sequence": 1,
+            "event_ordinal": 2,
+            "origin": "authored_activation",
+            "frame": 168,
+            "clock": 151327771,
+            "pc": 259626,
+            "address": 10485825,
+            "before": 0,
+            "value": 1,
+            "eligible_ticks_after_release": 0
+          },
+          {
+            "sequence": 2,
+            "event_ordinal": 116,
+            "origin": "authored_expiry",
+            "frame": 169,
+            "clock": 151330170,
+            "pc": 164,
+            "address": 10485825,
+            "before": 1,
+            "value": 0,
+            "eligible_ticks_after_release": 112
+          }
+        ],
+        "owner_return": {
+          "frame": 169,
+          "ordinal": 2991091,
+          "pc": 259762,
+          "completed_successfully": true
+        },
+        "failure": null
+      },
+      "independent_replay_verification": {
+        "separate_power_on": true,
+        "complete_typed_receipt_equal": true,
+        "executed_retry_entries_equal": true,
+        "original_lock_reads_equal": true,
+        "comparison": "Exact complete structured data, not hashes or projections"
+      }
+    },
+    {
+      "format": 1,
+      "scope": "Labelled authored transient Z80 byte41 perturbation on a real input-only corpus state; original reference execution only; not natural coverage or Rust/body/control-profile admission",
+      "natural": false,
+      "source_session_frames": 12000,
+      "started_input_frames": 8,
+      "completed_video_frames": 7,
+      "recipe_replayed_exactly": false,
+      "stop_boundary": "Immediately after the original owner RTS reaches its retained existing caller frame; no fake return frame or synthetic fragment RTS",
+      "executed_retry_entries": [
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69520,
+          "pc": 259996
+        }
+      ],
+      "original_lock_reads": [
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69518,
+          "pc": 260040,
+          "scoped_access_ordinal": 3,
+          "clock": 6378071,
+          "value": 1
+        },
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69653,
+          "pc": 260040,
+          "scoped_access_ordinal": 7,
+          "clock": 6387836,
+          "value": 0
+        }
+      ],
+      "receipt": {
+        "recipe": {
+          "id": "rev02-audio-psg-busy-window-owner-1",
+          "session": "sessions/rev02-two-player.tje.json",
+          "session_sha1": "3cdff86f1c26d68cb3a371ec5f0547c8afc2d2ae",
+          "revision": "rev02",
+          "frame": 7,
+          "original_instruction_ordinal": 69511,
+          "owner": "psg"
+        },
+        "natural": false,
+        "cartridge_identity_verified": true,
+        "status": "completed",
+        "expected_initial_busy": 0,
+        "expected_initial_command": 0,
+        "caller_sp": 16744356,
+        "caller_return_pc": 257460,
+        "source_call": {
+          "frame": 7,
+          "ordinal": 69510,
+          "pc": 257454,
+          "completed_successfully": true
+        },
+        "activation": {
+          "instruction": {
+            "frame": 7,
+            "ordinal": 69511,
+            "pc": 260010,
+            "completed_successfully": true
+          },
+          "event_ordinal": 1,
+          "clock": 6377651,
+          "scoped_cpu_access_ordinal": 5,
+          "scoped_physical_commit_ordinal": 1,
+          "address": 10555648,
+          "word": true,
+          "value": 256
+        },
+        "first_retry_release": {
+          "instruction": {
+            "frame": 7,
+            "ordinal": 69520,
+            "pc": 259996,
+            "completed_successfully": true
+          },
+          "event_ordinal": 3,
+          "clock": 6378400,
+          "scoped_cpu_access_ordinal": 28,
+          "scoped_physical_commit_ordinal": 2,
+          "address": 10555648,
+          "word": true,
+          "value": 0
+        },
+        "eligible_ticks": [
+          {
+            "ordinal_after_release": 1,
+            "event_ordinal": 4,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378390,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 2,
+            "event_ordinal": 5,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378405,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 3,
+            "event_ordinal": 6,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378420,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 4,
+            "event_ordinal": 7,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378435,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 5,
+            "event_ordinal": 8,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378450,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 6,
+            "event_ordinal": 9,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378465,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 7,
+            "event_ordinal": 10,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378480,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 8,
+            "event_ordinal": 11,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378495,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 9,
+            "event_ordinal": 12,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378510,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 10,
+            "event_ordinal": 13,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378525,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 11,
+            "event_ordinal": 14,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378540,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 12,
+            "event_ordinal": 15,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378555,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 13,
+            "event_ordinal": 16,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378570,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 14,
+            "event_ordinal": 17,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378585,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 15,
+            "event_ordinal": 18,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378600,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 16,
+            "event_ordinal": 19,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378615,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 17,
+            "event_ordinal": 20,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378630,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 18,
+            "event_ordinal": 21,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378645,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 19,
+            "event_ordinal": 22,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378660,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 20,
+            "event_ordinal": 23,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378675,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 21,
+            "event_ordinal": 24,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378690,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 22,
+            "event_ordinal": 25,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378705,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 23,
+            "event_ordinal": 26,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378720,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 24,
+            "event_ordinal": 27,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378735,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 25,
+            "event_ordinal": 28,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378750,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 26,
+            "event_ordinal": 29,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378765,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 27,
+            "event_ordinal": 30,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378780,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 28,
+            "event_ordinal": 31,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378795,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 29,
+            "event_ordinal": 32,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378810,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 30,
+            "event_ordinal": 33,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378825,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 31,
+            "event_ordinal": 34,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378840,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 32,
+            "event_ordinal": 35,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378855,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 33,
+            "event_ordinal": 36,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378870,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 34,
+            "event_ordinal": 37,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378885,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 35,
+            "event_ordinal": 38,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378900,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 36,
+            "event_ordinal": 39,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378915,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 37,
+            "event_ordinal": 40,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378930,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 38,
+            "event_ordinal": 41,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378945,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 39,
+            "event_ordinal": 42,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378960,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 40,
+            "event_ordinal": 43,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378975,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 41,
+            "event_ordinal": 44,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378990,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 42,
+            "event_ordinal": 45,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379005,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 43,
+            "event_ordinal": 46,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379020,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 44,
+            "event_ordinal": 47,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379035,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 45,
+            "event_ordinal": 48,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379050,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 46,
+            "event_ordinal": 49,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379065,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 47,
+            "event_ordinal": 50,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379080,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 48,
+            "event_ordinal": 51,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379095,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 49,
+            "event_ordinal": 52,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379110,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 50,
+            "event_ordinal": 53,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379125,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 51,
+            "event_ordinal": 54,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379140,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 52,
+            "event_ordinal": 55,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379155,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 53,
+            "event_ordinal": 56,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379170,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 54,
+            "event_ordinal": 57,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379185,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 55,
+            "event_ordinal": 58,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379200,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 56,
+            "event_ordinal": 59,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379215,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 57,
+            "event_ordinal": 60,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379230,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 58,
+            "event_ordinal": 61,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379245,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 59,
+            "event_ordinal": 62,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379260,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 60,
+            "event_ordinal": 63,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379275,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 61,
+            "event_ordinal": 64,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379290,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 62,
+            "event_ordinal": 65,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379305,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 63,
+            "event_ordinal": 66,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379320,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 64,
+            "event_ordinal": 67,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379335,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 65,
+            "event_ordinal": 68,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379350,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 66,
+            "event_ordinal": 69,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379365,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 67,
+            "event_ordinal": 70,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379380,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 68,
+            "event_ordinal": 71,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379395,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 69,
+            "event_ordinal": 72,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379410,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 70,
+            "event_ordinal": 73,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379425,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 71,
+            "event_ordinal": 74,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379440,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 72,
+            "event_ordinal": 75,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379455,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 73,
+            "event_ordinal": 76,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379470,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 74,
+            "event_ordinal": 77,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379485,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 75,
+            "event_ordinal": 78,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379500,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 76,
+            "event_ordinal": 79,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379515,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 77,
+            "event_ordinal": 80,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379530,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 78,
+            "event_ordinal": 81,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379545,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 79,
+            "event_ordinal": 82,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379560,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 80,
+            "event_ordinal": 83,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379575,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 81,
+            "event_ordinal": 84,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379590,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 82,
+            "event_ordinal": 85,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379605,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 83,
+            "event_ordinal": 86,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379620,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 84,
+            "event_ordinal": 87,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379635,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 85,
+            "event_ordinal": 88,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379650,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 86,
+            "event_ordinal": 89,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379665,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 87,
+            "event_ordinal": 90,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379680,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 88,
+            "event_ordinal": 91,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379695,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 89,
+            "event_ordinal": 92,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379710,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 90,
+            "event_ordinal": 93,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379725,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 91,
+            "event_ordinal": 94,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379740,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 92,
+            "event_ordinal": 95,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379755,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 93,
+            "event_ordinal": 96,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379770,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 94,
+            "event_ordinal": 97,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379785,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 95,
+            "event_ordinal": 98,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379800,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 96,
+            "event_ordinal": 99,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379815,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 97,
+            "event_ordinal": 100,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379830,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 98,
+            "event_ordinal": 101,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379845,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 99,
+            "event_ordinal": 102,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379860,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 100,
+            "event_ordinal": 103,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379875,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 101,
+            "event_ordinal": 104,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379890,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 102,
+            "event_ordinal": 105,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379905,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 103,
+            "event_ordinal": 106,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379920,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 104,
+            "event_ordinal": 107,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379935,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 105,
+            "event_ordinal": 108,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379950,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 106,
+            "event_ordinal": 109,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379965,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 107,
+            "event_ordinal": 110,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379980,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 108,
+            "event_ordinal": 111,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379995,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 109,
+            "event_ordinal": 112,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380010,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 110,
+            "event_ordinal": 113,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380025,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 111,
+            "event_ordinal": 114,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380040,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 112,
+            "event_ordinal": 115,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380055,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          }
+        ],
+        "byte_events": [
+          {
+            "sequence": 1,
+            "event_ordinal": 2,
+            "origin": "authored_activation",
+            "frame": 7,
+            "clock": 6377651,
+            "pc": 260010,
+            "address": 10485825,
+            "before": 0,
+            "value": 1,
+            "eligible_ticks_after_release": 0
+          },
+          {
+            "sequence": 2,
+            "event_ordinal": 116,
+            "origin": "authored_expiry",
+            "frame": 7,
+            "clock": 6380055,
+            "pc": 398,
+            "address": 10485825,
+            "before": 1,
+            "value": 0,
+            "eligible_ticks_after_release": 112
+          }
+        ],
+        "owner_return": {
+          "frame": 7,
+          "ordinal": 69661,
+          "pc": 260092,
+          "completed_successfully": true
+        },
+        "failure": null
+      },
+      "independent_replay_verification": {
+        "separate_power_on": true,
+        "complete_typed_receipt_equal": true,
+        "executed_retry_entries_equal": true,
+        "original_lock_reads_equal": true,
+        "comparison": "Exact complete structured data, not hashes or projections"
+      }
+    },
+    {
+      "format": 1,
+      "scope": "Labelled authored transient Z80 byte41 perturbation on a real input-only corpus state; original reference execution only; not natural coverage or Rust/body/control-profile admission",
+      "natural": false,
+      "source_session_frames": 12000,
+      "started_input_frames": 170,
+      "completed_video_frames": 169,
+      "recipe_replayed_exactly": false,
+      "stop_boundary": "Immediately after the original owner RTS reaches its retained existing caller frame; no fake return frame or synthetic fragment RTS",
+      "executed_retry_entries": [
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991032,
+          "pc": 259500
+        }
+      ],
+      "original_lock_reads": [
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991030,
+          "pc": 259544,
+          "scoped_access_ordinal": 3,
+          "clock": 151328177,
+          "value": 1
+        },
+        {
+          "frame": 169,
+          "original_instruction_ordinal": 2991065,
+          "pc": 259544,
+          "scoped_access_ordinal": 7,
+          "clock": 151330830,
+          "value": 0
+        }
+      ],
+      "receipt": {
+        "recipe": {
+          "id": "rev00-audio-pcm-busy-window-owner-1",
+          "session": "sessions/rev00-two-player.tje.json",
+          "session_sha1": "a23b9340d7bbb5257122c10294a95fd792adc12c",
+          "revision": "rev00",
+          "frame": 168,
+          "original_instruction_ordinal": 2991023,
+          "owner": "pcm"
+        },
+        "natural": false,
+        "cartridge_identity_verified": true,
+        "status": "completed",
+        "expected_initial_busy": 0,
+        "expected_initial_command": 0,
+        "caller_sp": 16744230,
+        "caller_return_pc": 257332,
+        "source_call": {
+          "frame": 168,
+          "ordinal": 2991022,
+          "pc": 257326,
+          "completed_successfully": true
+        },
+        "activation": {
+          "instruction": {
+            "frame": 168,
+            "ordinal": 2991023,
+            "pc": 259514,
+            "completed_successfully": true
+          },
+          "event_ordinal": 1,
+          "clock": 151327771,
+          "scoped_cpu_access_ordinal": 5,
+          "scoped_physical_commit_ordinal": 1,
+          "address": 10555648,
+          "word": true,
+          "value": 256
+        },
+        "first_retry_release": {
+          "instruction": {
+            "frame": 169,
+            "ordinal": 2991032,
+            "pc": 259500,
+            "completed_successfully": true
+          },
+          "event_ordinal": 3,
+          "clock": 151328506,
+          "scoped_cpu_access_ordinal": 28,
+          "scoped_physical_commit_ordinal": 2,
+          "address": 10555648,
+          "word": true,
+          "value": 0
+        },
+        "eligible_ticks": [
+          {
+            "ordinal_after_release": 1,
+            "event_ordinal": 4,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151328505,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 2,
+            "event_ordinal": 5,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151328520,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 3,
+            "event_ordinal": 6,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151328535,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 4,
+            "event_ordinal": 7,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328550,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 5,
+            "event_ordinal": 8,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328565,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 6,
+            "event_ordinal": 9,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328580,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 7,
+            "event_ordinal": 10,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328595,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 8,
+            "event_ordinal": 11,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328610,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 9,
+            "event_ordinal": 12,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328625,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 10,
+            "event_ordinal": 13,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328640,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 11,
+            "event_ordinal": 14,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328655,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 12,
+            "event_ordinal": 15,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328670,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 13,
+            "event_ordinal": 16,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151328685,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 14,
+            "event_ordinal": 17,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328700,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 15,
+            "event_ordinal": 18,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328715,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 16,
+            "event_ordinal": 19,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328730,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 17,
+            "event_ordinal": 20,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328745,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 18,
+            "event_ordinal": 21,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328760,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 19,
+            "event_ordinal": 22,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328775,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 20,
+            "event_ordinal": 23,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328790,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 21,
+            "event_ordinal": 24,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328805,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 22,
+            "event_ordinal": 25,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328820,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 23,
+            "event_ordinal": 26,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328835,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 24,
+            "event_ordinal": 27,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328850,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 25,
+            "event_ordinal": 28,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328865,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 26,
+            "event_ordinal": 29,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151328880,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 27,
+            "event_ordinal": 30,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328895,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 28,
+            "event_ordinal": 31,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328910,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 29,
+            "event_ordinal": 32,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328925,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 30,
+            "event_ordinal": 33,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328940,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 31,
+            "event_ordinal": 34,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328955,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 32,
+            "event_ordinal": 35,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328970,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 33,
+            "event_ordinal": 36,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151328985,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 34,
+            "event_ordinal": 37,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329000,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 35,
+            "event_ordinal": 38,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329015,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 36,
+            "event_ordinal": 39,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329030,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 37,
+            "event_ordinal": 40,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329045,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 38,
+            "event_ordinal": 41,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329060,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 39,
+            "event_ordinal": 42,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329075,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 40,
+            "event_ordinal": 43,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329090,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 41,
+            "event_ordinal": 44,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329105,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 42,
+            "event_ordinal": 45,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329120,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 43,
+            "event_ordinal": 46,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329135,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 44,
+            "event_ordinal": 47,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329150,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 45,
+            "event_ordinal": 48,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329165,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 46,
+            "event_ordinal": 49,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329180,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 47,
+            "event_ordinal": 50,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329195,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 48,
+            "event_ordinal": 51,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329210,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 49,
+            "event_ordinal": 52,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329225,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 50,
+            "event_ordinal": 53,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151329240,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 51,
+            "event_ordinal": 54,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329255,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 52,
+            "event_ordinal": 55,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329270,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 53,
+            "event_ordinal": 56,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329285,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 54,
+            "event_ordinal": 57,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329300,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 55,
+            "event_ordinal": 58,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329315,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 56,
+            "event_ordinal": 59,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329330,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 57,
+            "event_ordinal": 60,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329345,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 58,
+            "event_ordinal": 61,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329360,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 59,
+            "event_ordinal": 62,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329375,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 60,
+            "event_ordinal": 63,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151329390,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 61,
+            "event_ordinal": 64,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329405,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 62,
+            "event_ordinal": 65,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329420,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 63,
+            "event_ordinal": 66,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329435,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 64,
+            "event_ordinal": 67,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329450,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 65,
+            "event_ordinal": 68,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329465,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 66,
+            "event_ordinal": 69,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329480,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 67,
+            "event_ordinal": 70,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329495,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 68,
+            "event_ordinal": 71,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329510,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 69,
+            "event_ordinal": 72,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329525,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 70,
+            "event_ordinal": 73,
+            "z80_pc": 151,
+            "clock_at_tick_start": 151329540,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 71,
+            "event_ordinal": 74,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329555,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 72,
+            "event_ordinal": 75,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329570,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 73,
+            "event_ordinal": 76,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329585,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 74,
+            "event_ordinal": 77,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329600,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 75,
+            "event_ordinal": 78,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329615,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 76,
+            "event_ordinal": 79,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329630,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 77,
+            "event_ordinal": 80,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329645,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 78,
+            "event_ordinal": 81,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329660,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 79,
+            "event_ordinal": 82,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329675,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 80,
+            "event_ordinal": 83,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329690,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 81,
+            "event_ordinal": 84,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329705,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 82,
+            "event_ordinal": 85,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329720,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 83,
+            "event_ordinal": 86,
+            "z80_pc": 154,
+            "clock_at_tick_start": 151329735,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 84,
+            "event_ordinal": 87,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329750,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 85,
+            "event_ordinal": 88,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329765,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 86,
+            "event_ordinal": 89,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329780,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 87,
+            "event_ordinal": 90,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329795,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 88,
+            "event_ordinal": 91,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329810,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 89,
+            "event_ordinal": 92,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329825,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 90,
+            "event_ordinal": 93,
+            "z80_pc": 156,
+            "clock_at_tick_start": 151329840,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 91,
+            "event_ordinal": 94,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329855,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 92,
+            "event_ordinal": 95,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329870,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 93,
+            "event_ordinal": 96,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329885,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 94,
+            "event_ordinal": 97,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329900,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 95,
+            "event_ordinal": 98,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329915,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 96,
+            "event_ordinal": 99,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329930,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 97,
+            "event_ordinal": 100,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329945,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 98,
+            "event_ordinal": 101,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329960,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 99,
+            "event_ordinal": 102,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329975,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 100,
+            "event_ordinal": 103,
+            "z80_pc": 159,
+            "clock_at_tick_start": 151329990,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 101,
+            "event_ordinal": 104,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330005,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 102,
+            "event_ordinal": 105,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330020,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 103,
+            "event_ordinal": 106,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330035,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 104,
+            "event_ordinal": 107,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330050,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 105,
+            "event_ordinal": 108,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330065,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 106,
+            "event_ordinal": 109,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330080,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 107,
+            "event_ordinal": 110,
+            "z80_pc": 161,
+            "clock_at_tick_start": 151330095,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 108,
+            "event_ordinal": 111,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330110,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 109,
+            "event_ordinal": 112,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330125,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 110,
+            "event_ordinal": 113,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330140,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 111,
+            "event_ordinal": 114,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330155,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 112,
+            "event_ordinal": 115,
+            "z80_pc": 164,
+            "clock_at_tick_start": 151330170,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          }
+        ],
+        "byte_events": [
+          {
+            "sequence": 1,
+            "event_ordinal": 2,
+            "origin": "authored_activation",
+            "frame": 168,
+            "clock": 151327771,
+            "pc": 259514,
+            "address": 10485825,
+            "before": 0,
+            "value": 1,
+            "eligible_ticks_after_release": 0
+          },
+          {
+            "sequence": 2,
+            "event_ordinal": 116,
+            "origin": "authored_expiry",
+            "frame": 169,
+            "clock": 151330170,
+            "pc": 164,
+            "address": 10485825,
+            "before": 1,
+            "value": 0,
+            "eligible_ticks_after_release": 112
+          }
+        ],
+        "owner_return": {
+          "frame": 169,
+          "ordinal": 2991088,
+          "pc": 259650,
+          "completed_successfully": true
+        },
+        "failure": null
+      },
+      "independent_replay_verification": {
+        "separate_power_on": true,
+        "complete_typed_receipt_equal": true,
+        "executed_retry_entries_equal": true,
+        "original_lock_reads_equal": true,
+        "comparison": "Exact complete structured data, not hashes or projections"
+      }
+    },
+    {
+      "format": 1,
+      "scope": "Labelled authored transient Z80 byte41 perturbation on a real input-only corpus state; original reference execution only; not natural coverage or Rust/body/control-profile admission",
+      "natural": false,
+      "source_session_frames": 12000,
+      "started_input_frames": 8,
+      "completed_video_frames": 7,
+      "recipe_replayed_exactly": false,
+      "stop_boundary": "Immediately after the original owner RTS reaches its retained existing caller frame; no fake return frame or synthetic fragment RTS",
+      "executed_retry_entries": [
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69520,
+          "pc": 259884
+        }
+      ],
+      "original_lock_reads": [
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69518,
+          "pc": 259928,
+          "scoped_access_ordinal": 3,
+          "clock": 6378071,
+          "value": 1
+        },
+        {
+          "frame": 7,
+          "original_instruction_ordinal": 69653,
+          "pc": 259928,
+          "scoped_access_ordinal": 7,
+          "clock": 6387836,
+          "value": 0
+        }
+      ],
+      "receipt": {
+        "recipe": {
+          "id": "rev00-audio-psg-busy-window-owner-1",
+          "session": "sessions/rev00-two-player.tje.json",
+          "session_sha1": "a23b9340d7bbb5257122c10294a95fd792adc12c",
+          "revision": "rev00",
+          "frame": 7,
+          "original_instruction_ordinal": 69511,
+          "owner": "psg"
+        },
+        "natural": false,
+        "cartridge_identity_verified": true,
+        "status": "completed",
+        "expected_initial_busy": 0,
+        "expected_initial_command": 0,
+        "caller_sp": 16744356,
+        "caller_return_pc": 257348,
+        "source_call": {
+          "frame": 7,
+          "ordinal": 69510,
+          "pc": 257342,
+          "completed_successfully": true
+        },
+        "activation": {
+          "instruction": {
+            "frame": 7,
+            "ordinal": 69511,
+            "pc": 259898,
+            "completed_successfully": true
+          },
+          "event_ordinal": 1,
+          "clock": 6377651,
+          "scoped_cpu_access_ordinal": 5,
+          "scoped_physical_commit_ordinal": 1,
+          "address": 10555648,
+          "word": true,
+          "value": 256
+        },
+        "first_retry_release": {
+          "instruction": {
+            "frame": 7,
+            "ordinal": 69520,
+            "pc": 259884,
+            "completed_successfully": true
+          },
+          "event_ordinal": 3,
+          "clock": 6378400,
+          "scoped_cpu_access_ordinal": 28,
+          "scoped_physical_commit_ordinal": 2,
+          "address": 10555648,
+          "word": true,
+          "value": 0
+        },
+        "eligible_ticks": [
+          {
+            "ordinal_after_release": 1,
+            "event_ordinal": 4,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378390,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 2,
+            "event_ordinal": 5,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378405,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 3,
+            "event_ordinal": 6,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378420,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 4,
+            "event_ordinal": 7,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378435,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 5,
+            "event_ordinal": 8,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378450,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 6,
+            "event_ordinal": 9,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378465,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 7,
+            "event_ordinal": 10,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378480,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 8,
+            "event_ordinal": 11,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378495,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 9,
+            "event_ordinal": 12,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378510,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 10,
+            "event_ordinal": 13,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378525,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 11,
+            "event_ordinal": 14,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6378540,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 12,
+            "event_ordinal": 15,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378555,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 13,
+            "event_ordinal": 16,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378570,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 14,
+            "event_ordinal": 17,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378585,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 15,
+            "event_ordinal": 18,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378600,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 16,
+            "event_ordinal": 19,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378615,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 17,
+            "event_ordinal": 20,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378630,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 18,
+            "event_ordinal": 21,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378645,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 19,
+            "event_ordinal": 22,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378660,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 20,
+            "event_ordinal": 23,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378675,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 21,
+            "event_ordinal": 24,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378690,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 22,
+            "event_ordinal": 25,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378705,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 23,
+            "event_ordinal": 26,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378720,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 24,
+            "event_ordinal": 27,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6378735,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 25,
+            "event_ordinal": 28,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378750,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 26,
+            "event_ordinal": 29,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378765,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 27,
+            "event_ordinal": 30,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378780,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 28,
+            "event_ordinal": 31,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378795,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 29,
+            "event_ordinal": 32,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378810,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 30,
+            "event_ordinal": 33,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378825,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 31,
+            "event_ordinal": 34,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378840,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 32,
+            "event_ordinal": 35,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378855,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 33,
+            "event_ordinal": 36,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378870,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 34,
+            "event_ordinal": 37,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378885,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 35,
+            "event_ordinal": 38,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378900,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 36,
+            "event_ordinal": 39,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378915,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 37,
+            "event_ordinal": 40,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6378930,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 38,
+            "event_ordinal": 41,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378945,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 39,
+            "event_ordinal": 42,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378960,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 40,
+            "event_ordinal": 43,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378975,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 41,
+            "event_ordinal": 44,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6378990,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 42,
+            "event_ordinal": 45,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379005,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 43,
+            "event_ordinal": 46,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379020,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 44,
+            "event_ordinal": 47,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379035,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 45,
+            "event_ordinal": 48,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379050,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 46,
+            "event_ordinal": 49,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379065,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 47,
+            "event_ordinal": 50,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379080,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 48,
+            "event_ordinal": 51,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379095,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 49,
+            "event_ordinal": 52,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379110,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 50,
+            "event_ordinal": 53,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379125,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 51,
+            "event_ordinal": 54,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379140,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 52,
+            "event_ordinal": 55,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379155,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 53,
+            "event_ordinal": 56,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379170,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 54,
+            "event_ordinal": 57,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379185,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 55,
+            "event_ordinal": 58,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379200,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 56,
+            "event_ordinal": 59,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379215,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 57,
+            "event_ordinal": 60,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379230,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 58,
+            "event_ordinal": 61,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379245,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 59,
+            "event_ordinal": 62,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379260,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 60,
+            "event_ordinal": 63,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379275,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 61,
+            "event_ordinal": 64,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379290,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 62,
+            "event_ordinal": 65,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379305,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 63,
+            "event_ordinal": 66,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379320,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 64,
+            "event_ordinal": 67,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379335,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 65,
+            "event_ordinal": 68,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379350,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 66,
+            "event_ordinal": 69,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379365,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 67,
+            "event_ordinal": 70,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379380,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 68,
+            "event_ordinal": 71,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379395,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 69,
+            "event_ordinal": 72,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379410,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 70,
+            "event_ordinal": 73,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379425,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 71,
+            "event_ordinal": 74,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379440,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 72,
+            "event_ordinal": 75,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379455,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 73,
+            "event_ordinal": 76,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379470,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 74,
+            "event_ordinal": 77,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379485,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 75,
+            "event_ordinal": 78,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379500,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 76,
+            "event_ordinal": 79,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379515,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 77,
+            "event_ordinal": 80,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379530,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 78,
+            "event_ordinal": 81,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379545,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 79,
+            "event_ordinal": 82,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379560,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 80,
+            "event_ordinal": 83,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379575,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 81,
+            "event_ordinal": 84,
+            "z80_pc": 399,
+            "clock_at_tick_start": 6379590,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 82,
+            "event_ordinal": 85,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379605,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 83,
+            "event_ordinal": 86,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379620,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 84,
+            "event_ordinal": 87,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379635,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 85,
+            "event_ordinal": 88,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379650,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 86,
+            "event_ordinal": 89,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379665,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 87,
+            "event_ordinal": 90,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379680,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 88,
+            "event_ordinal": 91,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379695,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 89,
+            "event_ordinal": 92,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379710,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 90,
+            "event_ordinal": 93,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379725,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 91,
+            "event_ordinal": 94,
+            "z80_pc": 402,
+            "clock_at_tick_start": 6379740,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 92,
+            "event_ordinal": 95,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379755,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 93,
+            "event_ordinal": 96,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379770,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 94,
+            "event_ordinal": 97,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379785,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 95,
+            "event_ordinal": 98,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379800,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 96,
+            "event_ordinal": 99,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379815,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 97,
+            "event_ordinal": 100,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379830,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 98,
+            "event_ordinal": 101,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379845,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 99,
+            "event_ordinal": 102,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379860,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 100,
+            "event_ordinal": 103,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379875,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 101,
+            "event_ordinal": 104,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379890,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 102,
+            "event_ordinal": 105,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379905,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 103,
+            "event_ordinal": 106,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379920,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 104,
+            "event_ordinal": 107,
+            "z80_pc": 395,
+            "clock_at_tick_start": 6379935,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 105,
+            "event_ordinal": 108,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379950,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 106,
+            "event_ordinal": 109,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379965,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 107,
+            "event_ordinal": 110,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379980,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 108,
+            "event_ordinal": 111,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6379995,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 109,
+            "event_ordinal": 112,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380010,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 110,
+            "event_ordinal": 113,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380025,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 111,
+            "event_ordinal": 114,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380040,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          },
+          {
+            "ordinal_after_release": 112,
+            "event_ordinal": 115,
+            "z80_pc": 398,
+            "clock_at_tick_start": 6380055,
+            "released": true,
+            "not_reset": true,
+            "not_vdp_halted": true
+          }
+        ],
+        "byte_events": [
+          {
+            "sequence": 1,
+            "event_ordinal": 2,
+            "origin": "authored_activation",
+            "frame": 7,
+            "clock": 6377651,
+            "pc": 259898,
+            "address": 10485825,
+            "before": 0,
+            "value": 1,
+            "eligible_ticks_after_release": 0
+          },
+          {
+            "sequence": 2,
+            "event_ordinal": 116,
+            "origin": "authored_expiry",
+            "frame": 7,
+            "clock": 6380055,
+            "pc": 398,
+            "address": 10485825,
+            "before": 1,
+            "value": 0,
+            "eligible_ticks_after_release": 112
+          }
+        ],
+        "owner_return": {
+          "frame": 7,
+          "ordinal": 69661,
+          "pc": 259980,
+          "completed_successfully": true
+        },
+        "failure": null
+      },
+      "independent_replay_verification": {
+        "separate_power_on": true,
+        "complete_typed_receipt_equal": true,
+        "executed_retry_entries_equal": true,
+        "original_lock_reads_equal": true,
+        "comparison": "Exact complete structured data, not hashes or projections"
+      }
+    }
+  ]
+}

@@ -5,6 +5,9 @@ pub mod audio;
 #[cfg(feature = "emulator")]
 mod bus;
 pub mod input;
+/// TJE reference proof observations and explicitly authored, non-natural fixtures.
+#[cfg(feature = "reference-proof-hooks")]
+pub mod reference_proof;
 /// TJE native: a private runtime capture, never a serialized/public game asset.
 /// No cartridge bytes or 68000 execution engine are retained.
 pub mod native {

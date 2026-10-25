@@ -947,6 +947,55 @@ class VendorProvenanceTests(GitAuditCase):
         for private in (False, True):
             self.assertEqual(self.inspect(private), [])
 
+    def test_only_exact_declared_local_vendor_sources_are_allowed(self) -> None:
+        self.assertEqual(audit.LOCAL_VENDOR_FILES, frozenset({
+            "backend/genesis-core/src/reference_proof.rs",
+            "backend/genesis-core/src/reference_proof/tests.rs",
+        }))
+        unknown = "backend/genesis-core/src/reference_proof/unchecked.rs"
+        for spec in [
+            {"upstream_path": None, "upstream_blob": None, "modified": True},
+            dict(self.document["files"]["table.rs"]),
+        ]:
+            document = json.loads(json.dumps(self.document))
+            document["files"][unknown] = spec
+            with self.subTest(spec=spec), self.assertRaises(audit.AuditError):
+                audit.VendorAudit(self.repo, json.dumps(document).encode())
+        put(self.repo, audit.VENDOR_PREFIX + unknown, b"pub fn unchecked() {}\n")
+        self.git("add", audit.VENDOR_PREFIX + unknown)
+        with self.assertRaisesRegex(audit.AuditError, "no pinned upstream counterpart"):
+            audit.generate_vendor_manifest(self.repo)
+
+    def test_declared_local_vendor_sources_have_no_upstream_exemption(self) -> None:
+        payload = required_forms(IMAGES[1][OFFSET:OFFSET + WINDOW_SIZE])["rust-escape"][1]
+        paths = []
+        for relative in sorted(audit.LOCAL_VENDOR_FILES):
+            path = audit.VENDOR_PREFIX + relative
+            put(self.repo, path, payload)
+            self.git("add", path)
+            paths.append(path)
+        self.document = audit.generate_vendor_manifest(self.repo)
+        self.write_manifest()
+        vendor = audit.VendorAudit(self.repo, json.dumps(self.document).encode())
+        for path in paths:
+            relative = path.removeprefix(audit.VENDOR_PREFIX)
+            self.assertEqual(self.document["files"][relative], {
+                "upstream_path": None, "upstream_blob": None, "modified": True,
+            })
+            self.assertEqual(vendor.content(path, payload, "100644"), (payload, None))
+        for private in (False, True):
+            found = {finding.path for finding in self.inspect(private)}
+            self.assertTrue(set(paths) <= found)
+        for relative in audit.LOCAL_VENDOR_FILES:
+            for spec in [
+                dict(self.document["files"]["table.rs"]),
+                {"upstream_path": None, "upstream_blob": None, "modified": False},
+            ]:
+                document = json.loads(json.dumps(self.document))
+                document["files"][relative] = spec
+                with self.assertRaisesRegex(audit.AuditError, "fully audited"):
+                    audit.VendorAudit(self.repo, json.dumps(document).encode())
+
     def test_modified_files_audit_only_the_new_lines(self) -> None:
         path = audit.VENDOR_PREFIX + "table.rs"
         put(self.repo, path, self.baselines["table.rs"] + b"pub fn accessor() -> bool { true }\n")

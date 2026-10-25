@@ -16,14 +16,42 @@ pub struct Memory {
     main_ram: BoxedWordArray<MAIN_RAM_LEN_WORDS>,
     audio_ram: BoxedByteArray<AUDIO_RAM_LEN>,
     ram_cheat_overrides: RamCheatOverrides,
+    #[cfg(feature = "reference-proof-hooks")]
+    audio_fixture_watch: Option<AudioFixtureWatch>,
+}
+
+/// TJE reference fixture audit: one actual physical byte commit, including aliases
+/// and same-value writes. No address other than the fixed mailbox lock is watched.
+#[cfg(feature = "reference-proof-hooks")]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub struct AudioFixtureByteWrite {
+    pub sequence: u64,
+    pub before: u8,
+    pub value: u8,
+}
+
+#[cfg(feature = "reference-proof-hooks")]
+#[derive(Debug, Clone, Encode, Decode)]
+struct AudioFixtureWatch {
+    sequence: u64,
+    opaque_access: bool,
+    writes: std::collections::VecDeque<AudioFixtureByteWrite>,
 }
 
 impl Memory {
     /// TJE strict data-plane control view: retain audio RAM and cheat policy by
     /// borrow, excluding only physical main RAM for a separately checked domain.
     pub fn hybrid_control_without_main_ram(&self) -> impl Encode + '_ {
-        let Self { main_ram: _, audio_ram, ram_cheat_overrides } = self;
-        (audio_ram, ram_cheat_overrides)
+        #[cfg(not(feature = "reference-proof-hooks"))]
+        {
+            let Self { main_ram: _, audio_ram, ram_cheat_overrides } = self;
+            (audio_ram, ram_cheat_overrides)
+        }
+        #[cfg(feature = "reference-proof-hooks")]
+        {
+            let Self { main_ram: _, audio_ram, ram_cheat_overrides, audio_fixture_watch } = self;
+            (audio_ram, ram_cheat_overrides, audio_fixture_watch)
+        }
     }
 
     /// Physical storage, not cheat-substituted logical reads. Inspection only.
@@ -38,6 +66,8 @@ impl Memory {
             main_ram: BoxedWordArray::new(),
             audio_ram: BoxedByteArray::new(),
             ram_cheat_overrides: RamCheatOverrides::new(&config.cheat_codes),
+            #[cfg(feature = "reference-proof-hooks")]
+            audio_fixture_watch: None,
         }
     }
 
@@ -96,7 +126,47 @@ impl Memory {
     }
 
     pub fn write_audio_ram(&mut self, address: u16, value: u8) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if address & 0x1fff == 0x41
+            && let Some(watch) = &mut self.audio_fixture_watch
+        {
+            watch.sequence = watch.sequence.saturating_add(1);
+            watch.writes.push_back(AudioFixtureByteWrite {
+                sequence: watch.sequence,
+                before: self.audio_ram[0x41],
+                value,
+            });
+        }
         self.audio_ram[(address & 0x1FFF) as usize] = value;
+    }
+
+    /// TJE development-only writer lease. A mutable debug view invalidates it.
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn begin_audio_fixture_watch(&mut self) -> bool {
+        if self.audio_fixture_watch.is_some() {
+            return false;
+        }
+        self.audio_fixture_watch = Some(AudioFixtureWatch {
+            sequence: 0,
+            opaque_access: false,
+            writes: std::collections::VecDeque::with_capacity(4),
+        });
+        true
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn audio_fixture_watch_status(&self) -> Option<(u64, bool)> {
+        self.audio_fixture_watch.as_ref().map(|watch| (watch.sequence, watch.opaque_access))
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn pop_audio_fixture_write(&mut self) -> Option<AudioFixtureByteWrite> {
+        self.audio_fixture_watch.as_mut()?.writes.pop_front()
+    }
+
+    #[cfg(feature = "reference-proof-hooks")]
+    pub fn finish_audio_fixture_watch(&mut self) {
+        self.audio_fixture_watch = None;
     }
 
     pub fn reload_config(&mut self, config: &GenesisEmulatorConfig) {
@@ -105,6 +175,12 @@ impl Memory {
 
     #[must_use]
     pub fn debug_ram_view(&mut self) -> (&mut [u16], &mut [u8]) {
+        #[cfg(feature = "reference-proof-hooks")]
+        if let Some(watch) = &mut self.audio_fixture_watch {
+            // A borrowed mutable slice cannot report individual writes. Refuse
+            // an attestation rather than silently allowing an unobserved writer.
+            watch.opaque_access = true;
+        }
         (self.main_ram.as_mut_slice(), self.audio_ram.as_mut_slice())
     }
 }
