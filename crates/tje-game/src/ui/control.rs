@@ -403,7 +403,7 @@ fn draw_inventory_inner(context: &mut dyn Context, player: i16, menu: i16) -> Re
                 .at(index)
                 .write(context, menu as i8);
         }
-        context.wait_for_interrupt()?;
+        context.poll_yield()?;
     }
     if ram::g_split_screen_enabled(revision).read(context) == 0 {
         context.discard_u16(ram::g_camera2_pending_x(revision).address())?;

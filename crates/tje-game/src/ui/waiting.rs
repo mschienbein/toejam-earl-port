@@ -1,8 +1,9 @@
+use crate::execution::WaitRequest;
 use crate::{Context, Result, call, ids};
 use tje_mem::{Address, ram};
 
 /// G/src/ui/inventory.c:278 (`InventoryRefreshContentsAndWait`).
-/// Both waits poll only the source byte and resume after actual interrupt service.
+/// Each source loop delegates every byte poll, including the final zero read.
 pub fn inventory_refresh_contents_and_wait(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
     let player = context
@@ -19,10 +20,7 @@ pub fn inventory_refresh_contents_and_wait(context: &mut dyn Context) -> Result<
 }
 
 fn wait_for_redraw(context: &mut dyn Context, phase: Address<i8>) -> Result<()> {
-    while phase.read(context) != 0 {
-        context.wait_for_interrupt()?;
-    }
-    Ok(())
+    context.wait_until(WaitRequest::ram_byte_equal(phase.address(), u8::MAX, 0))
 }
 
 /// G/src/ui/inventory.c:92 (`WaitForVBlankWithGraphicsPaused`).

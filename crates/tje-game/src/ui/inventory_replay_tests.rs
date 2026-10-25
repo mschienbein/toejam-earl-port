@@ -3,7 +3,8 @@
 use super::*;
 use crate::call_frame::FrameState;
 use crate::execution::{
-    CallCeiling, CallCeilingScope, CallClock, ExecutionClass, WaitCondition, WaitRequest,
+    CallCeiling, CallCeilingScope, CallClock, ExecutionClass, RamWidth, WaitComparison,
+    WaitCondition, WaitRequest,
 };
 use crate::{Dispatcher, FunctionId, Platform};
 use std::cell::RefCell;
@@ -31,6 +32,7 @@ enum Access {
     Discard(u32, u8, u32),
     Write(u32, u8, u32),
     Wait(WaitCondition),
+    Yield,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +58,7 @@ struct Fixture {
     accesses: RefCell<Vec<Access>>,
     dependencies: Vec<Dependency>,
     phases: VecDeque<i8>,
+    poll_values: VecDeque<i8>,
     players: RefCell<VecDeque<i8>>,
     results: VecDeque<(FunctionId, u32)>,
     input_calls: usize,
@@ -77,6 +80,7 @@ impl Fixture {
             accesses: RefCell::default(),
             dependencies: Vec::new(),
             phases: VecDeque::new(),
+            poll_values: VecDeque::new(),
             players: RefCell::default(),
             results: VecDeque::new(),
             input_calls: 0,
@@ -198,7 +202,33 @@ impl Platform for Fixture {
         self.accesses
             .borrow_mut()
             .push(Access::Wait(request.condition));
-        let phase = self.phases.pop_front().expect("unexpected source wait");
+        let WaitCondition::Ram {
+            address,
+            width: RamWidth::Byte,
+            mask,
+            value,
+            comparison: WaitComparison::Equal,
+        } = request.condition
+        else {
+            panic!("unexpected polling request {request:?}");
+        };
+        let revision = self.memory.revision();
+        assert!(
+            address == ram::g_inventory_redraw_phase(revision).address()
+                || address == ram::g_sprite_graphics_upload_pending(revision).address()
+        );
+        assert_eq!((mask, value), (0xff, 0));
+        loop {
+            if self.read_u8(address) == 0 {
+                return Ok(());
+            }
+            let next = self.poll_values.pop_front().expect("unsatisfied RAM poll");
+            self.memory.write_u8(address, next as u8);
+        }
+    }
+    fn poll_yield(&mut self) -> Result<()> {
+        self.accesses.borrow_mut().push(Access::Yield);
+        let phase = self.phases.pop_front().expect("unexpected compound spin");
         ram::g_inventory_redraw_phase(self.memory.revision()).write(&mut self.memory, phase);
         Ok(())
     }
@@ -316,7 +346,7 @@ fn refresh_polls_only_the_source_byte_before_and_after_request() {
     for revision in [Revision::Rev02, Revision::Rev00] {
         let mut c = Fixture::new(revision);
         ram::g_inventory_redraw_phase(revision).write(&mut c.memory, 2);
-        c.phases = [1, 0, 0].into();
+        c.poll_values = [1, 0, 0].into();
         invoke(
             &mut c,
             crate::ui::waiting::inventory_refresh_contents_and_wait,
@@ -327,16 +357,19 @@ fn refresh_polls_only_the_source_byte_before_and_after_request() {
             c.byte_reads(ram::g_inventory_redraw_phase(revision).address()),
             [2, 1, 0, 1, 0]
         );
-        assert!(
-            c.accesses
-                .borrow()
-                .iter()
-                .filter_map(|a| match a {
-                    Access::Wait(condition) => Some(condition),
-                    _ => None,
-                })
-                .all(|condition| *condition == WaitCondition::Interrupt)
-        );
+        let waits: Vec<_> = c
+            .accesses
+            .borrow()
+            .iter()
+            .filter_map(|access| match *access {
+                Access::Wait(condition) => Some(condition),
+                _ => None,
+            })
+            .collect();
+        let expected =
+            WaitRequest::ram_byte_equal(ram::g_inventory_redraw_phase(revision).address(), 0xff, 0)
+                .condition;
+        assert_eq!(waits, [expected, expected]);
         c.assert_no_frame_counter_read();
         assert_eq!(ram::g_inventory_redraw_player(revision).read(&c.memory), 1);
     }
@@ -361,6 +394,44 @@ fn draw_inventory_keeps_compound_byte_poll_and_revision_idle_store() {
             assert_eq!(
                 c.byte_reads(ram::g_player_inventory_open(revision).at(player).address()),
                 [0, 0, 3]
+            );
+            let phase = ram::g_inventory_redraw_phase(revision).address();
+            let open = ram::g_player_inventory_open(revision).at(player).address();
+            let spin: Vec<_> = c
+                .accesses
+                .borrow()
+                .iter()
+                .filter(|access| match **access {
+                    Access::Read(address, 1, _) => address == open || address == phase,
+                    Access::Write(address, 1, _) => address == open,
+                    Access::Yield => true,
+                    _ => false,
+                })
+                .copied()
+                .collect();
+            assert_eq!(
+                spin,
+                [
+                    Access::Read(phase, 1, 4),
+                    Access::Read(open, 1, 0),
+                    Access::Read(phase, 1, 4),
+                    Access::Yield,
+                    Access::Read(phase, 1, 2),
+                    Access::Read(open, 1, 0),
+                    Access::Read(phase, 1, 2),
+                    Access::Write(open, 1, 3),
+                    Access::Yield,
+                    Access::Read(phase, 1, 1),
+                    Access::Read(open, 1, 3),
+                    Access::Yield,
+                    Access::Read(phase, 1, 0),
+                ]
+            );
+            assert!(
+                !c.accesses
+                    .borrow()
+                    .iter()
+                    .any(|access| matches!(access, Access::Wait(_)))
             );
             c.assert_no_frame_counter_read();
             assert_eq!(
@@ -387,6 +458,63 @@ fn draw_inventory_keeps_compound_byte_poll_and_revision_idle_store() {
                         0x9a
                     }
             );
+        }
+    }
+}
+
+#[test]
+fn refresh_wait_owns_initial_and_terminal_polls_for_every_byte_truth_case() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for initial in [0_i8, 1, i8::MIN, -1] {
+            let mut c = Fixture::new(revision);
+            let phase = ram::g_inventory_redraw_phase(revision);
+            let player = ram::g_inventory_redraw_player(revision);
+            phase.write(&mut c.memory, initial);
+            c.poll_values = if initial == 0 {
+                [0].into_iter().collect()
+            } else {
+                [initial, 0, 0].into_iter().collect()
+            };
+            invoke(
+                &mut c,
+                crate::ui::waiting::inventory_refresh_contents_and_wait,
+                &[1],
+            )
+            .unwrap();
+            let request = WaitRequest::ram_byte_equal(phase.address(), 0xff, 0).condition;
+            let mut expected = vec![
+                Access::Wait(request),
+                Access::Read(phase.address(), 1, u32::from(initial as u8)),
+            ];
+            if initial != 0 {
+                expected.extend([
+                    Access::Read(phase.address(), 1, u32::from(initial as u8)),
+                    Access::Read(phase.address(), 1, 0),
+                ]);
+            }
+            expected.extend([
+                Access::Write(player.address(), 1, 1),
+                Access::Write(phase.address(), 1, 1),
+                Access::Wait(request),
+                Access::Read(phase.address(), 1, 1),
+                Access::Read(phase.address(), 1, 0),
+            ]);
+            let actual: Vec<_> = c
+                .accesses
+                .borrow()
+                .iter()
+                .filter(|access| match **access {
+                    Access::Read(address, _, _) | Access::Write(address, _, _) => {
+                        address == phase.address() || address == player.address()
+                    }
+                    Access::Wait(_) | Access::Yield => true,
+                    _ => false,
+                })
+                .copied()
+                .collect();
+            assert_eq!(actual, expected, "initial phase {initial}");
+            assert!(c.poll_values.is_empty());
+            c.assert_no_frame_counter_read();
         }
     }
 }
