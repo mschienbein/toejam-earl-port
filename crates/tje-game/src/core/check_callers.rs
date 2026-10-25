@@ -8,7 +8,7 @@ use std::{
     path::Path,
     sync::{Arc, LazyLock},
 };
-use tje_game::{Context, FunctionId, Translation, ids};
+use tje_game::{Context, FramedTranslation, FunctionId, Translation, ids};
 use tje_host::{Host, Mode, hooks::HookRegistry, input::InputScript};
 use tje_mem::{Platform, Ptr, Revision, ram};
 
@@ -36,25 +36,57 @@ const ROOTS: &[FunctionId] = &[
 static BODIES: LazyLock<Vec<Translation>> = LazyLock::new(|| {
     ROOTS
         .iter()
-        .map(|&id| {
-            *tje_game::translations()
+        .filter_map(|&id| {
+            tje_game::translations()
                 .chain(tje_game::core::PENDING_TRANSLATIONS)
                 .chain(tje_game::jamout::PENDING_TRANSLATIONS)
                 .find(|entry| entry.id == id)
-                .expect("complete caller body")
+                .copied()
         })
         .collect()
 });
 static SINGLE_BODIES: LazyLock<BTreeMap<FunctionId, [Translation; 1]>> =
     LazyLock::new(|| BODIES.iter().map(|&body| (body.id, [body])).collect());
+static FRAMED_BODIES: LazyLock<Vec<FramedTranslation>> = LazyLock::new(|| {
+    ROOTS
+        .iter()
+        .filter_map(|&id| {
+            tje_game::framed_translations()
+                .chain(tje_game::core::PENDING_FRAMED_TRANSLATIONS)
+                .find(|entry| entry.id == id)
+                .copied()
+        })
+        .collect()
+});
+static SINGLE_FRAMED: LazyLock<BTreeMap<FunctionId, [FramedTranslation; 1]>> =
+    LazyLock::new(|| {
+        FRAMED_BODIES
+            .iter()
+            .map(|&body| (body.id, [body]))
+            .collect()
+    });
 
 fn registry(revision: Revision, single: Option<FunctionId>) -> HookRegistry {
     let bodies = if let Some(id) = single {
-        &SINGLE_BODIES[&id][..]
+        SINGLE_BODIES
+            .get(&id)
+            .map_or(&[][..], |body| body.as_slice())
     } else {
         BODIES.as_slice()
     };
-    HookRegistry::proof(revision, bodies).unwrap()
+    let framed = if let Some(id) = single {
+        SINGLE_FRAMED
+            .get(&id)
+            .map_or(&[][..], |body| body.as_slice())
+    } else {
+        FRAMED_BODIES.as_slice()
+    };
+    assert_eq!(
+        bodies.len() + framed.len(),
+        if single.is_some() { 1 } else { ROOTS.len() },
+        "every selected root has exactly one actual entry form",
+    );
+    HookRegistry::proof_with_frames(revision, bodies, framed).unwrap()
 }
 
 fn quiet(host: &mut Host) {

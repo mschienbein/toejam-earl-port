@@ -1,5 +1,37 @@
-use crate::{Context, Result, call, ids};
+use crate::call_frame::{FrameError, FrameState};
+use crate::{Context, FunctionId, Result, call, ids};
 use tje_mem::{ObjectState, ram, rom};
+
+fn entry_arguments(context: &dyn Context, entry: FunctionId) -> Result<FrameState> {
+    let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
+    if !frame.is_prepared_for(entry) {
+        return Err(FrameError::PreparedEntryRequired(entry).into());
+    }
+    Ok(frame)
+}
+
+// G/build/rev{02,00}/asm/c_startup_and_main_loop.s:945-949,979-984,
+// 1027-1031,1049-1053. The MOVE.B after each memory RMW is a new read;
+// publishing the cached ANDI/ORI operand would drop a real source access.
+pub(super) fn clear_display_and_publish(context: &mut dyn Context) -> u8 {
+    let shadow = ram::g_mode2_reg_softcopy(context.revision());
+    let mode = shadow.read(context) & 0x3c;
+    shadow.write(context, mode);
+    let published = shadow.read(context);
+    let control = 0x8104 | u16::from(published);
+    context.write_vdp_control(control);
+    published
+}
+
+pub(super) fn set_display_and_publish(context: &mut dyn Context) -> u8 {
+    let shadow = ram::g_mode2_reg_softcopy(context.revision());
+    let mode = shadow.read(context) | 0x40;
+    shadow.write(context, mode);
+    let published = shadow.read(context);
+    let control = 0x8104 | u16::from(published);
+    context.write_vdp_control(control);
+    published
+}
 
 /// G/src/core/startup_and_main_loop.c:368 (`ReloadActiveCameraViews`, REV 02 0x000BE2).
 /// Read each selected coordinate pair before its redraw; the second view tests
@@ -20,9 +52,11 @@ pub fn reload_active_camera_views(context: &mut dyn Context, _: &[u32]) -> Resul
 /// G/src/core/startup_and_main_loop.c:376 (`EnterSplitScreen`, REV 02 0x000C2E).
 /// The upload-pending wait advances real IRQs, without injecting a device-status
 /// read. It does not invent a fixed wait duration or change the pending byte.
-pub fn enter_split_screen(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn enter_split_screen(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let animate = arguments[0] as i8;
+    let animate = entry_arguments(context, ids::ENTER_SPLIT_SCREEN)?
+        .argument_byte(0)
+        .read(context);
     if ram::g_mode2_reg_softcopy(revision).read(context) & 0x40 != 0 {
         while ram::g_sprite_graphics_upload_pending(revision).read(context) != 0 {
             let counter = ram::g_frame_counter(revision);
@@ -93,23 +127,25 @@ pub fn enter_split_screen(context: &mut dyn Context, arguments: &[u32]) -> Resul
 /// G/src/core/startup_and_main_loop.c:415 (`EnterSharedScreen`, REV 02 0x000D7E).
 /// Keep signed midpoint arithmetic, word narrowing, display-disable ordering,
 /// the two pending-camera copies, and the selected ROM palette upload.
-pub fn enter_shared_screen(context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+pub fn enter_shared_screen(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let distance_y = arguments[0] as i16;
-    let distance_x = arguments[1] as i16;
+    let arguments = entry_arguments(context, ids::ENTER_SHARED_SCREEN)?;
+    let distance_y = arguments.argument_word(0).read(context);
+    let distance_x = arguments.argument_word(1).read(context);
     let toejam = ram::g_player_info(revision).at(0);
     let earl = ram::g_player_info(revision).at(1);
-    let mut x = if toejam.x().read(context) > earl.x().read(context) {
+    // Emitted MOVE.W Earl.X,D1 / CMP.W ToeJam.X,D1 reads the RHS first.
+    let earl_x = earl.x().read(context);
+    let toejam_x = toejam.x().read(context);
+    let mut x = if toejam_x > earl_x {
         earl.x().read(context)
     } else {
         toejam.x().read(context)
     };
     x = x.wrapping_add((distance_x / 2).wrapping_sub(160));
-    let entity = if toejam.y().read(context) > earl.y().read(context) {
-        earl
-    } else {
-        toejam
-    };
+    let earl_y = earl.y().read(context);
+    let toejam_y = toejam.y().read(context);
+    let entity = if toejam_y > earl_y { earl } else { toejam };
     let mut y = entity
         .y()
         .read(context)
@@ -124,10 +160,11 @@ pub fn enter_shared_screen(context: &mut dyn Context, arguments: &[u32]) -> Resu
     if display_enabled != 0 {
         call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
         call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-        let mode = ram::g_mode2_reg_softcopy(revision).read(context) & 0x3c;
-        ram::g_mode2_reg_softcopy(revision).write(context, mode);
-        context.write_vdp_control(0x8104 | u16::from(mode));
+        clear_display_and_publish(context);
     }
+    // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:951: CLR.B reads
+    // the destination for hardware effects without consuming its operand.
+    context.discard_u8(ram::g_split_screen_enabled(revision).address())?;
     ram::g_split_screen_enabled(revision).write(context, 0);
     call(
         context,
@@ -147,9 +184,7 @@ pub fn enter_shared_screen(context: &mut dyn Context, arguments: &[u32]) -> Resu
     call(context, ids::COPY_PALETTE_TO_CRAM_SLOT, &[palette, 0])?;
     if display_enabled != 0 {
         call(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
-        let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
-        ram::g_mode2_reg_softcopy(revision).write(context, mode);
-        context.write_vdp_control(0x8104 | u16::from(mode));
+        set_display_and_publish(context);
         call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     }
     Ok(None)
@@ -157,12 +192,12 @@ pub fn enter_shared_screen(context: &mut dyn Context, arguments: &[u32]) -> Resu
 
 /// G/src/core/startup_and_main_loop.c:460 (`CenterSharedCameraOnPlayer`, REV 02 0x000EE6).
 /// The short object index is lowered as ASL.W #7 / ADDA.W, including wraparound.
-pub fn center_shared_camera_on_player(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn center_shared_camera_on_player(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let displacement = (arguments[0] as i16).wrapping_shl(7);
+    let player = entry_arguments(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER)?
+        .argument_word(0)
+        .read(context);
+    let displacement = player.wrapping_shl(7);
     let entity = ram::g_player_info(revision)
         .cast::<ObjectState>()
         .byte_offset(i32::from(displacement));
@@ -180,9 +215,7 @@ pub fn center_shared_camera_on_player(
     if display_enabled != 0 {
         call(context, ids::WAIT_FOR_V_BLANK_WITH_GRAPHICS_PAUSED, &[])?;
         call(context, ids::DISABLE_BLANKING_GRAPHICS, &[])?;
-        let mode = ram::g_mode2_reg_softcopy(revision).read(context) & 0x3c;
-        ram::g_mode2_reg_softcopy(revision).write(context, mode);
-        context.write_vdp_control(0x8104 | u16::from(mode));
+        clear_display_and_publish(context);
     }
     let x = i32::from(entity.x().read(context)) - 160;
     call(
@@ -193,9 +226,7 @@ pub fn center_shared_camera_on_player(
     if display_enabled != 0 {
         call(context, ids::FORCE_TEXT_BACKGROUND_COLOR_TO_BLACK, &[0])?;
         ram::g_hud_redraw_pending(revision).write(context, 1);
-        let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
-        ram::g_mode2_reg_softcopy(revision).write(context, mode);
-        context.write_vdp_control(0x8104 | u16::from(mode));
+        set_display_and_publish(context);
         call(context, ids::ENABLE_BLANKING_GRAPHICS, &[])?;
     } else {
         call(context, ids::DRAW_HUD, &[])?;
@@ -206,12 +237,11 @@ pub fn center_shared_camera_on_player(
 /// G/src/core/startup_and_main_loop.c:514 (`UpdateScreenSplitMode`, REV 02 0x00105A).
 /// Keep the original force/early-return gates, SUB.W/BGE absolute-distance
 /// overflow behavior, merge hysteresis, and post-call shared-camera mirrors.
-pub fn update_screen_split_mode(
-    context: &mut dyn Context,
-    arguments: &[u32],
-) -> Result<Option<u32>> {
+pub fn update_screen_split_mode(context: &mut dyn Context) -> Result<Option<u32>> {
     let revision = context.revision();
-    let force = arguments[0] as i8;
+    let force = entry_arguments(context, ids::UPDATE_SCREEN_SPLIT_MODE)?
+        .argument_byte(0)
+        .read(context);
     let toejam = ram::g_player_info(revision).at(0);
     let earl = ram::g_player_info(revision).at(1);
     if force != 0 {
@@ -221,15 +251,24 @@ pub fn update_screen_split_mode(
         } else if ram::g_player2_lives(revision).read(context) < 0 {
             call(context, ids::CENTER_SHARED_CAMERA_ON_PLAYER, &[0])?;
             return Ok(None);
-        } else if toejam.level().read(context) != earl.level().read(context) {
+        } else if earl.level().read(context) != toejam.level().read(context) {
             call(context, ids::ENTER_SPLIT_SCREEN, &[0])?;
             return Ok(None);
         }
-    } else if ram::g_player_lives(revision).at(0).read(context) < 0
-        || ram::g_player2_lives(revision).read(context) < 0
-        || toejam.level().read(context) != earl.level().read(context)
-    {
-        return Ok(None);
+    } else {
+        let first_lives = ram::g_player_lives(revision).at(0).read(context);
+        if first_lives < 0 {
+            return Ok(None);
+        }
+        let second_lives = ram::g_player2_lives(revision).read(context);
+        if second_lives < 0 {
+            return Ok(None);
+        }
+        let second_level = earl.level().read(context);
+        let first_level = toejam.level().read(context);
+        if second_level != first_level {
+            return Ok(None);
+        }
     }
     let first_y = toejam.y().read(context);
     let second_y = earl.y().read(context);
@@ -245,14 +284,16 @@ pub fn update_screen_split_mode(
     }
     if toejam.height().read(context) > 0
         && toejam.animation_group_mask().read(context) & 0x04008000 != 0
-        && toejam.y().read(context) < earl.y().read(context)
+        && earl.y().read(context) > toejam.y().read(context)
     {
-        distance_y = distance_y.wrapping_add(toejam.height().read(context));
+        let height = toejam.height().read(context);
+        distance_y = distance_y.wrapping_add(height);
     } else if earl.height().read(context) > 0
         && earl.animation_group_mask().read(context) & 0x04008000 != 0
-        && earl.y().read(context) < toejam.y().read(context)
+        && toejam.y().read(context) > earl.y().read(context)
     {
-        distance_y = distance_y.wrapping_add(earl.height().read(context));
+        let height = earl.height().read(context);
+        distance_y = distance_y.wrapping_add(height);
     }
     if force != 0 {
         if distance_y > 124
@@ -284,7 +325,8 @@ pub fn update_screen_split_mode(
             &[i32::from(distance_y) as u32, i32::from(distance_x) as u32],
         )?;
     }
-    if ram::g_split_screen_enabled(revision).read(context) == 0 {
+    let split = ram::g_split_screen_enabled(revision).read(context);
+    if split == 0 {
         let x = ram::g_camera1_pending_x(revision).read(context);
         ram::g_camera2_pending_x(revision).write(context, x);
         let y = ram::g_camera1_pending_y(revision).read(context);
@@ -292,3 +334,6 @@ pub fn update_screen_split_mode(
     }
     Ok(None)
 }
+
+#[cfg(test)]
+mod replay_tests;

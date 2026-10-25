@@ -88,11 +88,11 @@ pub fn further_initialisation(context: &mut dyn Context, _: &[u32]) -> Result<Op
         ids::WAIT_FOR_NEXT_V_BLANK,
         site(revision, 0x54),
     )?;
-    let mode = ram::g_mode2_reg_softcopy(revision).read(context) & 0x3c;
-    ram::g_mode2_reg_softcopy(revision).write(context, mode);
+    // Same ANDI.B / MOVE.B reload / VDP word publication as the view entries.
+    // Releasing the outgoing area changes only this function's private SP.
+    super::views::clear_display_and_publish(context);
     wait.release(context)?;
     dma.release(context)?;
-    context.write_vdp_control(0x8104 | u16::from(mode));
 
     let seed = OutgoingArguments::push(context, &[12345])?;
     seed.call(
@@ -195,6 +195,8 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
     OutgoingArguments::existing(context, 2)?.release(context)?;
     let dispatcher = context.dispatcher();
+    // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:1399: CLR.B.
+    context.discard_u8(ram::g_requested_music_selection(revision).address())?;
     ram::g_requested_music_selection(revision).write(context, 0);
     context.write_vdp_command(0x40000000);
     let bytes = (i32::from(rom::level_tiles_size(revision).read(context)) as u32) << 4;
@@ -396,10 +398,8 @@ pub fn after_menu(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     ram::g_camera2_pending_x(revision).write(context, x);
     let y = ram::g_camera1_pending_y(revision).read(context);
     ram::g_camera2_pending_y(revision).write(context, y);
-    let mode = ram::g_mode2_reg_softcopy(revision).read(context) | 0x40;
-    ram::g_mode2_reg_softcopy(revision).write(context, mode);
+    let mode = super::views::set_display_and_publish(context);
     context.set_data_register(0, 0x8104 | u32::from(mode));
-    context.write_vdp_control(0x8104 | u16::from(mode));
     call_at(
         context,
         ids::ENABLE_BLANKING_GRAPHICS,

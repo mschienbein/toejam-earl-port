@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+
+use crate::call_frame::{FrameError, FrameState};
 use crate::{Context, Dispatcher, FunctionId, Result};
 use tje_mem::{AddressSpace, Bus, Platform, Revision};
 
@@ -8,9 +11,22 @@ pub(crate) enum Write {
     Data(u16),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Access {
+    Read(u32, u8),
+    Discard(u32, u8),
+    Write(u32, u8, u32),
+    Control(u16),
+    Data(u16),
+}
+
 pub(crate) struct TestContext {
     pub memory: AddressSpace,
     pub writes: Vec<Write>,
+    pub trace_accesses: bool,
+    pub accesses: RefCell<Vec<Access>>,
+    pub frame: Option<FrameState>,
+    pub sp: u32,
     data: [u32; 8],
     address: [u32; 8],
     status: u16,
@@ -24,31 +40,82 @@ impl TestContext {
         Self {
             memory: AddressSpace::new(rom, revision),
             writes: Vec::new(),
+            trace_accesses: false,
+            accesses: RefCell::new(Vec::new()),
+            frame: None,
+            sp: 0xff7f00,
             data: [0; 8],
             address: [0; 8],
             status: 0x2000,
+        }
+    }
+    pub fn prepare_entry(&mut self, entry: FunctionId, arguments: &[u32]) -> FrameState {
+        let frame = FrameState::new(self.sp).for_prepared_entry(entry);
+        self.frame = Some(frame);
+        for (index, &value) in arguments.iter().enumerate() {
+            frame.argument_slot(index as i32).write(self, value);
+        }
+        frame
+    }
+    fn record(&self, access: Access) {
+        if self.trace_accesses {
+            self.accesses.borrow_mut().push(access);
         }
     }
 }
 
 impl Bus for TestContext {
     fn read_u8(&self, address: u32) -> u8 {
+        self.record(Access::Read(address, 1));
         self.memory.read_u8(address)
     }
+    fn read_u16(&self, address: u32) -> u16 {
+        self.record(Access::Read(address, 2));
+        self.memory.read_u16(address)
+    }
+    fn read_u32(&self, address: u32) -> u32 {
+        (u32::from(self.read_u16(address)) << 16)
+            | u32::from(self.read_u16(address.wrapping_add(2)))
+    }
     fn write_u8(&mut self, address: u32, value: u8) {
+        self.record(Access::Write(address, 1, u32::from(value)));
         self.writes.push(Write::Ram(address, value));
         self.memory.write_u8(address, value);
+    }
+    fn write_u16(&mut self, address: u32, value: u16) {
+        self.record(Access::Write(address, 2, u32::from(value)));
+        for (offset, byte) in value.to_be_bytes().into_iter().enumerate() {
+            let address = address.wrapping_add(offset as u32);
+            self.writes.push(Write::Ram(address, byte));
+            self.memory.write_u8(address, byte);
+        }
+    }
+    fn write_u32(&mut self, address: u32, value: u32) {
+        self.write_u16(address, (value >> 16) as u16);
+        self.write_u16(address.wrapping_add(2), value as u16);
     }
 }
 impl Platform for TestContext {
     fn write_vdp_control(&mut self, value: u16) {
+        self.record(Access::Control(value));
         self.writes.push(Write::Control(value));
     }
     fn write_vdp_data(&mut self, value: u16) {
+        self.record(Access::Data(value));
         self.writes.push(Write::Data(value));
     }
 }
 impl crate::Platform for TestContext {
+    fn discard_u8(&mut self, address: u32) -> Result<()> {
+        self.record(Access::Discard(address, 1));
+        let _ = self.memory.read_u8(address);
+        Ok(())
+    }
+    fn discard_u16(&mut self, address: u32) -> Result<()> {
+        self.record(Access::Discard(address, 2));
+        let _ = self.memory.read_u16(address);
+        Ok(())
+    }
     fn read_device_u8(&mut self, address: u32) -> u8 {
         panic!("unexpected leaf device read at {address:08x}")
     }
@@ -83,6 +150,22 @@ impl Context for TestContext {
     }
     fn set_status_register(&mut self, value: u16) {
         self.status = value;
+    }
+    fn stack_pointer(&self) -> Result<u32> {
+        self.frame.ok_or(FrameError::Unavailable)?;
+        Ok(self.sp)
+    }
+    fn set_stack_pointer(&mut self, value: u32) -> Result<()> {
+        self.frame.ok_or(FrameError::Unavailable)?;
+        self.sp = value;
+        Ok(())
+    }
+    fn frame_state(&self) -> Option<FrameState> {
+        self.frame
+    }
+    fn set_frame_state(&mut self, frame: FrameState) -> Result<()> {
+        self.frame = Some(frame);
+        Ok(())
     }
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid()

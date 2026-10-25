@@ -8,14 +8,25 @@ fn increment_frame(context: &mut dyn Context) {
     counter.write(context, next);
 }
 
+fn advance_player_parity(context: &mut dyn Context) -> i8 {
+    let parity = ram::g_v_blank_player_update_parity(context.revision());
+    let next = parity.read(context).wrapping_add(1);
+    parity.write(context, next);
+    // ADDQ.B followed by MOVE.B reload, not reuse of the arithmetic operand.
+    // G/build/rev{02,00}/asm/c_startup_and_main_loop.s:376-379.
+    parity.read(context)
+}
+
 /// G/src/core/startup_and_main_loop.c:175 (`HandleVBlank`, REV 02 0x0005EC).
 /// The installed callback owns its counter; otherwise preserve graphics-service
 /// precedence, the priority-update jump over audio, and the final frame increment.
 /// IRQ6 device publication time remains the explicit TimeAware proof obligation.
 fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
     let revision = context.revision();
-    let callback = ram::g_v_blank_func(revision).read(context).address();
-    if callback != 0 {
+    let callback_slot = ram::g_v_blank_func(revision);
+    if callback_slot.read(context).address() != 0 {
+        // TST.L and the following MOVE.L are separate word-beat reads.
+        let callback = callback_slot.read(context).address();
         let id = function_at(revision, callback)
             .ok_or_else(|| Error::Platform(format!("unmapped VBlank callback {callback:08x}")))?;
         context.set_address_register(0, callback);
@@ -90,13 +101,11 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
                     call(context, ids::HUD_ANIMATE_HEALTH_BAR, &[0])?;
                     call(context, ids::HUD_ANIMATE_HEALTH_BAR, &[1])?;
                 }
-                let parity = ram::g_v_blank_player_update_parity(revision);
-                let next = parity.read(context).wrapping_add(1);
-                parity.write(context, next);
+                let parity = advance_player_parity(context);
                 call(
                     context,
                     ids::HIDE_FLAGGED_PLAYER_SPRITES,
-                    &[if next & 1 != 0 { 0 } else { 1 }],
+                    &[if parity & 1 != 0 { 0 } else { 1 }],
                 )?;
             }
         }
@@ -104,8 +113,9 @@ fn handle_vblank_inner(context: &mut dyn Context, _: &[u32]) -> Result<Option<u3
     if ram::g_v_blank_graphics_paused(revision).read(context) == 0
         || ram::g_v_blank_audio_input_override(revision).read(context) != 0
     {
-        if ram::g_current_music_selection(revision).read(context)
-            != ram::g_requested_music_selection(revision).read(context)
+        // MOVE.B requested,D0 precedes CMP.B current,D0 in the original.
+        if ram::g_requested_music_selection(revision).read(context)
+            != ram::g_current_music_selection(revision).read(context)
         {
             let selection =
                 i32::from(ram::g_requested_music_selection(revision).read(context)) as u32;
@@ -155,3 +165,6 @@ pub fn handle_vblank(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>
         (Ok(value), Ok(())) => Ok(value),
     }
 }
+
+#[cfg(test)]
+mod replay_tests;

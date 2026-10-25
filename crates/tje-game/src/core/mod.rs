@@ -285,28 +285,33 @@ pub static PENDING_TRANSLATIONS: &[crate::Translation] = &[
         function: input::check_start_button,
     },
     crate::Translation {
-        id: crate::ids::ENTER_SPLIT_SCREEN,
-        function: views::enter_split_screen,
-    },
-    crate::Translation {
-        id: crate::ids::ENTER_SHARED_SCREEN,
-        function: views::enter_shared_screen,
-    },
-    crate::Translation {
-        id: crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
-        function: views::center_shared_camera_on_player,
-    },
-    crate::Translation {
-        id: crate::ids::UPDATE_SCREEN_SPLIT_MODE,
-        function: views::update_screen_split_mode,
-    },
-    crate::Translation {
         id: crate::ids::HANDLE_V_BLANK,
         function: vblank::handle_vblank,
     },
     crate::Translation {
         id: crate::ids::FURTHER_INITIALISATION,
         function: main_loop::further_initialisation,
+    },
+];
+
+/// Pending body-form cutover only: lazy source-width incoming argument loads.
+/// These entries grant no production or replay-tier approval.
+pub static PENDING_FRAMED_TRANSLATIONS: &[crate::FramedTranslation] = &[
+    crate::FramedTranslation {
+        id: crate::ids::ENTER_SPLIT_SCREEN,
+        function: views::enter_split_screen,
+    },
+    crate::FramedTranslation {
+        id: crate::ids::ENTER_SHARED_SCREEN,
+        function: views::enter_shared_screen,
+    },
+    crate::FramedTranslation {
+        id: crate::ids::CENTER_SHARED_CAMERA_ON_PLAYER,
+        function: views::center_shared_camera_on_player,
+    },
+    crate::FramedTranslation {
+        id: crate::ids::UPDATE_SCREEN_SPLIT_MODE,
+        function: views::update_screen_split_mode,
     },
 ];
 
