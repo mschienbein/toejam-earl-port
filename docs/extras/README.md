@@ -1,7 +1,8 @@
-# Extras: designs
+# Extras: designs and opt-in implementations
 
-These are design documents for optional features that come after the faithful port. None of them is
-implemented yet. Faithful mode stays the default, and every extra will be opt-in.
+These documents describe extras developed separately from the faithful port. Faithful mode stays
+the default and every implemented extra is opt-in; design-only capabilities fail admission rather
+than selecting a partial gameplay implementation.
 
 | Design | Summary |
 | --- | --- |
@@ -9,7 +10,7 @@ implemented yet. Faithful mode stays the default, and every extra will be opt-in
 | [Four-player co-op](four-player.md) | Four seats with typed per-seat state, quadrant-first views, four pads, and palette-swap characters computed at runtime from the user's ROM. The original's player tables are two-seat, so this is a generalisation, not a count change. |
 | [Overlord (3 vs 1)](overlord.md) | Three heroes against a body-less director who spends an integer budget on validated commands: spawning Earthlings and laying harmless, telegraphed traps. |
 | [Larger, denser levels](larger-denser-levels.md) | Independent opt-in size and density settings; a proposed expanded grid with a hard cap, within the original's sprite, VRAM and palette limits. |
-| [Maker mode](maker.md) | A bounded, asset-free course format that replaces both terrain and population generation, a local editor, and share codes. Hosted sharing would need accounts and a server, so it is out of scope until approved. |
+| [Maker mode](maker.md), [format and native loader](maker-format.md) | Implemented first phase: bounded asset-free JSON courses, strict validation, local checksummed share codes, three authored samples and a native 19×26 one/two-seat terrain-and-population loader. Graphical editing, generalized capacities and hosted sharing remain later phases. |
 
 All of them build on an **enhanced mode** in the shipped engine. Selected original functions are
 swapped for modified Rust versions taken from the proven readable layer, while everything else runs

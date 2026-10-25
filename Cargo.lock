@@ -3538,6 +3538,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-maker"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "flate2",
+ "genesis-config",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tje-engine-cranelift",
+ "tje-engine-runtime",
+ "tje-game",
+ "tje-mem",
+ "tje-rom",
+ "tje-session",
+]
+
+[[package]]
 name = "tje-mem"
 version = "0.1.0"
 dependencies = [
@@ -3563,12 +3581,14 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
+ "sha2",
  "tje-display",
  "tje-engine-cranelift",
  "tje-engine-runtime",
  "tje-extended-view",
  "tje-extras",
  "tje-jam-out",
+ "tje-maker",
  "tje-mem",
  "tje-netplay",
  "tje-rom",

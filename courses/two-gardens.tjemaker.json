@@ -1,0 +1,28 @@
+{
+  "schema": "tje-maker/1", "catalog": "tje91-rev00/1",
+  "title": "Two Gardens", "author": "Port contributors",
+  "description": "Two independently authored meadows linked by explicit travel pads. From (512,800), go east to (896,800) and press Up. The return pad is at (1280,800); the finish is at (1792,800).",
+  "runtime_seed": "00000000544a4d32",
+  "rules": {"ruleset": "classic_v1", "heroes": 1, "tick_limit": null, "lives": 3, "bucks": 3, "inventory": [], "identify_presents": true},
+  "start": {"level": 100, "spawns": [1]},
+  "finish": {"kind": "reach_exit", "exit": 204, "required": []},
+  "levels": [
+    {"id": 100, "width": 19, "height": 26, "environment": "earth", "music": "gameplay",
+     "cells": [[247,30],[247,158]],
+     "spawn_points": [{"id": 1, "position": {"x": 512, "y": 800}}, {"id": 2, "position": {"x": 768, "y": 800}}],
+     "objects": [
+       {"type": "elevator", "id": 201, "position": {"x": 896, "y": 800}},
+       {"type": "item", "id": 202, "definition": {"kind": "present", "identity": 7}, "position": {"x": 640, "y": 800}},
+       {"type": "telephone", "id": 205, "position": {"x": 1536, "y": 1024}},
+       {"type": "service", "id": 206, "definition": "wiseman", "position": {"x": 1792, "y": 1024}}
+     ],
+     "links": [{"endpoint": 201, "destination": {"level": 200, "spawn": 1}, "two_way": true}],
+     "fall_target": {"kind": "lose_life_and_respawn", "spawn": 1}, "paths": []},
+    {"id": 200, "width": 19, "height": 26, "environment": "earth", "music": "gameplay",
+     "cells": [[494,33]],
+     "spawn_points": [{"id": 1, "position": {"x": 640, "y": 800}}],
+     "objects": [{"type": "elevator", "id": 203, "position": {"x": 1280, "y": 800}}, {"type": "exit", "id": 204, "position": {"x": 1792, "y": 800}}],
+     "links": [{"endpoint": 203, "destination": {"level": 100, "spawn": 2}, "two_way": true}],
+     "fall_target": {"kind": "level", "level": 100, "spawn": 1}, "paths": []}
+  ]
+}

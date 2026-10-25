@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-enhanced-mode = ["tje-engine-runtime/enhanced-mode", "dep:tje-extras", "tje-extras/enhanced-mode", "dep:tje-extended-view", "tje-extended-view/enhanced-mode", "tje-jam-out/enhanced-mode"]
+enhanced-mode = ["tje-engine-runtime/enhanced-mode", "dep:tje-extras", "tje-extras/enhanced-mode", "dep:tje-extended-view", "tje-extended-view/enhanced-mode", "tje-jam-out/enhanced-mode", "dep:tje-maker", "tje-maker/enhanced-mode"]
 
 [dependencies]
 anyhow = "1"
@@ -43,3 +43,7 @@ tje-netplay = { path = "../tje-netplay" }
 tje-jam-out = { path = "../tje-jam-out" }
 tje-extras = { path = "../tje-extras", optional = true }
 tje-extended-view = { path = "../tje-extended-view", optional = true }
+tje-maker = { path = "../tje-maker", optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"

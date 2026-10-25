@@ -74,6 +74,10 @@ struct Args {
     #[cfg(feature = "enhanced-mode")]
     #[arg(long, default_value_t = 0, conflicts_with_all = ["enhanced_debug", "replay_report"])]
     extended_view: u16,
+    /// Play a local authored native-size course (never auto-enabled by a file).
+    #[cfg(feature = "enhanced-mode")]
+    #[arg(long, conflicts_with_all = ["enhanced_debug", "jam_out", "extended_view", "replay", "replay_report", "forget_rom"])]
+    maker: Option<PathBuf>,
     /// Override the OS-specific per-user data directory (also useful for isolated test sessions).
     #[arg(long)]
     data_dir: Option<PathBuf>,
@@ -142,6 +146,8 @@ struct App {
     backend: Option<Box<NativeBackend>>,
     netplay: netplay::Session,
     loading: Option<Loading>,
+    #[cfg(feature = "enhanced-mode")]
+    maker_course: Option<tje_maker::ValidatedCourse>,
     replay: Option<Replay>,
     paused: bool,
     tick: u64,
@@ -255,6 +261,28 @@ impl App {
             "Jam Out requires enhanced inputs; controller-only replay cannot enable it"
         );
         settings.validate()?;
+        #[cfg(feature = "enhanced-mode")]
+        let maker_course = args
+            .maker
+            .as_ref()
+            .map(|path| -> Result<tje_maker::ValidatedCourse> {
+                use std::io::Read;
+                ensure!(
+                    !settings.jam_out.enabled,
+                    "disable the saved Jam Out setting before selecting Maker"
+                );
+                let mut bytes = Vec::new();
+                fs::File::open(path)
+                    .with_context(|| format!("opening Maker course {}", path.display()))?
+                    .take(tje_maker::MAX_BODY_BYTES as u64 + 1)
+                    .read_to_end(&mut bytes)?;
+                ensure!(
+                    bytes.len() <= tje_maker::MAX_BODY_BYTES,
+                    "Maker course exceeds 2 MiB"
+                );
+                Ok(tje_maker::ValidatedCourse::from_json(&bytes)?)
+            })
+            .transpose()?;
         let input = Input::new(&settings.gamepad_devices)?;
         settings.gamepad_devices = input.saved_devices();
         if config_error.is_none() {
@@ -342,6 +370,8 @@ impl App {
             backend: None,
             netplay: netplay::Session::default(),
             loading: None,
+            #[cfg(feature = "enhanced-mode")]
+            maker_course,
             replay,
             paused: false,
             tick: 0,
@@ -475,6 +505,15 @@ impl App {
                 #[cfg(feature = "enhanced-mode")]
                 backend.set_extended_view(self.args.extended_view)?;
                 backend.set_jam_out(self.settings.jam_out)?;
+                #[cfg(feature = "enhanced-mode")]
+                if let Some(course) = &self.maker_course {
+                    backend.set_maker(course)?;
+                    println!(
+                        "MAKER {} sha256={}",
+                        course.course().title,
+                        course.digest_hex()
+                    );
+                }
                 println!("PROFILE {}", backend.profile_id());
                 if loading.store {
                     self.storage.store_rom(backend.rom_bytes())?;
@@ -1553,5 +1592,45 @@ mod pause_tests {
         assert!(effective_pause(false, true, true, false, false));
         assert!(!effective_pause(false, false, false, false, false));
         assert!(!effective_pause(false, false, false, true, true));
+    }
+}
+
+#[cfg(test)]
+mod maker_args_tests {
+    use super::Args;
+    use clap::Parser;
+
+    #[test]
+    fn faithful_cli_never_selects_a_course_implicitly() {
+        let args = Args::try_parse_from(["toejam-earl"]).unwrap();
+        #[cfg(feature = "enhanced-mode")]
+        assert!(args.maker.is_none());
+        #[cfg(not(feature = "enhanced-mode"))]
+        {
+            let _ = args;
+            assert!(Args::try_parse_from(["toejam-earl", "--maker", "course.json"]).is_err());
+        }
+    }
+
+    #[cfg(feature = "enhanced-mode")]
+    #[test]
+    fn maker_is_an_explicit_exclusive_load_time_selection() {
+        assert!(
+            Args::try_parse_from(["toejam-earl", "--maker", "course.json"])
+                .unwrap()
+                .maker
+                .is_some()
+        );
+        for extra in ["--enhanced-debug", "--jam-out", "--forget-rom"] {
+            assert!(
+                Args::try_parse_from(["toejam-earl", "--maker", "course.json", extra]).is_err()
+            );
+        }
+        for extra in ["--extended-view", "--replay", "--replay-report"] {
+            assert!(
+                Args::try_parse_from(["toejam-earl", "--maker", "course.json", extra, "400"])
+                    .is_err()
+            );
+        }
     }
 }

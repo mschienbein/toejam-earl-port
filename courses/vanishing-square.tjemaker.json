@@ -1,0 +1,16 @@
+{
+  "schema": "tje-maker/1", "catalog": "tje91-rev02/1",
+  "title": "Vanishing Square", "author": "Port contributors",
+  "description": "An authored timed-path experiment, not an original level export. Walking over the two cells at columns 7 and 8, row 11 arms their collapse. Get the buck at (1280,800), then press Up at the exit (1792,800).",
+  "runtime_seed": "00000000544a4d33",
+  "rules": {"ruleset": "classic_v1", "heroes": 1, "tick_limit": 18000, "lives": 3, "bucks": 0, "inventory": [], "identify_presents": true},
+  "start": {"level": 7, "spawns": [1]},
+  "finish": {"kind": "collect_and_exit", "exit": 302, "required": [301]},
+  "levels": [{
+    "id": 7, "width": 19, "height": 26, "environment": "earth", "music": "gameplay", "cells": [[494,30]],
+    "spawn_points": [{"id": 1, "position": {"x": 512, "y": 800}}],
+    "objects": [{"type": "item", "id": 301, "definition": {"kind": "buck"}, "position": {"x": 1280, "y": 800}}, {"type": "exit", "id": 302, "position": {"x": 1792, "y": 800}}],
+    "links": [], "fall_target": {"kind": "lose_life_and_respawn", "spawn": 1},
+    "paths": [{"id": 1, "cells": [{"x": 7, "y": 11, "directions": 2}, {"x": 8, "y": 11, "directions": 8}], "trigger": "step_on", "arming_ticks": 30, "delay_ticks": 90, "replacement": 34}]
+  }]
+}

@@ -119,6 +119,28 @@ impl NativeBackend {
         Ok(())
     }
 
+    /// Explicit, load-time authored course selection. Admission constructs the
+    /// candidate first; a wrong catalog/capability never resets the engine.
+    #[cfg(feature = "enhanced-mode")]
+    pub fn set_maker(&mut self, course: &tje_maker::ValidatedCourse) -> Result<()> {
+        ensure!(
+            self.engine.frame_count() == 0,
+            "select Maker before starting the cartridge"
+        );
+        ensure!(
+            self.profile_id() == "faithful"
+                && self.extended_width == 0
+                && !self.jam_settings.enabled,
+            "Maker cannot be combined with debug, extended view or Jam Out profiles"
+        );
+        let candidate = tje_maker::enhanced::new_mode(course, self.engine.devices().memory())?;
+        self.enhanced = candidate;
+        self.presenter = None;
+        self.jam_capable = false;
+        self.enhanced.reset(&mut self.engine);
+        Ok(())
+    }
+
     /// A load-time simulation choice, never a stretch or a live camera mutation.
     #[cfg(feature = "enhanced-mode")]
     pub fn set_extended_view(&mut self, width: u16) -> Result<()> {
@@ -129,6 +151,10 @@ impl NativeBackend {
         if width == 0 {
             return Ok(());
         }
+        ensure!(
+            self.profile_id() != tje_maker::enhanced::PROFILE_ID,
+            "Maker uses the native-size view and cannot enable extended view"
+        );
         ensure!(
             width == 400 || ((408..=512).contains(&width) && width.is_multiple_of(8)),
             "extended view must be 400, or an explicitly experimental 408..512 multiple of 8"
@@ -239,6 +265,10 @@ impl GameBackend for NativeBackend {
         ensure!(settings.valid(), "Jam backing must be 0..=6");
         #[cfg(feature = "enhanced-mode")]
         {
+            ensure!(
+                self.profile_id() != tje_maker::enhanced::PROFILE_ID || !settings.enabled,
+                "Maker cannot enable the separate Jam Out profile"
+            );
             let mut reset = false;
             if self.jam_capable {
                 tje_jam_out::configure(&mut self.enhanced, settings)?;

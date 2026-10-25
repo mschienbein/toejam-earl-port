@@ -1,0 +1,22 @@
+{
+  "schema": "tje-maker/1",
+  "catalog": "tje91-rev02/1",
+  "title": "Meadow Circuit",
+  "author": "Port contributors",
+  "description": "A newly authored open meadow. Pick up the buck and head east to the exit. Exit and travel pads use Up; their positions are listed here for text-only playtesting.",
+  "runtime_seed": "00000000544a4d31",
+  "rules": {"ruleset": "classic_v1", "heroes": 2, "tick_limit": null, "lives": 3, "bucks": 3, "inventory": [7], "identify_presents": true},
+  "start": {"level": 10, "spawns": [1, 2]},
+  "finish": {"kind": "collect_and_exit", "exit": 103, "required": [101]},
+  "levels": [{
+    "id": 10, "width": 19, "height": 26, "environment": "earth", "music": "gameplay",
+    "cells": [[494, 30]],
+    "spawn_points": [{"id": 1, "position": {"x": 512, "y": 800}}, {"id": 2, "position": {"x": 560, "y": 800}}],
+    "objects": [
+      {"type": "item", "id": 101, "definition": {"kind": "buck"}, "position": {"x": 704, "y": 800}},
+      {"type": "earthling", "id": 102, "definition": "devil", "initial": "awake", "position": {"x": 1216, "y": 960}},
+      {"type": "exit", "id": 103, "position": {"x": 1664, "y": 800}}
+    ],
+    "links": [], "fall_target": {"kind": "lose_life_and_respawn", "spawn": 1}, "paths": []
+  }]
+}

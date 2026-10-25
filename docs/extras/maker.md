@@ -1,6 +1,6 @@
 # Maker: designed courses, local editor and self-contained share codes
 
-Status: design only, 2026-10-25. This is an opt-in enhanced mode, not a new default generator or a shipped set of extracted levels. Local files and share codes are in scope. Hosted upload/browse, accounts, moderation operations, spending and HD art are not.
+Status: native-size first-phase implementation, 2026-10-25. See [the executable format and loader specification](maker-format.md) for exact fields, local CLI/share-code authoring, capability admission and the native 19×26/one-or-two-seat profile. This document retains the broader editor/generalized-capacity design. Maker is opt-in, not a new default generator or a shipped set of extracted levels. Hosted sharing, accounts, spending and HD art remain out of scope.
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -134,4 +134,4 @@ Acceptance tests required before shipping:
 
 Principal risks: schema becoming an unsafe scripting language; authored path/terrain combinations that break traversal; accidental original bank/generation fallthrough; assuming a local clear stamp proves anti-cheat; unwieldy large codes; two UI implementations diverging. Strict data/capabilities, one shared codec/validator, immutable playtest documents and honest file-size UX are the boring recommended design.
 
-This assignment supplies no executable changes, sample ROM content, builds, tests or games. Main owns final code/audit/replay gates when implementation is undertaken.
+The first phase implements bounded format/codec/validation, three newly authored data courses and an enhanced native-size terrain-and-population loader. The graphical editor and generalized geometry/actor/four-seat/Overlord closures remain later phases; unsupported capabilities fail admission before mutation rather than selecting a partial implementation. See [maker-format.md](maker-format.md) and the private MakerFormat report for exercised gates and evidence; no ROM-derived map/assets/saves are public course fixtures.
