@@ -1485,6 +1485,16 @@ still requires a separate declaration until a real lead store, and the
 initialized word remains live across both character loops. This does not
 waive the post-callee original-frame witness requirement described above.
 
+`MapChooseMetatileAlternatives` likewise declares each A6-4 word read on a
+missing descriptor match until the first real choice store (both
+`c_level_generation_and_changes.s:1518-1566`). `MapGrowTerrainRegion` declares
+its A6-14 probability word only for incoming terrain kinds other than the
+0x1000/0x3000 cases which actually initialize it (both
+`c_random_regions_and_cleanup.s:966-983,1235`). Original callers use those two
+kinds; the conditional declaration preserves, rather than initializes or
+validates away, the other original input path. Initialized paths keep ordinary
+typed reads, and the same backend witness obligations still apply.
+
 `tje_mem::written_ram::WrittenRam` supplies only shared canonical 64-KiB RAM
 bookkeeping (`get`, `set`, mirror-aware `clear`, `addresses`, touched-word `reset`).
 It grants no read or frame authority. Separate live-allocation and cumulative
