@@ -1,0 +1,33 @@
+[package]
+name = "tje-mode-view"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Bounded mode-owned publication, animation and four-view host composition"
+
+[features]
+default = []
+enhanced-mode = ["tje-simulation/enhanced-mode"]
+private-proof = ["dep:clap", "dep:png", "dep:sha1", "dep:tje-engine-cranelift", "dep:genesis-config", "dep:tje-session"]
+
+[dependencies]
+tje-simulation = { path = "../tje-simulation" }
+tje-four-player = { path = "../tje-four-player" }
+tje-world = { path = "../tje-world" }
+tje-extended-view = { path = "../tje-extended-view" }
+tje-mem = { path = "../tje-mem" }
+tje-rom = { path = "../tje-rom" }
+jgenesis-common = { path = "../../vendor/jgenesis/common/jgenesis-common" }
+bincode = { version = "2", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
+png = { version = "0.18", optional = true }
+sha1 = { version = "0.10", optional = true }
+tje-engine-cranelift = { path = "../tje-engine-cranelift", optional = true }
+genesis-config = { path = "../../vendor/jgenesis/config/genesis-config", optional = true }
+tje-session = { path = "../tje-session", optional = true }
+
+[[example]]
+name = "view-proof"
+required-features = ["private-proof"]

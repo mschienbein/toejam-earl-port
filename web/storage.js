@@ -5,7 +5,7 @@ export const SETTINGS_KEY = 'tje-settings';
 const LEGACY_KEY = 'tje-settings-v1';
 
 export function defaultSettings() {
-  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', extendedView: 0, p2: false, players: [defaultPlayer(0), defaultPlayer(1)], jam: { enabled: false, sounds: true, soundsWhileBusy: false, chord: false, backing: 0 }, convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
+  return { version: SETTINGS_VERSION, volume: 0.7, pixelShape: 'native', scale: 'integer', filter: 'sharp', displayShader: 'off', extendedView: 0, p2: false, players: [defaultPlayer(0), defaultPlayer(1)], enhancedPlayers: [defaultPlayer(2), defaultPlayer(3)], jam: { enabled: false, sounds: true, soundsWhileBusy: false, chord: false, backing: 0 }, convenience: { saveStates: false, rewind: false, fastForward: false, slot: 0 } };
 }
 
 export function normalizeSettings(value) {
@@ -23,6 +23,7 @@ export function normalizeSettings(value) {
   if (Number.isInteger(value?.extendedView) && (value.extendedView === 400 || (value.extendedView >= 408 && value.extendedView <= 512 && value.extendedView % 8 === 0))) result.extendedView = value.extendedView;
   result.p2 = value?.p2 === true;
   result.players = [normalizePlayer(value?.players?.[0], 0), normalizePlayer(value?.players?.[1], 1)];
+  result.enhancedPlayers = [normalizePlayer(value?.enhancedPlayers?.[0], 2), normalizePlayer(value?.enhancedPlayers?.[1], 3)];
   for (const key of ['saveStates', 'rewind', 'fastForward']) result.convenience[key] = value?.convenience?.[key] === true;
   if (Number.isInteger(value?.convenience?.slot) && value.convenience.slot >= 0 && value.convenience.slot < 5) result.convenience.slot = value.convenience.slot;
   for (const key of ['enabled', 'soundsWhileBusy', 'chord']) result.jam[key] = value?.jam?.[key] === true;

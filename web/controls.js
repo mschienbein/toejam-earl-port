@@ -18,15 +18,25 @@ export class ControlSettings {
     this.buttons = [];
     this.selects = [];
     this.padStates = [];
+    this.enables = [];
     const root = document.getElementById('player-controls');
-    for (let player = 0; player < 2; player++) {
+    for (let player = 0; player < (inputs.extraPlayers ? 4 : 2); player++) {
       const field = element('fieldset');
       field.append(element('legend', `Player ${player + 1}`));
+      if (player >= 2) {
+        field.append(element('p', 'Enhanced local seat: binding preparation only. Gameplay remains closed until the complete mode is admitted.', { class: 'small' }));
+        const enabled = element('input', '', { type: 'checkbox', 'aria-label': `Enable enhanced seat ${player + 1} input` });
+        enabled.checked = this.player(player).gamepad.enabled;
+        this.enables[player] = enabled;
+        enabled.addEventListener('change', () => { this.player(player).gamepad.enabled = enabled.checked; this.changed(); });
+        const toggle = element('label', 'Enable seat input '); toggle.append(enabled); field.append(toggle);
+      }
       const label = element('label', 'Gamepad ', { for: `pad-${player}` });
       const select = element('select', '', { id: `pad-${player}` });
       select.addEventListener('change', () => {
         this.cancel();
-        this.settings.players[player].gamepad.device = JSON.parse(select.value);
+        if (this.inputs.extraPlayers) this.inputs.assignLocal(player, JSON.parse(select.value));
+        else this.player(player).gamepad.device = JSON.parse(select.value);
         this.changed();
       });
       label.append(select);
@@ -43,7 +53,7 @@ export class ControlSettings {
       head.append(headings);
       table.append(head);
       const body = element('tbody');
-      for (let index = 0; index < CONTROL_ACTIONS.length; index++) {
+      for (let index = 0; index < CONTROL_ACTIONS.length - (player >= 2 ? 1 : 0); index++) {
         const action = CONTROL_ACTIONS[index];
         const row = element('tr');
         row.append(element('th', CONTROL_LABELS[index], { scope: 'row' }));
@@ -57,7 +67,7 @@ export class ControlSettings {
             clear = element('button', 'Clear', { type: 'button', class: 'clear-binding', 'aria-label': `Clear Player ${player + 1} ${CONTROL_LABELS[index]} gamepad binding` });
             clear.addEventListener('click', () => {
               this.cancel();
-              this.settings.players[player].gamepad.bindings[action] = [];
+              this.player(player).gamepad.bindings[action] = [];
               this.changed();
             });
             cell.append(clear);
@@ -72,7 +82,9 @@ export class ControlSettings {
       const reset = element('button', `Restore Player ${player + 1} controls`, { type: 'button' });
       reset.addEventListener('click', () => {
         this.cancel();
-        this.settings.players[player] = defaultPlayer(player);
+        if (player < 2) this.settings.players[player] = defaultPlayer(player);
+        else this.settings.enhancedPlayers[player - 2] = defaultPlayer(player);
+        if (this.inputs.extraPlayers) this.inputs.assignLocal(player, null);
         this.changed();
         this.announce(`Player ${player + 1} controls restored.`);
       });
@@ -84,6 +96,9 @@ export class ControlSettings {
     document.addEventListener('keyup', event => { if (event.code.startsWith('Shift')) this.key(event); }, true);
     this.refreshBindings();
   }
+
+  player(seat) { return this.inputs.player(seat); }
+  pad(seat) { return this.inputs.extraPlayers ? this.inputs.localSelected[seat] : this.inputs.selected[seat]; }
 
   announce(text) {
     document.getElementById('mapping-status').textContent = text;
@@ -98,9 +113,10 @@ export class ControlSettings {
   }
 
   refreshBindings() {
+    for (let seat = 2; seat < this.selects.length; seat++) this.enables[seat].checked = this.player(seat).gamepad.enabled;
     for (const item of this.buttons) {
-      const player = this.settings.players[item.player];
-      const text = item.kind === 'keyboard' ? keyLabel(player.keys[item.action]) : bindingLabel(player.gamepad.bindings[item.action]);
+      const player = this.player(item.player);
+      const text = item.kind === 'keyboard' ? (keyLabel(player.keys[item.action]) || 'Not assigned') : bindingLabel(player.gamepad.bindings[item.action]);
       item.button.textContent = text;
       item.button.setAttribute('aria-label', `Player ${item.player + 1} ${item.action} ${item.kind}: ${text}. Change assignment.`);
       if (item.clear) item.clear.disabled = !player.gamepad.bindings[item.action].length;
@@ -110,7 +126,7 @@ export class ControlSettings {
   begin(kind, player, action, button) {
     this.cancel(false);
     this.inputs.clear();
-    const pad = this.inputs.selected[player];
+    const pad = this.pad(player);
     if (kind === 'gamepad' && !pad) return;
     this.onCapture();
     this.capture = {
@@ -156,46 +172,46 @@ export class ControlSettings {
       return;
     }
     const { player, action } = this.capture;
-    for (let other = 0; other < 2; other++) {
+    for (let other = 0; other < (this.inputs.extraPlayers ? 4 : 2); other++) {
       for (const candidate of CONTROL_ACTIONS) {
         if (other === player && candidate === action) continue;
         if (candidate === 'jam' && action !== 'jam' && !this.settings.jam.enabled) continue;
-        if (this.settings.players[other].keys[candidate] === event.code) {
+        if (this.player(other).keys[candidate] === event.code) {
           this.announce(`${keyLabel(event.code)} already controls Player ${other + 1} ${candidate}. Choose another key or Escape.`);
           return;
         }
       }
     }
-    this.settings.players[player].keys[action] = event.code;
+    this.player(player).keys[action] = event.code;
     this.changed();
     this.finish(`Player ${player + 1} ${action} assigned to ${keyLabel(event.code)}.`);
   }
 
   update() {
     const pads = this.inputs.available;
-    const signature = JSON.stringify([pads.map(pad => [pad.id, pad.index, pad.mapping]), this.settings.players.map(player => player.gamepad.device), this.inputs.gamepadError]);
+    const signature = JSON.stringify([pads.map(pad => [pad.id, pad.index, pad.mapping]), this.selects.map((_, seat) => this.player(seat).gamepad.device), this.inputs.localReservations, this.inputs.gamepadError]);
     if (signature !== this.signature) {
       this.signature = signature;
       const descriptors = pads.map(pad => ({ pad, device: { id: pad.id, index: pad.index } }));
-      for (let player = 0; player < 2; player++) {
+      for (let player = 0; player < this.selects.length; player++) {
         const select = this.selects[player];
-        const selected = JSON.stringify(this.settings.players[player].gamepad.device);
-        select.replaceChildren(element('option', 'Automatic (first unused pad)', { value: 'null' }), element('option', 'Keyboard only', { value: '"none"' }));
+        const selected = JSON.stringify(this.player(player).gamepad.device);
+        select.replaceChildren(element('option', this.inputs.extraPlayers ? 'Reserve first unused pad (kept on disconnect)' : 'Automatic (first unused pad)', { value: 'null' }), element('option', 'Keyboard only', { value: '"none"' }));
         for (const { pad, device } of descriptors) select.append(element('option', `${pad.id} · device ${pad.index}`, { value: JSON.stringify(device) }));
         if (!Array.from(select.options).some(option => option.value === selected)) {
-          select.append(element('option', `${this.settings.players[player].gamepad.device.id} (not connected)`, { value: selected }));
+          select.append(element('option', `${this.player(player).gamepad.device.id} (not connected)`, { value: selected }));
         }
         select.value = selected;
-        const pad = this.inputs.selected[player];
+        const pad = this.pad(player);
         this.padStates[player].textContent = pad ? `Using ${pad.id}; ${pad.mapping === 'standard' ? 'standard layout' : 'non-standard layout — assign buttons/axes below'}.` : 'No gamepad assigned; keyboard remains available.';
       }
-      for (const item of this.buttons) if (item.kind === 'gamepad') item.button.disabled = !this.inputs.selected[item.player];
+      for (const item of this.buttons) if (item.kind === 'gamepad') item.button.disabled = !this.pad(item.player);
       const status = this.inputs.gamepadError ? `Gamepad API unavailable: ${this.inputs.gamepadError}. Keyboard controls still work.` : `${pads.length} gamepad(s) available. Press a pad button if the browser has not exposed it yet.`;
       document.getElementById('gamepad-status').textContent = status;
     }
     if (this.capture?.kind !== 'gamepad') return;
     const { player, action, buttons, axes } = this.capture;
-    const pad = this.inputs.selected[player];
+    const pad = this.pad(player);
     if (!pad) { this.finish('Gamepad disconnected; previous binding kept.'); return; }
     let source;
     for (let index = 0; index < pad.buttons.length; index++) {
@@ -214,13 +230,13 @@ export class ControlSettings {
       for (const candidate of CONTROL_ACTIONS) {
         if (candidate === action || candidate !== 'jam' && action !== 'jam'
             || candidate === 'jam' && action !== 'jam' && !this.settings.jam.enabled) continue;
-        if (this.settings.players[player].gamepad.bindings[candidate].some(other =>
+        if (this.player(player).gamepad.bindings[candidate].some(other =>
           other.kind === source.kind && other.index === source.index && other.direction === source.direction)) {
           this.announce(`That source already controls ${candidate}; choose an unused Jam modifier or clear it first.`);
           return;
         }
       }
-      this.settings.players[player].gamepad.bindings[action] = [source];
+      this.player(player).gamepad.bindings[action] = [source];
       this.changed();
       this.finish(`Player ${player + 1} ${action} assigned to ${bindingLabel([source])}.`);
     }

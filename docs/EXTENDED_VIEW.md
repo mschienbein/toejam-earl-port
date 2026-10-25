@@ -25,6 +25,17 @@ Earthling/elevator interest is separate from sprite allocation. This avoids
 turning a wider display into additional pressure on the native 54-slot and
 112-tile upload limits.
 
+The stock presenter and `tje-mode-view` now share `MapRenderer`'s borrowed
+`TerrainSource` decoder and `resources::{frame_pieces, decode_piece_into,
+color_word}`. `StockMapSource` retains the original two-bank behavior;
+`tje-mode-view::source::GeometrySource` borrows bounded `LevelGeometry` instead.
+Neither adapter copies an expanded level into original RAM. These additions do
+not select a new gameplay profile or change the hardware-rendered stock center.
+The separate mode-owned compositor consumes immutable phase-stamped packets and
+renders four 400×224 views into 800×448 without SAT/scanline allocation limits.
+Its resource cache is bounded, rebuildable and unrelated to simulation activity.
+
+
 ## Source and citation convention
 
 `G:path:lines` cites the read-only sibling `toejam-earl-decomp`, commit

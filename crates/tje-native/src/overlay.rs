@@ -146,7 +146,7 @@ impl Overlay {
             Some(Capture::Pad(player, _)) | Some(Capture::JamPad(player)) => player,
             _ => return false,
         };
-        if settings.players[player].gamepad_slot != press.slot {
+        if settings.player(player).gamepad_slot != press.slot {
             self.message = Some(format!(
                 "That is slot {}. Select it for P{} first, or press the assigned controller.",
                 press.slot + 1,
@@ -556,28 +556,36 @@ impl Overlay {
         actions: &mut Actions,
     ) {
         ui.horizontal(|ui| {
-            if ui
-                .selectable_value(&mut self.player, 0, "Player 1")
-                .changed()
-            {
-                self.pending = None;
-            }
-            if ui
-                .selectable_value(&mut self.player, 1, "Player 2")
-                .changed()
-            {
-                self.pending = None;
+            for seat in 0..if cfg!(feature = "enhanced-mode") {
+                4
+            } else {
+                2
+            } {
+                if ui
+                    .selectable_value(&mut self.player, seat, format!("Player {}", seat + 1))
+                    .changed()
+                {
+                    self.pending = None;
+                }
             }
         });
         let player = self.player;
+        if player >= 2 {
+            ui.small("Enhanced local seat. Controls can be prepared here; no partial four-player gameplay is enabled.");
+            let state = input.local_controllers(settings.local_bindings());
+            ui.monospace(format!(
+                "Connected: {}  buttons: {:?}",
+                state.connected[player], state.buttons[player]
+            ));
+        }
         actions.settings_changed |= ui
             .checkbox(
-                &mut settings.players[player].enabled,
+                &mut settings.player_mut(player).enabled,
                 "Player controller connected",
             )
             .changed();
-        let before_slot = settings.players[player].gamepad_slot;
-        let mut selected = if settings.players[player].gamepad_enabled {
+        let before_slot = settings.player(player).gamepad_slot;
+        let mut selected = if settings.player(player).gamepad_enabled {
             Some(before_slot)
         } else {
             None
@@ -589,7 +597,15 @@ impl Overlay {
             })
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut selected, None, "Keyboard only");
-                for slot in 0..input.slots().count().max(2) {
+                for slot in 0..input
+                    .slots()
+                    .count()
+                    .max(if cfg!(feature = "enhanced-mode") {
+                        4
+                    } else {
+                        2
+                    })
+                {
                     let description = input
                         .slots()
                         .find(|(index, _, _)| *index == slot)
@@ -605,22 +621,23 @@ impl Overlay {
                 }
             });
         if selected
-            != settings.players[player]
+            != settings
+                .player(player)
                 .gamepad_enabled
                 .then_some(before_slot)
         {
             if let Some(slot) = selected {
                 settings.assign_slot(player, slot);
             } else {
-                settings.players[player].gamepad_enabled = false;
+                settings.player_mut(player).gamepad_enabled = false;
             }
             self.pending = None;
             actions.settings_changed = true;
         }
-        ui.small("Slots retain unplugged device identities. Selecting the other player's slot swaps assignments.");
+        ui.small("Slots retain unplugged identities. Selecting another seat's slot explicitly swaps assignments; disconnect never moves a seat.");
         actions.settings_changed |= ui
             .add(
-                egui::Slider::new(&mut settings.players[player].deadzone, 0.0..=0.99)
+                egui::Slider::new(&mut settings.player_mut(player).deadzone, 0.0..=0.99)
                     .clamping(egui::SliderClamping::Edits)
                     .text("Stick deadzone"),
             )
@@ -634,12 +651,9 @@ impl Overlay {
                 for button in GameButton::ALL {
                     ui.label(format!("{button:?}"));
                     ui.horizontal(|ui| {
-                        let key = settings.players[player]
-                            .bindings
-                            .iter()
-                            .find_map(|binding| {
-                                (binding.button == button).then_some(binding.key).flatten()
-                            });
+                        let key = settings.player(player).bindings.iter().find_map(|binding| {
+                            (binding.button == button).then_some(binding.key).flatten()
+                        });
                         if ui
                             .button(key.map_or_else(|| "Unbound".into(), |key| format!("{key:?}")))
                             .clicked()
@@ -654,7 +668,8 @@ impl Overlay {
                     });
                     ui.horizontal(|ui| {
                         let mut label = String::new();
-                        for binding in settings.players[player]
+                        for binding in settings
+                            .player(player)
                             .bindings
                             .iter()
                             .filter(|binding| binding.button == button)
@@ -670,7 +685,7 @@ impl Overlay {
                             label.push_str("Unbound");
                         }
                         if ui.button(label).clicked() {
-                            if settings.players[player].gamepad_enabled {
+                            if settings.player(player).gamepad_enabled {
                                 self.pending = Some(Capture::Pad(player, button));
                                 self.message = None;
                             } else {

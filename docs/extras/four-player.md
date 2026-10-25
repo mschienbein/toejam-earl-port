@@ -115,4 +115,12 @@ Required tests:
 
 Principal risks: broad two-player assumptions hidden in readable leaves; rendering/animation/physics coupling; transition and interaction latches; a plausible-looking four-character demo that does not survive a campaign; small-screen readability. Fixed quadrants and typed state are recommended defaults, not user decisions that block these documents. Whether to fund four-independent-peer play, new artwork, or change the default camera later remains a user choice; no such work is implicitly approved here.
 
-Main owns final integration gates. The current foundation has no admitted four-player profile, frontend session choice, simulated present/AI/transition closure, host four-view compositor or four-pad gameplay recording. Codec/arrival-bookkeeping/rewind tests and private runtime palette previews are not evidence of a playable co-op session. The gameplay acceptance above remains the gate for the later shared cutover; current primitive coverage and exercised checks are reported separately.
+Main owns final integration gates. `tje-mode-view` now supplies immutable
+phase-stamped publication, residency-independent animation resource stepping,
+shared stock/owned-world decoders and a bounded four-view host compositor with
+per-seat overlays. Native/browser enhanced builds expose default-disabled extra
+seat binding preparation and reconnect-safe routing. These services are not
+connected to an admitted gameplay profile: there is still no four-player session
+choice, complete simulated present/AI/transition closure, or enhanced gameplay
+recording. Private composition fixtures are not evidence of a playable co-op
+session, and the gameplay acceptance above remains unchanged.

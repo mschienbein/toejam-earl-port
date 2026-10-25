@@ -1,4 +1,5 @@
 //! Published-state host composition. No authored pixels or palette data live here.
+use crate::resources::{decode_piece, palette_color};
 use crate::{
     FULL_HEIGHT, IndexedPixel, MapRenderer, NATIVE_WIDTH, RenderError, ViewMode, Viewport,
     WorldView,
@@ -15,7 +16,7 @@ pub struct FrameOverride {
     pub palette_index: Option<u8>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "enhanced-mode", derive(bincode::Encode, bincode::Decode))]
 pub struct Piece {
     pub width: u8,
@@ -690,87 +691,6 @@ impl Presenter {
         };
         self.paint_hardware(vram, shadow, viewport, height);
     }
-}
-
-fn palette_color(cram: &[u16], index: usize, modifier: i8) -> Color {
-    let color = cram[index & 63];
-    // Same hardware non-linear DAC as genesis-components/vdp/colors.rs.
-    // These are electrical color levels, never game palette data.
-    let channel = match modifier {
-        -1 => [0, 29, 52, 70, 87, 101, 116, 130],
-        1 => [130, 144, 158, 172, 187, 206, 228, 255],
-        _ => [0, 52, 87, 116, 144, 172, 206, 255],
-    };
-    Color::rgb(
-        channel[((color >> 1) & 7) as usize],
-        channel[((color >> 5) & 7) as usize],
-        channel[((color >> 9) & 7) as usize],
-    )
-}
-
-fn decode_piece(rom: &[u8], piece: Piece) -> Result<Vec<u8>, RenderError> {
-    let length = usize::from(piece.width) * usize::from(piece.height) * 32;
-    let mut output = vec![0; length];
-    let mut source = piece.source as usize;
-    let next = |source: &mut usize| -> Result<u8, RenderError> {
-        let value = *rom
-            .get(*source)
-            .ok_or(RenderError::InvalidSprite("truncated piece stream"))?;
-        *source += 1;
-        Ok(value)
-    };
-    if piece.format >= 0 && piece.format & 0x40 != 0 {
-        let data = rom
-            .get(source..source + length)
-            .ok_or(RenderError::InvalidSprite("truncated raw tiles"))?;
-        output.copy_from_slice(data);
-        return Ok(output);
-    }
-    let lanes = if piece.format < 0 { 4 } else { 1 };
-    for lane in 0..lanes {
-        let mut produced = 0;
-        let quota = length / lanes;
-        while produced < quota {
-            let token = next(&mut source)?;
-            let count = if token & 0x80 != 0 {
-                usize::from((token | 0x40).wrapping_neg())
-            } else if token & 0x40 != 0 {
-                usize::from(token & if lanes == 4 { 0x1f } else { 0x3f })
-            } else {
-                usize::from(token)
-            };
-            if count == 0 || produced + count > quota {
-                return Err(RenderError::InvalidSprite("invalid RLE run"));
-            }
-            let repeated = if token & 0x80 != 0 {
-                Some(if token & 0x40 != 0 {
-                    next(&mut source)?
-                } else {
-                    0
-                })
-            } else if token & 0x40 != 0 {
-                Some(if lanes == 4 && token & 0x20 != 0 {
-                    next(&mut source)?
-                } else {
-                    0xff
-                })
-            } else {
-                None
-            };
-            for i in 0..count {
-                let value = match repeated {
-                    Some(value) if lanes == 4 && token & 0xe0 == 0x60 && i & 1 != 0 => {
-                        value.rotate_left(4)
-                    }
-                    Some(value) => value,
-                    None => next(&mut source)?,
-                };
-                output[lane + (produced + i) * lanes] = value;
-            }
-            produced += count;
-        }
-    }
-    Ok(output)
 }
 
 #[cfg(test)]

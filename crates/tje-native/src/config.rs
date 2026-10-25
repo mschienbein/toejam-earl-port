@@ -117,6 +117,8 @@ pub struct Settings {
     pub audio_device: Option<String>,
     pub gamepad_devices: Vec<crate::input::SavedPad>,
     pub players: [PlayerBindings; 2],
+    /// Extra local seats are settings only until a complete mode is admitted.
+    pub enhanced_players: [PlayerBindings; 2],
     pub hotkeys: Hotkeys,
     pub convenience: ConvenienceSettings,
     pub jam_out: tje_jam_out::Settings,
@@ -140,6 +142,7 @@ impl Default for Settings {
             audio_device: None,
             gamepad_devices: Vec::new(),
             players: [PlayerBindings::one(), PlayerBindings::two()],
+            enhanced_players: [PlayerBindings::enhanced(2), PlayerBindings::enhanced(3)],
             hotkeys: Hotkeys::default(),
             convenience: ConvenienceSettings::default(),
             jam_out: tje_jam_out::Settings::default(),
@@ -149,6 +152,23 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn player(&self, seat: usize) -> &PlayerBindings {
+        if seat < 2 {
+            &self.players[seat]
+        } else {
+            &self.enhanced_players[seat - 2]
+        }
+    }
+    pub fn player_mut(&mut self, seat: usize) -> &mut PlayerBindings {
+        if seat < 2 {
+            &mut self.players[seat]
+        } else {
+            &mut self.enhanced_players[seat - 2]
+        }
+    }
+    pub fn local_bindings(&self) -> [&PlayerBindings; 4] {
+        std::array::from_fn(|seat| self.player(seat))
+    }
     fn parse(contents: &str) -> Result<Self> {
         let table: toml::Table = toml::from_str(contents)?;
         let explicit_scale = table.contains_key("scale");
@@ -249,7 +269,7 @@ impl Settings {
                 "{key:?} is assigned to more than one hotkey ({name})"
             );
         }
-        for (index, player) in self.players.iter().enumerate() {
+        for (index, player) in self.local_bindings().into_iter().enumerate() {
             ensure!(
                 player.deadzone.is_finite() && (0.0..1.0).contains(&player.deadzone),
                 "gamepad deadzone must be 0 <= value < 1"
@@ -260,7 +280,7 @@ impl Settings {
                     if let Some((name, _)) = hotkeys.iter().find(|(_, hotkey)| *hotkey == key) {
                         bail!("{key:?} is reserved for {name}; choose a different game key");
                     }
-                    for (other_index, other) in self.players.iter().enumerate() {
+                    for (other_index, other) in self.local_bindings().into_iter().enumerate() {
                         ensure!(
                             !other.bindings.iter().any(|b| b.key == Some(key)
                                 && (index != other_index || b.button != binding.button)),
@@ -280,11 +300,17 @@ impl Settings {
                 }
             }
         }
-        if self.players.iter().all(|p| p.enabled && p.gamepad_enabled) {
-            ensure!(
-                self.players[0].gamepad_slot != self.players[1].gamepad_slot,
-                "players cannot share a gamepad slot; select another device or Keyboard only"
-            );
+        for (index, player) in self.local_bindings().into_iter().enumerate() {
+            if player.enabled && player.gamepad_enabled {
+                ensure!(
+                    !self.local_bindings()[..index]
+                        .iter()
+                        .any(|other| other.enabled
+                            && other.gamepad_enabled
+                            && other.gamepad_slot == player.gamepad_slot),
+                    "players cannot share a gamepad slot; select another device or Keyboard only"
+                );
+            }
         }
         Ok(())
     }
@@ -295,7 +321,7 @@ impl Settings {
         button: GameButton,
         key: Option<KeyCode>,
     ) -> Result<()> {
-        ensure!(player < 2, "invalid player");
+        ensure!(player < 4, "invalid player");
         if let Some(key) = key {
             if let Some((name, _)) = self
                 .hotkeys
@@ -305,7 +331,7 @@ impl Settings {
             {
                 bail!("{key:?} is reserved for {name}");
             }
-            for (index, bindings) in self.players.iter().enumerate() {
+            for (index, bindings) in self.local_bindings().into_iter().enumerate() {
                 if let Some(binding) = bindings
                     .bindings
                     .iter()
@@ -319,7 +345,7 @@ impl Settings {
                 }
             }
         }
-        self.players[player].set_key(button, key);
+        self.player_mut(player).set_key(button, key);
         Ok(())
     }
 
@@ -329,9 +355,10 @@ impl Settings {
         button: GameButton,
         pad: Option<PadButton>,
     ) -> Result<()> {
-        ensure!(player < 2, "invalid player");
+        ensure!(player < 4, "invalid player");
         if let Some(pad) = pad
-            && let Some(binding) = self.players[player]
+            && let Some(binding) = self
+                .player(player)
                 .bindings
                 .iter()
                 .find(|b| b.gamepad == Some(pad) && b.button != button)
@@ -342,7 +369,7 @@ impl Settings {
                 binding.button
             );
         }
-        self.players[player].set_pad(button, pad);
+        self.player_mut(player).set_pad(button, pad);
         Ok(())
     }
 
@@ -406,15 +433,19 @@ impl Settings {
         Ok(())
     }
 
-    /// Selecting the other player's device swaps slots, never duplicates input.
+    /// Explicit reassignment swaps one reserved device identity, not poll order.
     pub fn assign_slot(&mut self, player: usize, slot: usize) {
-        let old = self.players[player].gamepad_slot;
-        let other = 1 - player;
-        if self.players[other].gamepad_slot == slot {
-            self.players[other].gamepad_slot = old;
+        if player >= 4 || slot >= 32 {
+            return;
         }
-        self.players[player].gamepad_slot = slot;
-        self.players[player].gamepad_enabled = true;
+        let old = self.player(player).gamepad_slot;
+        if let Some(other) =
+            (0..4).find(|&other| other != player && self.player(other).gamepad_slot == slot)
+        {
+            self.player_mut(other).gamepad_slot = old;
+        }
+        self.player_mut(player).gamepad_slot = slot;
+        self.player_mut(player).gamepad_enabled = true;
     }
 }
 
@@ -826,5 +857,41 @@ mod tests {
         enabled.bind_jam_key(0, Some(KeyCode::KeyI)).unwrap();
         enabled.jam_out.backing = 7;
         assert!(enabled.validate().is_err());
+    }
+    #[test]
+    fn extra_local_bindings_are_default_off_persisted_and_swap_all_four_seats() {
+        let mut settings = Settings::parse("version = 3\n").unwrap();
+        let faithful = settings.players.clone();
+        assert!(
+            settings
+                .enhanced_players
+                .iter()
+                .all(|seat| !seat.enabled
+                    && seat.bindings.iter().all(|binding| binding.key.is_none()))
+        );
+        settings
+            .bind_key(2, GameButton::A, Some(KeyCode::KeyQ))
+            .unwrap();
+        settings
+            .bind_key(3, GameButton::B, Some(KeyCode::KeyR))
+            .unwrap();
+        assert!(
+            settings
+                .bind_key(3, GameButton::A, Some(KeyCode::KeyQ))
+                .is_err()
+        );
+        settings.player_mut(2).enabled = true;
+        settings.player_mut(3).enabled = true;
+        settings.assign_slot(2, 3);
+        assert_eq!(settings.player(2).gamepad_slot, 3);
+        assert_eq!(settings.player(3).gamepad_slot, 2);
+        assert_eq!(settings.players, faithful);
+        settings.validate().unwrap();
+        let saved = toml::to_string(&settings).unwrap();
+        let restored = Settings::parse(&saved).unwrap();
+        assert_eq!(restored, settings);
+        settings.assign_slot(3, 0);
+        assert_eq!(settings.player(0).gamepad_slot, 2);
+        assert_eq!(settings.player(3).gamepad_slot, 0);
     }
 }

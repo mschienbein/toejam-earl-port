@@ -124,6 +124,56 @@ ExtendedView2 provides a useful resource-decoding/presentation starting point, *
 
 The director's tactical camera/editor zoom can inspect authorized geometry but never activates dormant floors or broadens hero-centered simulation interest. Native/browser use the same deterministic packet construction; GPU/cache/backend differences stay outside authoritative state.
 
+### S5 service boundary
+
+`tje-mode-view` is the shared S5 consumer of `tje-simulation::{ActorId,
+PublicationStamp}`. It installs no overrides and cannot admit a world profile.
+`Publisher::publish` validates a complete four-view submission, then swaps its
+preallocated immutable buffers. A packet freezes at most 1024 logical actors,
+twelve pieces per actor, four level-keyed falling patches and four independent
+HUD/inventory/map/speech packets. Duplicate actor slots (including different
+generations), repeated epochs, non-publication phases and mismatched seat UI
+reject without exposing staging. `invalidate` discards derivative publication
+after restore; S6 republishes restored state without advancing another phase.
+
+`WorldSource` borrows at most four ordered `LevelGeometry` records and device
+pattern/palette data under the packet's exact frame/phase/epoch. Rendering a
+different epoch rejects. No geometry or complete world is copied per redraw.
+The compositor owns reusable 800×448 output, per-view terrain/sprite layers and a
+4096-entry direct-mapped ROM piece cache (512 bytes per maximum-sized piece).
+Cache collisions decode into the same slot rather than removing a draw object;
+cache eviction and redraw cannot call simulation or consume RNG. Sprite
+occupancy is resolved in the manifest's draw-late / descending-ground-Y /
+stable-ID order before sprite-versus-terrain priority, with shadows behind world
+bodies and UI above them. Every quadrant clips independently. Palette variants
+use live CRAM words per instance, preserving neutral/outline/index-zero semantics
+and adding seat-number indicators rather than rewriting global CRAM.
+
+`animation::Program` imports bounded sequence/frame resources from the user's
+ROM. `start` and `step` run only at simulation-animation admission; their saved
+cursor records sequence index, remaining ticks, flip, held and started state.
+They emit the first/next-frame motion callback exactly once, including legal
+zero-period held frames, without any tile-cache/readiness/view predicate. S3/S4
+retain typed movement/collision dispatch; an absent new callback is not a zero
+velocity. Resource addresses remain derivative, never serialized callbacks.
+
+Native `Input::local_controllers` / `backend::enhanced_inputs` and browser
+`Inputs::pollLocal` / Rust `input::enhanced_inputs` are separate four-pad
+boundaries. Native slots retain device UUIDs; browser enhanced routing reserves
+browser identity plus index, neutralizes a disconnected source and requires
+explicit reassignment to swap seats. Browser APIs cannot distinguish two
+identical devices that change their exposed indices: users must explicitly
+reassign them rather than guessing ownership. Extra bindings are default off,
+and the existing faithful sampling/recording paths remain two-pad. Binding
+preparation does not bypass S6's closed gameplay selector.
+
+The private `view-proof` example captures runtime device resources from a
+faithful recording, then renders explicitly authored dense/disjoint-ID and
+four-overlay fixtures with the same compositor. Its images and frame/audio
+observations must remain private. The fixture does not simulate extra heroes,
+prove a transition, or satisfy S6's four-pad campaign evidence.
+
+
 ## 6. Determinism, saves, rewind, recordings and networking
 
 - Every mutation has a fixed phase and stable iteration order: LevelId, entity ID, then recorded rotating seat priority where the rule calls for it. Same-tick pickup/part/purchase claims commit once. Life/health donation names both ends and conserves resources; elevator riders are an atomic mask/cohort, not pair bits.

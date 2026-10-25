@@ -11,6 +11,7 @@ use tje_mem::{AddressSpace, ram, rom};
 #[cfg(feature = "enhanced-mode")]
 pub mod enhanced;
 pub mod presentation;
+pub mod resources;
 
 pub const NATIVE_WIDTH: usize = 320;
 pub const WIDESCREEN_WIDTH: usize = 400;
@@ -128,6 +129,18 @@ impl WorldView {
 pub struct IndexedPixel(u8);
 
 impl IndexedPixel {
+    pub const fn new(color: u8, bank: u8, high_priority: bool) -> Self {
+        Self((color & 15) | ((bank & 3) << 4) | if high_priority { 0x40 } else { 0 })
+    }
+
+    pub fn clear_priority(&mut self) {
+        self.0 &= !0xc0;
+    }
+
+    pub const fn foreground_priority(self) -> bool {
+        self.0 & 0xc0 != 0
+    }
+
     pub const fn palette_index(self) -> usize {
         (self.0 & 0x3f) as usize
     }
@@ -138,6 +151,36 @@ impl IndexedPixel {
 
     pub const fn high_priority(self) -> bool {
         self.0 & 0x40 != 0
+    }
+}
+
+/// A borrowed, final-cell map. A missing cell uses the explicit exterior fill;
+/// neither a camera slot nor a presentation visit is a world identity.
+pub trait TerrainSource {
+    fn cell(&self, column: i32, row: i32) -> Option<u16>;
+    fn exterior(&self) -> Option<u16>;
+}
+
+pub struct StockMapSource<'a> {
+    pub memory: &'a AddressSpace,
+    pub viewport: Viewport,
+    pub level: i8,
+}
+
+impl TerrainSource for StockMapSource<'_> {
+    fn cell(&self, column: i32, row: i32) -> Option<u16> {
+        if !(0..19).contains(&column) || !(0..26).contains(&row) {
+            return None;
+        }
+        let map = match self.viewport {
+            Viewport::Primary => ram::g_player1_level_map(self.memory.revision()),
+            Viewport::Secondary => ram::g_player2_level_map(self.memory.revision()),
+        };
+        Some(map.at(row).at(column).read(self.memory))
+    }
+
+    fn exterior(&self) -> Option<u16> {
+        matches!(self.level, 1 | 26).then_some(82)
     }
 }
 
@@ -230,20 +273,31 @@ impl<'a> MapRenderer<'a> {
         tile_y: i32,
         attributes: u16,
     ) -> Result<u16, RenderError> {
+        self.terrain_tile_from(
+            &StockMapSource {
+                memory: self.memory,
+                viewport: view.viewport,
+                level: view.level,
+            },
+            tile_x,
+            tile_y,
+            attributes,
+        )
+    }
+
+    /// Shared ROM metatile decoder for both cartridge banks and owned worlds.
+    pub fn terrain_tile_from(
+        &self,
+        source: &(impl TerrainSource + ?Sized),
+        tile_x: i32,
+        tile_y: i32,
+        attributes: u16,
+    ) -> Result<u16, RenderError> {
         let map_x = tile_x.div_euclid(16) - 1;
         let map_y = tile_y.div_euclid(8) - 1;
         let column = tile_x.rem_euclid(16);
         let row = tile_y.rem_euclid(8);
-        let cell = if (0..19).contains(&map_x) && (0..26).contains(&map_y) {
-            let map = match view.viewport {
-                Viewport::Primary => ram::g_player1_level_map(self.memory.revision()),
-                Viewport::Secondary => ram::g_player2_level_map(self.memory.revision()),
-            };
-            map.at(map_y).at(map_x).read(self.memory)
-        } else if view.level == 1 || view.level == 26 {
-            // The source's `wraps` flag chooses a fill; it does not wrap map cells.
-            82
-        } else {
+        let Some(cell) = source.cell(map_x, map_y).or_else(|| source.exterior()) else {
             return Ok(attributes);
         };
         let overlay = ((cell & 0x1f00) >> 8) as u8;
@@ -284,29 +338,58 @@ impl<'a> MapRenderer<'a> {
         mode: ViewMode,
         output: &mut [IndexedPixel],
     ) -> Result<(), RenderError> {
-        let width = mode.width();
-        let expected = width * view.height;
-        if output.len() != expected {
+        self.render_terrain_from(
+            &StockMapSource {
+                memory: self.memory,
+                viewport: view.viewport,
+                level: view.level,
+            },
+            [
+                i32::from(view.camera_x) - mode.margin(),
+                i32::from(view.camera_y),
+            ],
+            [mode.width(), view.height],
+            ram::g_camera_tile_attributes(self.memory.revision()).read(self.memory),
+            output,
+        )
+    }
+
+    pub fn render_terrain_from(
+        &self,
+        source: &(impl TerrainSource + ?Sized),
+        origin: [i32; 2],
+        size: [usize; 2],
+        attributes: u16,
+        output: &mut [IndexedPixel],
+    ) -> Result<(), RenderError> {
+        let [width, height] = size;
+        let expected = width
+            .checked_mul(height)
+            .ok_or(RenderError::InvalidSprite("view extent"))?;
+        if width == 0 || width > 512 || height == 0 || height > 224 || output.len() != expected {
             return Err(RenderError::OutputLength {
                 expected,
                 actual: output.len(),
             });
         }
-        let attributes = ram::g_camera_tile_attributes(self.memory.revision()).read(self.memory);
-        let origin_x = i32::from(view.camera_x) - mode.margin();
-        let origin_y = i32::from(view.camera_y);
+        let [origin_x, origin_y] = origin;
+        if origin_x.checked_add(width as i32 - 1).is_none()
+            || origin_y.checked_add(height as i32 - 1).is_none()
+        {
+            return Err(RenderError::InvalidSprite("view coordinates overflow"));
+        }
         let mut screen_y = 0;
-        while screen_y < view.height {
+        while screen_y < height {
             let world_y = origin_y + screen_y as i32;
             let local_y = world_y.rem_euclid(8) as usize;
-            let rows = (8 - local_y).min(view.height - screen_y);
+            let rows = (8 - local_y).min(height - screen_y);
             let mut screen_x = 0;
             while screen_x < width {
                 let world_x = origin_x + screen_x as i32;
                 let local_x = world_x.rem_euclid(8) as usize;
                 let columns = (8 - local_x).min(width - screen_x);
-                let tile = self.terrain_tile_with_attributes(
-                    view,
+                let tile = self.terrain_tile_from(
+                    source,
                     world_x.div_euclid(8),
                     world_y.div_euclid(8),
                     attributes,
@@ -336,15 +419,45 @@ impl<'a> MapRenderer<'a> {
         mode: ViewMode,
         output: &mut [IndexedPixel],
     ) -> Result<(), RenderError> {
-        self.render_terrain(view, mode, output)?;
-        if view.level == 26 {
+        self.render_background_from(
+            &StockMapSource {
+                memory: self.memory,
+                viewport: view.viewport,
+                level: view.level,
+            },
+            [
+                i32::from(view.camera_x) - mode.margin(),
+                i32::from(view.camera_y),
+            ],
+            [
+                i32::from(view.camera_x) / 2 - mode.margin(),
+                i32::from(view.camera_y) / 2,
+            ],
+            [mode.width(), view.height],
+            ram::g_camera_tile_attributes(self.memory.revision()).read(self.memory),
+            view.level != 26,
+            output,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_background_from(
+        &self,
+        source: &(impl TerrainSource + ?Sized),
+        origin: [i32; 2],
+        parallax_origin: [i32; 2],
+        size: [usize; 2],
+        attributes: u16,
+        starfield: bool,
+        output: &mut [IndexedPixel],
+    ) -> Result<(), RenderError> {
+        self.render_terrain_from(source, origin, size, attributes, output)?;
+        if !starfield {
             return Ok(());
         }
-        let width = mode.width();
-        // C's signed /2 truncates toward zero. Screen pixels are not scaled.
-        let origin_x = i32::from(view.camera_x) / 2 - mode.margin();
-        let origin_y = i32::from(view.camera_y) / 2;
-        for screen_y in 0..view.height {
+        let [width, height] = size;
+        let [origin_x, origin_y] = parallax_origin;
+        for screen_y in 0..height {
             let world_y = origin_y + screen_y as i32;
             let row = world_y.div_euclid(8).rem_euclid(32);
             let mut screen_x = 0;

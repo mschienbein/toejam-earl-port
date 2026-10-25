@@ -6,7 +6,7 @@
 //! No 68000 interpreter, browser oracle or shared memory is required.
 
 #[cfg(any(target_arch = "wasm32", test))]
-mod input;
+pub mod input;
 
 #[cfg(any(target_arch = "wasm32", test))]
 mod viewport;

@@ -3563,6 +3563,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-mode-view"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "genesis-config",
+ "jgenesis-common",
+ "png",
+ "sha1",
+ "tje-engine-cranelift",
+ "tje-extended-view",
+ "tje-four-player",
+ "tje-mem",
+ "tje-rom",
+ "tje-session",
+ "tje-simulation",
+ "tje-world",
+]
+
+[[package]]
 name = "tje-native"
 version = "0.1.0"
 dependencies = [

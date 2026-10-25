@@ -233,6 +233,15 @@ impl PlayerBindings {
         use KeyCode::*;
         Self::defaults([KeyW, KeyS, KeyA, KeyD, KeyG, KeyH, KeyJ, Space], 1)
     }
+    pub fn enhanced(seat: usize) -> Self {
+        let mut result = Self::one();
+        result.enabled = false;
+        result.gamepad_slot = seat;
+        for binding in &mut result.bindings {
+            binding.key = None;
+        }
+        result
+    }
     pub fn set_key(&mut self, button: GameButton, key: Option<KeyCode>) {
         for binding in self.bindings.iter_mut().filter(|b| b.button == button) {
             binding.key = None;
@@ -268,6 +277,13 @@ pub struct Controllers {
     pub connected: [bool; 2],
     pub buttons: [[bool; 8]; 2],
     pub jam: [bool; 2],
+}
+
+/// Separate from faithful two-port input and faithful recording/netplay words.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LocalControllers {
+    pub connected: [bool; 4],
+    pub buttons: [[bool; 8]; 4],
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -443,9 +459,36 @@ impl Input {
     }
 
     pub fn controllers(&self, bindings: &[PlayerBindings; 2]) -> Controllers {
-        let mut result = Controllers::default();
-        for (index, player) in bindings.iter().enumerate() {
-            result.connected[index] = player.enabled;
+        let local = self.sample(bindings.each_ref());
+        Controllers {
+            connected: local.0,
+            buttons: local.1,
+            jam: [false; 2],
+        }
+    }
+
+    pub fn local_controllers(&self, bindings: [&PlayerBindings; 4]) -> LocalControllers {
+        let (_, buttons) = self.sample(bindings);
+        let connected = bindings.map(|player| {
+            player.enabled
+                && (player.bindings.iter().any(|binding| binding.key.is_some())
+                    || player.gamepad_enabled
+                        && self
+                            .slots
+                            .id(player.gamepad_slot)
+                            .is_some_and(|id| self.gamepads.gamepad(id).is_connected()))
+        });
+        LocalControllers { connected, buttons }
+    }
+
+    fn sample<const N: usize>(
+        &self,
+        bindings: [&PlayerBindings; N],
+    ) -> ([bool; N], [[bool; 8]; N]) {
+        let mut connected = [false; N];
+        let mut buttons = [[false; 8]; N];
+        for (index, player) in bindings.into_iter().enumerate() {
+            connected[index] = player.enabled;
             if !player.enabled {
                 continue;
             }
@@ -462,10 +505,10 @@ impl Input {
                         .gamepad
                         .is_some_and(|button| button.pressed(pad, player.deadzone))
                 });
-                result.buttons[index][binding.button.index()] |= keyboard || pad;
+                buttons[index][binding.button.index()] |= keyboard || pad;
             }
         }
-        result
+        (connected, buttons)
     }
 
     pub fn jam_modifiers(
@@ -591,5 +634,25 @@ mod tests {
         slots.connect(8, [1; 16], "One");
         assert_eq!(slots.id(0), Some(8));
         assert_eq!(slots.id(1), Some(9));
+    }
+    #[test]
+    fn four_reserved_pads_reconnect_without_changing_any_other_seat() {
+        let mut slots = Slots::new();
+        for seat in 0_u8..4 {
+            slots.connect(seat, [seat + 1; 16], "Authored test pad");
+        }
+        slots.disconnect(1);
+        slots.disconnect(3);
+        slots.connect(8, [9; 16], "New pad");
+        assert_eq!(
+            [slots.id(0), slots.id(1), slots.id(2), slots.id(3)],
+            [Some(0), None, Some(2), None]
+        );
+        slots.connect(9, [4; 16], "Authored test pad");
+        slots.connect(10, [2; 16], "Authored test pad");
+        assert_eq!(
+            [slots.id(0), slots.id(1), slots.id(2), slots.id(3)],
+            [Some(0), Some(10), Some(2), Some(9)]
+        );
     }
 }
