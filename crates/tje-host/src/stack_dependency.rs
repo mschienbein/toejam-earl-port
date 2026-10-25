@@ -520,10 +520,13 @@ pub(super) fn compare_check_runs(
         abi.strict_registers = true;
         live_start = canonical_ram_address(entry_sp)
             .min(canonical_ram_address(original.hybrid_cpu().stack_pointer()));
-        if transfer.exit == tje_game::exits::Exit::ExceptionReturn {
-            // A suspended user caller remains live even when this particular
-            // RTE resumes a nested supervisor handler. No disjoint stack bounds
-            // are declared, so a valid lower USP conservatively expands checks.
+        if matches!(
+            transfer.exit,
+            tje_game::exits::Exit::ExceptionReturn | tje_game::exits::Exit::Exception { .. }
+        ) {
+            // A transferred user frame remains live across RTE or synchronous
+            // entry to a supervisor handler. Include its actual lower USP;
+            // neither a saved D2 nor a suspended caller becomes dead stack.
             let usp = original.hybrid_cpu().user_stack_pointer();
             if usp & 0xffffff >= 0xe00000 {
                 live_start = live_start.min(canonical_ram_address(usp));

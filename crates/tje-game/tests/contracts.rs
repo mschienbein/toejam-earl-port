@@ -120,6 +120,17 @@ impl Context for Fixture {
         self.sp = value;
         Ok(())
     }
+    fn stack_banks(&self) -> tje_game::Result<tje_game::exits::StackBanks> {
+        if self.status & 0x2000 == 0 {
+            return Err(Error::Platform(
+                "this fixture models supervisor mode only".into(),
+            ));
+        }
+        Ok(tje_game::exits::StackBanks {
+            user: 0,
+            supervisor: self.sp,
+        })
+    }
     fn frame_state(&self) -> Option<tje_game::call_frame::FrameState> {
         Some(self.frame)
     }
@@ -260,11 +271,66 @@ fn register_runtime_and_exception_contract() {
         i32::MIN as u32
     );
     for id in [ids::LMODT, ids::LDIVT, ids::ULMODT, ids::ULDIVT] {
-        context.registers[1] = 0;
-        assert_eq!(
-            dispatcher.call(&mut context, id, &[]),
-            Err(Error::Arithmetic(ArithmeticTrap::DivideByZero))
-        );
+        for dividend in [0, 7, u32::MAX, i32::MIN as u32, 0x12348000] {
+            for incoming_x in [0, 0x10] {
+                let mut zero = Fixture::new(dispatcher);
+                zero.registers = [dividend, 0, 0x89abcdef, 3, 4, 5, 6, 7];
+                zero.status = 0x2700 | incoming_x;
+                let entry_sp = zero.sp;
+                let error = dispatcher.call(&mut zero, id, &[]).unwrap_err();
+                assert!(error.preserves_call_frame());
+                let Error::ControlTransfer(transfer) = error else {
+                    panic!("zero divisor must remain a typed exception transfer");
+                };
+                let tje_game::exits::Exit::Exception { request } = transfer.exit else {
+                    panic!("zero divisor must not manufacture an RTS result");
+                };
+                assert_eq!(transfer.entry, id);
+                assert_eq!(
+                    request.trap,
+                    tje_game::control::SynchronousTrap::DivideByZero
+                );
+                assert_eq!(request.validate_shape(Revision::Rev02), Ok(()));
+                assert_eq!(zero.sp, entry_sp.wrapping_sub(4));
+                assert_eq!(zero.memory.read_u32(zero.sp), 0x89abcdef);
+                assert_eq!(zero.registers[2], 0);
+                let signed = id == ids::LMODT || id == ids::LDIVT;
+                let negative = signed && (dividend as i32) < 0;
+                let magnitude = if negative {
+                    dividend.wrapping_neg()
+                } else {
+                    dividend
+                };
+                assert_eq!(zero.registers[1], magnitude >> 16);
+                assert_eq!(zero.addresses[1], magnitude as i16 as i32 as u32);
+                assert_eq!(
+                    zero.registers[0],
+                    if signed {
+                        if negative { u32::MAX } else { 0 }
+                    } else {
+                        dividend
+                    }
+                );
+                assert_eq!(
+                    zero.addresses[0],
+                    if signed {
+                        zero.registers[0]
+                    } else {
+                        u32::from(id == ids::ULDIVT)
+                    }
+                );
+                assert_eq!(
+                    zero.status,
+                    0x2700 | if negative { 0x10 } else { incoming_x }
+                );
+                assert_eq!(&zero.registers[3..], &[3, 4, 5, 6, 7]);
+                assert!(zero.original_calls.is_empty());
+                assert_eq!(
+                    tje_game::exits::contract(id),
+                    tje_game::exits::ExitContract::Rts
+                );
+            }
+        }
     }
     assert!(context.original_calls.is_empty());
 }

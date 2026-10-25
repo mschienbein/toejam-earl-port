@@ -32,6 +32,9 @@ impl FrameState {
             prepared_for: None,
         }
     }
+    /// Identity of the installed incoming call frame, not the body form.
+    /// Real `call_at` frames qualify for both Values and Framed dispatch;
+    /// ordinary elided value-only calls do not acquire this identity.
     pub fn is_prepared_for(self, entry: FunctionId) -> bool {
         self.prepared_for == Some(entry)
     }
@@ -344,7 +347,7 @@ impl OutgoingArguments {
                 callee: class,
             });
         }
-        let entry = FrameState::new(self.base.wrapping_sub(4));
+        let entry = FrameState::new(self.base.wrapping_sub(4)).for_prepared_entry(id);
         context.write_u32(entry.entry_sp, site.return_pc);
         context.set_stack_pointer(entry.entry_sp)?;
         context.set_frame_state(entry)?;

@@ -1304,6 +1304,20 @@ impl Default for M68000 {
     }
 }
 
+/// TJE readable synchronous-transfer failure. An entry fault retains the
+/// original address-error/double-fault state; it is never a successful frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HybridTrapEntryError {
+    UnsupportedVector(u8),
+    InvalidFaultContext,
+    EntryFault {
+        /// Retained CPU latch, possibly from a PREVIOUS successful entry. It is
+        /// not evidence that this failed attempt entered that vector.
+        last_vector: Option<u32>,
+        frozen: bool,
+    },
+}
+
 impl M68000 {
     #[must_use]
     pub fn builder() -> M68000Builder {
@@ -1405,6 +1419,53 @@ impl M68000 {
 
     pub fn set_status_register(&mut self, status_register: u16) {
         self.registers.set_status_register(status_register);
+    }
+
+    /// TJE readable control effect: enter a standard trap using the SAME
+    /// retained frame/vector/prefetch/marker implementation as an original
+    /// instruction. No opcode is executed and no device clock is advanced.
+    ///
+    /// The source owner must first bind the real fault site/opcode, produce its
+    /// pre-trap registers/flags and perform the declared next-word prefetch.
+    /// `opcode` is used only for exact secondary address-error attribution.
+    pub fn hybrid_enter_trap(
+        &mut self,
+        vector: u8,
+        saved_pc: u32,
+        opcode: u16,
+        bus: &mut impl BusInterface,
+    ) -> Result<(), HybridTrapEntryError> {
+        if !matches!(vector, 4..=11 | 32..=47) {
+            return Err(HybridTrapEntryError::UnsupportedVector(vector));
+        }
+        if self.registers.pc != saved_pc || saved_pc & 1 != 0 || self.registers.frozen {
+            return Err(HybridTrapEntryError::InvalidFaultContext);
+        }
+        let instruction = Instruction::decode_from(opcode);
+        self.registers.address_error = false;
+        self.registers.last_instruction_was_muldiv = matches!(
+            instruction,
+            Instruction::MultiplyUnsigned(..)
+                | Instruction::MultiplySigned(..)
+                | Instruction::DivideUnsigned(..)
+                | Instruction::DivideSigned(..)
+        );
+        let mut executor = InstructionExecutor::new(self, bus);
+        executor.opcode = opcode;
+        executor.instruction = Some(instruction);
+        match executor.handle_trap(u32::from(vector), saved_pc) {
+            Ok(()) => Ok(()),
+            Err(exception) => {
+                // Original entry-fault handling, including an actual double
+                // address error freezing the CPU. Its charge remains ignored:
+                // this API realizes control, not an invented instruction tick.
+                let _ = executor.handle_exception(exception);
+                Err(HybridTrapEntryError::EntryFault {
+                    last_vector: executor.cpu.hybrid_last_exception_vector,
+                    frozen: executor.cpu.registers.frozen,
+                })
+            }
+        }
     }
 
     #[must_use]

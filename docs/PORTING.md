@@ -63,8 +63,36 @@ Each translation receives raw four-byte argument slots and returns `Option<u32>`
 for D0 (`None` for a void C result). Narrow parameters at the callee's declared
 width. Do not zero/sign extend a narrow return unless the matching implementation
 does: preserve residual D0 bits when required. Register-runtime entries take
-D0/D1, not invented stack arguments. Division by zero propagates an explicit
-`ArithmeticTrap::DivideByZero` (68000 vector 5), never a fabricated result.
+D0/D1, not invented stack arguments. Low-level arithmetic may report
+`ArithmeticTrap::DivideByZero`, but a reviewed runtime entry must materialize its
+source pre-trap state and propagate `Exit::Exception` with a source-bound
+`control::ExceptionRequest`; an ordinary arithmetic error is not vector delivery.
+No result is fabricated.
+
+The four stock divide/remainder entries retain their ordinary RTS contract on
+nonzero inputs. Their zero paths keep the original D2 save and operand/sign/
+halfword setup, then declare the actual DIVU site and saved next PC. A capable
+host binds the function/revision/opcode and prepared registers/SP/SR before
+realizing the retained CPU's real vector-5 frame, vector fetch, prefetch and
+exception-entry marker. It executes no original opcode and invents no device
+advance or retired-instruction receipt. A real entry/address/double fault retains
+its actual state and fails closed; it is never forced into six-byte success.
+Readable native contexts without this entry capability preserve the materialized
+frame and fail closed, without an interpreter or RTS cleanup.
+A nested Rust value-only call whose caller elided the runtime's actual call
+frame is unsupported on this edge; it must use a source-backed prepared
+`call_at` frame rather than inventing a return word during exception delivery.
+Trace-enabled (`SR.T=1`) helper entry is a different source path: an earlier
+prefix instruction takes vector 9. That entry is unsupported and rejected before
+any prefix effect, not converted to vector 5 by clearing T. Direct retained-CPU
+tests with T set at an already-reached DIVU test only that single fault entry.
+
+Exception-transfer comparisons retain all D/A, full SR and both live stack
+banks, including a suspended user D2 save. Labelled zero-divisor real-state
+fixtures are distinct from natural coverage and prove no universal timing bound.
+Standard trap data must not be used to model an address/bus error's different
+frame format. Ordinary ReplayedEnvironment does not gain trap admission here.
+
 
 Call a value-returning game function with `tje_game::call(context, ids::FUNCTION, arguments)`,
 or an ABI-void function with `tje_game::call_void(context, ids::FUNCTION, arguments)`.

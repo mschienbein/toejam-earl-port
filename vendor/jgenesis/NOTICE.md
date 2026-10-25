@@ -101,6 +101,14 @@ Local changes are marked `TJE hybrid`, `TJE standalone cutover`, `TJE timing sur
   a whole-call ledger temporarily observe real ticks without resetting an existing
   live observer. A newly installed diagnostic observer remains paused afterward;
   its presence and counts do not alter architectural state or emulated timing.
+- `cpu/m68000-emu/src/{core,lib}.rs`: an additive source-reviewed standard
+  synchronous-trap entry adapter reuses the actual `handle_trap` vector/frame/
+  prefetch/marker and original entry-fault handling. It executes no opcode,
+  advances no device clock, invents no retirement receipt and never repairs an
+  original snapshot. The caller binds source fault context; real partial or
+  double-fault state is retained on failure. Authored tests compare full25-word
+  CPU state and physical bus ordering against an original DIVU-zero instruction.
+  Ordinary CPU execution is unchanged; see the CPU README.
 
 Additional `TJE hybrid` check-contract extensions (disabled by default):
 

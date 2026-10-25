@@ -141,7 +141,9 @@ impl ScriptedContext {
         let arguments: Vec<_> = (0..i32::from(function.metadata().abi.argument_count))
             .map(|index| self.frame.argument_slot(index).read(&self.memory))
             .collect();
-        self.record_prepared(function);
+        if !self.frame.is_prepared_for(function) {
+            self.record_prepared(function);
+        }
         self.original_effects(function, &arguments)?;
         // The original-entry API consumes its own real RTS; the caller only
         // releases its outgoing argument area afterward.

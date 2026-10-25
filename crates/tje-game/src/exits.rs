@@ -61,6 +61,11 @@ pub enum MainLoopStage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exit {
     ExceptionReturn,
+    /// A source-reviewed synchronous exception, never an ordinary Rust error.
+    /// Its frame and handler are realized by a capable platform, or fail closed.
+    Exception {
+        request: crate::control::ExceptionRequest,
+    },
     Tail {
         target: FunctionId,
     },
@@ -227,6 +232,9 @@ pub fn request<T>(entry: FunctionId, exit: Exit) -> Result<T> {
 pub fn exception_return<T>(entry: FunctionId) -> Result<T> {
     request(entry, Exit::ExceptionReturn)
 }
+pub fn exception<T>(entry: FunctionId, request: crate::control::ExceptionRequest) -> Result<T> {
+    self::request(entry, Exit::Exception { request })
+}
 pub fn tail<T>(entry: FunctionId, target: FunctionId) -> Result<T> {
     request(entry, Exit::Tail { target })
 }
@@ -310,7 +318,17 @@ pub fn validate_at(
                     transfer.entry.metadata().address(revision),
                 )
             };
-            if !reaches(root, transfer.entry) || !reviewed.accepts_at(address, transfer.exit) {
+            let accepted = match transfer.exit {
+                Exit::Exception { request } => {
+                    reviewed == ExitContract::Rts
+                        && request.site.entry == transfer.entry
+                        && request.validate_shape(revision).is_ok()
+                        && request.site.address(revision)
+                            == address.wrapping_add_signed(request.site.byte_offset)
+                }
+                _ => reviewed.accepts_at(address, transfer.exit),
+            };
+            if !reaches(root, transfer.entry) || !accepted {
                 return Err(Error::Platform(format!(
                     "invalid control transfer from {} while entering {}: {:?}",
                     transfer.entry.metadata().name,

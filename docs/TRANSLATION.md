@@ -408,8 +408,19 @@ entries:
 - Direct signed `i32::MIN / -1` wraps to `i32::MIN`; its remainder is zero.
 - Direct unsigned runtime entries use **all 32 divisor bits**, even above `0xffff`.
 - Zero executes a native zero-divisor instruction and raises **68000 vector 5**,
-  never a fabricated zero/saturated result. `ArithmeticTrap::DivideByZero` must
-  be propagated to the host's exception dispatch.
+  never a fabricated zero/saturated result. The low-level
+  `ArithmeticTrap::DivideByZero` token is not itself machine delivery. The four
+  stock runtime entries reproduce their source D2 store and pre-DIVU register/
+  flag state, then propagate a source-bound `control::ExceptionRequest` through
+  `Exit::Exception`. The host validates the reviewed site/opcode/next PC and
+  prepared state before the real retained-CPU trap entry; it does not restore a
+  reference snapshot or guess a handler-ready PC. Failed entry retains the real
+  address/double-fault state. Unsupported readable-native entry fails closed.
+  Normal nonzero arithmetic and the ordinary RTS contract are unchanged.
+  A trace-enabled helper entry is rejected before prefix effects because it
+  traces at an earlier instruction; the implementation never masks T to force
+  the later divide fault. A value-only elided nested call is likewise rejected
+  unless its source call frame was actually materialized with `call_at`.
 
 The default dynamic `unsigned long a / b` and `%` compiler probes instead select
 native `DIVU` when **`b <= 0x7fff || b >= 0xffff8000`**. The instruction consumes

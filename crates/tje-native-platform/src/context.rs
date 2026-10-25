@@ -145,7 +145,21 @@ impl NativePlatform {
         self.registers.program_counter = self.program_counter;
         self.devices.set_instruction_pc(self.program_counter);
         self.frame = FrameState::new(self.active_sp());
-        exits::enter(self, root, arguments)
+        let outcome = exits::enter(self, root, arguments)?;
+        if let EntryOutcome::Transfer(transfer) = outcome
+            && matches!(transfer.exit, Exit::Exception { .. })
+        {
+            // Readable native has no admitted synchronous-entry capability.
+            // Keep the real source save/frame; never run an interpreter,
+            // finalize RTS, or pretend that a handler PC has been installed.
+            return Err(Error::cleanup_after_transfer(
+                transfer,
+                Error::Platform(
+                    "native readable synchronous exception entry is unsupported".into(),
+                ),
+            ));
+        }
+        Ok(outcome)
     }
 
     /// Convenience for ordinary RTS roots. Nonreturning events remain explicit.
@@ -665,5 +679,41 @@ mod ram_readiness_tests {
         assert!(!platform.devices.cpu_halted());
         assert!(!platform.devices.wait_pending());
         assert!(platform.devices.clock() > before.cycles.m68k_mclk_cycles);
+    }
+}
+
+#[cfg(test)]
+mod synchronous_trap_tests {
+    use super::*;
+    use tje_game::ids;
+
+    #[test]
+    fn unsupported_readable_trap_preserves_real_save_and_never_finishes_rts() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            for entry in [ids::LMODT, ids::LDIVT, ids::ULMODT, ids::ULDIVT] {
+                let mut rom = vec![0; 256];
+                rom[..4].copy_from_slice(&0xff7000u32.to_be_bytes());
+                rom[4..8].copy_from_slice(&0x40u32.to_be_bytes());
+                let mut platform = NativePlatform::new(
+                    AddressSpace::new(rom, revision),
+                    &[entry],
+                    InterruptHandlers::default(),
+                    &GenesisEmulatorConfig::default(),
+                )
+                .unwrap();
+                platform.set_data_register(0, 7);
+                platform.set_data_register(1, 0);
+                platform.set_data_register(2, 0x89abcdef);
+                let clock = platform.devices.clock();
+                let error = platform.enter(entry, &[]).unwrap_err();
+                assert!(error.preserves_call_frame());
+                assert_eq!(platform.active_sp(), 0xff6ffc);
+                assert_eq!(platform.read_u32(0xff6ffc), 0x89abcdef);
+                assert_eq!(platform.data_register(2), 0);
+                assert_eq!(platform.program_counter, entry.metadata().address(revision));
+                assert_eq!(platform.devices.clock(), clock);
+                assert_eq!(platform.accepted_interrupts, 0);
+            }
+        }
     }
 }

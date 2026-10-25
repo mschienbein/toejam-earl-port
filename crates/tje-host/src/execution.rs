@@ -242,6 +242,19 @@ impl ClockRun {
         if self.root_main_exited {
             return;
         }
+        if self
+            .entry_boundary
+            .is_some_and(|boundary| boundary.exception_entry.is_some())
+        {
+            self.root_main_exited = instruction.is_some_and(|step| {
+                !step.completed_successfully
+                    && step.exception_depth == self.exception_base
+                    && self.entry_boundary.is_some_and(|boundary| {
+                        boundary.reached(emulator.hybrid_cpu(), Some(step.pc), self.instructions)
+                    })
+            });
+            return;
+        }
         let Some(instruction) = instruction.filter(|step| step.completed_successfully) else {
             return;
         };

@@ -2,12 +2,17 @@
 use crate::{Context, Result};
 use tje_mem::arithmetic;
 
+mod traps;
+
 /// G/src/asm/runtime.s:16 (`abs`): one stack long, wrapping NEG.L, D0 result.
 pub fn abs(_: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
     Ok(Some(arithmetic::abs_i32(arguments[0] as i32) as u32))
 }
 /// G/src/asm/runtime.s:28 (`lmodt`): signed D0 % D1, dividend-signed remainder.
 pub fn lmodt(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    if context.data_register(1) == 0 {
+        return traps::divide_by_zero(context, crate::ids::LMODT);
+    }
     Ok(Some(arithmetic::rem_i32(
         context.data_register(0) as i32,
         context.data_register(1) as i32,
@@ -15,6 +20,9 @@ pub fn lmodt(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
 }
 /// G/src/asm/runtime.s:92 (`ldivt`): signed D0 / D1, truncation toward zero.
 pub fn ldivt(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+    if context.data_register(1) == 0 {
+        return traps::divide_by_zero(context, crate::ids::LDIVT);
+    }
     Ok(Some(arithmetic::div_i32(
         context.data_register(0) as i32,
         context.data_register(1) as i32,
@@ -39,6 +47,16 @@ pub fn uldivt(context: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
 fn unsigned_divmod(context: &mut dyn Context, quotient: bool) -> Result<Option<u32>> {
     let dividend = context.data_register(0);
     let divisor = context.data_register(1);
+    if divisor == 0 {
+        return traps::divide_by_zero(
+            context,
+            if quotient {
+                crate::ids::ULDIVT
+            } else {
+                crate::ids::ULMODT
+            },
+        );
+    }
     Ok(Some(if quotient {
         arithmetic::div_u32(dividend, divisor)?
     } else {

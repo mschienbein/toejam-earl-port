@@ -742,6 +742,7 @@ fn unreachable_boundary() -> crate::exits::ReferenceBoundary {
         source: None,
         min_instructions: 1,
         entry_exception_return: false,
+        exception_entry: None,
     }
 }
 

@@ -7,7 +7,7 @@ pub mod traits;
 
 pub use crate::core::{
     AddressRegister, DataRegister, HybridExecutedInstruction, HybridInstructionCounts,
-    IndexRegister, IndexSize, M68000, OpSize, cycles_if_move_btst_cmp,
+    HybridTrapEntryError, IndexRegister, IndexSize, M68000, OpSize, cycles_if_move_btst_cmp,
 };
 
 #[cfg(test)]
@@ -237,5 +237,192 @@ mod read_purpose_tests {
         cpu.execute_instruction(&mut bus);
         assert!(bus.reads.contains(&(0x6ffc, ReadPurpose::Semantic)));
         assert_eq!(cpu.data_registers()[0] & 0xffff, 0xbeef);
+    }
+}
+
+#[cfg(test)]
+mod hybrid_trap_entry_tests {
+    use crate::debug::DummyM68000Debugger;
+    use crate::{BusInterface, ExceptionBoundary, HybridTrapEntryError, M68000, ReadPurpose};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Access {
+        Read(u32, u16, ReadPurpose),
+        Write(u32, u16),
+        Boundary(ExceptionBoundary),
+    }
+    #[derive(Clone)]
+    struct Bus {
+        bytes: Vec<u8>,
+        accesses: Vec<Access>,
+    }
+    impl Bus {
+        fn raw_word(&self, address: u32) -> u16 {
+            u16::from_be_bytes([self.bytes[address as usize], self.bytes[address as usize + 1]])
+        }
+        fn put_word(&mut self, address: u32, value: u16) {
+            self.bytes[address as usize..address as usize + 2]
+                .copy_from_slice(&value.to_be_bytes());
+        }
+        fn setup(status: u16, ssp: u32, handler: u32) -> (M68000, Self) {
+            let mut bus = Self { bytes: vec![0; 0x10000], accesses: Vec::new() };
+            // Authored ISA-only DIVU/NOP/spin fixtures; no cartridge payload.
+            bus.put_word(0x100, 0x82c2);
+            bus.put_word(0x102, 0x4e71);
+            bus.put_word(0x300, 0x60fe);
+            bus.put_word(0x400, 0x60fe);
+            bus.put_word(20, (handler >> 16) as u16);
+            bus.put_word(22, handler as u16);
+            bus.put_word(12, 0);
+            bus.put_word(14, 0x400);
+            let mut cpu = M68000::default();
+            cpu.set_status_register(status);
+            cpu.set_data_registers([0x12345678, 0xaa55, 0, 3, 4, 5, 6, 7]);
+            cpu.set_address_registers([0x1111, 0x2222, 3, 4, 5, 6, 7], 0x7000, ssp);
+            cpu.set_pc(0x100, &mut bus);
+            cpu.hybrid_enable_instruction_counts();
+            bus.accesses.clear();
+            (cpu, bus)
+        }
+    }
+    impl BusInterface for Bus {
+        type DebugView<'a> = DummyM68000Debugger;
+        fn read_byte(&mut self, address: u32) -> u8 {
+            self.bytes[address as usize]
+        }
+        fn read_word(&mut self, address: u32) -> u16 {
+            self.read_word_tagged(address, ReadPurpose::Semantic)
+        }
+        fn read_word_tagged(&mut self, address: u32, purpose: ReadPurpose) -> u16 {
+            let value = self.raw_word(address);
+            self.accesses.push(Access::Read(address, value, purpose));
+            value
+        }
+        fn write_byte(&mut self, address: u32, value: u8) {
+            self.bytes[address as usize] = value;
+        }
+        fn write_word(&mut self, address: u32, value: u16) {
+            self.accesses.push(Access::Write(address, value));
+            self.put_word(address, value);
+        }
+        fn interrupt_level(&self) -> u8 {
+            0
+        }
+        fn acknowledge_interrupt(&mut self, _: u8) {
+            panic!("synchronous trap must not acknowledge IRQ");
+        }
+        fn halt(&self) -> bool {
+            false
+        }
+        fn reset(&self) -> bool {
+            false
+        }
+        fn observe_exception_boundary(&mut self, boundary: ExceptionBoundary) {
+            self.accesses.push(Access::Boundary(boundary));
+        }
+    }
+    fn realize(cpu: &mut M68000, bus: &mut Bus) -> Result<(), HybridTrapEntryError> {
+        // The Rust source produces DIVU-zero CCR, then its exact next-word
+        // prefetch. This does NOT decode/execute or count an original opcode.
+        cpu.set_status_register(cpu.status_register() & !0xf);
+        cpu.set_pc(0x102, bus);
+        cpu.hybrid_enter_trap(5, 0x102, 0x82c2, bus)
+    }
+    #[test]
+    fn actual_vector_frame_prefetch_and_all_25_cpu_words_match_real_divu_fault() {
+        for status in [0x201f, 0x001f, 0xa71f] {
+            let (mut original, mut original_bus) = Bus::setup(status, 0x8000, 0x300);
+            let mut rust = original.clone();
+            let mut rust_bus = original_bus.clone();
+            original.execute_instruction(&mut original_bus);
+            realize(&mut rust, &mut rust_bus).unwrap();
+            assert_eq!(rust.hybrid_state_words(), original.hybrid_state_words());
+            assert_eq!(rust.hybrid_exception_depth(), 1);
+            assert_eq!(rust.hybrid_last_exception_vector(), Some(5));
+            assert_eq!(rust_bus.bytes, original_bus.bytes);
+            assert_eq!(rust_bus.accesses, original_bus.accesses);
+            assert_eq!(rust.pc(), 0x300);
+            assert_eq!(rust.supervisor_stack_pointer(), 0x7ffa);
+            assert_eq!(rust_bus.raw_word(0x7ffa), status & !0xf);
+            assert_eq!(rust_bus.raw_word(0x7ffc), 0);
+            assert_eq!(rust_bus.raw_word(0x7ffe), 0x102);
+            assert_eq!(rust.hybrid_instruction_counts().unwrap().main_thread, 0);
+            assert_eq!(rust.hybrid_instruction_counts().unwrap().faulted_opcode_attempts, 0);
+            assert_eq!(original.hybrid_instruction_counts().unwrap().faulted_opcode_attempts, 1);
+        }
+    }
+    #[test]
+    fn odd_inactive_supervisor_stack_keeps_real_double_fault_without_success() {
+        let (mut original, mut original_bus) = Bus::setup(0x001f, 0x8001, 0x300);
+        let mut rust = original.clone();
+        let mut rust_bus = original_bus.clone();
+        original.execute_instruction(&mut original_bus);
+        assert!(matches!(
+            realize(&mut rust, &mut rust_bus),
+            Err(HybridTrapEntryError::EntryFault { frozen: true, .. })
+        ));
+        assert_eq!(rust.hybrid_state_words(), original.hybrid_state_words());
+        assert_eq!(rust_bus.bytes, original_bus.bytes);
+        assert_eq!(rust_bus.accesses, original_bus.accesses);
+        assert_eq!(rust.hybrid_exception_depth(), original.hybrid_exception_depth());
+    }
+    #[test]
+    fn odd_handler_runs_real_address_entry_but_never_claims_standard_trap_success() {
+        let (mut original, mut original_bus) = Bus::setup(0x201f, 0x8000, 0x301);
+        let mut rust = original.clone();
+        let mut rust_bus = original_bus.clone();
+        original.execute_instruction(&mut original_bus);
+        assert!(matches!(
+            realize(&mut rust, &mut rust_bus),
+            Err(HybridTrapEntryError::EntryFault { last_vector: Some(3), frozen: false })
+        ));
+        assert_eq!(rust.hybrid_state_words(), original.hybrid_state_words());
+        assert_eq!(rust_bus.bytes, original_bus.bytes);
+        assert_eq!(rust_bus.accesses, original_bus.accesses);
+    }
+    #[test]
+    fn prior_vector_latch_does_not_claim_a_new_entry_after_double_fault() {
+        let (mut seed, mut bus) = Bus::setup(0x001f, 0x8000, 0x300);
+        bus.put_word(0x300, 0x4e73); // Authored real RTE from the first trap.
+        seed.execute_instruction(&mut bus);
+        seed.execute_instruction(&mut bus);
+        assert_eq!(seed.hybrid_exception_depth(), 0);
+        assert_eq!(seed.hybrid_last_exception_vector(), Some(5));
+        seed.set_status_register(0x001f);
+        seed.set_address_registers(seed.address_registers(), 0x7000, 0x8001);
+        seed.set_pc(0x100, &mut bus);
+        bus.accesses.clear();
+        let mut original = seed.clone();
+        let mut original_bus = bus.clone();
+        original.execute_instruction(&mut original_bus);
+        assert!(matches!(
+            realize(&mut seed, &mut bus),
+            Err(HybridTrapEntryError::EntryFault { last_vector: Some(5), frozen: true })
+        ));
+        assert_eq!(seed.hybrid_state_words(), original.hybrid_state_words());
+        assert_eq!(bus.bytes, original_bus.bytes);
+        assert_eq!(bus.accesses, original_bus.accesses);
+        assert!(
+            !bus.accesses
+                .iter()
+                .any(|event| matches!(event, Access::Boundary(ExceptionBoundary::Entered { .. })))
+        );
+    }
+    #[test]
+    fn unsupported_vector_or_unprepared_pc_is_rejected_without_effects() {
+        let (mut cpu, mut bus) = Bus::setup(0x201f, 0x8000, 0x300);
+        let before = cpu.hybrid_state_words();
+        let bytes = bus.bytes.clone();
+        assert_eq!(
+            cpu.hybrid_enter_trap(3, 0x100, 0x82c2, &mut bus),
+            Err(HybridTrapEntryError::UnsupportedVector(3))
+        );
+        assert_eq!(
+            cpu.hybrid_enter_trap(5, 0x102, 0x82c2, &mut bus),
+            Err(HybridTrapEntryError::InvalidFaultContext)
+        );
+        assert_eq!(cpu.hybrid_state_words(), before);
+        assert_eq!(bus.bytes, bytes);
+        assert!(bus.accesses.is_empty());
     }
 }
