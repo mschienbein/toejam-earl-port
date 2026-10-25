@@ -1541,6 +1541,12 @@ the per-access token through their existing chronological audit replay; a fresh
 probe gets fresh tokens and revalidates their source lineage, not their arena
 indices. Actual IRQ contexts are recorded separately from call parents, without
 inventing an exception-frame SP.
+An actual `Entered` payload records depth after pushing the exception context;
+the vendor emits successful RTE's `Returned` payload **after decrementing** that
+depth. Pair the innermost entry's checked `depth - 1` with the raw return payload,
+without renumbering or reconstructing it. Nested returns therefore close depth
+two with payload one, then depth one with payload zero. Wrong, skipped, duplicate
+or underflowed returns fail closed; closing metadata never rearms read permission.
 
 Any attempted call, return, tail jump, trap, IRQ or bank/depth change irrevocably
 revokes the **current read permission**. A matching return restores observational

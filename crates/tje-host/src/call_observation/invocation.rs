@@ -483,9 +483,11 @@ impl InvocationTracker {
                 }
             }
             m68000_emu::ExceptionBoundary::Returned { depth } => {
+                // Entered records the pushed depth; the vendor emits Returned
+                // only after RTE has popped/decremented that exception context.
                 let Some(id) = self.exception_active.last().copied().filter(|id| {
                     self.exception_record(*id)
-                        .is_some_and(|record| record.depth == depth)
+                        .is_some_and(|record| record.depth.checked_sub(1) == Some(depth))
                 }) else {
                     return self.invalidate(Invalidation::Lifecycle);
                 };

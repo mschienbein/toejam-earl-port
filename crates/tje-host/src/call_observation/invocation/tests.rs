@@ -3,6 +3,7 @@
 use super::*;
 use genesis_core::HybridAccess;
 use tje_game::ids;
+mod rte;
 
 const ROOT: u32 = 0x600;
 const SP: u32 = 0xff8000;
@@ -318,7 +319,7 @@ fn actual_irq_context_is_separate_and_raw_call_seals_survive_its_return() {
     return_call(&mut tracker, entry, 0x20a);
     assert_eq!(
         tracker
-            .observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned { depth: 1 })
+            .observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned { depth: 0 })
             .exception_returned,
         Some(irq)
     );
