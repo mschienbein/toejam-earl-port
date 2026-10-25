@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "scope": "Natural REV02 single-game campaign evidence from input-only power-on playback: all27 levels0..26, all ten actual ship-piece pickups, full ending/scrolling credits and settled final-level display. Independent Reference/Reference comparison covers every video frame with no masks or skipped lag ticks. This does not claim a completed natural REV00 campaign or translated/native equivalence.",
+  "scope": "Natural single-game campaigns in BOTH REV00 and REV02 from input-only power-on playback: each visits all27 levels0..26, collects all ten actual ship pieces, plays the original ending and complete scrolling credits, and reaches settled final-level display. Independent Reference/Reference comparisons cover every video frame with no masks or skipped lag ticks. This does not claim translated/native equivalence.",
   "controller_hash_fields": [
     "format",
     "revision",
@@ -8,15 +8,15 @@
     "frames",
     "runs"
   ],
-  "renaming_policy": "The actual compared session path is preserved. The committed recording was JSON-minified only to meet the public blob budget; every parsed field and controller input is unchanged. Matching canonical controller digests bind those identical inputs, while compared_file_sha256 preserves the exact bytes used for the receipt.",
+  "renaming_policy": "Actual compared session paths are preserved. REV02 was JSON-minified after comparison with every parsed field/controller input unchanged; its compared_file_sha256 preserves the exact compared bytes and matching canonical controller digests bind the identical input history. REV00 was minified before comparison, so its compared and committed file digests are identical.",
   "comparison_source_commit": "ba58b9a004398610e25377a993f68f9d089a14bc",
   "prior_public_sessions": 81,
   "prior_public_frames": 3114838,
-  "natural_session_count": 1,
-  "natural_frames": 519824,
-  "complete_public_sessions": 82,
-  "complete_public_frames": 3634662,
-  "coverage_scope": "Measured Reference union of the retained79-input content checkpoint, fresh replays of the two integrated map-exit recordings and this fresh natural campaign replay. The retained cohort is not relabelled as a fresh82-recording replay or translated/native equivalence proof.",
+  "natural_session_count": 2,
+  "natural_frames": 1037829,
+  "complete_public_sessions": 83,
+  "complete_public_frames": 4152667,
+  "coverage_scope": "Measured Reference union of the retained79-input content checkpoint, fresh replays of the two integrated map-exit recordings and both fresh natural campaign replays. Retained source measurements are not relabelled as a fresh83-recording replay or translated/native equivalence proof.",
   "inventory_entries": 648,
   "corpus_entries_hit": {
     "rev00": 638,
@@ -24,7 +24,7 @@
   },
   "corpus_union_entries_hit": 638,
   "public_ship_piece_witnesses": {
-    "rev00": 2,
+    "rev00": 10,
     "rev02": 10
   },
   "entries": [
@@ -73,6 +73,54 @@
           "ending_credits": 515670,
           "ending_complete": 518602,
           "final_level": 518623
+        }
+      }
+    },
+    {
+      "session": "sessions/rev00-natural-campaign.tje.json",
+      "revision": "rev00",
+      "frames": 518005,
+      "file_sha256": "fcf8d6e292a21f768ffbd8e9c6d27a7d478e9cc2ba9188b1248bd62f74fbf90b",
+      "compared_file_sha256": "fcf8d6e292a21f768ffbd8e9c6d27a7d478e9cc2ba9188b1248bd62f74fbf90b",
+      "canonical_controller_sha256": "9f1665d3b324e0e5197daf29534e8b3e70dd750d8cb93c50e2513aa3ea5f8f06",
+      "compared_input_canonical_controller_sha256": "9f1665d3b324e0e5197daf29534e8b3e70dd750d8cb93c50e2513aa3ea5f8f06",
+      "reference_reference": {
+        "session": "sessions/rev00-natural-campaign.tje.json",
+        "second_mode": "reference",
+        "boundary": "video_frame",
+        "compared": 518005,
+        "skipped_lag_ticks": [],
+        "divergence": null
+      },
+      "reference_content": {
+        "level_coverage": {
+          "first": 0,
+          "last": 26,
+          "count": 27,
+          "all_visited": true
+        },
+        "ship_pieces_collected": {
+          "0": 4719,
+          "1": 37270,
+          "2": 286687,
+          "3": 330291,
+          "4": 371538,
+          "5": 390633,
+          "6": 444546,
+          "7": 464157,
+          "8": 485647,
+          "9": 507801
+        },
+        "milestones": {
+          "level_zero": 209307,
+          "fixed_world": 958,
+          "one_player": 958,
+          "game_over": null,
+          "pause": null,
+          "ending_started": 508477,
+          "ending_credits": 510504,
+          "ending_complete": 513436,
+          "final_level": 513457
         }
       }
     }

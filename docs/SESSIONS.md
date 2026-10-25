@@ -649,53 +649,64 @@ reference/reference and native-engine comparisons separate from frontend
 no-crash observations; determinism alone does not prove a translated hybrid
 replacement correct.
 
-## Natural ten-piece campaign: REV 02
+## Natural ten-piece campaigns: REV 00 and REV 02
 
-`rev02-natural-campaign.tje.json` is a **519,824-video-frame**, input-only,
-single-game Fixed World campaign from power-on. It genuinely visits level 0 and
-every level 1 through 26, collects **all ten actual ship pieces**, plays the
-complete ending and scrolling credits, and continues through the settled final
-level. It contains no startup RAM recipe, restored machine snapshot, RAM writes,
-or original pause-secret mass collection. The independent Reference replay
-observes neither GAME OVER nor an in-game pause anywhere in this history.
+Both recordings are input-only, single-game Fixed World campaigns from power-on.
+Each genuinely visits level 0 and every level 1 through 26, collects **all ten
+actual ship pieces**, plays the original ending and complete scrolling credits,
+and continues through the settled final level.
 
-| Natural campaign witness | First observed video frame |
-| --- | ---: |
-| Genuine level 0 | 273,888 |
-| Tenth actual ship-piece pickup | 512,968 |
-| Ending sequence | 513,643 |
-| Scrolling credits | 515,670 |
-| Normal final-level display/gameplay | 518,623 |
-| Recording end | 519,824 |
+| Recording | Video frames | Actual ship pieces | Visited levels |
+| --- | ---: | ---: | ---: |
+| `rev00-natural-campaign.tje.json` | 518,005 | 10 / 10 | 27 / 27 |
+| `rev02-natural-campaign.tje.json` | 519,824 | 10 / 10 | 27 / 27 |
 
-All ten pickup identities have separate executed collection witnesses. Their
-frames are preserved in the [campaign proof index](../sessions/campaign-reference-proofs.json),
-alongside the actual independent power-on Reference/Reference receipt:
-**519,824 compared video frames, `divergence: null`, zero skipped lag ticks**.
-The comparison includes full RAM/dead stack, VDP state, pixels, ordered hardware
-writes and bit-exact PCM; there are no ignored-byte masks.
+Neither recording contains a startup RAM recipe, restored machine snapshot,
+RAM writes, or original pause-secret mass collection. Independent Reference
+replays observe neither GAME OVER nor an in-game pause in either history.
+
+| Natural campaign witness | REV 00 frame | REV 02 frame |
+| --- | ---: | ---: |
+| Genuine level 0 | 209,307 | 273,888 |
+| Tenth actual ship-piece pickup | 507,801 | 512,968 |
+| Ending sequence | 508,477 | 513,643 |
+| Scrolling credits | 510,504 | 515,670 |
+| Credits complete / final-map entry | 513,436 | 518,602 |
+| Normal final-level display/gameplay | 513,457 | 518,623 |
+| Recording end | 518,005 | 519,824 |
+
+All ten pickup identities in each revision have separate executed collection
+witnesses. Their frames are preserved in the
+[campaign proof index](../sessions/campaign-reference-proofs.json), alongside
+the actual independent power-on Reference/Reference receipts: **518,005 REV 00
+and 519,824 REV 02 video frames**, **1,037,829 total**, each with
+`divergence: null` and zero skipped lag ticks. The comparisons include full
+RAM/dead stack, VDP state, pixels, ordered hardware writes and bit-exact PCM;
+there are no ignored-byte masks.
 
 This is tool-assisted normal play. Read-only state observations inform ordinary
 controller directions and inventory timing; actual presents, randomizers, wings,
-inner tubes and the level-zero bath do the work inside the original game. Its
-complete controller history replays independently without the generator or any
-live observations. The previously disclosed pause-secret ending recordings are
-retained, but are not counted as this natural campaign's collection evidence.
+inner tubes, ground/doorway footing and the level-zero bath do the work inside
+the original game. Both complete controller histories replay independently
+without the generator or any live observations. The previously disclosed
+pause-secret ending recordings are retained, but are not counted as either
+natural campaign's collection evidence.
 
-The measured public Reference union now contains **82 recordings / 3,634,662
+The measured public Reference union now contains **83 recordings / 4,152,667
 video frames**: the retained 79-input content checkpoint, two fresh map-exit
-replays and this fresh natural campaign replay. The campaign executes **546 / 648**
-catalogue entries. Per-revision and combined union entry counts remain:
+replays and both fresh natural campaign replays. The individual natural
+campaigns execute **519 / 648** catalogue entries in REV 00 and **546 / 648**
+in REV 02. Per-revision and combined union entry counts remain:
 
 | Public Reference union | Observed entries | Still zero | Actual pickup identities |
 | --- | ---: | ---: | ---: |
-| REV 00 | 638 / 648 | 10 | 2 / 10 |
+| REV 00 | 638 / 648 | 10 | 10 / 10 |
 | REV 02 | 638 / 648 | 10 | 10 / 10 |
 | Both revisions combined | 638 / 648 | 10 | 10 / 10 |
 
-The retained 79-input measurements are not relabelled as a fresh 82-recording
-replay. Private campaign attempts are not included. This named recording proves
-the natural REV 02 campaign only; it does not certify a natural REV 00 campaign,
-translated/native equivalence, or the separate whole-corpus check-mode release
-gate.
+Retained source measurements are not relabelled as a fresh 83-recording replay.
+Failed development branches and private per-level input checkpoints are not
+included in this public corpus. These recordings establish the natural
+campaigns in both revisions; they do not certify translated/native equivalence
+or the separate whole-corpus check-mode release gate.
 
