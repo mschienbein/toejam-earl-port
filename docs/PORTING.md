@@ -1479,6 +1479,12 @@ sensitivity. An early typed guard failure counts once as an attempted, failed
 root, never a completed or matched proof. `HostError::typed_stack_read` preserves
 its structured first cause through dependency-probe wrappers.
 
+`JamOutCreateCharacterCopies` declares the A6-2 word only while no successful
+lead has written it (both `c_jamout.s:1149-1155,1198-1204`). Each later copy
+still requires a separate declaration until a real lead store, and the
+initialized word remains live across both character loops. This does not
+waive the post-callee original-frame witness requirement described above.
+
 `tje_mem::written_ram::WrittenRam` supplies only shared canonical 64-KiB RAM
 bookkeeping (`get`, `set`, mirror-aware `clear`, `addresses`, touched-word `reset`).
 It grants no read or frame authority. Separate live-allocation and cumulative
