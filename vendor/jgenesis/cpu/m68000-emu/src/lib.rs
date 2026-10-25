@@ -326,7 +326,7 @@ mod hybrid_trap_entry_tests {
         // prefetch. This does NOT decode/execute or count an original opcode.
         cpu.set_status_register(cpu.status_register() & !0xf);
         cpu.set_pc(0x102, bus);
-        cpu.hybrid_enter_trap(5, 0x102, 0x82c2, bus)
+        cpu.hybrid_enter_trap(5, 0x100, 0x102, 0x82c2, bus)
     }
     #[test]
     fn actual_vector_frame_prefetch_and_all_25_cpu_words_match_real_divu_fault() {
@@ -414,15 +414,105 @@ mod hybrid_trap_entry_tests {
         let before = cpu.hybrid_state_words();
         let bytes = bus.bytes.clone();
         assert_eq!(
-            cpu.hybrid_enter_trap(3, 0x100, 0x82c2, &mut bus),
+            cpu.hybrid_enter_trap(3, 0x100, 0x100, 0x82c2, &mut bus),
             Err(HybridTrapEntryError::UnsupportedVector(3))
         );
         assert_eq!(
-            cpu.hybrid_enter_trap(5, 0x102, 0x82c2, &mut bus),
+            cpu.hybrid_enter_trap(5, 0x100, 0x102, 0x82c2, &mut bus),
             Err(HybridTrapEntryError::InvalidFaultContext)
         );
         assert_eq!(cpu.hybrid_state_words(), before);
         assert_eq!(bus.bytes, bytes);
         assert!(bus.accesses.is_empty());
+    }
+
+    fn privilege_setup(
+        status: u16,
+        ssp: u32,
+        handler: u32,
+        opcode: u16,
+        immediate: u16,
+    ) -> (M68000, Bus) {
+        let (mut cpu, mut bus) = Bus::setup(status, ssp, handler);
+        bus.put_word(0x100, opcode);
+        bus.put_word(0x102, immediate);
+        bus.put_word(0x104, 0x4e75);
+        bus.put_word(32, (handler >> 16) as u16);
+        bus.put_word(34, handler as u16);
+        cpu.set_pc(0x100, &mut bus);
+        bus.accesses.clear();
+        (cpu, bus)
+    }
+
+    fn realize_privilege(
+        cpu: &mut M68000,
+        bus: &mut Bus,
+        opcode: u16,
+    ) -> Result<(), HybridTrapEntryError> {
+        // The opcode fetch prefetched its immediate, but privilege checking
+        // precedes consumption. The saved PC is the opcode, not this next PC.
+        cpu.set_pc(0x102, bus);
+        cpu.hybrid_enter_trap(8, 0x100, 0x100, opcode, bus)
+    }
+
+    #[test]
+    fn privilege_first_opcode_saves_its_site_before_consuming_immediate() {
+        for (opcode, immediate) in [(0x007c, 0x0700), (0x027c, 0xf8ff)] {
+            for status in [0x001f, 0x071f, 0x801f, 0x871f] {
+                let (mut original, mut original_bus) =
+                    privilege_setup(status, 0x8000, 0x300, opcode, immediate);
+                let mut rust = original.clone();
+                let mut rust_bus = original_bus.clone();
+                original.execute_instruction(&mut original_bus);
+                realize_privilege(&mut rust, &mut rust_bus, opcode).unwrap();
+                assert_eq!(rust.hybrid_state_words(), original.hybrid_state_words());
+                assert_eq!(rust_bus.bytes, original_bus.bytes);
+                assert_eq!(rust_bus.accesses, original_bus.accesses);
+                assert_eq!(rust.hybrid_exception_depth(), 1);
+                assert_eq!(rust.hybrid_last_exception_vector(), Some(8));
+                assert_eq!(rust.pc(), 0x300);
+                assert_eq!(rust.user_stack_pointer(), 0x7000);
+                assert_eq!(rust.supervisor_stack_pointer(), 0x7ffa);
+                assert_eq!(rust_bus.raw_word(0x7ffa), status);
+                assert_eq!(rust_bus.raw_word(0x7ffc), 0);
+                assert_eq!(rust_bus.raw_word(0x7ffe), 0x100);
+                assert!(
+                    !rust_bus
+                        .accesses
+                        .iter()
+                        .any(|access| matches!(access, Access::Read(0x104, _, _)))
+                );
+                assert_eq!(rust.hybrid_instruction_counts().unwrap().main_thread, 0);
+                assert_eq!(rust.hybrid_instruction_counts().unwrap().faulted_opcode_attempts, 0);
+                assert_eq!(
+                    original.hybrid_instruction_counts().unwrap().faulted_opcode_attempts,
+                    1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn privilege_entry_faults_keep_exact_original_partial_state() {
+        for (opcode, immediate) in [(0x007c, 0x0700), (0x027c, 0xf8ff)] {
+            for (ssp, handler) in [(0x8001, 0x300), (0x8000, 0x301)] {
+                let (mut original, mut original_bus) =
+                    privilege_setup(0x801f, ssp, handler, opcode, immediate);
+                let mut rust = original.clone();
+                let mut rust_bus = original_bus.clone();
+                original.execute_instruction(&mut original_bus);
+                assert!(matches!(
+                    realize_privilege(&mut rust, &mut rust_bus, opcode),
+                    Err(HybridTrapEntryError::EntryFault { .. })
+                ));
+                assert_eq!(rust.hybrid_state_words(), original.hybrid_state_words());
+                assert_eq!(rust_bus.bytes, original_bus.bytes);
+                assert_eq!(rust_bus.accesses, original_bus.accesses);
+                assert!(!rust_bus.accesses.iter().any(|access| matches!(
+                    access,
+                    Access::Boundary(ExceptionBoundary::Entered { vector: 8, .. })
+                )));
+            }
+        }
     }
 }

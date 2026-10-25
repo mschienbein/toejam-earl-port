@@ -422,6 +422,15 @@ entries:
   the later divide fault. A value-only elided nested call is likewise rejected
   unless its source call frame was actually materialized with `call_at`.
 
+`ORI/ANDI` to **SR** are different from their unprivileged CCR forms.
+`DisableAllInterrupts`/`EnableAllInterrupts` (`G/src/asm/interrupts.s:34,42`) fault
+with vector 8 on S=0 before consuming the immediate and without changing
+registers, stacks or SR. One opcode-fetch prefetch at `site + 2` is nevertheless
+real. Their saved exception PC is `site`, not DIVU's `site + 2`; no D2 save is
+present. S=0/T=1 still takes this privilege fault first. Never lower it to an SR
+write or borrow the runtime's prefix/next-PC shape. Source-bound preparation
+distinguishes absence of that save from a saved zero.
+
 The default dynamic `unsigned long a / b` and `%` compiler probes instead select
 native `DIVU` when **`b <= 0x7fff || b >= 0xffff8000`**. The instruction consumes
 only **`b & 0xffff`**. If its quotient fits in 16 unsigned bits, that native
@@ -790,6 +799,24 @@ and proven in the same cutover. `LocalFrame` exposes
 low-byte/word argument views and unchecked typed local addresses at original
 offsets. Tail/RTE/nonreturning transfers use their separate typed exit contracts
 and must not be converted to a normal frame cleanup.
+
+Readable check/native roots reject generic reads of below-entry bytes that no
+Rust body or materialized own frame has actually written. The cumulative
+canonical-RAM window follows the **actual outer entry SP**, including prepared
+entries above catalogue `STACK_TOP`. Original-callee saves and snapshot contents
+are not Rust initialization. A deliberately consumed original uninitialized
+own-frame local must use `FrameState::uninitialized_local` plus
+`Context::read_uninitialized_local`, citing its original offset and width; see
+[PORTING.md](PORTING.md), “Explicit original uninitialized-local declarations.”
+This serves the real entry bytes only after backend validation and, in paired
+checks, an exact original occurrence witness. It never zeros memory, changes
+`ReadPurpose`, or grants a later generic read permission.
+
+This is only an **own-written-read guard**. A wrong Rust write followed by a
+read from that same written alias still passes this boundary (including the
+reviewed SC-03 class). It is not proof that a replacement materialized the right
+frame or that a caller consumes the right residual registers; preserve and prove
+those actual source-backed frames and call sites independently.
 
 These are readable logical-memory obligations. Cycle-exact instruction timing,
 prefetch and complete compiler spill images remain the cycle-exact engine's job;

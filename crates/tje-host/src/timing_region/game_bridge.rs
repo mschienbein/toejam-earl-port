@@ -322,9 +322,10 @@ pub(crate) fn run(scope: ExecutionScope<'_>, request: SourceRequest<'_, '_>) -> 
             frame: scope.clock.frame,
             parents: request.parents,
             proof: request.proof,
+            original_segment: None,
         };
         let audio = std::mem::take(&mut ledger.run.audio);
-        let result: Result<_> = (|| {
+        let execute = || -> Result<_> {
             let mut host = TimingHost::with_audio(scope.emulator, scope.clock, &mut ledger, audio)?;
             #[cfg(test)]
             host.seed_wrong_cycle_mutant(proof::take_mutation());
@@ -337,7 +338,16 @@ pub(crate) fn run(scope: ExecutionScope<'_>, request: SourceRequest<'_, '_>) -> 
             );
             let audio = host.into_audio();
             Ok((result, audio))
-        })();
+        };
+        let result = if let Some(observer) = scope.observers.readable {
+            observer
+                .guard
+                .catch_abort(execute)
+                .map_err(|error| HostError::Translation(error.into()))
+                .and_then(|result| result)
+        } else {
+            execute()
+        };
         (result, std::mem::take(&mut ledger.proof))
     };
     let outcome = match result {
@@ -390,6 +400,7 @@ pub(crate) fn run_original(
             frame: scope.clock.frame,
             parents,
             proof: SourceProof::default(),
+            original_segment: None,
         };
         let audio = std::mem::take(&mut ledger.run.audio);
         (|| {
@@ -552,6 +563,7 @@ struct SourceLedger<'a> {
     frame: u64,
     parents: &'a mut [PausedHostSource],
     proof: SourceProof,
+    original_segment: Option<tje_game::stack_read::OriginalSegment<'a>>,
 }
 fn attempts(state: &GenesisEmulator) -> Result<u64> {
     let counts = state
@@ -582,6 +594,16 @@ impl TimingLedger for SourceLedger<'_> {
         let pc = state.hybrid_cpu().pc();
         let clock = state.hybrid_bus().cycles.m68k_mclk_cycles;
         self.frame = frame;
+        self.original_segment = if matches!(
+            owner,
+            ProgressOwner::OriginalInterrupt { .. } | ProgressOwner::OriginalCallee { .. }
+        ) {
+            self.observers
+                .readable
+                .map(|observer| observer.guard.original_segment())
+        } else {
+            None
+        };
         if let Some(provenance) = self.observers.provenance {
             match owner {
                 ProgressOwner::RustInstruction => provenance.begin_native(frame, clock),
@@ -691,6 +713,7 @@ impl TimingLedger for SourceLedger<'_> {
             self.run,
             observers,
         );
+        self.original_segment.take();
         if self.auditing && depth < before.depth {
             let depth = depth.checked_sub(self.base_depth).ok_or_else(|| {
                 HostError::Metadata("source ISR escaped below its actual entry depth".into())

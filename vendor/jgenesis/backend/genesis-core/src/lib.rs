@@ -5,6 +5,9 @@ pub mod audio;
 #[cfg(feature = "emulator")]
 mod bus;
 pub mod input;
+/// TJE neutral passive RAM/DMA callbacks, absent from default peripheral builds.
+#[cfg(feature = "ram-dma-observer")]
+pub mod ram_dma_observer;
 /// TJE reference proof observations and explicitly authored, non-natural fixtures.
 #[cfg(feature = "reference-proof-hooks")]
 pub mod reference_proof;

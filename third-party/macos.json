@@ -6315,7 +6315,7 @@
     "rust/licenses/Unicode-3.0.txt": "5a0c9c425b7325dbb59b521390b536f5aaa9e18068abb8dba79f31a94b61e4df"
   },
   "rust_version": "1.99.1",
-  "source_fingerprint": "a6cdb15e8fb1eea790ac04b5ce234e740155f50bfad2f9c63730c46acc470034",
+  "source_fingerprint": "854ccc4bb72c7093be2af2158ec26cd8f196e697894be36c5e90a9084acb94ab",
   "targets": [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin"

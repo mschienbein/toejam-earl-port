@@ -13,7 +13,8 @@ use tje_mem::Revision;
 
 mod exception;
 pub use exception::{
-    ExceptionPreparedState, ExceptionRequest, SynchronousTrap, runtime_divide_fault_offset,
+    ExceptionPreparedState, ExceptionRequest, SynchronousTrap, privileged_status_opcode,
+    runtime_divide_fault_offset,
 };
 
 const SR_MASK: u16 = 0xa71f;

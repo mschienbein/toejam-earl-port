@@ -1426,11 +1426,14 @@ impl M68000 {
     /// instruction. No opcode is executed and no device clock is advanced.
     ///
     /// The source owner must first bind the real fault site/opcode, produce its
-    /// pre-trap registers/flags and perform the declared next-word prefetch.
+    /// pre-trap registers/flags and perform the one next-word prefetch at
+    /// `fault_site + 2`. `saved_pc` is independently source-bound: DIVU saves
+    /// that next PC, while first-opcode privilege violations save `fault_site`.
     /// `opcode` is used only for exact secondary address-error attribution.
     pub fn hybrid_enter_trap(
         &mut self,
         vector: u8,
+        fault_site: u32,
         saved_pc: u32,
         opcode: u16,
         bus: &mut impl BusInterface,
@@ -1438,7 +1441,10 @@ impl M68000 {
         if !matches!(vector, 4..=11 | 32..=47) {
             return Err(HybridTrapEntryError::UnsupportedVector(vector));
         }
-        if self.registers.pc != saved_pc || saved_pc & 1 != 0 || self.registers.frozen {
+        if self.registers.pc != fault_site.wrapping_add(2)
+            || (fault_site | saved_pc) & 1 != 0
+            || self.registers.frozen
+        {
             return Err(HybridTrapEntryError::InvalidFaultContext);
         }
         let instruction = Instruction::decode_from(opcode);

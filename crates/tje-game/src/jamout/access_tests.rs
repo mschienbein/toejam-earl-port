@@ -5,8 +5,9 @@ use crate::{
     call_frame::FrameState,
     execution::{CallCeilingScope, ExecutionClass},
     ids,
+    stack_read::{Guard, LocalWidth, Reader, UninitializedLocalRead},
 };
-use std::{cell::RefCell, collections::VecDeque};
+use std::{cell::RefCell, collections::VecDeque, sync::Arc};
 use tje_mem::{AddressSpace, Bus, Platform, Revision, ram, rom};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +32,9 @@ pub(super) struct Machine {
     modal: bool,
     updates: u32,
     pad_reads: u32,
+    allocations: VecDeque<u32>,
+    guard: Arc<Guard>,
+    declared_locals: Vec<(UninitializedLocalRead, u8, u32)>,
 }
 
 impl Machine {
@@ -47,6 +51,9 @@ impl Machine {
             modal: false,
             updates: 0,
             pad_reads: 0,
+            allocations: VecDeque::new(),
+            guard: Arc::new(Guard::default()),
+            declared_locals: Vec::new(),
         }
     }
     pub(super) fn clear_accesses(&self) {
@@ -81,6 +88,7 @@ impl Machine {
     fn emulate_callee(&mut self, id: FunctionId) -> u32 {
         let revision = self.revision();
         match id {
+            ids::ALLOCATE_ENTITY => self.allocations.pop_front().unwrap_or(0),
             ids::GET_RANDOM_NUMBER => self.random.pop_front().unwrap_or(0) as u32,
             ids::LMODT => ((self.data[0] as i32) % (self.data[1] as i32)) as u32,
             ids::GET_CTRL1_INPUT | ids::GET_CTRL2_INPUT => {
@@ -128,6 +136,7 @@ impl Machine {
 
 impl Bus for Machine {
     fn read_u8(&self, address: u32) -> u8 {
+        self.guard.read(address, 1, Reader::RustMemory);
         let value = self.memory.read_u8(address);
         self.accesses
             .borrow_mut()
@@ -135,6 +144,7 @@ impl Bus for Machine {
         value
     }
     fn read_u16(&self, address: u32) -> u16 {
+        self.guard.read(address, 2, Reader::RustMemory);
         let value = self.memory.read_u16(address);
         self.accesses
             .borrow_mut()
@@ -149,12 +159,14 @@ impl Bus for Machine {
             .borrow_mut()
             .push(Access::Write(address, 1, u32::from(value)));
         self.memory.write_u8(address, value);
+        self.guard.commit(address, 1, true);
     }
     fn write_u16(&mut self, address: u32, value: u16) {
         self.accesses
             .borrow_mut()
             .push(Access::Write(address, 2, u32::from(value)));
         self.memory.write_u16(address, value);
+        self.guard.commit(address, 2, true);
     }
     fn write_u32(&mut self, address: u32, value: u32) {
         self.write_u16(address, (value >> 16) as u16);
@@ -228,6 +240,20 @@ impl Context for Machine {
     fn set_frame_state(&mut self, value: FrameState) -> Result<()> {
         self.frame = value;
         Ok(())
+    }
+    fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
+        let address = self.guard.explicit_local(read, self.frame, self.sp)?;
+        let missing = self.guard.unwritten_mask(address, read.width.bytes());
+        let value = match read.width {
+            LocalWidth::Byte => u32::from(self.memory.read_u8(address)),
+            LocalWidth::Word => u32::from(self.memory.read_u16(address)),
+            LocalWidth::Long => self.memory.read_u32(address),
+        };
+        self.accesses
+            .borrow_mut()
+            .push(Access::Read(address, read.width.bytes(), value));
+        self.declared_locals.push((read, missing, value));
+        Ok(value)
     }
     fn dispatcher(&self) -> Dispatcher {
         Dispatcher::hybrid_with(&[])
@@ -661,5 +687,112 @@ fn random_bank_counter_wrap_retains_addq_extend_through_clears_and_final_compare
                 .iter()
                 .any(|(id, _, _, _)| *id == ids::MUSIC_REQUEST_TRACK_POINTER_RESET)
         );
+    }
+}
+
+#[test]
+fn missing_jam_leads_declare_each_tile_read_only_until_a_lead_stores_it() {
+    // The allocator results are authored callee doubles, not a claim that a
+    // natural allocation trajectory can fail and then succeed without a free.
+    for revision in Revision::ALL {
+        for scenario in 0..3 {
+            let mut c = Machine::new(revision);
+            c.sp = 0xff7000;
+            c.frame = FrameState::new(c.sp);
+            let entry_sp = c.sp;
+            let residue = 0x55aa;
+            c.memory.write_u16(entry_sp - 6, residue);
+            let mut allocations = [0; 18];
+            match scenario {
+                0 => {
+                    allocations[1] = 2;
+                    allocations[2] = 3;
+                    allocations[9] = 4;
+                    allocations[10] = 5;
+                }
+                1 => {
+                    allocations[0] = 1;
+                    allocations[1] = 2;
+                    allocations[10] = 5;
+                }
+                _ => {
+                    allocations[10] = 2;
+                    allocations[11] = 3;
+                }
+            }
+            c.allocations = allocations.into_iter().collect();
+            let guard = Arc::clone(&c.guard);
+            guard
+                .run_root(ids::JAM_OUT_CREATE_CHARACTER_COPIES, entry_sp, || {
+                    c.run(super::entities::create_character_copies, &[]);
+                })
+                .unwrap();
+            assert!(guard.failure().is_none());
+            assert!(c.allocations.is_empty());
+            assert_eq!(c.declared_locals.len(), if scenario == 1 { 0 } else { 2 });
+            for &(read, missing, value) in &c.declared_locals {
+                assert_eq!(read.owner, ids::JAM_OUT_CREATE_CHARACTER_COPIES);
+                assert_eq!(read.frame.entry_sp, entry_sp);
+                assert_eq!((read.offset, read.width), (-6, LocalWidth::Word));
+                assert!(read.citation.contains(if scenario == 0 {
+                    "1115-1155"
+                } else {
+                    "1164-1204"
+                }));
+                assert_eq!((missing, value), (3, u32::from(residue)));
+            }
+            let expected = if scenario == 1 { 0x8000 } else { residue };
+            for object in [2, 3] {
+                if scenario != 1 || object == 2 {
+                    assert_eq!(
+                        ram::g_player_info(revision)
+                            .at(object)
+                            .tile()
+                            .read(&c.memory),
+                        expected
+                    );
+                }
+            }
+            if scenario != 2 {
+                assert_eq!(
+                    ram::g_player_info(revision).at(5).tile().read(&c.memory),
+                    0x8000
+                );
+            }
+            assert_eq!(
+                guard.unwritten_mask(entry_sp - 6, 2),
+                if scenario == 2 { 3 } else { 0 }
+            );
+            assert_eq!(c.sp, entry_sp);
+        }
+    }
+}
+
+#[test]
+fn undeclared_jam_lead_tile_still_trips_the_guard() {
+    for revision in Revision::ALL {
+        let mut c = Machine::new(revision);
+        c.sp = 0xff7000;
+        c.frame = FrameState::new(c.sp);
+        let entry_sp = c.sp;
+        c.memory.write_u16(entry_sp - 6, 0x55aa);
+        let guard = Arc::clone(&c.guard);
+        let failure = guard
+            .run_root(ids::JAM_OUT_CREATE_CHARACTER_COPIES, entry_sp, || {
+                let frame = crate::call_frame::LocalFrame::enter(
+                    &mut c,
+                    crate::call_frame::FrameLayout::link(4, 0x7c, 0x1c),
+                )
+                .unwrap();
+                frame.local::<u16>(-2).read(&c)
+            })
+            .unwrap_err();
+        assert_eq!(failure.root, ids::JAM_OUT_CREATE_CHARACTER_COPIES);
+        assert_eq!((failure.address, failure.width), (entry_sp - 6, 2));
+        assert_eq!(
+            failure.reason,
+            crate::stack_read::UnsupportedReason::Unwritten
+        );
+        assert!(c.declared_locals.is_empty());
     }
 }

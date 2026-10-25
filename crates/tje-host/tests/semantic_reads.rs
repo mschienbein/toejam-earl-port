@@ -124,7 +124,7 @@ fn movem_terminal_prefetch_is_ignored_without_whitelisting_its_stack_address() {
 
 #[test]
 #[ignore = "requires both private retail ROMs"]
-fn discarded_word_high_byte_is_informational_on_either_side() {
+fn original_discarded_high_is_informational_but_generic_rust_read_is_guarded() {
     fn constant(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
         c.write_u16(LIVE_RAM, 0xff80);
         Ok(None)
@@ -168,11 +168,16 @@ fn discarded_word_high_byte_is_informational_on_either_side() {
                 discarded_high,
                 class,
             );
-            rust.check_fixture(CODE, &[]).unwrap();
-            assert!(rust.checks.uninitialized_stack_reads.is_empty());
-            assert_eq!(rust.checks.nondependent_stack_reads.len(), 1);
-            assert_eq!(rust.checks.stack_dependency_reruns, 2);
-            assert_eq!(rust.checks.calls, 1);
+            let error = rust.check_fixture(CODE, &[]).unwrap_err();
+            let failure = error.typed_stack_read().unwrap();
+            assert_eq!(
+                failure.reason,
+                tje_game::stack_read::UnsupportedReason::Unwritten
+            );
+            assert_eq!(failure.width, 2);
+            assert!(rust.checks.nondependent_stack_reads.is_empty());
+            assert_eq!(rust.checks.stack_dependency_reruns, 0);
+            assert_eq!((rust.checks.calls, rust.checks.mismatches), (1, 1));
             assert_eq!(rust.measurements.check_original_wait_frames, 0);
             assert_eq!(rust.measurements.check_rust_wait_frames, 0);
         }
@@ -244,21 +249,19 @@ fn prepare_entity_sprite_frame_ca36_discarded_high_byte_passes() {
 #[ignore = "requires both private retail ROMs"]
 fn live_ram_preserved_registers_and_device_traces_retain_true_dependencies() {
     fn live(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        let address = c.cpu().stack_pointer() - 2;
-        let value = c.read_u16(address);
-        c.write_u16(LIVE_RAM, value);
+        // Constant counterpart matches the zero entry state without borrowing
+        // residue; the original-side probes must still detect each dependency.
+        c.write_u16(LIVE_RAM, 0);
         Ok(None)
     }
     fn register(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        let address = c.cpu().stack_pointer() - 2;
-        let value = c.read_u16(address);
+        let value = 0_u16;
         let high = c.data_register(2) & 0xffff0000;
         c.set_data_register(2, high | u32::from(value));
         Ok(None)
     }
     fn device(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        let address = c.cpu().stack_pointer() - 2;
-        let value = c.read_u16(address);
+        let value = 0_u16;
         c.bus().write_word(0xc00010, value);
         Ok(None)
     }
@@ -283,7 +286,7 @@ fn live_ram_preserved_registers_and_device_traces_retain_true_dependencies() {
             assert!(error.to_string().contains("original dependency"), "{error}");
             assert!(error.to_string().contains(detail), "{error}");
             assert!(host.checks.nondependent_stack_reads.is_empty());
-            assert_eq!(host.checks.stack_dependency_reruns, 4);
+            assert_eq!(host.checks.stack_dependency_reruns, 2);
             assert_eq!(host.checks.calls, 1);
             assert_eq!(host.checks.mismatches, 1);
         }
@@ -294,9 +297,7 @@ fn live_ram_preserved_registers_and_device_traces_retain_true_dependencies() {
 #[ignore = "requires both private retail ROMs"]
 fn dependency_checks_compare_ram_at_device_writes_not_just_final_ram() {
     fn transient(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        let address = c.cpu().stack_pointer() - 2;
-        let value = c.read_u16(address);
-        c.write_u16(LIVE_RAM, value);
+        c.write_u16(LIVE_RAM, 0);
         c.bus().write_byte(0xc00011, 0x9f);
         c.write_u16(LIVE_RAM, 0);
         Ok(None)
@@ -316,7 +317,7 @@ fn dependency_checks_compare_ram_at_device_writes_not_just_final_ram() {
             error.to_string().contains("differs at device access"),
             "{error}"
         );
-        assert_eq!(host.checks.stack_dependency_reruns, 4);
+        assert_eq!(host.checks.stack_dependency_reruns, 2);
     }
 }
 
@@ -343,15 +344,15 @@ fn bytewise_probes_catch_cancellation_that_collective_patterns_cannot() {
 #[test]
 #[ignore = "requires both private retail ROMs"]
 fn newly_exposed_unwritten_bytes_are_discharge_candidates_too() {
-    fn discarded_branch(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
-        let sp = c.cpu().stack_pointer();
-        if c.read_u8(sp - 1) != 0 {
-            let _discarded = c.read_u8(sp - 2);
-        }
-        Ok(None)
-    }
     for revision in [Revision::Rev02, Revision::Rev00] {
-        let mut host = fixture(revision, &[0x4e75], false, discarded_branch);
+        // TST.B -1(SP); BEQ.S skip; MOVE.B -2(SP),D0; RTS. Both consumed
+        // bytes affect no output under this authored void/scratch-register ABI.
+        let mut host = fixture(
+            revision,
+            &[0x4a2f, 0xffff, 0x6704, 0x102f, 0xfffe, 0x4e75],
+            false,
+            no_effect,
+        );
         host.check_fixture(CODE, &[]).unwrap();
         assert!(host.checks.uninitialized_stack_reads.is_empty());
         assert_eq!(host.checks.nondependent_stack_reads.len(), 2);

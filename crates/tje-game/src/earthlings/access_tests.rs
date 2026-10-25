@@ -11,9 +11,19 @@ struct Read {
     discarded: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Write {
+    address: u32,
+    width: u8,
+    value: u32,
+}
+
 pub(super) struct ObservedContext {
     inner: TestContext,
     reads: RefCell<Vec<Read>>,
+    writes: RefCell<Vec<Write>>,
+    guard: std::sync::Arc<crate::stack_read::Guard>,
+    declared_locals: Vec<(crate::stack_read::UninitializedLocalRead, u8, u32)>,
     changing_byte: Option<(u32, RefCell<VecDeque<u8>>)>,
     waits: Vec<crate::execution::WaitRequest>,
     frame: crate::call_frame::FrameState,
@@ -31,6 +41,9 @@ impl ObservedContext {
         Self {
             inner,
             reads: RefCell::new(Vec::new()),
+            writes: RefCell::new(Vec::new()),
+            guard: std::sync::Arc::new(crate::stack_read::Guard::default()),
+            declared_locals: Vec::new(),
             changing_byte: None,
             waits: Vec::new(),
             frame: crate::call_frame::FrameState::new(0xff7e00),
@@ -77,10 +90,14 @@ impl ObservedContext {
 }
 impl Bus for ObservedContext {
     fn read_u8(&self, address: u32) -> u8 {
+        self.guard
+            .read(address, 1, crate::stack_read::Reader::RustMemory);
         self.record(address, 1, false);
         self.byte_value(address)
     }
     fn read_u16(&self, address: u32) -> u16 {
+        self.guard
+            .read(address, 2, crate::stack_read::Reader::RustMemory);
         self.record(address, 2, false);
         self.inner.memory.read_u16(address)
     }
@@ -89,7 +106,22 @@ impl Bus for ObservedContext {
             | u32::from(self.read_u16(address.wrapping_add(2)))
     }
     fn write_u8(&mut self, address: u32, value: u8) {
+        self.writes.borrow_mut().push(Write {
+            address,
+            width: 1,
+            value: u32::from(value),
+        });
         self.inner.write_u8(address, value);
+        self.guard.commit(address, 1, true);
+    }
+    fn write_u16(&mut self, address: u32, value: u16) {
+        self.writes.borrow_mut().push(Write {
+            address,
+            width: 2,
+            value: u32::from(value),
+        });
+        self.inner.write_u16(address, value);
+        self.guard.commit(address, 2, true);
     }
 }
 impl tje_mem::Platform for ObservedContext {
@@ -183,6 +215,24 @@ impl Context for ObservedContext {
     fn set_frame_state(&mut self, state: crate::call_frame::FrameState) -> Result<()> {
         self.frame = state;
         Ok(())
+    }
+    fn read_uninitialized_local(
+        &mut self,
+        read: crate::stack_read::UninitializedLocalRead,
+    ) -> Result<u32> {
+        use crate::stack_read::LocalWidth;
+        let address =
+            self.guard
+                .explicit_local(read, self.frame, self.inner.address_register(7))?;
+        let missing = self.guard.unwritten_mask(address, read.width.bytes());
+        let value = match read.width {
+            LocalWidth::Byte => u32::from(self.inner.memory.read_u8(address)),
+            LocalWidth::Word => u32::from(self.inner.memory.read_u16(address)),
+            LocalWidth::Long => self.inner.memory.read_u32(address),
+        };
+        self.record(address, read.width.bytes(), false);
+        self.declared_locals.push((read, missing, value));
+        Ok(value)
     }
     fn execution_class(&self) -> crate::execution::ExecutionClass {
         self.class
@@ -715,5 +765,128 @@ fn pending_cached_index_keeps_cmpi_rmw_and_post_store_reread_distinct() {
                     discarded: false,
                 }));
         }
+    }
+}
+
+#[test]
+fn open_present_declares_only_the_original_mixed_player_word() {
+    fn stop_at_first_random(_: &mut dyn Context, _: &[u32]) -> Result<Option<u32>> {
+        Err(crate::Error::Platform(
+            "authored opener prefix boundary".into(),
+        ))
+    }
+    static CALLEE: &[crate::Translation] = &[crate::Translation {
+        id: crate::ids::GET_RANDOM_NUMBER,
+        function: stop_at_first_random,
+    }];
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        for high in [0_u8, 0x55, 0xaa, 0xff] {
+            for number in [i8::MIN, -1, 0, 1, i8::MAX] {
+                let mut context = ObservedContext::new(revision);
+                context.dispatcher = Dispatcher::hybrid_with_overrides(CALLEE);
+                let player = ram::g_player_info(revision).at(0);
+                player.entity_index().write(&mut context.inner, number);
+                context.prepare(&[player.address(), 0x10]);
+                let entry_sp = context.frame.entry_sp;
+                context
+                    .inner
+                    .write_u16(entry_sp - 10, (u16::from(high) << 8) | 0x5a);
+                let guard = std::sync::Arc::clone(&context.guard);
+                let result = guard
+                    .run_root(crate::ids::OPEN_EARTHLING_PRESENT, entry_sp, || {
+                        super::open_present::open_earthling_present(
+                            &mut context,
+                            &[player.address(), 0x10],
+                        )
+                    })
+                    .unwrap();
+                assert_eq!(
+                    result,
+                    Err(crate::Error::Platform(
+                        "authored opener prefix boundary".into()
+                    ))
+                );
+                assert!(guard.failure().is_none());
+                assert_eq!(context.declared_locals.len(), 1);
+                let (read, missing, value) = context.declared_locals[0];
+                assert_eq!(read.owner, crate::ids::OPEN_EARTHLING_PRESENT);
+                assert_eq!(read.frame.entry_sp, entry_sp);
+                assert_eq!(
+                    (read.offset, read.width),
+                    (-10, crate::stack_read::LocalWidth::Word)
+                );
+                assert!(read.citation.contains("1431-1434"));
+                assert_eq!(missing, 1, "only the untouched high byte is an input");
+                assert_eq!(value, (u32::from(high) << 8) | u32::from(number as u8));
+                assert_eq!(
+                    context
+                        .reads
+                        .borrow()
+                        .iter()
+                        .filter(|read| read.address == entry_sp - 10)
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    [Read {
+                        address: entry_sp - 10,
+                        width: 2,
+                        discarded: false,
+                    }]
+                );
+                assert_eq!(
+                    context
+                        .writes
+                        .borrow()
+                        .iter()
+                        .filter(|write| (entry_sp - 10..entry_sp - 8).contains(&write.address))
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    [
+                        Write {
+                            address: entry_sp - 9,
+                            width: 1,
+                            value: u32::from(number as u8),
+                        },
+                        Write {
+                            address: entry_sp - 10,
+                            width: 2,
+                            value: u32::from(number as i16 as u16),
+                        },
+                    ]
+                );
+                assert_eq!(
+                    context.inner.memory.read_u16(entry_sp - 10),
+                    number as i16 as u16
+                );
+                assert_eq!(guard.unwritten_mask(entry_sp - 10, 2), 0);
+                assert_eq!(context.stack_pointer().unwrap(), entry_sp);
+            }
+        }
+    }
+}
+
+#[test]
+fn open_present_mixed_word_without_declaration_is_still_rejected() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut context = ObservedContext::new(revision);
+        let guard = std::sync::Arc::clone(&context.guard);
+        let entry_sp = context.frame.entry_sp;
+        let failure = guard
+            .run_root(crate::ids::OPEN_EARTHLING_PRESENT, entry_sp, || {
+                let frame = crate::call_frame::LocalFrame::enter(
+                    &mut context,
+                    crate::call_frame::FrameLayout::link(8, 0x7c, 0x1c),
+                )
+                .unwrap();
+                frame.local::<i8>(-5).write(&mut context, 1);
+                let _ = frame.local::<i16>(-6).read(&context);
+            })
+            .unwrap_err();
+        assert_eq!(failure.root, crate::ids::OPEN_EARTHLING_PRESENT);
+        assert_eq!(failure.address, entry_sp - 10);
+        assert_eq!(failure.width, 2);
+        assert_eq!(
+            failure.reason,
+            crate::stack_read::UnsupportedReason::Unwritten
+        );
     }
 }
