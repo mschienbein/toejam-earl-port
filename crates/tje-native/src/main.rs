@@ -1150,6 +1150,12 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.error.is_some() {
+            // fail() already requested exit; callbacks the platform still delivers must not
+            // advance the console past the frame the crash report captured.
+            event_loop.exit();
+            return;
+        }
         if let Err(error) = self.poll_loading() {
             self.import_error(error);
         }
