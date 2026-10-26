@@ -105,6 +105,32 @@ def receipt(payload: dict, requested: list[str], revision: str = "rev02", job: s
 
 
 class ReplayCampaignTests(unittest.TestCase):
+    def test_analysis_build_forces_unwind_only_in_child_environment(self) -> None:
+        source = {"authored_source": "immutable"}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.dict(campaign.os.environ, {"CARGO_PROFILE_RELEASE_PANIC": "abort"}), \
+                    mock.patch.object(campaign, "source_identity", return_value=source), \
+                    mock.patch.object(campaign.subprocess, "run") as child, \
+                    mock.patch.object(campaign, "read_catalogue", return_value={"functions": []}), \
+                    mock.patch.object(campaign, "digest", return_value="authored-hash"), \
+                    mock.patch.object(campaign, "atomic_json") as publish:
+                campaign.build_worker(root, root / "target", root / "build.json", root / "env.sh")
+                self.assertEqual(child.call_args.kwargs["env"]["CARGO_PROFILE_RELEASE_PANIC"], "unwind")
+                self.assertEqual(campaign.os.environ["CARGO_PROFILE_RELEASE_PANIC"], "abort")
+                self.assertEqual(publish.call_args.args[1]["build_environment"]["CARGO_PROFILE_RELEASE_PANIC"], "unwind")
+
+    def test_run_parser_accepts_repeatable_session_filter(self) -> None:
+        arguments = ["replay_campaign.py", "run", "--build-receipt", "build.json",
+                     "--rom-rev00", "zero.bin", "--rom-rev02", "two.bin",
+                     "--all-pending", "--out", "partial", "--session", "sessions/one.tje.json",
+                     "--session", "sessions/two.tje.json"]
+        with mock.patch.object(sys, "argv", arguments), \
+                mock.patch.object(campaign, "run_campaign", return_value=True) as run:
+            self.assertEqual(campaign.main(), 0)
+        self.assertEqual(run.call_args.args[0].session,
+                         [Path("sessions/one.tje.json"), Path("sessions/two.tje.json")])
+
     def test_windows_report_sync_uses_write_access_without_directory_fd(self) -> None:
         path = mock.MagicMock(spec=Path)
         path.open.return_value.__enter__.return_value.fileno.return_value = 42
@@ -379,6 +405,7 @@ class ReplayCampaignTests(unittest.TestCase):
                          "frames": 3, "tool": "authored", "description": "stub inputs",
                          "runs": [{"frames": 3, "pads": [256, 0]}]}
             campaign.atomic_json(repo / "sessions" / "authored.tje.json", recording)
+            campaign.atomic_json(repo / "sessions" / "other.tje.json", recording)
             subprocess.run(["git", "add", "sessions"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "authored session"], cwd=repo, check=True)
             calls = base / "worker-calls.log"
@@ -413,7 +440,7 @@ class ReplayCampaignTests(unittest.TestCase):
             rom02.write_bytes(b"authored non-ROM test input two")
             args = SimpleNamespace(repo=repo, out=base / "out", build_receipt=build_path,
                                    env_script=env_script, function=[A], all_pending=False,
-                                   rom_rev00=rom00, rom_rev02=rom02, workers=2)
+                                   rom_rev00=rom00, rom_rev02=rom02, workers=2, session=[])
             # Execute the authored Python worker explicitly on every platform;
             # Windows does not implement POSIX executable bits or shebang launch.
             with mock.patch.object(campaign, "source_identity", return_value=source), \
@@ -423,12 +450,28 @@ class ReplayCampaignTests(unittest.TestCase):
                                       [sys.executable, str(executable), *arguments]):
                 self.assertTrue(campaign.run_campaign(args))
                 self.assertTrue(campaign.run_campaign(args))
-                self.assertEqual(len(calls.read_text().splitlines()), 2)
+                self.assertEqual(len(calls.read_text().splitlines()), 4)
                 damaged = next((args.out / "receipts").glob("*.json"))
                 damaged.write_text('{"interrupted":')
                 self.assertTrue(campaign.run_campaign(args))
-                self.assertEqual(len(calls.read_text().splitlines()), 3)
-            result = campaign.load_json(args.out / "result.json")
+                self.assertEqual(len(calls.read_text().splitlines()), 5)
+                args.out = base / "partial"
+                args.session = [Path("sessions/authored.tje.json"),
+                                repo / "sessions" / "authored.tje.json"]
+                self.assertTrue(campaign.run_campaign(args))
+                self.assertTrue(campaign.run_campaign(args))
+                partial = campaign.load_json(args.out / "result.json")
+                self.assertEqual(partial["sessions"], 2)
+                self.assertEqual(partial["scope_kind"], "partial-session-scope")
+                self.assertTrue(partial["scope_complete"])
+                self.assertFalse(partial["complete"])
+                self.assertFalse(partial["whole_corpus_complete"])
+                self.assertEqual(len(calls.read_text().splitlines()), 7)
+                args.out = base / "unknown-filter"
+                args.session = [Path("sessions/uncommitted.tje.json")]
+                with self.assertRaisesRegex(campaign.CampaignError, "committed corpus inputs"):
+                    campaign.run_campaign(args)
+            result = campaign.load_json(base / "out" / "result.json")
             self.assertTrue(result["complete"])
             self.assertEqual(result["zero_checked"], {"rev00": [], "rev02": []})
 

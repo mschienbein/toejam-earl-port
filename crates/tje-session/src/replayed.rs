@@ -6,7 +6,7 @@ use std::{fs, io::Write, path::Path, sync::Arc};
 use tje_game::{FramedTranslation, FunctionId, Translation};
 use tje_host::{CheckFailurePolicy, Host, Mode, hooks::HookRegistry};
 use tje_mem::Revision;
-use tje_session::Session;
+use tje_session::{Session, SessionRevision};
 
 use crate::{runner, selection};
 
@@ -187,7 +187,7 @@ struct WorkerReport<'a> {
     schema_version: u32,
     protocol: &'static str,
     session: &'a Path,
-    revision: &'static str,
+    revision: SessionRevision,
     requested_functions: Vec<Value>,
     constructed_functions: Vec<&'static str>,
     constructor_exclusions: Vec<Exclusion>,
@@ -245,7 +245,7 @@ pub fn run(bytes: &[u8], path: &Path, names: &[String], destination: &Path) -> R
         schema_version: 1,
         protocol: "tje-replayed-worker/1",
         session: path,
-        revision: revision.name(),
+        revision: session.revision,
         requested_functions: requested.iter().copied().map(metadata).collect(),
         constructed_functions: Vec::new(),
         constructor_exclusions: Vec::new(),
@@ -318,6 +318,32 @@ pub fn run(bytes: &[u8], path: &Path, names: &[String], destination: &Path) -> R
 mod tests {
     use super::*;
     use tje_game::ids;
+
+    #[test]
+    fn worker_report_uses_canonical_input_revision_codes() {
+        for (revision, expected) in [
+            (SessionRevision::Rev00, "rev00"),
+            (SessionRevision::Rev02, "rev02"),
+        ] {
+            let report = WorkerReport {
+                schema_version: 1,
+                protocol: "tje-replayed-worker/1",
+                session: Path::new("authored.tje.json"),
+                revision,
+                requested_functions: Vec::new(),
+                constructed_functions: Vec::new(),
+                constructor_exclusions: Vec::new(),
+                configuration_error: None,
+                frames_requested: 0,
+                frames_completed: 0,
+                run_error: None,
+                finalization_error: None,
+                complete: false,
+                checks: None,
+            };
+            assert_eq!(serde_json::to_value(report).unwrap()["revision"], expected);
+        }
+    }
 
     #[derive(Debug)]
     struct StubRegistry(Vec<FunctionId>);

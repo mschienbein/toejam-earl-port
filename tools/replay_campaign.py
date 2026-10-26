@@ -117,8 +117,10 @@ def read_catalogue(worker: Path, env_script: Path) -> dict[str, Any]:
 def build_worker(repo: Path, target: Path, destination: Path, env_script: Path) -> None:
     before = source_identity(repo)
     environment = os.environ.copy()
-    environment.update(CARGO_TARGET_DIR=str(target), CARGO_PROFILE_DEV_DEBUG="0",
-                       CARGO_PROFILE_TEST_DEBUG="0", CARGO_INCREMENTAL="0")
+    build_environment = {"CARGO_TARGET_DIR": str(target), "CARGO_PROFILE_DEV_DEBUG": "0",
+                         "CARGO_PROFILE_TEST_DEBUG": "0", "CARGO_INCREMENTAL": "0",
+                         "CARGO_PROFILE_RELEASE_PANIC": "unwind"}
+    environment.update(build_environment)
     arguments = ["build", "--locked", "--release", "-p", "tje-session",
                  "--features", "runner,replayed-environment"]
     command = (["cargo", *arguments] if os.name == "nt" else
@@ -133,7 +135,7 @@ def build_worker(repo: Path, target: Path, destination: Path, env_script: Path) 
     atomic_json(destination, {"schema_version": 1, "source": after,
                               "worker": str(worker.resolve()), "binary_sha256": digest(worker),
                               "catalogue": catalogue, "catalogue_sha256": canonical_hash(catalogue),
-                              "build_command": command})
+                              "build_command": command, "build_environment": build_environment})
 
 
 def resolve_roots(catalogue: dict[str, Any], requested: list[str], all_pending: bool) -> list[str]:
@@ -307,9 +309,15 @@ def analyze_worker(payload: dict[str, Any], requested: list[str]) -> dict[str, A
             "obligations": [] if evidence is None else evidence["obligations"]}
 
 
-def plan_jobs(repo: Path, out: Path, identity: dict[str, Any]) -> list[dict[str, Any]]:
+def plan_jobs(repo: Path, out: Path, identity: dict[str, Any],
+              session_filter: list[str] | None = None) -> list[dict[str, Any]]:
     files = subprocess.run(["git", "ls-files", "-z", "--", "sessions/*.tje.json"], cwd=repo,
                            capture_output=True, check=True).stdout.decode().split("\0")
+    if session_filter is not None:
+        missing = set(session_filter) - set(files)
+        if missing:
+            raise CampaignError(f"session filter must name committed corpus inputs: {sorted(missing)}")
+        files = session_filter
     jobs = []
     for relative in sorted(filter(None, files)):
         source = repo / relative
@@ -468,14 +476,24 @@ def run_campaign(args: argparse.Namespace) -> bool:
     if canonical_hash(catalogue) != build["catalogue_sha256"]:
         raise CampaignError("actual body availability changed since the controlled build")
     roots = resolve_roots(catalogue, args.function, args.all_pending)
+    session_filter = None
+    if args.session:
+        try:
+            session_filter = sorted({
+                (path if path.is_absolute() else repo / path).resolve().relative_to(repo).as_posix()
+                for path in args.session
+            })
+        except ValueError as error:
+            raise CampaignError("session filter must stay inside the selected repository") from error
     roms = {"rev00": args.rom_rev00.resolve(), "rev02": args.rom_rev02.resolve()}
     identity = {"source": build["source"], "binary_sha256": build["binary_sha256"],
                 "catalogue": catalogue, "roots": roots,
+                "session_filter": session_filter,
                 "rom_sha256": {revision: digest(path) for revision, path in roms.items()}}
     manifest_path = out / "manifest.json"
     if manifest_path.exists() and load_json(manifest_path)["identity"] != identity:
         raise CampaignError("campaign identity changed; use a new output directory")
-    jobs = plan_jobs(repo, out, identity)
+    jobs = plan_jobs(repo, out, identity, session_filter)
     atomic_json(manifest_path, {"schema_version": 1, "identity": identity, "jobs": jobs,
                                 "workers": args.workers, "build_receipt": str(args.build_receipt.resolve())})
     completed = []
@@ -510,9 +528,12 @@ def run_campaign(args: argparse.Namespace) -> bool:
     summary = summarize(completed, roots)
     summary.update(identity=identity, sessions=len(jobs), receipts=[job["receipt"] for job in jobs])
     summary["unfinished_or_invalid_jobs"] = invalid_jobs
-    summary["complete"] &= not invalid_jobs and len(completed) == len(jobs)
+    summary["scope_complete"] = summary["complete"] and not invalid_jobs and len(completed) == len(jobs)
+    summary["scope_kind"] = "partial-session-scope" if session_filter is not None else "whole-committed-corpus"
+    summary["whole_corpus_complete"] = summary["scope_complete"] and session_filter is None
+    summary["complete"] = summary["whole_corpus_complete"]
     atomic_json(out / "result.json", summary)
-    return summary["complete"]
+    return summary["scope_complete"]
 
 
 def main() -> int:
@@ -531,6 +552,8 @@ def main() -> int:
     run.add_argument("--out", type=Path, required=True)
     run.add_argument("--workers", type=int, choices=range(1, 11), default=10)
     run.add_argument("--env-script", type=Path, default=ENV)
+    run.add_argument("--session", type=Path, action="append", default=[],
+                     help="Repeatable committed-session filter, relative to --repo; always partial scope")
     selection = run.add_mutually_exclusive_group(required=True)
     selection.add_argument("--function", action="append", default=[])
     selection.add_argument("--all-pending", action="store_true")

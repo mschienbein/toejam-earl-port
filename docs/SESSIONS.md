@@ -102,8 +102,11 @@ without the feature reports unavailable and cannot silently fall back to strict
 checks or approve zero mismatches.
 
 The durable corpus driver builds from a clean committed source tree, records the
-actual binary SHA-256 and source/body-availability identities, then runs every
-committed `sessions/*.tje.json` in both revisions:
+actual binary SHA-256 and source/body-availability identities, and explicitly
+sets `CARGO_PROFILE_RELEASE_PANIC=unwind` only in its analysis build subprocess.
+The build receipt records that environment; shipping profiles and the caller's
+environment remain unchanged. It then runs every committed `sessions/*.tje.json`
+in both revisions:
 
 ```sh
 . /home/michael/.local/share/tje-dev/env.sh
@@ -115,6 +118,18 @@ uv run python tools/replay_campaign.py run \
   --rom-rev00 roms/rev00.bin --rom-rev02 roms/rev02.bin \
   --all-pending --workers 10 --out "$PWD/scratch/replay-campaign"
 ```
+
+For a lane self-check, add repeatable `--session sessions/example.tje.json`
+filters (paths are relative to `--repo`, or absolute paths to committed corpus
+inputs). Omit the option for the whole committed corpus. An explicit filter is
+always labelled `partial-session-scope`, even if it happens to name every input.
+The filter is part of the immutable campaign identity and cannot reuse an output
+directory from a different scope. Partial success returns exit zero and
+`scope_complete: true`, but **`complete` and `whole_corpus_complete` remain false**:
+it can never be a whole-corpus pass or promotion receipt. Both revisions still
+run for every selected input, and failures/Unsupported/open cases remain failures.
+Worker reports serialize canonical input revision codes (`rev00`/`rev02`), not
+human-readable cartridge names.
 
 Use repeatable `--function func_...` instead of `--all-pending` for an explicit
 requested set. The worker preflights each requested root, records constructor
