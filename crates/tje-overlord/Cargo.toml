@@ -1,0 +1,24 @@
+[package]
+name = "tje-overlord"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Fail-closed three-hero director rules over the shared mode-owned simulation"
+
+[features]
+default = []
+proof = []
+enhanced-mode = ["tje-simulation/enhanced-mode"]
+
+[dependencies]
+bincode = "2"
+sha2 = "0.10"
+tje-four-player = { path = "../tje-four-player" }
+tje-simulation = { path = "../tje-simulation" }
+tje-world = { path = "../tje-world" }
+
+[[example]]
+name = "director-proof"
+required-features = ["proof"]

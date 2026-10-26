@@ -3688,6 +3688,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-overlord"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "sha2",
+ "tje-four-player",
+ "tje-simulation",
+ "tje-world",
+]
+
+[[package]]
 name = "tje-rom"
 version = "0.1.0"
 dependencies = [

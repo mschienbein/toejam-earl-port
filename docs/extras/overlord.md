@@ -1,6 +1,6 @@
-# Overlord, three heroes versus one director — design, not implementation
+# Overlord, three heroes versus one director — gated services and gameplay design
 
-Status: proposed opt-in enhanced ruleset, 2026-10-25. Depends on the generalized actor/input/world work in [four-player.md](four-player.md), not on four entries being added to original RAM. Faithful play and ordinary co-op are unaffected. No hosted service, TURN relay, new character art or spending is part of this design.
+Status: **default-off, fail-closed service increment; no admitted playable mode**, 2026-10-25. `tje-overlord` supplies typed director rules over the shared simulation. The S6 profile, aggregate format-3 integration, real native/browser controls and campaign evidence remain admission prerequisites. This is not four entries being added to original RAM. Faithful play and ordinary co-op are unaffected. No hosted service, TURN relay, new character art or spending is included.
 
 `G` is the [matching decompilation](https://github.com/mschienbein/toejam-earl-decomp), researched at commit `57fc83fc54781af8e992bbc3b32afe788c1dbd01`; `G/...` paths are relative to it, and `P/...` paths are relative to this repository. REV 02 addresses come from `G/config/rev02/names.json`.
 
@@ -122,4 +122,70 @@ Required tests:
 
 Risks: possession adapters need kind-specific semantics; shared-display information cannot be secret; menu policy changes original pause behavior; controller-driven tactical placement must be usable; fun/balance cannot be established from source inspection. User choices worth a later playtest are harmless versus lethal trap tools, short-match versus full-campaign default, and any four-peer online work. Recommended defaults above let implementation proceed without inventing hosted infrastructure.
 
-No executable changes or verification runs are part of this design-only deliverable; Main owns final code/replay gates.
+## Gated director service boundary
+
+`tje-overlord` reuses `tje-simulation::session::Roles`, `ActorId`,
+`population::PopulationState`, `tje-world` geometry/footprints and the S3
+player geometry/motion services. It installs no engine override or frontend
+selector. `request_gameplay` always rejects; a partial mode cannot fall back to
+co-op or create an invisible fourth hero.
+
+- The versioned configuration authenticates the shared session identity,
+  three-body/four-input role manifest, distinct ownership mask, director seed,
+  named short-course/campaign objective and exit policy. The full campaign has
+  no hidden timer; the three-floor preset declares its fifteen-minute clock.
+- A fixed 32-command queue accepts only ordered finite tagged data from the
+  director owner. Identical queued duplicates do not reapply; committed
+  sequences cannot charge twice. Command receipts are local UI data. Rejection
+  consumes its ordered envelope but does not spend energy, allocate IDs, draw
+  RNG or partially mutate the world.
+- Integer video-tick counters, regeneration/possession remainders, input edges,
+  command admission, pause vote, tool/cursor/view choice, all six spawn receipts,
+  eight trap lifecycles, snare timers, objective progress and terminal result
+  derive deterministic codecs. Their immutable configuration digest must match
+  the shared aggregate before capture/restore. These codecs are not a separate
+  save format: production capture remains the complete format-3 S6 image.
+- The shared director population service checks exact body generations and
+  excludes companions/unsupported kinds. Controlled input replaces only the
+  expired generic decision slot after protected-state/blocked-motion gates;
+  ordinary movement, terrain, decoys, contacts, sleep and damage remain shared.
+  Dentist/variant has the existing directional attack animation. Devil,
+  Lawnmower and Nerd Herd have passive type-defined contact attacks, not a new
+  manual damage ability; unsupported ability requests reject.
+- A spawn reserves a real hidden, inert body before charging. It revalidates
+  the footprint, fixed hero exclusion, reachable approach and 128-pixel
+  objective/service/arrival zones after sixty video ticks. Illegal unactivated
+  reservations cancel/refund once. Activated death/release never refunds.
+  Six live/pending reservations are global. The shared finite persistent
+  identity budget is at most 64 total declared records per floor across stock,
+  original holes, presents and director spawns over that floor's lifetime.
+  Exhaustion rejects; it never recycles a stock/present identity or clears an
+  original removal bit. This bound is explicit, not an unbounded tombstone list.
+- Snare and bump markers never mutate terrain. Arming cannot occur under any
+  hero; trigger eligibility additionally protects menus, arrival/respawn,
+  airborne/forced/service/elevator states and shared effect immunity. Snare
+  timers do not stack; shared voluntary motion alone is scaled by 3/4. Bumps
+  commit only through the shared supported-ground/collision transaction.
+- The tactical publication contains only authorized geometry, supplied public
+  hero position markers, director budgets/tools and geometric telegraphs. Its
+  type has no hero inventory/health/status UI. Rendering cannot retain or
+  activate a floor, advance animation, mutate the world or draw RNG. Possessed
+  body composition uses S5 rather than a second actor renderer.
+- Shared objective/exit transactions arbitrate before terminal death and clock
+  expiry, so a validated winning exit wins the same-phase tie. Seat three never
+  enters S3's hero inventory, donation, respawn or life-exhaustion enumeration.
+
+The ROM-free `director-proof` example and `tests/wasm-parity.mjs` compare the
+same authored authoritative fixture on native and wasm. They are not faithful
+hash receipts, a core/audio parity proof, an original-generator receipt, a
+four-pad frontend run or a balance playtest. Synthetic fixtures and codec
+round-trips must not be presented as completion of O-D.
+
+Before admission, S6 must integrate the ordered command/decision/motion/contact/
+result boundaries, aggregate reference validation and complete enhanced
+snapshot; version the existing recording for role/quantized command events;
+connect native/browser binding, selection and possessed-body publication; then
+exercise private short campaigns and full progression in both revisions on
+both backends. The complete section-8 evidence in
+[mode-owned-simulation.md](mode-owned-simulation.md#8-admission-and-release-evidence)
+still applies. No session choice opens on service tests alone.
