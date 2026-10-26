@@ -1,4 +1,5 @@
 use crate::call_frame::{CallSite, FrameLayout, LocalFrame, OutgoingArguments};
+use crate::stack_read::LocalWidth;
 use crate::{Context, Result, call, call_at, call_at_void, call_void, ids};
 use tje_mem::{Address, ObjectState, ram, rom};
 
@@ -395,6 +396,8 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
     let current_column = frame.local::<i16>(-2);
     let object_number = frame.local::<i16>(-4);
     let banks = frame.local::<i16>(-6);
+    let mut first_reservation = true;
+    let mut first_object_number = true;
     let mut current_row = c.data_register(6) as i16;
     c.set_data_register(
         2,
@@ -429,10 +432,23 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
             6,
             (c.data_register(6) & 0xffff_0000) | u32::from(current_row as u16),
         );
+        // Both matching listings:1437 reads the wholly unwritten A6-2 word
+        // only on the first reservation. Later banks use the traversal's store.
+        let reservation_column = if first_reservation {
+            first_reservation = false;
+            c.read_uninitialized_local(frame.entry().uninitialized_local(
+                ids::MAP_ANIMATE_MARKED_LAND_PATHS,
+                -6,
+                LocalWidth::Word,
+                "src/map/land_processing.c:460-462; build/rev{00,02}/asm/c_land_processing.s:1437 MOVE.W -2(A6),D0; first reservation, word at entrySP-6",
+            ))? as i16
+        } else {
+            current_column.read(c)
+        };
         let arguments = [
             i32::from(camera) as u32,
             i32::from(current_row) as u32,
-            i32::from(current_column.read(c)) as u32,
+            i32::from(reservation_column) as u32,
         ];
         // Linked return PCs: REV 02 0x1f550, REV 00 0x1f50e.
         let site = CallSite::relative(ids::MAP_ANIMATE_MARKED_LAND_PATHS, r, 0x58);
@@ -484,7 +500,20 @@ pub fn map_animate_marked_land_paths(c: &mut dyn Context) -> Result<Option<u32>>
             // MOVE.B to A6-3 then EXT.W sign-extends that byte into A6-4.
             let number = ram::g_land_path_animation_entities(r).at(animation).read(c);
             frame.local::<i8>(-3).write(c, number);
-            let number = object_number.read(c) as i8;
+            // The first MOVE.W reads an old high byte beside the newly written
+            // low byte. EXT.W discards that high byte; after this word store all
+            // later cleanup iterations (and the next bank) are fully written.
+            let number = if first_object_number {
+                first_object_number = false;
+                c.read_uninitialized_local(frame.entry().uninitialized_local(
+                    ids::MAP_ANIMATE_MARKED_LAND_PATHS,
+                    -8,
+                    LocalWidth::Word,
+                    "src/map/land_processing.c:484; build/rev{00,02}/asm/c_land_processing.s:1509-1512 MOVE.B -3(A6), MOVE.W -4(A6),EXT.W; first cleanup, mixed word at entrySP-8",
+                ))? as i8
+            } else {
+                object_number.read(c) as i8
+            };
             object_number.write(c, i16::from(number));
             let object = ram::g_player_info(r).at(i32::from(number));
             c.set_address_register(4, object.address());

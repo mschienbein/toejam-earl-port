@@ -5,6 +5,7 @@ use crate::{
     Dispatcher, Error, FunctionId, Translation,
     call_frame::FrameState,
     execution::{CallCeilingScope, ExecutionClass, RamWidth, WaitCondition, WaitRequest},
+    stack_read::{LocalWidth, UninitializedLocalRead},
 };
 use std::{
     cell::RefCell,
@@ -35,6 +36,8 @@ struct Machine {
     yields_allowed: usize,
     /// Controlled environment effects, intentionally not main-thread bus writes.
     yield_changes: VecDeque<(u32, u16)>,
+    /// Declaration metadata only; each value still comes from one traced word read.
+    declared_locals: Vec<(UninitializedLocalRead, u32, u8)>,
 }
 impl Machine {
     fn new(r: Revision) -> Self {
@@ -51,6 +54,7 @@ impl Machine {
             controlled: false,
             yields_allowed: 0,
             yield_changes: VecDeque::new(),
+            declared_locals: Vec::new(),
         }
     }
     fn clear(&self) {
@@ -174,6 +178,35 @@ impl crate::Platform for Machine {
     }
 }
 impl Context for Machine {
+    fn read_uninitialized_local(&mut self, read: UninitializedLocalRead) -> Result<u32> {
+        // Isolated caller tests, not a paired original-frame witness. Reject an
+        // accidental later fully-written declaration rather than hiding it.
+        assert_eq!(read.owner, ids::MAP_ANIMATE_MARKED_LAND_PATHS);
+        assert_eq!(read.frame, self.frame);
+        assert_eq!(read.width, LocalWidth::Word);
+        assert!(matches!(read.offset, -6 | -8));
+        assert!(!read.citation.is_empty());
+        let address = read.address();
+        assert!(address >= self.sp && address + 2 <= self.frame.entry_sp);
+        let trace = self.trace.borrow();
+        let mut unwritten = 0;
+        for lane in 0..2 {
+            if !trace.iter().any(|event| {
+                matches!(
+                    event,
+                    Access::Write(width, start, _)
+                        if (address + lane).wrapping_sub(*start) < u32::from(*width)
+                )
+            }) {
+                unwritten |= 1 << lane;
+            }
+        }
+        drop(trace);
+        assert_ne!(unwritten, 0, "fully written locals need an ordinary read");
+        let value = u32::from(self.read_u16(address));
+        self.declared_locals.push((read, value, unwritten));
+        Ok(value)
+    }
     fn revision(&self) -> Revision {
         self.memory.revision()
     }
@@ -442,6 +475,51 @@ fn animation_arguments_reload_the_column_slot_after_consuming_callee_aliases_it(
         assert_eq!(OBSERVED.read(&c), 99);
         assert_eq!(CALLS.read(&c), 2);
         assert_eq!(Address::<u16>::new(0xff6f06).read(&c), 8);
+    }
+}
+
+#[test]
+fn marked_local_declarations_keep_entry_residue_only_on_the_first_occurrences() {
+    for r in Revision::ALL {
+        for both_banks in [false, true] {
+            let mut c = Machine::new(r);
+            c.controlled = true;
+            c.data[6] = 0xc001_beef;
+            c.seed_args(&[0, 5, 7]);
+            let entry_sp = c.frame.entry_sp;
+            // Caller entry input, not initialization by the readable body.
+            c.memory.write_u16(entry_sp - 6, 0xcafe);
+            c.memory.write_u16(entry_sp - 8, 0xbabe);
+            ram::g_player1_map_level(r).write(&mut c, 1);
+            ram::g_player2_map_level(r).write(&mut c, if both_banks { 1 } else { 2 });
+            ram::g_split_screen_enabled(r).write(&mut c, i8::from(both_banks));
+            ram::g_land_path_animation_entities(r)
+                .at(0)
+                .write(&mut c, -1);
+            c.clear();
+
+            map_animate_marked_land_paths(&mut c).unwrap();
+            assert_eq!(c.declared_locals.len(), 2);
+            let (column, value, unwritten) = c.declared_locals[0];
+            assert_eq!((column.offset, value, unwritten), (-6, 0xcafe, 0b11));
+            assert!(column.citation.contains("1437 MOVE.W -2(A6)"));
+            let (number, value, unwritten) = c.declared_locals[1];
+            // MOVE.B overwrites only the low byte; EXT.W must still sign-extend
+            // that low byte rather than accepting the stale high byte as data.
+            assert_eq!((number.offset, value, unwritten), (-8, 0xbaff, 0b01));
+            assert!(number.citation.contains("1509-1512"));
+            assert_eq!(c.data[6], 0xc001_beef);
+            assert_eq!(c.sp, entry_sp);
+            let bank_count = if both_banks { 2 } else { 1 };
+            assert_eq!(Address::<u16>::new(0xff6f06).read(&c), 8 * bank_count);
+            assert_eq!(
+                c.reads()
+                    .iter()
+                    .filter(|&&(width, address)| width == 2 && address == entry_sp - 8)
+                    .count(),
+                16 * usize::from(bank_count)
+            );
+        }
     }
 }
 
@@ -729,5 +807,35 @@ fn dynamic_queue_poll_reloads_camera_after_live_progress_changes_its_slot() {
             );
             assert!(!trace.iter().any(|event| matches!(event, Access::Wait(_))));
         }
+    }
+}
+
+#[test]
+fn land_replay_roots_keep_their_time_aware_class_and_canonical_lazy_entries() {
+    for id in [
+        ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
+        ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
+        ids::ENTITY_START_LAND_PATH_ANIMATION,
+        ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
+        ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
+        ids::MAP_ANIMATE_MARKED_LAND_PATHS,
+        ids::PROCESS_LAND,
+    ] {
+        let contract = crate::execution_contract(id).unwrap();
+        assert_eq!(contract.class, ExecutionClass::TimeAware);
+        assert_eq!(
+            contract.proof_envelope,
+            crate::execution::ProofEnvelope::ReplayedEnvironment
+        );
+        assert!(
+            super::super::PENDING_FRAMED_TRANSLATIONS
+                .iter()
+                .any(|entry| entry.id == id)
+        );
+        assert!(
+            !super::super::TRANSLATIONS
+                .iter()
+                .any(|entry| entry.id == id)
+        );
     }
 }

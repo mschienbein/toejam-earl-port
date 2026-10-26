@@ -597,7 +597,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::MAP_QUEUE_VISIBLE_METATILE_COLUMN,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -605,7 +605,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::ENTITY_START_LAND_PATH_ANIMATION,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -613,7 +613,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::MAP_ANIMATE_METATILE_PATH_CHANGE,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -621,7 +621,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::ENTITY_RESERVE_LAND_PATH_ANIMATIONS,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -629,7 +629,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::MAP_ANIMATE_MARKED_LAND_PATHS,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -637,7 +637,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::PROCESS_LAND,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
