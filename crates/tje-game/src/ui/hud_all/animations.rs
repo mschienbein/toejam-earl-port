@@ -55,8 +55,16 @@ pub fn hud_load_action_icon_sprite(context: &mut dyn Context) -> Result<Option<u
     let sprite = ram::g_hardware_sprite_table(revision).at_word_index(sprite);
     source::release(context, 8)?;
     sprite.size().write(context, 5);
-    sprite.tile().write(context, tile.wrapping_add(attributes));
+    // c_hud.s:302-308 zero-extends attributes, then adds the signed tile long.
+    // The void C signature does not make the final D0 dead to every caller.
+    let result = u32::from(attributes).wrapping_add(u32::from(tile));
+    context.set_data_register(0, result);
+    sprite.tile().write(context, result as u16);
     ram::g_sprite_graphics_upload_pending(revision).write(context, 1);
+    // ADD.L cannot carry: attributes<=0xe000 and tile<=0x7f5, so X=0.
+    // The final MOVE.B #1 clears N/Z/V/C; MOVEM and RTS preserve those flags.
+    let status = context.status_register() & !0x001f;
+    context.set_status_register(status);
     frame.leave(context)?;
     Ok(None)
 }
