@@ -408,7 +408,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: crate::ids::UPDATE_AND_QUEUE_ENTITY_SPRITES,
         class: crate::execution::ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
