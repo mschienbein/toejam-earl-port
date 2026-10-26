@@ -73,6 +73,8 @@ pub trait Context: tje_game::Context {
     fn state_and_memory(&mut self) -> (&mut Sidecars, &tje_mem::AddressSpace);
     fn inputs(&self) -> EnhancedInputs;
     fn frame_count(&self) -> u64;
+    fn entry_function(&self) -> Result<tje_game::FunctionId>;
+    fn entry_argument(&self, index: usize) -> Result<u32>;
     fn entry_arguments(&self) -> Result<Vec<u32>>;
 }
 
@@ -109,6 +111,11 @@ impl EnhancedMode {
     where
         B::Error: fmt::Display,
     {
+        if ready(engine) {
+            self.driver
+                .check_original_guard(engine.cpu().pc, Some(&self.sidecars))
+                .map_err(Error::Override)?;
+        }
         let input = self.inputs.original();
         engine.devices_mut().set_inputs(input);
         if let Some(invocation) = self.pending.last_mut() {

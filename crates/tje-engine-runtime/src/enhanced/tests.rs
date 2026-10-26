@@ -146,3 +146,21 @@ fn immutable_filtered_selection_never_resurrects_disabled_nested_entries() {
         assert!(EnhancedMode::new_selected(profile, revision, |_| false).is_err());
     }
 }
+
+#[test]
+fn original_entry_fences_cannot_alias_selected_overrides() {
+    fn abs(id: tje_game::FunctionId) -> bool {
+        id == ids::ABS
+    }
+    fn check(_: &Sidecars, _: tje_game::FunctionId) -> Result<()> {
+        unreachable!("ambiguous profile must reject before execution")
+    }
+    let profile = EnhancedProfile::new("authored-overlapping-fence-v1", VALUES, &[])
+        .with_original_guard(OriginalEntryGuard {
+            selected: abs,
+            check,
+        });
+    for revision in Revision::ALL {
+        assert!(EnhancedMode::new(profile, revision).is_err());
+    }
+}

@@ -15,10 +15,12 @@ mod audio;
 pub use audio::{AudioCommand, AudioCue, AudioIntent, AudioQueue, PcmSound};
 mod audio_catalog;
 mod effect_timing;
+mod items;
 pub use audio_catalog::CheckedAudioCatalog;
 pub use effect_timing::{
     AnimationPeriod, EffectAnimation, EffectAnimationTiming, effect_animation_timing,
 };
+pub use items::{ItemClaim, ItemClaims};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
 pub enum VoluntaryScale {
@@ -186,6 +188,10 @@ pub enum ActorEffect {
     ServiceCollision {
         actor: ActorId,
         collidable: bool,
+    },
+    ClearMoleContacts {
+        seat: SeatId,
+        level: LevelId,
     },
     WakeBoombox {
         effect: EffectId,
@@ -445,8 +451,11 @@ pub struct PlayerServices {
     pub audio: AudioQueue,
     last_player_tick: Option<u64>,
     last_movement_tick: Option<u64>,
+    last_effect_movement_tick: Option<u64>,
     pub(crate) last_input_tick: Option<u64>,
     last_effect_tick: Option<u64>,
+    last_tomato_rain_tick: Option<u64>,
+    last_items_tick: Option<u64>,
     donation_tick: Option<u64>,
     donated_mask: u8,
 }
@@ -460,8 +469,11 @@ impl PlayerServices {
             audio: AudioQueue::default(),
             last_player_tick: None,
             last_movement_tick: None,
+            last_effect_movement_tick: None,
             last_input_tick: None,
             last_effect_tick: None,
+            last_tomato_rain_tick: None,
+            last_items_tick: None,
             donation_tick: None,
             donated_mask: 0,
         })
@@ -877,8 +889,9 @@ impl PlayerServices {
         runtime.last_animation_tick = Some(tick);
         Ok(true)
     }
-    /// Continuous velocity/acceleration is independent of animation callback
-    /// cadence and advances on both original even phases, never on redraw.
+    /// Advance hero velocity/acceleration on both original even phases, never
+    /// on redraw. The kernel moves population and effect actors afterward in
+    /// actor-ID order, independently of authored animation callbacks.
     pub fn advance_movement(
         &mut self,
         coop: &mut CoopState,
@@ -959,6 +972,21 @@ impl PlayerServices {
                 .validate()
                 .map_err(|_| PlayerError::Invalid("hero motion bound"))?;
         }
+        self.last_movement_tick = Some(tick);
+        Ok(true)
+    }
+    /// Advance effect actors after heroes and population actors. This saved
+    /// admission is independent of hero movement and the effects AI phase.
+    pub fn advance_effect_movement(&mut self, tick: u64) -> PlayerResult<bool> {
+        if self.last_effect_movement_tick == Some(tick) {
+            return Ok(false);
+        }
+        if self
+            .last_effect_movement_tick
+            .is_some_and(|last| tick < last)
+        {
+            return Err(PlayerError::Invalid("effect movement tick moved backwards"));
+        }
         for effect in self.resources.effects_mut() {
             if matches!(
                 effect.kind,
@@ -982,7 +1010,7 @@ impl PlayerServices {
                     .map_err(|_| PlayerError::Invalid("effect position overflow"))?;
             }
         }
-        self.last_movement_tick = Some(tick);
+        self.last_effect_movement_tick = Some(tick);
         Ok(true)
     }
     pub fn enter_transition(&mut self, coop: &mut CoopState, seats: SeatMask) -> PlayerResult<()> {
@@ -2006,7 +2034,6 @@ impl PlayerServices {
             self.refresh_terrain(coop, seat, world)?;
             self.tick_seat(coop, seat, inputs[seat.index()], world)?;
         }
-        refresh_spectators(coop);
         self.last_player_tick = Some(tick);
         Ok(())
     }
@@ -2490,6 +2517,30 @@ impl PlayerServices {
                     runtime.burp_delay = 20 + self.resources.effect_rng.bounded(81) as u16;
                 }
             }
+        }
+        self.last_effect_tick = Some(tick);
+        Ok(())
+    }
+    /// Emit tomato-rain actors in the population phase, independently of the
+    /// players-phase status/effect tick and continuous actor movement.
+    pub fn tick_tomato_rain(
+        &mut self,
+        coop: &CoopState,
+        tick: u64,
+        world: &mut impl PlayerWorld,
+    ) -> PlayerResult<bool> {
+        if self.last_tomato_rain_tick == Some(tick) {
+            return Ok(false);
+        }
+        if self.last_tomato_rain_tick.is_some_and(|last| tick < last) {
+            return Err(PlayerError::Invalid("tomato rain tick moved backwards"));
+        }
+        for seat in SeatId::ALL {
+            if coop.players[seat.index()].life != LifeState::Alive {
+                continue;
+            }
+            let runtime = &mut self.runtime[seat.index()];
+            let player = &coop.players[seat.index()];
             if runtime.rain_left != 0 {
                 runtime.rain_delay = runtime.rain_delay.saturating_sub(1);
                 if runtime.rain_delay == 0
@@ -2523,8 +2574,8 @@ impl PlayerServices {
                 }
             }
         }
-        self.last_effect_tick = Some(tick);
-        Ok(())
+        self.last_tomato_rain_tick = Some(tick);
+        Ok(true)
     }
     pub fn retire_effect(
         &mut self,
@@ -2603,9 +2654,12 @@ impl PlayerServices {
                 }
                 effect.level = hero.level.expect("alive level");
                 effect.position = hero.motion.position;
+                // tje-game/src/presents/effects.rs:113-134 waits for authored
+                // lightning frame_duration == 0. Delay is only its state bit.
                 if effect.delay != 0 {
-                    effect.delay -= 1;
-                    if effect.delay == 0 {
+                    if effect.animation_complete {
+                        effect.delay = 0;
+                        effect.animation_complete = false;
                         self.damage(
                             coop,
                             seat,
@@ -2619,7 +2673,8 @@ impl PlayerServices {
                         )?;
                     }
                 } else if self.resources.effect_rng.next_u16() & 63 == 1 {
-                    effect.delay = 8;
+                    effect.delay = 1;
+                    effect.animation_complete = false;
                 }
             }
             EffectKind::Boombox => {
@@ -2986,7 +3041,9 @@ fn nearest_partner(coop: &CoopState, seat: SeatId) -> Option<SeatId> {
         })
         .map(|other| other.seat)
 }
-fn refresh_spectators(coop: &mut CoopState) {
+/// Refresh eliminated seats' focus during the kernel's follow-cameras phase,
+/// after movement and lifetime changes have committed.
+pub fn refresh_spectators(coop: &mut CoopState) {
     for seat in SeatId::ALL {
         if coop.players[seat.index()].life == LifeState::Eliminated {
             coop.players[seat.index()].spectating = nearest_partner(coop, seat);

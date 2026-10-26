@@ -383,13 +383,19 @@ fn roles_never_turn_the_director_into_a_fourth_hero() {
     {
         state
             .clock
-            .admit(phase, InputFrame::neutral(frame as u64))
+            .admit(
+                phase,
+                InputFrame::new(frame as u64, [0x100; 4], [1, 2, 4, 0x8000]).unwrap(),
+            )
             .unwrap();
     }
     state.validate().unwrap();
-    let before = state.clone();
-    assert!(state.latch_phase_inputs().is_err());
-    assert_eq!(state, before);
+    assert!(state.latch_phase_inputs().unwrap());
+    let hero = state.players.inputs.unwrap();
+    assert!(!hero.pads[3].connected());
+    assert_eq!(hero.actions[3], 0);
+    assert_eq!(state.clock.input().unwrap().actions[3], 0x8000);
+    state.validate().unwrap();
     assert!(state.hero_actor(SeatId::ALL[3]).is_none());
     assert!(
         Roles {
@@ -583,4 +589,236 @@ fn hero_service_sources_must_have_issued_population_generations() {
     });
     bad.services.validate(&bad.players).unwrap();
     assert!(bad.validate().is_err());
+}
+
+#[test]
+fn queued_hardware_input_and_lobby_assignment_commit_as_one_transaction() {
+    use crate::recording::Assignment;
+    use tje_four_player::input::SourceId;
+    let mut state = session(123);
+    let input = InputFrame::new(0, [0x101, 0x102, 0x104, 0x108], [1, 2, 4, 8]).unwrap();
+    let initial = state.clone();
+    assert!(state.queue_input(input, None).is_err());
+    assert_eq!(state, initial);
+    let sources = std::array::from_fn(|index| Some(SourceId([index as u8; 16])));
+    let mut bad = Assignment {
+        before_frame: 0,
+        epoch: 1,
+        sources,
+    };
+    bad.sources[1] = bad.sources[0];
+    assert!(state.queue_input(input, Some(&bad)).is_err());
+    assert_eq!(state, initial);
+    let event = Assignment {
+        before_frame: 0,
+        epoch: 1,
+        sources,
+    };
+    assert!(state.queue_input(input, Some(&event)).unwrap());
+    let committed = state.clone();
+    assert!(!state.queue_input(input, None).unwrap());
+    assert_eq!(state, committed);
+    let unknown = InputFrame::new(1, [0x100; 4], [512, 0, 0, 0]).unwrap();
+    assert!(state.queue_input(unknown, None).is_err());
+    assert_eq!(state, committed);
+    let next = InputFrame::new(1, [0x100; 4], [0; 4]).unwrap();
+    let skipped = Assignment {
+        before_frame: 1,
+        epoch: 3,
+        sources,
+    };
+    assert!(state.queue_input(next, Some(&skipped)).is_err());
+    assert_eq!(state, committed);
+    let swap = Assignment {
+        before_frame: 1,
+        epoch: 2,
+        sources: [sources[1], sources[0], sources[2], sources[3]],
+    };
+    assert!(state.queue_input(next, Some(&swap)).unwrap());
+    state.validate().unwrap();
+    assert_eq!(state.players.router.assignment_epoch(), 2);
+    let bytes = bincode::encode_to_vec(&state, tje_world::world::codec()).unwrap();
+    let (restored, used): (Session, usize) =
+        bincode::decode_from_slice(&bytes, tje_world::world::codec()).unwrap();
+    assert_eq!(used, bytes.len());
+    assert_eq!(state, restored);
+}
+
+#[test]
+fn split_role_assignment_and_raw_frame_are_atomic_and_globally_unique() {
+    use crate::recording::Assignment;
+    use tje_four_player::input::{Router, SourceId};
+    let roles = Roles {
+        inputs: SeatMask::ALL,
+        heroes: SeatMask::new(7).unwrap(),
+        local_owners: SeatMask::ALL,
+        director: Some(SeatId::ALL[3]),
+    };
+    let mut state = session_for_roles(123, roles);
+    let mut director = Router::new(SeatMask::new(8).unwrap(), state.config().coop.swap_ac).unwrap();
+    let sources = std::array::from_fn(|index| Some(SourceId([index as u8; 16])));
+    let raw = InputFrame::new(0, [0x100; 4], [1, 2, 4, 0x8000]).unwrap();
+    let original = (state.clone(), director.clone());
+    assert!(state.queue_input(raw, None).is_err());
+    assert_eq!((state.clone(), director.clone()), original);
+    let mut duplicate = Assignment {
+        before_frame: 0,
+        epoch: 1,
+        sources,
+    };
+    duplicate.sources[3] = sources[0];
+    assert!(
+        state
+            .queue_role_input(raw, Some(&duplicate), &mut director)
+            .is_err()
+    );
+    assert_eq!((state.clone(), director.clone()), original);
+    let event = Assignment {
+        before_frame: 0,
+        epoch: 1,
+        sources,
+    };
+    assert!(
+        state
+            .queue_role_input(raw, Some(&event), &mut director)
+            .unwrap()
+    );
+    assert_eq!(state.bridge.pending_input, Some(raw));
+    assert_eq!(
+        state.players.router.sources(),
+        &[sources[0], sources[1], sources[2], None]
+    );
+    assert_eq!(director.sources(), &[None, None, None, sources[3]]);
+    assert_eq!(
+        state.players.router.assignment_epoch(),
+        director.assignment_epoch()
+    );
+    state.validate().unwrap();
+}
+
+fn stock_item_session() -> Session {
+    use crate::resources::{ItemDefinitions, StockItem};
+    struct Bucks;
+    impl ItemDefinitions for Bucks {
+        fn food_health_delta(&self, _: u8) -> crate::players::PlayerResult<i8> {
+            panic!("authored fixture imports only bucks")
+        }
+    }
+    let mut state = session(123);
+    let level = LevelId::new(2).unwrap();
+    let source: Vec<_> = state
+        .world
+        .floor(level)
+        .unwrap()
+        .generated
+        .population
+        .items
+        .iter()
+        .map(|item| StockItem {
+            slot: u8::try_from(item.id).unwrap(),
+            kind: 80,
+            level,
+            x: item.x,
+            y: item.y,
+        })
+        .collect();
+    state
+        .services
+        .resources
+        .import_stock_items(level, &source, &Bucks)
+        .unwrap();
+    state.validate().unwrap();
+    state
+}
+
+#[test]
+fn committed_item_claims_reconcile_the_persistent_world_source_without_resurrection() {
+    use crate::resources::{
+        ItemRef, ResourceAction, ResourceOutcome, ResourceReceipt, ResourceRequest,
+    };
+    let mut state = stock_item_session();
+    let item = *state.services.resources.items().first().unwrap();
+    state.players.players[0].motion.position = item.position;
+    let mut output = [ResourceOutcome::default()];
+    state
+        .services
+        .resources
+        .transact(
+            &mut state.players,
+            0,
+            &[ResourceRequest {
+                seat: SeatId::ALL[0],
+                action: ResourceAction::Claim(ItemRef::Placed(item.id)),
+            }],
+            &mut output,
+            |_| unreachable!("buck claims do not choose presents"),
+        )
+        .unwrap();
+    assert_eq!(output[0].result, Ok(ResourceReceipt::Claimed));
+    assert!(state.validate().is_err());
+    state.sync_resource_deltas().unwrap();
+    let local = (item.id - u32::from(item.level.get()) * 128 - 1) as u16;
+    assert!(
+        state
+            .world
+            .floor(item.level)
+            .unwrap()
+            .generated
+            .population
+            .collected
+            .contains(local)
+    );
+    state.validate().unwrap();
+    let restored: Session = bincode::decode_from_slice(
+        &bincode::encode_to_vec(&state, bincode::config::standard()).unwrap(),
+        bincode::config::standard(),
+    )
+    .unwrap()
+    .0;
+    restored.validate().unwrap();
+    assert_eq!(restored, state);
+}
+
+#[test]
+fn source_item_preflight_rejects_orphans_and_reverse_collection_before_mutation() {
+    use crate::resources::{ItemAppearance, ItemKind, PlacedItem};
+    let initial = stock_item_session();
+    let level = LevelId::new(2).unwrap();
+    let mut orphan = initial.clone();
+    orphan
+        .services
+        .resources
+        .add_item(PlacedItem {
+            id: u32::from(level.get()) * 128 + 128,
+            level,
+            position: initial.services.resources.items()[0].position,
+            kind: ItemKind::Buck(1),
+            appearance: ItemAppearance::Ground(16),
+            collected: false,
+        })
+        .unwrap();
+    let before = orphan.clone();
+    assert!(orphan.sync_resource_deltas().is_err());
+    assert_eq!(orphan, before);
+    let mut reversed = initial;
+    let local = reversed
+        .world
+        .floor(level)
+        .unwrap()
+        .generated
+        .population
+        .items[0]
+        .id;
+    reversed
+        .world
+        .floor_mut(level)
+        .unwrap()
+        .generated
+        .population
+        .collected
+        .insert(local)
+        .unwrap();
+    let before = reversed.clone();
+    assert!(reversed.sync_resource_deltas().is_err());
+    assert_eq!(reversed, before);
 }

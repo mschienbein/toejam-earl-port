@@ -511,6 +511,16 @@ pub enum ItemRef {
     Placed(u32),
     Dropped(DropId),
 }
+/// Stable identity and appearance captured before a claim can retire a drop.
+/// This is an ephemeral operation receipt, not a serialized host handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NearbyItem {
+    pub reference: ItemRef,
+    pub level: LevelId,
+    pub position: Position,
+    pub kind: ItemKind,
+    pub appearance: ItemAppearance,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceAction {
     Claim(ItemRef),
@@ -1235,6 +1245,42 @@ impl ResourceState {
             }
         }
     }
+    /// Shared read-only claim admission, used by candidate selection and the
+    /// mutating transaction. Pickup height is the original strict four pixels;
+    /// service proximity retains its separate vertical tolerance. Present
+    /// admission returns its empty slot so commit need not scan it again.
+    fn check_claim(
+        &self,
+        coop: &CoopState,
+        seat: SeatId,
+        level: LevelId,
+        position: Position,
+        kind: ItemKind,
+    ) -> Result<Option<usize>, ResourceFailure> {
+        let player = &coop.players[seat.index()];
+        if player.life != LifeState::Alive
+            || player.counters.fall != tje_four_player::state::FallState::None
+        {
+            return Err(ResourceFailure::Protected);
+        }
+        if player.motion.position.elevation >= 4 * 256
+            || !nearby(coop, seat, level, position, 16, 8)
+        {
+            return Err(ResourceFailure::NotNearby);
+        }
+        match kind {
+            ItemKind::Present(_) => player
+                .inventory
+                .iter()
+                .position(Option::is_none)
+                .map(Some)
+                .ok_or(ResourceFailure::InventoryFull),
+            ItemKind::ShipPart(part) if self.ship_parts & (1 << part) != 0 => {
+                Err(ResourceFailure::Unavailable)
+            }
+            _ => Ok(None),
+        }
+    }
     fn claim(
         &mut self,
         coop: &mut CoopState,
@@ -1259,17 +1305,11 @@ impl ResourceState {
                 (drop.level, drop.position, ItemKind::Present(drop.present))
             }
         };
-        if !nearby(coop, seat, level, position, 16, 8) {
-            return Err(ResourceFailure::NotNearby);
-        }
+        let inventory_slot = self.check_claim(coop, seat, level, position, kind)?;
         let player = &mut coop.players[seat.index()];
         let receipt = match kind {
             ItemKind::Present(wrapper) => {
-                let slot = player
-                    .inventory
-                    .iter()
-                    .position(Option::is_none)
-                    .ok_or(ResourceFailure::InventoryFull)?;
+                let slot = inventory_slot.expect("present claim preflight");
                 player.inventory[slot] = Some(wrapper);
                 ResourceReceipt::Claimed
             }
@@ -1288,9 +1328,6 @@ impl ResourceState {
                 ResourceReceipt::Claimed
             }
             ItemKind::ShipPart(part) => {
-                if self.ship_parts & (1 << part) != 0 {
-                    return Err(ResourceFailure::Unavailable);
-                }
                 self.ship_parts |= 1 << part;
                 ResourceReceipt::ShipPart(part)
             }

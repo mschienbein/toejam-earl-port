@@ -45,6 +45,24 @@ The original setup roots (`SetupPlayer`, `SetupTheMainGame`, initial inventory/E
 
 Keep the original four-phase relative schedule initially: player/input work and Earthling/elevator/item work alternate, with movement/animation and presentation at their existing relative cadence. Record hardware frame ID, phase, input latch and each phase's last admission in authoritative state. Repeated entry to a phase in the same frame, redraws, audio polls and restored continuations must not advance it twice. A world step is not a render call.
 
+Elevator contacts have a different cadence from elevator clocks. Call
+`LoadingState::poll_elevator_sensors` **after XY movement on both phases 0 and
+2**: the original grounded/upward entry interval is only `dy = 1..7`, and a
+population-only sensor can miss it. Boarding and joining-phase Down exits update
+the cohort and previous poses without advancing door or journey time.
+`LoadingState::advance_elevator_doors` takes the current readonly hero poses and
+runs only at the phase-2 population/elevator operation; advance journey timers at
+that same operation. The two APIs keep independent saved monotonic/duplicate
+guards, so a sensor and a door operation at the same tick both run once, while
+restored or repeated entry to either API does not consume a second tick.
+
+Published elevator props expose the internal door animation descriptor index
+separately from collision openness: closed 1, opening 2, open 3, closing 4, with
+the existing departure-journey moving state overriding only the departure prop
+to 5. As in `ElevatorSetState`, primary and secondary programmes use that same
+index; apply the decoded secondary programme's vertical offset rather than
+omitting the second part or deriving either programme from the physics enum.
+
 Blocking inventory/map/phone/elevator/death/ship sequences become finite state machines with explicit saved continuations and timers. Use `Wait::Frames`, `Interrupt` or `Poll` for real device progress; scheduled original calls must be proven to return with the required RTS contract. An Atomic callback cannot drain a main loop, wait on a video counter, or call a TimeAware leaf synchronously. `ContinueOriginal` is only a bounded observer for a safe original; it cannot make an unowned world consumer safe. RTE/reset/nonlocal roots are not selectable RTS callbacks. Audit the original IRQ's graphics leaves separately while retaining real audio/input/device progression; never fabricate readiness or suppress an unsupported wait.
 
 ### S1 executable service boundary
@@ -316,12 +334,29 @@ The four-pad dispatcher owns per-seat UI edges and submits one rotating-priority
 resource batch. Mystery identification uses the same imported weighted present
 catalogue as opening and spawning, with failed selection leaving its RNG intact.
 
+Automatic ground pickup is a Population2 operation, not a controller-confirm
+action in Input0. It selects a bounded four-seat batch in stable placed-ID/drop-slot
+order with checked generations, then uses the existing shared resource transaction and its
+rotating priority. Selection and commit share the same strict 16-by-8 contact,
+four-pixel height and inventory admission. Receipts retain original appearance
+and pre-retirement source identity for world-ledger synchronization. Pickup
+audio capacity is reserved before mutation; successful presents clear
+the actual population's mole-contact bits through the typed world bridge.
+Full-health food remains consumed, matching the original behavior.
+
 Status/input, continuous 24.8 movement and authored animation-motion callbacks
-have separate saved once-per-phase admissions. Moving effects share continuous
-even-phase movement; their AI, collision and lifetime work stays in the effects
-phase. Rose damage waits for authored growth completion and has independent
-hero-entry latches. Telephone contact uses the original strict 16-by-8 automatic
-answer region. A fixed acknowledged audio FIFO preserves requests across the
+have separate saved once-per-phase admissions. The kernel advances continuous
+movement in hero, population, then effect actor-ID order. Heroes and effects
+have independent saved movement guards on both even phases. General effect,
+collision and lifetime work runs in Players0; tomato-rain actor emission has
+its own saved admission in Population2. FollowCameras explicitly refreshes
+eliminated heroes' spectator targets after movement rather than the player tick
+doing so implicitly. Rose damage waits for authored growth completion and has
+independent hero-entry latches. Rain-cloud lightning also waits for imported
+animation completion before applying damage; its saved state marker is not a
+fixed tick countdown and is cleared with the completed-animation latch at each
+transition. Telephone contact uses the original strict 16-by-8 automatic answer
+region. A fixed acknowledged audio FIFO preserves requests across the
 real IRQ continuation; the checked ROM audio catalogue accepts only its finite
 opcode-7 callback and rejects unknown executable addresses. None of these
 services enables the gameplay selector or substitutes for S6's private runs.
@@ -442,7 +477,7 @@ the plan's admission requirements.
 
 ## S6 aggregate service integration
 
-Schema-3 `Session` now contains the real shared world, four-seat state, player and
+Configuration-schema-3, aggregate-sidecar-4 `Session` contains the shared world, four-seat state, player and
 resource services, persistent populations, bounded loading jobs, logical animation
 continuations and frozen publication rows. Registration/capture/restore validate
 their level, source-ID, issued-generation, pose/timer/frame and configuration
@@ -470,4 +505,51 @@ No selected gameplay kernel, original-root/IRQ adapter, enhanced lobby/replay
 runner or gameplay selector is installed by this service increment. The
 section-8 enhanced four-pad transition/campaign evidence is still required, and
 the ownership admission registry remains closed.
+
+### Shared kernel and cadence contract
+
+`session::SessionStorage` lets a mode wrap the shared session and its own rules
+in one authenticated sidecar. `tje-coop::mode::KernelStorage` borrows those
+disjoint owners through `ModeRules`; co-op and Overlord must use the same
+geometry, contact, movement, animation and publication services. Immutable
+`SessionCatalogue<S>` authenticates the enclosing owner's session on restore.
+The hooks distinguish pre-frame input, population decisions and receipts,
+post-movement effects, and once-per-video-frame timers. Voluntary movement
+scales are supplied to the shared integrator, never implemented by rewinding
+hero positions. None of these interfaces selects a gameplay profile.
+
+Queued hardware input and an explicit lobby assignment commit together.
+Split-role admission validates one globally unique source map before projecting
+hero and director routers; the saved raw four-pad/action frame is not replaced
+by its hero-only projection. The aggregate also saves the original caller's
+finite acknowledgement cursor, last video frame, music/scene continuation and
+bounded logical speech. Malformed cursors or speech extents reject on restore.
+The original relative phase order remains unchanged.
+
+Hero XY, population XY and effect XY are independently guarded operations on
+both even phases. Spectator following is explicit on the odd phase; tomato
+emission, nearby-item arbitration and elevator-door timers belong to Population.
+Elevator occupancy sensors run after both even-phase XY traversals, independently
+of the door timer. Elevator presentation publishes the actual primary and
+secondary authored state with stable per-floor component IDs 0–3.
+
+Stock resource collections reconcile their stable source slot into the world's
+persistent collection mask. Every imported source ID/position and collection
+direction is checked before writing that mask; orphan resources, missing
+resource owners and source resurrection reject. Nearby pickups retain the
+existing rotating-seat transaction and actual cue/mole-contact semantics.
+
+`EnhancedProfile::with_original_guard` is a separate read-only pre-instruction
+ownership fence, including entries without a classified RTS contract. It does
+not invent a return obligation or execution proof. An original entry cannot
+also be selected as an override, and rejection precedes CPU, RAM, input-device
+or emulated-clock mutation. The faithful path does not select this fence.
+Authored guards and service tests are not the missing section-8 campaign proof:
+the public admission registry and gameplay selector remain closed.
+
+Population restore preserves the existing wire representation while reserving
+all 64 persistent actor slots per floor, 32 floor insertions, and both 4,096-row
+effect-contact ledgers before sidecar commit. Oversized encoded lengths reject
+before decoding elements; a later present, director spawn or contact cannot
+trigger growth merely because a snapshot had fewer live records.
 

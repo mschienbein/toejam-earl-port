@@ -187,7 +187,8 @@ impl SessionConfig {
         self.roles.validate()?;
         if self.version != 3
             || self.frame_count > 65536
-            || self.body_manifest != ownership::IDENTITY
+            || (self.body_manifest != ownership::IDENTITY
+                && self.body_manifest != ownership::kernel_identity())
             || self.world.root_seed != self.coop.world_seed
             || self.coop.participants != self.roles.heroes
             || (self.generator == GeneratorId::OriginalV1 && self.world.size != LevelSize::Original)
@@ -410,6 +411,7 @@ impl SetupTransaction {
             hero_actors,
             callbacks,
             clock: PhaseClock::default(),
+            bridge: crate::bridge::State::default(),
             rngs,
             setup_seen: 0,
             publication: None,
@@ -463,6 +465,7 @@ pub struct Session {
     hero_actors: [Option<ActorId>; 4],
     callbacks: Vec<TypedCallback>,
     pub clock: PhaseClock,
+    pub bridge: crate::bridge::State,
     pub rngs: [StageRng; 4],
     setup_seen: u8,
     publication: Option<PublicationStamp>,
@@ -471,6 +474,197 @@ pub struct Session {
 impl Session {
     pub fn config(&self) -> &SessionConfig {
         &self.config
+    }
+    /// Admit one complete hardware-frame input and optional lobby transaction
+    /// before executing it. A failed source/epoch/action check changes nothing.
+    pub fn queue_input(
+        &mut self,
+        input: tje_four_player::input::InputFrame,
+        assignment: Option<&crate::recording::Assignment>,
+    ) -> Result<bool> {
+        if self.config.roles.inputs != self.config.roles.heroes {
+            return Err(Error::Ownership(
+                "split roles require their atomic two-router input adapter",
+            ));
+        }
+        if self.preflight_queued_frame(input, assignment.is_some())? {
+            return Ok(false);
+        }
+        let mut changed = None;
+        let sources = if let Some(event) = assignment {
+            if event.before_frame != input.frame {
+                return Err(Error::State(
+                    "source assignment belongs to another hardware frame",
+                ));
+            }
+            let mut router = self.players.router.clone();
+            event.apply(&mut router)?;
+            changed = Some(router);
+            changed.as_ref().expect("prepared routing").sources()
+        } else {
+            self.players.router.sources()
+        };
+        self.validate_role_sources(&input, sources)?;
+        if let Some(router) = changed {
+            self.players.router = router;
+        }
+        self.bridge.pending_input = Some(input);
+        Ok(true)
+    }
+    pub fn queue_role_input(
+        &mut self,
+        input: tje_four_player::input::InputFrame,
+        assignment: Option<&crate::recording::Assignment>,
+        director: &mut tje_four_player::input::Router,
+    ) -> Result<bool> {
+        let seat = self
+            .config
+            .roles
+            .director
+            .ok_or(Error::Ownership("input adapter has no director role"))?;
+        let mask = SeatMask::new(1 << seat.get()).expect("validated director seat");
+        director
+            .validate()
+            .map_err(|_| Error::State("invalid director source router"))?;
+        if director.enabled() != mask
+            || director.swap_ac() != self.config.coop.swap_ac
+            || director.assignment_epoch() != self.players.router.assignment_epoch()
+        {
+            return Err(Error::State(
+                "hero/director source router configuration or epoch differs",
+            ));
+        }
+        if self.preflight_queued_frame(input, assignment.is_some())? {
+            return Ok(false);
+        }
+        let mut changed = None;
+        let sources = if let Some(event) = assignment {
+            if event.before_frame != input.frame {
+                return Err(Error::State(
+                    "role assignment belongs to another hardware frame",
+                ));
+            }
+            let mut heroes = self.players.router.clone();
+            let mut next_director = director.clone();
+            crate::recording::Assignment {
+                sources: std::array::from_fn(|index| {
+                    self.config
+                        .roles
+                        .heroes
+                        .contains(SeatId::ALL[index])
+                        .then_some(event.sources[index])
+                        .flatten()
+                }),
+                ..event.clone()
+            }
+            .apply(&mut heroes)?;
+            crate::recording::Assignment {
+                sources: std::array::from_fn(|index| {
+                    mask.contains(SeatId::ALL[index])
+                        .then_some(event.sources[index])
+                        .flatten()
+                }),
+                ..event.clone()
+            }
+            .apply(&mut next_director)?;
+            changed = Some((heroes, next_director));
+            event.sources
+        } else {
+            std::array::from_fn(|index| {
+                if self.config.roles.heroes.contains(SeatId::ALL[index]) {
+                    self.players.router.sources()[index]
+                } else {
+                    director.sources()[index]
+                }
+            })
+        };
+        self.validate_role_sources(&input, &sources)?;
+        if let Some((heroes, next_director)) = changed {
+            self.players.router = heroes;
+            *director = next_director;
+        }
+        self.bridge.pending_input = Some(input);
+        Ok(true)
+    }
+    fn preflight_queued_frame(
+        &self,
+        input: tje_four_player::input::InputFrame,
+        assignment: bool,
+    ) -> Result<bool> {
+        if self.failed {
+            return Err(Error::State("cannot queue input into a failed kernel"));
+        }
+        self.validate_inputs(&input)?;
+        if let Some(previous) = self.bridge.pending_input {
+            if previous == input && !assignment {
+                return Ok(true);
+            }
+            if previous.frame.checked_add(1) != Some(input.frame) {
+                return Err(Error::State(
+                    "queued inputs must be consecutive hardware frames",
+                ));
+            }
+        } else if input.frame != 0 {
+            return Err(Error::State(
+                "initial queued input must start at hardware frame zero",
+            ));
+        }
+        Ok(false)
+    }
+    fn validate_role_sources(
+        &self,
+        input: &tje_four_player::input::InputFrame,
+        sources: &[Option<tje_four_player::input::SourceId>; 4],
+    ) -> Result<()> {
+        for index in 0..4 {
+            if sources[index].is_some() && !self.config.roles.inputs.contains(SeatId::ALL[index]) {
+                return Err(Error::State("disabled role has a source assignment"));
+            }
+            if sources[index].is_some() && sources[..index].contains(&sources[index]) {
+                return Err(Error::State("one stable source owns multiple roles"));
+            }
+            if input.pads[index].connected() && sources[index].is_none() {
+                return Err(Error::State(
+                    "connected input has no assigned stable source",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub fn hero_input(
+        &self,
+        mut input: tje_four_player::input::InputFrame,
+    ) -> Result<tje_four_player::input::InputFrame> {
+        self.validate_inputs(&input)?;
+        for seat in SeatId::ALL {
+            if !self.config.roles.heroes.contains(seat) {
+                input.pads[seat.index()] = tje_four_player::input::PadWord::DISCONNECTED;
+                input.actions[seat.index()] = 0;
+            }
+        }
+        Ok(input)
+    }
+    #[cfg(feature = "enhanced-mode")]
+    pub fn hardware_input(
+        &self,
+        frame: u64,
+        actual: tje_engine_runtime::enhanced::EnhancedInputs,
+    ) -> Result<tje_four_player::input::InputFrame> {
+        let input = self
+            .bridge
+            .pending_input
+            .ok_or(Error::State("kernel hardware frame was not queued"))?;
+        if input.frame != frame
+            || input
+                .hardware_inputs()
+                .map_err(|_| Error::State("queued hardware conversion"))?
+                != actual
+        {
+            return Err(Error::State(
+                "queued input does not match the actual hardware frame/pads",
+            ));
+        }
+        Ok(input)
     }
     pub fn finish_setup(&mut self) -> Result<()> {
         self.validate_references()?;
@@ -491,6 +685,79 @@ impl Session {
         self.validate()?;
         self.validate_encoded_reservation()
     }
+    /// Mirror committed stock collections into their immutable world namespace.
+    /// All references preflight before the source ledger is written.
+    pub fn sync_resource_deltas(&mut self) -> Result<()> {
+        self.validate_item_sources(true)?;
+        for item in self.services.resources.items() {
+            if !item.collected || !self.services.resources.stock_imported(item.level) {
+                continue;
+            }
+            let local = (item.id - u32::from(item.level.get()) * 128 - 1) as u16;
+            self.world
+                .floor_mut(item.level)
+                .expect("preflighted source floor")
+                .generated
+                .population
+                .collected
+                .insert(local)
+                .map_err(|_| Error::State("source item collection bit"))?;
+        }
+        self.validate_item_sources(false)
+    }
+    fn validate_item_sources(&self, pending_collections: bool) -> Result<()> {
+        for floor in self.world.floors() {
+            let level = floor.spec.level();
+            if !self.services.resources.stock_imported(level) {
+                continue;
+            }
+            for source in &floor.generated.population.items {
+                let id = u32::from(level.get()) * 128 + u32::from(source.id) + 1;
+                let item = self
+                    .services
+                    .resources
+                    .item(id)
+                    .ok_or(Error::State("world source item has no resource owner"))?;
+                if item.level != level
+                    || item.position.x != source.x * 256
+                    || item.position.y != source.y * 256
+                {
+                    return Err(Error::State("world/resource item source position differs"));
+                }
+                let collected = floor.generated.population.collected.contains(source.id);
+                if collected && !item.collected
+                    || !pending_collections && collected != item.collected
+                {
+                    return Err(Error::State(
+                        "world/resource item collection ledgers differ",
+                    ));
+                }
+            }
+        }
+        for item in self.services.resources.items() {
+            if !self.services.resources.stock_imported(item.level) {
+                continue;
+            }
+            let base = u32::from(item.level.get()) * 128 + 1;
+            let local = item
+                .id
+                .checked_sub(base)
+                .filter(|local| *local < 128)
+                .ok_or(Error::State("stock item has no canonical source slot"))?
+                as u16;
+            if !self.world.floor(item.level).is_some_and(|floor| {
+                floor
+                    .generated
+                    .population
+                    .items
+                    .iter()
+                    .any(|source| source.id == local)
+            }) {
+                return Err(Error::State("resource item has no persistent world source"));
+            }
+        }
+        Ok(())
+    }
     pub fn publication_access(
         &mut self,
     ) -> (crate::publication::PublicationRefs<'_>, &mut PublishedScene) {
@@ -506,6 +773,7 @@ impl Session {
                 clock: &self.clock,
                 scene: self.scene,
                 hero_actors: &self.hero_actors,
+                speech: &self.bridge.speech,
             },
             &mut self.published,
         )
@@ -539,6 +807,11 @@ impl Session {
             if !self.config.roles.inputs.contains(seat) && input.pads[seat.index()].connected() {
                 return Err(Error::State("phase input supplied for a disabled role"));
             }
+            if self.config.roles.heroes.contains(seat)
+                && input.actions[seat.index()] & !crate::contact::HeroActions::MASK != 0
+            {
+                return Err(Error::State("input contains unsupported hero actions"));
+            }
         }
         Ok(())
     }
@@ -546,16 +819,12 @@ impl Session {
     /// frame may follow boot/intro, and subsequent latches are four phases apart;
     /// do not reuse the primitive codec's consecutive-from-zero bookkeeping API.
     pub fn latch_phase_inputs(&mut self) -> Result<bool> {
-        if self.config.roles.inputs != self.config.roles.heroes {
-            return Err(Error::Ownership(
-                "non-hero role input requires its separate role-aware phase adapter",
-            ));
-        }
-        let input = *self
-            .clock
-            .input()
-            .ok_or(Error::State("no phase input latch"))?;
-        self.validate_inputs(&input)?;
+        let input = self.hero_input(
+            *self
+                .clock
+                .input()
+                .ok_or(Error::State("no phase input latch"))?,
+        )?;
         if self.clock.last_admission(crate::Phase::Players) != Some(input.frame) {
             return Err(Error::State(
                 "hero input processing entered outside the Players phase",
@@ -789,7 +1058,7 @@ impl Session {
                     .items()
                     .iter()
                     .any(|item| item.level == level && item.id == id),
-                crate::DrawId::Prop { level, id } => id < 2 && self.world.floor(level).is_some(),
+                crate::DrawId::Prop { level, id } => id < 4 && self.world.floor(level).is_some(),
             };
             if !known {
                 return Err(Error::State(
@@ -850,6 +1119,7 @@ impl Session {
                 return Err(Error::State("drop has unissued source actor provenance"));
             }
         }
+        self.validate_item_sources(false)?;
         for item in self.services.resources.items() {
             if self.world.floor(item.level).is_none() {
                 return Err(Error::State("item references absent floor"));
@@ -870,6 +1140,19 @@ impl Session {
             }
         }
         self.clock.validate()?;
+        self.bridge.validate(&self.clock)?;
+        if let Some(input) = self.bridge.pending_input {
+            self.validate_inputs(&input)?;
+            if input.pads.iter().enumerate().any(|(index, pad)| {
+                self.config.roles.heroes.contains(SeatId::ALL[index])
+                    && pad.connected()
+                    && self.players.router.sources()[index].is_none()
+            }) {
+                return Err(Error::State(
+                    "queued input lost its stable source assignment",
+                ));
+            }
+        }
         if self.setup_seen & !63 != 0 || self.rngs.iter().any(|rng| !rng.valid()) {
             return Err(Error::State(
                 "invalid setup ledger or independent RNG stream",
@@ -952,7 +1235,8 @@ impl Session {
                 "hero input exists before any admitted hardware phase",
             ))?;
             if player_input.frame > phase_input.frame
-                || (player_input.frame == phase_input.frame && &player_input != phase_input)
+                || (player_input.frame == phase_input.frame
+                    && player_input != self.hero_input(*phase_input)?)
             {
                 return Err(Error::State("hero and phase input latches disagree"));
             }
@@ -1056,12 +1340,29 @@ fn encoded_size(value: &impl Encode) -> Result<u32> {
 #[cfg(feature = "enhanced-mode")]
 impl tje_engine_runtime::enhanced::Sidecar for Session {
     const KEY: &'static str = "tje/simulation/session";
-    const VERSION: u32 = 3;
+    const VERSION: u32 = 4;
     fn validate(&self) -> tje_game::Result<()> {
         Session::validate(self).map_err(|error| tje_game::Error::Platform(error.to_string()))
     }
     fn configuration_identity(&self) -> &[u8] {
         &self.configuration
+    }
+}
+
+/// The selected mode owns one complete sidecar. A higher-level ruleset may
+/// wrap Session with its own state without making the shared crate depend on it.
+#[cfg(feature = "enhanced-mode")]
+pub trait SessionStorage: tje_engine_runtime::enhanced::Sidecar {
+    fn session(&self) -> &Session;
+    fn session_mut(&mut self) -> &mut Session;
+}
+#[cfg(feature = "enhanced-mode")]
+impl SessionStorage for Session {
+    fn session(&self) -> &Session {
+        self
+    }
+    fn session_mut(&mut self) -> &mut Session {
+        self
     }
 }
 

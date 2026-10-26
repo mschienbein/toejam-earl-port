@@ -12,6 +12,17 @@ pub use generated::IDENTITY;
 pub const BODY_MANIFEST_VERSION: u16 = 1;
 pub const FUNCTION_COUNT: usize = 648;
 
+/// Typed-kernel behavior revision, distinct from the conservative original
+/// function inventory. Controller recordings bind this value through config.
+pub const KERNEL_BODY_VERSION: u16 = 1;
+pub fn kernel_identity() -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"tje-simulation/kernel-body/1\0");
+    hash.update(IDENTITY);
+    hash.update(KERNEL_BODY_VERSION.to_be_bytes());
+    hash.finalize().into()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OriginalAbi {
     Registers,
@@ -34,7 +45,7 @@ pub struct Node {
     pub indirect: bool,
 }
 
-pub fn nodes() -> &'static [Node] {
+pub const fn nodes() -> &'static [Node] {
     generated::NODES
 }
 pub fn roots() -> &'static [FunctionId] {

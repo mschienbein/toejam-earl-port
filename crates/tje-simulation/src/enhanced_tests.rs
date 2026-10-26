@@ -239,3 +239,62 @@ fn even_checkpoint_restores_frozen_publication_across_floor_insertion() {
         );
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+struct WrappedSession {
+    shared: Session,
+    budget: u16,
+}
+impl tje_engine_runtime::enhanced::Sidecar for WrappedSession {
+    const KEY: &'static str = "test/wrapped-session";
+    const VERSION: u32 = 1;
+    fn validate(&self) -> tje_game::Result<()> {
+        tje_engine_runtime::enhanced::Sidecar::validate(&self.shared)?;
+        if self.budget > 100 {
+            return Err(tje_game::Error::Platform(
+                "authored enclosing budget".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn configuration_identity(&self) -> &[u8] {
+        self.shared.configuration_identity()
+    }
+}
+impl crate::session::SessionStorage for WrappedSession {
+    fn session(&self) -> &Session {
+        &self.shared
+    }
+    fn session_mut(&mut self) -> &mut Session {
+        &mut self.shared
+    }
+}
+#[test]
+fn an_enclosing_owner_restores_shared_and_mode_state_as_one_sidecar() {
+    use crate::session::SessionStorage;
+    for revision in [Revision::Rev00, Revision::Rev02] {
+        let mut engine = machine(revision);
+        let mut mode = EnhancedMode::new(DEBUG_PROFILE, revision).unwrap();
+        mode.sidecars_mut()
+            .register(WrappedSession {
+                shared: session(123),
+                budget: 7,
+            })
+            .unwrap();
+        assert!(mode.sidecars().get::<Session>().is_err());
+        let image = mode.snapshot(&engine).unwrap();
+        let owner = mode.sidecars_mut().get_mut::<WrappedSession>().unwrap();
+        owner.session_mut().rngs[0].next_u16();
+        owner.budget = 99;
+        mode.play_frame(
+            &mut engine,
+            InputFrame::neutral(0).hardware_inputs().unwrap(),
+        )
+        .unwrap();
+        mode.restore(&mut engine, &image).unwrap();
+        let owner = mode.sidecars().get::<WrappedSession>().unwrap();
+        assert_eq!(owner.budget, 7);
+        assert_eq!(owner.session(), &session(123));
+        assert_eq!(mode.snapshot(&engine).unwrap().as_bytes(), image.as_bytes());
+    }
+}

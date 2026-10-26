@@ -1800,3 +1800,53 @@ fn reserved_state_three_requires_a_real_typed_producer() {
         assert!(imported.optional_descriptor(Kind::HulaDancer, 3).is_err());
     }
 }
+
+#[test]
+fn restored_population_floor_reserves_the_lifetime_arena_without_changing_wire_bytes() {
+    let state = crate::session_tests::session(123);
+    let original = &state.population.floors()[0];
+    assert!(original.actors.len() < usize::from(MAX_POPULATION));
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian();
+    let bytes = bincode::encode_to_vec(original, config).unwrap();
+    let (restored, consumed): (PopulationFloor, _) =
+        bincode::decode_from_slice(&bytes, config).unwrap();
+    assert_eq!(consumed, bytes.len());
+    assert_eq!(&restored, original);
+    assert_eq!(restored.actors.capacity(), usize::from(MAX_POPULATION));
+    assert_eq!(bincode::encode_to_vec(&restored, config).unwrap(), bytes);
+}
+
+#[test]
+fn population_floor_decoder_rejects_an_oversized_arena_before_actor_decode() {
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian();
+    for length in [usize::from(MAX_POPULATION) + 1, usize::MAX] {
+        let prefix = bincode::encode_to_vec((level(2), length), config).unwrap();
+        let error = bincode::decode_from_slice::<PopulationFloor, _>(&prefix, config).unwrap_err();
+        assert!(matches!(
+            error,
+            bincode::error::DecodeError::Other("persistent actor floor capacity")
+        ));
+    }
+}
+
+#[test]
+fn restored_population_reserves_both_contact_ledgers_and_floor_insertions() {
+    let state = crate::session_tests::session(123);
+    let original = &state.population;
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian();
+    let bytes = bincode::encode_to_vec(original, config).unwrap();
+    let (restored, consumed): (PopulationState, _) =
+        bincode::decode_from_slice(&bytes, config).unwrap();
+    assert_eq!(consumed, bytes.len());
+    assert_eq!(&restored, original);
+    assert_eq!(restored.floors.capacity(), 32);
+    assert_eq!(restored.sleep_contacts.capacity(), effects::MAX_CONTACTS);
+    assert_eq!(restored.thorn_contacts.capacity(), effects::MAX_CONTACTS);
+    assert_eq!(bincode::encode_to_vec(&restored, config).unwrap(), bytes);
+}

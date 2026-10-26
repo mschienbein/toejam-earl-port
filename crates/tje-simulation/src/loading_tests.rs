@@ -376,8 +376,7 @@ fn stored_geometry_epoch_changes_only_for_successful_geometry_mutations() {
     assert_eq!(floor.discovery.rows(), 7);
 }
 
-#[test]
-fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window() {
+fn arrived_first_fixture() -> (LoadingState, WorldState, CoopState) {
     let (mut loading, mut world, mut coop, mut players, mut population) = fixture();
     load_first(&mut loading, &mut world, &mut players, &mut population);
     for tick in 100..200 {
@@ -398,6 +397,12 @@ fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window(
         &mut players,
         &mut population,
     );
+    (loading, world, coop)
+}
+
+#[test]
+fn elevator_approach_opens_and_sensors_board_four_seats_in_one_visible_window() {
+    let (mut loading, world, mut coop) = arrived_first_fixture();
     let level = LevelId::new(1).unwrap();
     let barrier = loading.elevator_barriers(&world, level).unwrap()[0];
     assert_eq!(barrier.door, ElevatorDoor::Closed);
@@ -410,9 +415,10 @@ fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window(
     }
     let neutral = [crate::players::PlayerInput::default(); 4];
     for tick in 200..214 {
+        loading.advance_elevator_doors(&world, &coop, tick).unwrap();
         assert_eq!(
             loading
-                .poll_elevators(&world, &mut coop, &neutral, tick, 0)
+                .poll_elevator_sensors(&world, &mut coop, &neutral, tick, 0)
                 .unwrap(),
             SeatMask::NONE
         );
@@ -430,7 +436,7 @@ fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window(
     }; 4];
     assert_eq!(
         loading
-            .poll_elevators(&world, &mut coop, &up, 214, 0)
+            .poll_elevator_sensors(&world, &mut coop, &up, 214, 0)
             .unwrap(),
         SeatMask::ALL
     );
@@ -439,7 +445,7 @@ fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window(
     let saved = loading.clone();
     assert_eq!(
         loading
-            .poll_elevators(&world, &mut coop, &up, 214, 0)
+            .poll_elevator_sensors(&world, &mut coop, &up, 214, 0)
             .unwrap(),
         SeatMask::NONE
     );
@@ -448,6 +454,118 @@ fn elevator_sensor_opens_from_front_and_boards_four_seats_in_one_visible_window(
     let props = loading.elevator_props(&world, level).unwrap();
     assert_eq!(props[0].unwrap().riders, SeatMask::ALL);
     assert!(!props[0].unwrap().arrival);
+}
+
+#[test]
+fn elevator_sensors_and_door_ticks_restore_and_admit_independently() {
+    let (mut loading, world, mut coop) = arrived_first_fixture();
+    let level = LevelId::new(1).unwrap();
+    let barrier = loading.elevator_barriers(&world, level).unwrap()[0];
+    let neutral = [crate::players::PlayerInput::default(); 4];
+    for hero in &mut coop.players {
+        hero.motion.position = Position {
+            x: barrier.x * 256,
+            y: (barrier.y + 12) * 256,
+            elevation: 0,
+        };
+    }
+    let closed = loading.elevators.clone();
+    for tick in [200, 202] {
+        assert_eq!(
+            loading
+                .poll_elevator_sensors(&world, &mut coop, &neutral, tick, 0)
+                .unwrap(),
+            SeatMask::NONE
+        );
+    }
+    assert_eq!(loading.elevators, closed);
+    loading.advance_elevator_doors(&world, &coop, 202).unwrap();
+    assert_eq!(
+        loading.elevators[0].doors[0],
+        DoorMotion::Opening { remaining: 12 }
+    );
+    let saved = loading.clone();
+    loading.advance_elevator_doors(&world, &coop, 202).unwrap();
+    assert_eq!(loading, saved);
+    for step in 1..=12 {
+        let movement_zero = 200 + step * 4;
+        loading
+            .poll_elevator_sensors(&world, &mut coop, &neutral, movement_zero, 0)
+            .unwrap();
+        loading
+            .advance_elevator_doors(&world, &coop, movement_zero + 2)
+            .unwrap();
+        loading
+            .poll_elevator_sensors(&world, &mut coop, &neutral, movement_zero + 2, 0)
+            .unwrap();
+    }
+    assert_eq!(
+        loading.elevator_barriers(&world, level).unwrap()[0].door,
+        ElevatorDoor::Open
+    );
+    let doors = loading.elevators.clone();
+    for hero in &mut coop.players {
+        hero.motion.position.y = (barrier.y + 7) * 256;
+    }
+    let up = [crate::players::PlayerInput {
+        directions: 1,
+        ..Default::default()
+    }; 4];
+    // Entry occurs after phase-zero XY, before another phase-two door tick.
+    assert_eq!(
+        loading
+            .poll_elevator_sensors(&world, &mut coop, &up, 252, 0)
+            .unwrap(),
+        SeatMask::ALL
+    );
+    assert_eq!(loading.elevator_sensor_tick, Some(252));
+    assert_eq!(loading.elevator_door_tick, Some(250));
+    assert_eq!(loading.elevators, doors);
+    assert_eq!(loading.journeys.iter().flatten().count(), 1);
+    let journeys = loading.journeys.clone();
+    loading.advance_elevator_doors(&world, &coop, 254).unwrap();
+    assert_eq!(loading.journeys, journeys);
+    let doors = loading.elevators.clone();
+    let mut down = neutral;
+    down[0].directions = 2;
+    assert_eq!(
+        loading
+            .poll_elevator_sensors(&world, &mut coop, &down, 254, 0)
+            .unwrap(),
+        SeatMask::NONE
+    );
+    assert_eq!(loading.travelling_mask(), SeatMask::new(0b1110).unwrap());
+    assert_eq!(coop.players[0].motion.position.y, (barrier.y + 12) * 256);
+    assert_eq!(loading.elevators, doors);
+    coop.players[0].motion.position.y = (barrier.y + 7) * 256;
+    assert_eq!(
+        loading
+            .poll_elevator_sensors(&world, &mut coop, &up, 256, 0)
+            .unwrap(),
+        SeatMask::new(1).unwrap()
+    );
+    assert_eq!(loading.travelling_mask(), SeatMask::ALL);
+    let bytes = bincode::encode_to_vec(&loading, tje_world::world::codec()).unwrap();
+    let (mut restored, used): (LoadingState, usize) =
+        bincode::decode_from_slice(&bytes, tje_world::world::codec()).unwrap();
+    assert_eq!(used, bytes.len());
+    restored.validate_world(&world, &coop).unwrap();
+    assert_eq!(restored, loading);
+    assert_eq!(
+        restored
+            .poll_elevator_sensors(&world, &mut coop, &up, 256, 0)
+            .unwrap(),
+        SeatMask::NONE
+    );
+    restored.advance_elevator_doors(&world, &coop, 254).unwrap();
+    assert_eq!(restored, loading);
+    assert!(
+        restored
+            .poll_elevator_sensors(&world, &mut coop, &up, 255, 0)
+            .is_err()
+    );
+    assert!(restored.advance_elevator_doors(&world, &coop, 253).is_err());
+    assert_eq!(restored, loading);
 }
 
 #[test]
@@ -637,4 +755,80 @@ fn initial_cohort_never_accepts_a_full_cell_without_real_footprint_support() {
             .all(|hero| hero.life == LifeState::Unplaced)
     );
     assert_eq!(*world.active(), [None; 4]);
+}
+
+#[test]
+fn elevator_props_publish_internal_door_and_moving_descriptor_states_readonly() {
+    let (mut loading, mut world, coop) = arrived_first_fixture();
+    let level = LevelId::new(1).unwrap();
+    assert_eq!(
+        loading.elevator_props(&world, level).unwrap()[0]
+            .unwrap()
+            .animation_state,
+        1
+    );
+    let slot = loading.ensure_elevator(level);
+    for (motion, expected, physics) in [
+        (DoorMotion::Closed, 1, ElevatorDoor::Closed),
+        (
+            DoorMotion::Opening { remaining: 12 },
+            2,
+            ElevatorDoor::Closed,
+        ),
+        (DoorMotion::Open { remaining: 30 }, 3, ElevatorDoor::Open),
+        (
+            DoorMotion::Closing { remaining: 12 },
+            4,
+            ElevatorDoor::Closed,
+        ),
+    ] {
+        loading.elevators[slot].doors = [motion; 2];
+        let before = loading.clone();
+        let props = loading.elevator_props(&world, level).unwrap();
+        assert_eq!(props[0].unwrap().animation_state, expected);
+        assert_eq!(props[0].unwrap().door, physics);
+        assert!(!props[0].unwrap().moving);
+        if motion != DoorMotion::Closed {
+            assert_eq!(props[1].unwrap().animation_state, expected);
+            assert_eq!(props[1].unwrap().door, physics);
+        } else {
+            assert!(props[1].is_none());
+        }
+        assert_eq!(loading, before);
+    }
+    loading.elevators[slot].doors = [DoorMotion::Open { remaining: 30 }; 2];
+    let index = loading.begin_elevator(&world, SeatMask::ALL, 0).unwrap();
+    assert_eq!(
+        loading.elevator_props(&world, level).unwrap()[0]
+            .unwrap()
+            .animation_state,
+        3
+    );
+    let baseline = tje_world::population::PopulationBaseline {
+        walkable_tiles: Dimensions::ORIGINAL.area() as u32 * 128,
+        ordinary_items: 12,
+        earthlings: 0,
+        reserved_items: 0,
+        ship_piece: false,
+        mailbox: false,
+    };
+    for tick in 0..30 {
+        loading.journeys[index]
+            .as_mut()
+            .unwrap()
+            .advance(&mut world, &Authored, baseline, tick, 1, &[])
+            .unwrap();
+    }
+    assert_eq!(
+        loading.journeys[index].as_ref().unwrap().phase(),
+        tje_world::transitions::TravelPhase::Departing
+    );
+    let before = loading.clone();
+    let props = loading.elevator_props(&world, level).unwrap();
+    assert_eq!(props[0].unwrap().animation_state, 5);
+    assert!(props[0].unwrap().moving);
+    assert_eq!(props[1].unwrap().animation_state, 3);
+    assert!(!props[1].unwrap().moving);
+    assert_eq!(loading, before);
+    loading.validate_world(&world, &coop).unwrap();
 }

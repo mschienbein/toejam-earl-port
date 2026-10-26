@@ -795,30 +795,53 @@ fn word(bytes: &[u8], offset: usize) -> u32 {
     )
 }
 
+/// One immutable catalogue bound to the actual aggregate owner, not a second
+/// sidecar or a copy of a wrapped mode's shared Session.
 #[cfg(feature = "enhanced-mode")]
-impl tje_engine_runtime::enhanced::Resource for ResourceCatalog {
+pub struct SessionCatalogue<S> {
+    catalogue: ResourceCatalog,
+    storage: std::marker::PhantomData<fn() -> S>,
+}
+#[cfg(feature = "enhanced-mode")]
+impl<S> SessionCatalogue<S> {
+    pub fn new(catalogue: ResourceCatalog) -> Self {
+        Self {
+            catalogue,
+            storage: std::marker::PhantomData,
+        }
+    }
+    pub fn catalogue(&self) -> &ResourceCatalog {
+        &self.catalogue
+    }
+}
+
+#[cfg(feature = "enhanced-mode")]
+impl<S: tje_simulation::session::SessionStorage> tje_engine_runtime::enhanced::Resource
+    for SessionCatalogue<S>
+{
     const KEY: &'static str = "tje-coop/rom-resources";
     const VERSION: u32 = 1;
     fn identity(&self) -> [u8; 32] {
-        self.identity
+        self.catalogue.identity
     }
     fn validate_restore(
         &self,
         states: &tje_engine_runtime::enhanced::PreparedSidecars,
         hardware: &tje_engine_runtime::enhanced::SnapshotView<'_>,
     ) -> tje_game::Result<()> {
-        let session = states.get::<tje_simulation::session::Session>()?;
+        let session = states.get::<S>()?.session();
         let config = session.config();
-        if config.catalogue_identity != self.identity
-            || config.frame_count != self.frame_count()
-            || config.animations != self.contracts
+        if config.catalogue_identity != self.catalogue.identity
+            || config.frame_count != self.catalogue.frame_count()
+            || config.animations != self.catalogue.contracts
         {
             return Err(tje_game::Error::Platform(
                 "co-op restore resource catalogue/configuration mismatch".into(),
             ));
         }
         if session.published.kind == tje_simulation::publication::PublishedKind::World {
-            self.validate_static_patterns(hardware.vram)
+            self.catalogue
+                .validate_static_patterns(hardware.vram)
                 .map_err(|error| tje_game::Error::Platform(error.to_string()))?;
         }
         Ok(())
@@ -926,7 +949,11 @@ fn contracts_mismatching_loaded_rom_reject_before_hardware_or_sidecar_commit() {
             .into_loading()
             .unwrap();
         let mut resources = Resources::new();
-        resources.register(catalogue).unwrap();
+        resources
+            .register(SessionCatalogue::<tje_simulation::session::Session>::new(
+                catalogue,
+            ))
+            .unwrap();
         let mut mode = EnhancedMode::new(DEBUG_PROFILE, revision)
             .unwrap()
             .with_resources(resources)

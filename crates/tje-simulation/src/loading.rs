@@ -313,7 +313,8 @@ pub struct LoadingState {
     source_cursor: u8,
     door_rng: [tje_world::random::StageRng; 4],
     elevators: Vec<ElevatorState>,
-    elevator_tick: Option<u64>,
+    elevator_sensor_tick: Option<u64>,
+    elevator_door_tick: Option<u64>,
     previous_heroes: [Option<tje_world::transitions::Position>; 4],
 }
 impl LoadingState {
@@ -371,7 +372,8 @@ impl LoadingState {
             source_cursor: 0,
             door_rng,
             elevators: Vec::with_capacity(CAMPAIGN_FLOORS),
-            elevator_tick: None,
+            elevator_sensor_tick: None,
+            elevator_door_tick: None,
             previous_heroes: [None; 4],
         })
     }
@@ -2581,6 +2583,10 @@ pub struct ElevatorProp {
     pub y: i32,
     pub arrival: bool,
     pub door: ElevatorDoor,
+    /// `ElevatorSetState` descriptor index for both primary and secondary
+    /// programmes; the secondary programme retains its decoded Y offset.
+    /// This visual state is distinct from the coarser collision door state.
+    pub animation_state: u8,
     pub moving: bool,
     pub riders: SeatMask,
     pub final_ship: bool,
@@ -2610,6 +2616,11 @@ impl LoadingState {
         level: LevelId,
     ) -> tje_world::Result<[Option<ElevatorProp>; 2]> {
         let barriers = self.elevator_barriers(world, level)?;
+        let doors = self
+            .elevators
+            .binary_search_by_key(&level, |state| state.level)
+            .ok()
+            .map_or([DoorMotion::Closed; 2], |slot| self.elevators[slot].doors);
         let mut riders = 0;
         let mut moving = false;
         for journey in self.journeys.iter().flatten() {
@@ -2637,18 +2648,149 @@ impl LoadingState {
                 y: barrier.y,
                 arrival: index == 1,
                 door: barrier.door,
+                animation_state: if index == 0 && moving {
+                    5
+                } else {
+                    match doors[index] {
+                        DoorMotion::Closed => 1,
+                        DoorMotion::Opening { .. } => 2,
+                        DoorMotion::Open { .. } => 3,
+                        DoorMotion::Closing { .. } => 4,
+                    }
+                },
                 moving: index == 0 && moving,
                 riders: SeatMask::new(if index == 0 { riders } else { 0 }).expect("four riders"),
                 final_ship: level.get() == 25 && index == 0,
             })
         }))
     }
-    /// Original geometry predicates are retained: approach dx<10 and front
-    /// dy10..20; open entry dy1..7, grounded, moving up from the front. The
-    /// enhanced visible join window is explicit, rather than original pair bits.
-    /// Door timings are finite enhanced ticks (12 opening/closing, 30 open),
-    /// not a claim of cartridge animation/cycle equivalence.
-    pub fn poll_elevators(
+    fn elevator_levels(&self, coop: &CoopState) -> [Option<LevelId>; 4] {
+        let mut visited = [None; 4];
+        let mut levels = 0;
+        for seat in self.config.heroes.iter() {
+            let hero = &coop.players[seat.index()];
+            if hero.life != LifeState::Alive {
+                continue;
+            }
+            let Some(level) = hero.level else {
+                continue;
+            };
+            if !visited[..levels].contains(&Some(level)) {
+                visited[levels] = Some(level);
+                levels += 1;
+            }
+        }
+        visited
+    }
+
+    fn elevator_cohorts(&self, level: LevelId) -> (Option<usize>, bool) {
+        let mut joining = None;
+        let mut departing = false;
+        for (index, journey) in self.journeys.iter().enumerate() {
+            let Some(journey) = journey else {
+                continue;
+            };
+            if journey.committed()
+                || !matches!(
+                    journey.kind(),
+                    tje_world::transitions::TravelKind::Elevator
+                        | tje_world::transitions::TravelKind::Ship { .. }
+                )
+                || !journey
+                    .sources()
+                    .iter()
+                    .flatten()
+                    .any(|source| *source == level)
+            {
+                continue;
+            }
+            if journey.phase() == tje_world::transitions::TravelPhase::Joining {
+                joining.get_or_insert(index);
+            } else {
+                departing = true;
+            }
+        }
+        (joining, departing)
+    }
+
+    /// Advance finite door motion only at the population/elevator operation.
+    /// The readonly hero poses supply the original approach predicates without
+    /// coupling this cadence to the more frequent post-movement entry sensor.
+    /// Enhanced timings (12 opening/closing, 30 open) are not a claim of
+    /// cartridge animation/cycle equivalence.
+    pub fn advance_elevator_doors(
+        &mut self,
+        world: &WorldState,
+        coop: &CoopState,
+        tick: u64,
+    ) -> Result<()> {
+        if self
+            .elevator_door_tick
+            .is_some_and(|previous| tick < previous)
+        {
+            return Err(Error::State("elevator door clock moved backwards"));
+        }
+        if self.elevator_door_tick == Some(tick) {
+            return Ok(());
+        }
+        self.elevator_door_tick = Some(tick);
+        for level in self.elevator_levels(coop).into_iter().flatten() {
+            let slot = self.ensure_elevator(level);
+            let barriers = self.elevator_barriers(world, level).map_err(world_error)?;
+            let (joining, departing) = self.elevator_cohorts(level);
+            for (kind, barrier) in barriers.into_iter().enumerate() {
+                if barrier.door == ElevatorDoor::Inactive {
+                    continue;
+                }
+                let near = self.config.heroes.iter().any(|seat| {
+                    let hero = &coop.players[seat.index()];
+                    if hero.life != LifeState::Alive || hero.level != Some(level) {
+                        return false;
+                    }
+                    let x = hero.motion.position.x >> 8;
+                    let dy = (hero.motion.position.y >> 8) - barrier.y;
+                    (i64::from(x) - i64::from(barrier.x)).abs() < 10
+                        && dy < 20
+                        && dy
+                            >= if barrier.door == ElevatorDoor::Open {
+                                1
+                            } else {
+                                10
+                            }
+                });
+                self.elevators[slot].doors[kind] = if kind == 0 && departing {
+                    DoorMotion::Closed
+                } else if kind == 0 && joining.is_some() {
+                    DoorMotion::Open { remaining: 30 }
+                } else {
+                    match self.elevators[slot].doors[kind] {
+                        DoorMotion::Closed if near => DoorMotion::Opening { remaining: 12 },
+                        DoorMotion::Opening { remaining } if remaining > 1 => DoorMotion::Opening {
+                            remaining: remaining - 1,
+                        },
+                        DoorMotion::Opening { .. } => DoorMotion::Open { remaining: 30 },
+                        DoorMotion::Open { .. } if near => DoorMotion::Open { remaining: 30 },
+                        DoorMotion::Open { remaining } if remaining > 1 => DoorMotion::Open {
+                            remaining: remaining - 1,
+                        },
+                        DoorMotion::Open { .. } => DoorMotion::Closing { remaining: 12 },
+                        DoorMotion::Closing { remaining } if remaining > 1 => DoorMotion::Closing {
+                            remaining: remaining - 1,
+                        },
+                        DoorMotion::Closing { .. } => DoorMotion::Closed,
+                        other => other,
+                    }
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Poll after XY movement on both movement phases, not only when the
+    /// population/elevator timers run: entry's original dy1..7 interval can be
+    /// crossed between those operations. This owns boarding, joining-phase Down
+    /// exits and previous poses, but never consumes a door or journey timer.
+    pub fn poll_elevator_sensors(
         &mut self,
         world: &WorldState,
         coop: &mut CoopState,
@@ -2656,13 +2798,16 @@ impl LoadingState {
         tick: u64,
         ship_parts: u16,
     ) -> Result<SeatMask> {
-        if self.elevator_tick.is_some_and(|previous| tick < previous) {
+        if self
+            .elevator_sensor_tick
+            .is_some_and(|previous| tick < previous)
+        {
             return Err(Error::State("elevator sensor clock moved backwards"));
         }
-        if self.elevator_tick == Some(tick) {
+        if self.elevator_sensor_tick == Some(tick) {
             return Ok(SeatMask::NONE);
         }
-        self.elevator_tick = Some(tick);
+        self.elevator_sensor_tick = Some(tick);
         for index in 0..4 {
             let Some(journey) = self.journeys[index].as_ref() else {
                 continue;
@@ -2704,154 +2849,59 @@ impl LoadingState {
             }
         }
         let mut boarded = 0;
-        let mut visited = [None; 4];
-        let mut levels = 0;
-        for seat in self.config.heroes.iter() {
-            let hero = &coop.players[seat.index()];
-            if hero.life != LifeState::Alive {
+        let travelling = self.travelling_mask();
+        for level in self.elevator_levels(coop).into_iter().flatten() {
+            let barrier = self.elevator_barriers(world, level).map_err(world_error)?[0];
+            let (_, departing) = self.elevator_cohorts(level);
+            if barrier.door != ElevatorDoor::Open
+                || departing
+                || level.get() == 25 && ship_parts & 0x3ff != 0x3ff
+            {
                 continue;
             }
-            let Some(level) = hero.level else {
-                continue;
-            };
-            if !visited[..levels].contains(&Some(level)) {
-                visited[levels] = Some(level);
-                levels += 1;
-            }
-        }
-        for level in visited.into_iter().flatten() {
-            let slot = self.ensure_elevator(level);
-            let barriers = self.elevator_barriers(world, level).map_err(world_error)?;
-            for (kind, barrier) in barriers.into_iter().enumerate() {
-                if barrier.door == ElevatorDoor::Inactive {
+            for seat in self.config.heroes.iter() {
+                let hero = &coop.players[seat.index()];
+                if hero.life != LifeState::Alive
+                    || hero.level != Some(level)
+                    || travelling.contains(seat)
+                {
                     continue;
                 }
-                let joining = self.journeys.iter().position(|journey| {
-                    journey.as_ref().is_some_and(|journey| {
-                        !journey.committed()
-                            && journey
-                                .sources()
-                                .iter()
-                                .flatten()
-                                .any(|source| *source == level)
-                            && journey.phase() == tje_world::transitions::TravelPhase::Joining
-                    })
-                });
-                let departing = self.journeys.iter().flatten().any(|journey| {
-                    !journey.committed()
-                        && journey
-                            .sources()
-                            .iter()
-                            .flatten()
-                            .any(|source| *source == level)
-                        && journey.phase() != tje_world::transitions::TravelPhase::Joining
-                        && matches!(
-                            journey.kind(),
-                            tje_world::transitions::TravelKind::Elevator
-                                | tje_world::transitions::TravelKind::Ship { .. }
-                        )
-                });
-                let mut near = false;
-                for seat in self.config.heroes.iter() {
-                    let hero = &coop.players[seat.index()];
-                    if hero.life != LifeState::Alive || hero.level != Some(level) {
-                        continue;
+                let (x, y, z) = (
+                    hero.motion.position.x >> 8,
+                    hero.motion.position.y >> 8,
+                    hero.motion.position.elevation >> 8,
+                );
+                let dx = (i64::from(x) - i64::from(barrier.x)).abs();
+                let dy = y - barrier.y;
+                let entered = dx < 10
+                    && (1..8).contains(&dy)
+                    && z == 0
+                    && input[seat.index()].directions & 1 != 0
+                    && self.previous_heroes[seat.index()].is_some_and(|previous| {
+                        previous.level == level && previous.y > barrier.y && previous.y >= y
+                    });
+                if entered {
+                    // Re-read the shared cohort after each new rider, so four
+                    // simultaneous entrants join one journey, not four copies.
+                    let (active, _) = self.elevator_cohorts(level);
+                    if let Some(index) = active {
+                        self.journeys[index]
+                            .as_mut()
+                            .expect("joining elevator")
+                            .join(world, seat.get())
+                            .map_err(world_error)?;
+                    } else {
+                        let cohort = SeatMask::new(1 << seat.get()).expect("single rider");
+                        self.begin_elevator(world, cohort, ship_parts)?;
                     }
-                    let (x, y, z) = (
-                        hero.motion.position.x >> 8,
-                        hero.motion.position.y >> 8,
-                        hero.motion.position.elevation >> 8,
-                    );
-                    let dx = (i64::from(x) - i64::from(barrier.x)).abs();
-                    let dy = y - barrier.y;
-                    near |= dx < 10
-                        && dy < 20
-                        && dy
-                            >= if barrier.door == ElevatorDoor::Open {
-                                1
-                            } else {
-                                10
-                            };
-                    if kind == 1
-                        || departing
-                        || self.travelling_mask().contains(seat)
-                        || level.get() == 25 && ship_parts & 0x3ff != 0x3ff
-                    {
-                        continue;
-                    }
-                    let entered = barrier.door == ElevatorDoor::Open
-                        && dx < 10
-                        && (1..8).contains(&dy)
-                        && z == 0
-                        && input[seat.index()].directions & 1 != 0
-                        && self.previous_heroes[seat.index()].is_some_and(|previous| {
-                            previous.level == level && previous.y > barrier.y && previous.y >= y
-                        });
-                    if entered {
-                        let active = self.journeys.iter().position(|journey| {
-                            journey.as_ref().is_some_and(|journey| {
-                                !journey.committed()
-                                    && matches!(
-                                        journey.kind(),
-                                        tje_world::transitions::TravelKind::Elevator
-                                            | tje_world::transitions::TravelKind::Ship { .. }
-                                    )
-                                    && journey
-                                        .sources()
-                                        .iter()
-                                        .flatten()
-                                        .any(|source| *source == level)
-                            })
-                        });
-                        if let Some(index) = active {
-                            if self.journeys[index]
-                                .as_ref()
-                                .expect("departure journey")
-                                .phase()
-                                != tje_world::transitions::TravelPhase::Joining
-                            {
-                                continue;
-                            }
-                            self.journeys[index]
-                                .as_mut()
-                                .expect("joining elevator")
-                                .join(world, seat.get())
-                                .map_err(world_error)?;
-                        } else {
-                            let cohort = SeatMask::new(1 << seat.get()).expect("single rider");
-                            self.begin_elevator(world, cohort, ship_parts)?;
-                        }
-                        let hero = &mut coop.players[seat.index()];
-                        hero.motion.position.x = barrier.x * 256;
-                        hero.motion.position.y = (barrier.y + 5) * 256;
-                        hero.motion.velocity = [0; 3];
-                        hero.motion.acceleration = [0; 3];
-                        boarded |= 1 << seat.get();
-                    }
+                    let hero = &mut coop.players[seat.index()];
+                    hero.motion.position.x = barrier.x * 256;
+                    hero.motion.position.y = (barrier.y + 5) * 256;
+                    hero.motion.velocity = [0; 3];
+                    hero.motion.acceleration = [0; 3];
+                    boarded |= 1 << seat.get();
                 }
-                self.elevators[slot].doors[kind] = if kind == 0 && departing {
-                    DoorMotion::Closed
-                } else if kind == 0 && joining.is_some() {
-                    DoorMotion::Open { remaining: 30 }
-                } else {
-                    match self.elevators[slot].doors[kind] {
-                        DoorMotion::Closed if near => DoorMotion::Opening { remaining: 12 },
-                        DoorMotion::Opening { remaining } if remaining > 1 => DoorMotion::Opening {
-                            remaining: remaining - 1,
-                        },
-                        DoorMotion::Opening { .. } => DoorMotion::Open { remaining: 30 },
-                        DoorMotion::Open { .. } if near => DoorMotion::Open { remaining: 30 },
-                        DoorMotion::Open { remaining } if remaining > 1 => DoorMotion::Open {
-                            remaining: remaining - 1,
-                        },
-                        DoorMotion::Open { .. } => DoorMotion::Closing { remaining: 12 },
-                        DoorMotion::Closing { remaining } if remaining > 1 => DoorMotion::Closing {
-                            remaining: remaining - 1,
-                        },
-                        DoorMotion::Closing { .. } => DoorMotion::Closed,
-                        other => other,
-                    }
-                };
             }
         }
         self.previous_heroes = coop.players.each_ref().map(|hero| {

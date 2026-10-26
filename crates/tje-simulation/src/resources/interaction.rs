@@ -1,6 +1,42 @@
 use super::*;
 
 impl ResourceState {
+    /// Placed records are ID-sorted and take priority over generation-checked
+    /// drops in pool-slot order. Admission is the transaction's shared rule;
+    /// an unclaimable present cannot permanently hide nearby food.
+    pub(crate) fn nearby_claim(&self, coop: &CoopState, seat: SeatId) -> Option<NearbyItem> {
+        for item in &self.items {
+            if !item.collected
+                && self
+                    .check_claim(coop, seat, item.level, item.position, item.kind)
+                    .is_ok()
+            {
+                return Some(NearbyItem {
+                    reference: ItemRef::Placed(item.id),
+                    level: item.level,
+                    position: item.position,
+                    kind: item.kind,
+                    appearance: item.appearance,
+                });
+            }
+        }
+        for (id, drop) in self.drops() {
+            let kind = ItemKind::Present(drop.present);
+            if self
+                .check_claim(coop, seat, drop.level, drop.position, kind)
+                .is_ok()
+            {
+                return Some(NearbyItem {
+                    reference: ItemRef::Dropped(id),
+                    level: drop.level,
+                    position: drop.position,
+                    kind,
+                    appearance: ItemAppearance::Present,
+                });
+            }
+        }
+        None
+    }
     pub fn drop(&self, id: DropId) -> Option<&DroppedPresent> {
         self.drops
             .get(usize::from(id.slot))

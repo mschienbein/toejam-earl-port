@@ -17,6 +17,7 @@ pub struct PublicationRefs<'a> {
     pub clock: &'a crate::PhaseClock,
     pub scene: crate::session::Scene,
     pub hero_actors: &'a [Option<crate::ActorId>; 4],
+    pub speech: &'a [PublishedSpeech; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

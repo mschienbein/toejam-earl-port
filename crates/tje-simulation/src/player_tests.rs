@@ -28,6 +28,7 @@ pub(crate) struct World {
     arrivals: Vec<(SeatId, Landing)>,
     releases: Vec<SeatId>,
     pub(crate) played: Vec<AudioCue>,
+    pub(crate) mole_clears: Vec<(SeatId, LevelId)>,
 }
 impl PlayerGeometry for World {
     fn dimensions(&self, _: LevelId) -> PlayerResult<Dimensions> {
@@ -195,6 +196,9 @@ impl PlayerWorld for World {
                     self.service_collisions.push((actor, collidable));
                 }
                 hit = true;
+            }
+            ActorEffect::ClearMoleContacts { seat, level } => {
+                self.mole_clears.push((seat, level));
             }
             ActorEffect::Retire { effect, level } => {
                 self.retirements.push(effect);
@@ -474,6 +478,9 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                         let rain = services.runtime[index].rain_left;
                         assert!((50..=80).contains(&rain));
                         services.tick_effects(&mut coop, 0, &mut world).unwrap();
+                        assert_eq!(services.runtime[index].rain_left, rain);
+                        assert_eq!(services.resources.effects().count(), 0);
+                        services.tick_tomato_rain(&coop, 2, &mut world).unwrap();
                         assert_eq!(services.runtime[index].rain_left, rain - 1);
                         assert_eq!(services.resources.effects().count(), 1);
                     }
@@ -1700,7 +1707,9 @@ impl AuthoredPlayerHarness for PlayerServices {
         world: &mut World,
     ) -> PlayerResult<()> {
         self.tick_players(coop, tick, inputs, world)?;
+        self.tick_tomato_rain(coop, tick, world)?;
         self.advance_movement(coop, tick, [VoluntaryScale::Normal; 4], world)?;
+        self.advance_effect_movement(tick)?;
         for seat in SeatId::ALL {
             let Some(service) = self.runtime[seat.index()].service else {
                 continue;
@@ -1739,6 +1748,7 @@ impl AuthoredPlayerHarness for PlayerServices {
                 )?;
             }
         }
+        refresh_spectators(coop);
         while let Some(intent) = self.audio.front().copied() {
             world.played.push(intent.cue);
             self.audio.acknowledge(intent.sequence)?;

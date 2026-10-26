@@ -402,6 +402,29 @@ impl<R: Resources> PlayerWorld for WorldBridge<'_, R> {
                     .map_err(|_| PlayerError::Geometry("burp world position"))?;
                 Ok(self.population.burp(owner, level).map_err(map_world)? != 0)
             }
+            ActorEffect::ClearMoleContacts { seat, level } => {
+                self.require_owner(seat, level)?;
+                if self.population.retained()[seat.index()] != Some(level) {
+                    return Err(PlayerError::Rejected(
+                        "mole-contact pickup floor is not retained by the hero",
+                    ));
+                }
+                let changed = self
+                    .population
+                    .floors()
+                    .iter()
+                    .find(|floor| floor.level == level)
+                    .ok_or(PlayerError::Geometry(
+                        "mole-contact pickup population floor is absent",
+                    ))?
+                    .actors
+                    .iter()
+                    .any(|actor| actor.kind == Kind::Mole && actor.mole_contacts.contains(seat));
+                self.population
+                    .clear_mole_contacts(seat, level)
+                    .map_err(map_world)?;
+                Ok(changed)
+            }
             ActorEffect::ServiceCollision { actor, collidable } => {
                 self.population
                     .set_service_collision(actor, collidable)

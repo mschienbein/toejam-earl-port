@@ -24,6 +24,13 @@ use std::fmt;
 use tje_game::{Dispatcher, FramedTranslation, SelectedEntry, Translation};
 use tje_mem::Revision;
 
+/// A pure pre-instruction ownership fence. It cannot replace an exit, return a
+/// value, mutate sidecars or manufacture a timing/classification proof.
+#[derive(Clone, Copy)]
+pub struct OriginalEntryGuard {
+    pub selected: fn(tje_game::FunctionId) -> bool,
+    pub check: fn(&Sidecars, tje_game::FunctionId) -> tje_game::Result<()>,
+}
 /// A versioned, built-in mod selection. Change `id` whenever behaviour changes;
 /// snapshots, replays and peers must agree on this identity as well as the ROM.
 /// Only these explicit entries run as Rust; the proven tables are never included.
@@ -34,6 +41,7 @@ pub struct EnhancedProfile {
     pub framed_translations: &'static [FramedTranslation],
     pub resumable_translations: &'static [ResumableTranslation],
     pub resumable_sets: &'static [&'static [ResumableTranslation]],
+    pub original_guard: Option<OriginalEntryGuard>,
 }
 
 impl EnhancedProfile {
@@ -48,6 +56,7 @@ impl EnhancedProfile {
             framed_translations,
             resumable_translations: &[],
             resumable_sets: &[],
+            original_guard: None,
         }
     }
 
@@ -61,6 +70,10 @@ impl EnhancedProfile {
         sets: &'static [&'static [ResumableTranslation]],
     ) -> Self {
         self.resumable_sets = sets;
+        self
+    }
+    pub const fn with_original_guard(mut self, guard: OriginalEntryGuard) -> Self {
+        self.original_guard = Some(guard);
         self
     }
 
@@ -140,6 +153,7 @@ struct Driver {
     entries: Vec<(u32, SelectedEntry)>,
     resumable: Vec<(u32, ResumableTranslation)>,
     original_calls_only: bool,
+    guarded_originals: Vec<(u32, tje_game::FunctionId)>,
 }
 
 impl EnhancedMode {
@@ -239,6 +253,35 @@ impl EnhancedMode {
                 "an enhanced profile must select at least one override",
             ));
         }
+        let mut guarded_originals = if profile.original_guard.is_some() {
+            Vec::with_capacity(tje_game::functions().count())
+        } else {
+            Vec::new()
+        };
+        if let Some(guard) = profile.original_guard {
+            for metadata in tje_game::functions() {
+                if (guard.selected)(metadata.id) {
+                    guarded_originals.push((metadata.address(revision), metadata.id));
+                }
+            }
+            guarded_originals.sort_unstable_by_key(|entry| entry.0);
+            if guarded_originals
+                .windows(2)
+                .any(|pair| pair[0].0 == pair[1].0)
+                || guarded_originals.iter().any(|entry| {
+                    resumable
+                        .binary_search_by_key(&entry.0, |entry| entry.0)
+                        .is_ok()
+                        || entries
+                            .binary_search_by_key(&entry.0, |entry| entry.0)
+                            .is_ok()
+                })
+            {
+                return Err(context::error(
+                    "original ownership fence overlaps an override or ambiguous entry",
+                ));
+            }
+        }
         Ok(Self {
             driver: Driver {
                 profile: Some(profile),
@@ -246,6 +289,7 @@ impl EnhancedMode {
                 entries,
                 resumable,
                 original_calls_only,
+                guarded_originals,
             },
             ..Self::default()
         })
@@ -340,6 +384,18 @@ impl EnhancedMode {
 }
 
 impl Driver {
+    fn check_original_guard(&self, pc: u32, sidecars: Option<&Sidecars>) -> tje_game::Result<()> {
+        if let Some(guard) = self.profile.and_then(|profile| profile.original_guard)
+            && let Ok(index) = self
+                .guarded_originals
+                .binary_search_by_key(&pc, |entry| entry.0)
+        {
+            let sidecars =
+                sidecars.ok_or_else(|| context::error("ownership fence has no aggregate state"))?;
+            (guard.check)(sidecars, self.guarded_originals[index].1)?;
+        }
+        Ok(())
+    }
     fn dispatcher(&self) -> Dispatcher {
         if self.original_calls_only {
             // Nested calls re-enter the selected PC table through the original

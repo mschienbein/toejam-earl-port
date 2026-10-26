@@ -393,7 +393,7 @@ pub struct AuthoredActor {
     pub position: Position,
     pub mail_order: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode)]
 pub struct PopulationFloor {
     pub level: LevelId,
     pub actors: Vec<PersistentActor>,
@@ -404,6 +404,28 @@ pub struct PopulationFloor {
     /// Includes unused original source slots; IDs are never compacted or reused.
     pub declared_slots: u64,
 }
+impl<Context> Decode<Context> for PopulationFloor {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> std::result::Result<Self, bincode::error::DecodeError> {
+        let level = Decode::decode(decoder)?;
+        let actors = decode_reserved(
+            decoder,
+            usize::from(MAX_POPULATION),
+            "persistent actor floor capacity",
+        )?;
+        Ok(Self {
+            level,
+            actors,
+            removed: Decode::decode(decoder)?,
+            failed: Decode::decode(decoder)?,
+            collected: Decode::decode(decoder)?,
+            spawn_rng: Decode::decode(decoder)?,
+            declared_slots: Decode::decode(decoder)?,
+        })
+    }
+}
+bincode::impl_borrow_decode!(PopulationFloor);
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct BodySlot {
     generation: u32,
@@ -419,7 +441,7 @@ pub struct PreparedRetains {
     identity: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode)]
 pub struct PopulationState {
     limits: PopulationLimits,
     identity: [u8; 32],
@@ -436,6 +458,58 @@ pub struct PopulationState {
     last_tick: Option<u64>,
     last_motion_tick: Option<u64>,
     last_animation_tick: Option<u64>,
+}
+impl<Context> Decode<Context> for PopulationState {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> std::result::Result<Self, bincode::error::DecodeError> {
+        Ok(Self {
+            limits: Decode::decode(decoder)?,
+            identity: Decode::decode(decoder)?,
+            floors: decode_reserved(decoder, 32, "persistent population floor capacity")?,
+            retained: Decode::decode(decoder)?,
+            bodies: Decode::decode(decoder)?,
+            sleep_contacts: decode_reserved(
+                decoder,
+                effects::MAX_CONTACTS,
+                "sleep contact capacity",
+            )?,
+            thorn_contacts: decode_reserved(
+                decoder,
+                effects::MAX_CONTACTS,
+                "thorn contact capacity",
+            )?,
+            consumed_projectiles: Decode::decode(decoder)?,
+            directors: Decode::decode(decoder)?,
+            next_director_source: Decode::decode(decoder)?,
+            parity: Decode::decode(decoder)?,
+            contact_priority: Decode::decode(decoder)?,
+            last_tick: Decode::decode(decoder)?,
+            last_motion_tick: Decode::decode(decoder)?,
+            last_animation_tick: Decode::decode(decoder)?,
+        })
+    }
+}
+bincode::impl_borrow_decode!(PopulationState);
+
+/// Vec's wire format, with a checked fixed reservation before sidecar commit.
+/// Decoding must not turn a lifetime arena into a later per-frame allocation.
+fn decode_reserved<D: bincode::de::Decoder, T: Decode<D::Context>>(
+    decoder: &mut D,
+    capacity: usize,
+    error: &'static str,
+) -> std::result::Result<Vec<T>, bincode::error::DecodeError> {
+    let length = usize::decode(decoder)?;
+    if length > capacity {
+        return Err(bincode::error::DecodeError::Other(error));
+    }
+    decoder.claim_container_read::<T>(length)?;
+    let mut values = Vec::with_capacity(capacity);
+    for _ in 0..length {
+        decoder.unclaim_bytes_read(std::mem::size_of::<T>());
+        values.push(Decode::decode(decoder)?);
+    }
+    Ok(values)
 }
 impl PopulationState {
     pub fn new(limits: PopulationLimits, identity: [u8; 32]) -> Result<Self> {

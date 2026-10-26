@@ -122,10 +122,16 @@ where
         let return_pc = self.engine.devices().memory().read_u32(sp);
         let saved_pc = self.engine.cpu().pc;
         let entry_pc = id.metadata().address(self.revision());
+        self.mode
+            .check_original_guard(entry_pc, self.sidecars.as_deref())?;
         set_pc(self.engine, entry_pc);
         loop {
             let opcode = self.engine.cpu().prefetch as u16;
             let before_sp = self.engine.cpu().read_address(7);
+            if super::ready(self.engine) {
+                self.mode
+                    .check_original_guard(self.engine.cpu().pc, self.sidecars.as_deref())?;
+            }
             let step = self
                 .mode
                 .step_inner(self.engine, self.inputs, self.budget)
@@ -356,9 +362,26 @@ where
         self.engine.frame_count()
     }
 
+    fn entry_function(&self) -> Result<FunctionId> {
+        self.entry_id
+            .ok_or_else(|| error("enhanced context has no selected entry"))
+    }
+    fn entry_argument(&self, index: usize) -> Result<u32> {
+        let count = usize::from(self.entry_function()?.metadata().abi.argument_count);
+        if index >= count {
+            return Err(error("enhanced entry argument index exceeds its ABI"));
+        }
+        if self.entry_sp.saturating_add(4 * count as u32 + 4) > 0x1000000 {
+            return Err(error("enhanced entry arguments exceed work RAM"));
+        }
+        Ok(self
+            .engine
+            .devices()
+            .memory()
+            .read_u32(self.entry_sp + 4 + index as u32 * 4))
+    }
     fn entry_arguments(&self) -> Result<Vec<u32>> {
-        let id = self.entry_id.expect("resumable context");
-        let count = u32::from(id.metadata().abi.argument_count);
+        let count = u32::from(self.entry_function()?.metadata().abi.argument_count);
         if self.entry_sp.saturating_add(4 * count + 4) > 0x1000000 {
             return Err(error("enhanced entry arguments exceed work RAM"));
         }
@@ -401,6 +424,70 @@ mod tests {
             cpu.prefetch = u32::from(bus.read16(cpu.pc, ReadKind::Prefetch));
             cpu.pending_interrupt = 6;
             Ok(StepResult::normal(16))
+        }
+    }
+    #[derive(bincode::Encode, bincode::Decode)]
+    struct Permit(bool);
+    impl super::super::Sidecar for Permit {
+        const KEY: &'static str = "authored/original-entry-permission";
+        const VERSION: u32 = 1;
+        fn validate(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+    fn guarded(id: tje_game::FunctionId) -> bool {
+        id == ids::ERROR_TRAP
+    }
+    fn permission(states: &super::super::Sidecars, _: tje_game::FunctionId) -> Result<()> {
+        if states.get::<Permit>()?.0 {
+            Ok(())
+        } else {
+            Err(error("authored scene forbids original entry"))
+        }
+    }
+    fn replacement(_: &mut dyn tje_game::Context, _: &[u32]) -> Result<Option<u32>> {
+        Ok(None)
+    }
+    #[test]
+    fn original_entry_fence_rejects_before_cpu_device_or_ram_mutation() {
+        use super::super::{EnhancedMode, EnhancedProfile, OriginalEntryGuard};
+        static ENTRIES: &[tje_game::Translation] = &[tje_game::Translation {
+            id: ids::ABS,
+            function: replacement,
+        }];
+        for revision in Revision::ALL {
+            let mut rom = vec![0; 0x100000];
+            rom[..4].copy_from_slice(&0x00ff8000_u32.to_be_bytes());
+            rom[4..8].copy_from_slice(&0x200_u32.to_be_bytes());
+            let root = ids::ERROR_TRAP.metadata().address(revision) as usize;
+            rom[root..root + 2].copy_from_slice(&0x4e75_u16.to_be_bytes());
+            let mut engine = Engine::from_devices(
+                DeviceRuntime::new(
+                    AddressSpace::new(rom, revision),
+                    &GenesisEmulatorConfig::default(),
+                ),
+                ReturnWithIrq,
+            );
+            engine.cpu_mut().write_address(7, 0xff7000);
+            engine.devices_mut().memory_mut().write_u32(0xff7000, 0x200);
+            set_pc(&mut engine, root as u32);
+            let profile = EnhancedProfile::new("authored-original-fence-v1", ENTRIES, &[])
+                .with_original_guard(OriginalEntryGuard {
+                    selected: guarded,
+                    check: permission,
+                });
+            let mut mode = EnhancedMode::new(profile, revision).unwrap();
+            mode.sidecars_mut().register(Permit(false)).unwrap();
+            let cpu = engine.cpu().clone();
+            let clock = engine.devices().clock();
+            let ram = engine.devices().memory().ram().to_vec();
+            assert!(mode.scheduled_step(&mut engine).is_err());
+            assert_eq!(engine.cpu(), &cpu);
+            assert_eq!(engine.devices().clock(), clock);
+            assert_eq!(engine.devices().memory().ram().as_slice(), ram.as_slice());
+            mode.sidecars_mut().get_mut::<Permit>().unwrap().0 = true;
+            assert!(mode.scheduled_step(&mut engine).is_ok());
+            assert_eq!(engine.cpu().pc, 0x200);
         }
     }
     #[test]

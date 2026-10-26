@@ -744,3 +744,102 @@ fn source_delta_sync_never_writes_dynamic_lifetime_ids() {
     // A different owner ledger may not resurrect that source.
     assert!(sync_population_deltas(&mut world, &population).is_err());
 }
+
+#[test]
+fn successful_pickup_clears_only_its_seat_mole_contacts_on_the_retained_floor() {
+    let (mut world, _, mut loading, coop, services, catalog, remaps, presents) = fixture();
+    let mut population = PopulationState::new(
+        PopulationLimits {
+            per_floor: 64,
+            active_bodies: 316,
+        },
+        [7; 32],
+    )
+    .unwrap();
+    for floor in [level(2), level(3)] {
+        population
+            .stage_floor(
+                floor,
+                &[AuthoredActor {
+                    local: 0,
+                    kind: Kind::Mole,
+                    position: position(640, 400),
+                    mail_order: false,
+                }],
+                &catalog,
+            )
+            .unwrap();
+        population
+            .actor_mut(population::PopulationId {
+                level: floor,
+                local: 0,
+            })
+            .unwrap()
+            .mole_contacts = SeatMask::ALL;
+    }
+    for seat in SeatId::ALL {
+        population.retain(seat, level(2)).unwrap();
+    }
+    let heroes = capture_heroes(&coop, &services);
+    let effects = capture_effects(&services.resources);
+    let mut bridge = WorldBridge::new(
+        &mut world,
+        &mut population,
+        &mut loading,
+        resources(&catalog, &remaps, &presents),
+        BridgeViews {
+            heroes: &heroes,
+            effects: &effects,
+        },
+        1,
+    )
+    .unwrap();
+    let event = ActorEffect::ClearMoleContacts {
+        seat: SeatId::ALL[2],
+        level: level(2),
+    };
+    assert!(bridge.apply_actor_effect(event).unwrap());
+    assert!(!bridge.apply_actor_effect(event).unwrap());
+    assert_eq!(
+        bridge
+            .population
+            .actor(population::PopulationId {
+                level: level(2),
+                local: 0
+            })
+            .unwrap()
+            .mole_contacts
+            .bits(),
+        0b1011
+    );
+    assert_eq!(
+        bridge
+            .population
+            .actor(population::PopulationId {
+                level: level(3),
+                local: 0
+            })
+            .unwrap()
+            .mole_contacts,
+        SeatMask::ALL
+    );
+    let before = bridge.population.clone();
+    assert!(
+        bridge
+            .apply_actor_effect(ActorEffect::ClearMoleContacts {
+                seat: SeatId::ALL[1],
+                level: level(3)
+            })
+            .is_err()
+    );
+    assert_eq!(*bridge.population, before);
+    bridge.release_hero(SeatId::ALL[1]).unwrap();
+    assert!(
+        bridge
+            .apply_actor_effect(ActorEffect::ClearMoleContacts {
+                seat: SeatId::ALL[1],
+                level: level(2)
+            })
+            .is_err()
+    );
+}

@@ -2,6 +2,89 @@
 use crate::{Admission, Error, Phase, PublicationStamp, Result, session::Session};
 use tje_four_player::input::InputFrame;
 
+/// Saved ownership of the original caller's finite phase traversal. This is
+/// independent of presentation calls and of the hardware frame in which a
+/// later original caller acknowledgement happens to execute.
+#[derive(Debug, Clone, Default, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+pub struct State {
+    pub pending_input: Option<InputFrame>,
+    pub phase: Option<Phase>,
+    pub epoch: u64,
+    pub next_ack: u8,
+    pub initial_animations: bool,
+    pub video_frames: u64,
+    pub last_video_hardware: Option<u64>,
+    pub normal_music: u8,
+    pub scene_stage: u8,
+    pub speech: [crate::publication::PublishedSpeech; 4],
+}
+impl State {
+    pub fn validate(&self, clock: &crate::PhaseClock) -> Result<()> {
+        if self.normal_music > 31 || self.scene_stage > 4 {
+            return Err(Error::State("kernel audio/scene continuation"));
+        }
+        for speech in &self.speech {
+            if usize::from(speech.length) > speech.text.len()
+                || speech.text[usize::from(speech.length)..]
+                    .iter()
+                    .any(|&byte| byte != 0)
+            {
+                return Err(Error::State("saved mode speech extent"));
+            }
+        }
+        match self.phase {
+            None if self.epoch != 0 || self.next_ack != 0 => {
+                return Err(Error::State("phase acknowledgement has no owner"));
+            }
+            Some(phase)
+                if self.epoch != clock.epoch()
+                    || phase.next() != clock.next()
+                    || self.next_ack > Self::acknowledgements(phase) =>
+            {
+                return Err(Error::State("phase acknowledgement owner/cursor"));
+            }
+            _ => {}
+        }
+        if let Some(input) = self.pending_input {
+            input
+                .validate()
+                .map_err(|_| Error::State("queued enhanced input"))?;
+            if clock.input().is_some_and(|phase| phase.frame > input.frame) {
+                return Err(Error::State(
+                    "phase input is newer than the queued hardware input",
+                ));
+            }
+            if self
+                .last_video_hardware
+                .is_some_and(|last| last > input.frame)
+            {
+                return Err(Error::State("video admission is newer than queued input"));
+            }
+        } else if self.last_video_hardware.is_some() {
+            return Err(Error::State("video admission has no input owner"));
+        }
+        Ok(())
+    }
+    pub const fn acknowledgements(phase: Phase) -> u8 {
+        if phase.publishes() { 3 } else { 9 }
+    }
+    pub fn complete(&self) -> bool {
+        self.phase
+            .is_none_or(|phase| self.next_ack == Self::acknowledgements(phase))
+    }
+    pub fn begin(&mut self, stamp: PublicationStamp) -> Result<()> {
+        if !self.complete() {
+            return Err(Error::State(
+                "original caller left a phase traversal unfinished",
+            ));
+        }
+        self.phase = Some(stamp.phase);
+        self.epoch = stamp.epoch;
+        self.next_ack = 0;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operation {
     FollowCameras,

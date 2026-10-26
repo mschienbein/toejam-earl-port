@@ -268,6 +268,20 @@ impl Context for Fixture {
     fn frame_count(&self) -> u64 {
         0
     }
+    fn entry_function(&self) -> Result<FunctionId> {
+        tje_game::functions()
+            .find(|entry| self.frame.is_prepared_for(entry.id))
+            .map(|entry| entry.id)
+            .ok_or_else(|| {
+                tje_game::Error::Platform("fixture has no prepared entry identity".into())
+            })
+    }
+    fn entry_argument(&self, index: usize) -> Result<u32> {
+        self.args
+            .get(index)
+            .copied()
+            .ok_or_else(|| tje_game::Error::Platform("fixture entry argument index".into()))
+    }
     fn entry_arguments(&self) -> Result<Vec<u32>> {
         Ok(self.args.clone())
     }

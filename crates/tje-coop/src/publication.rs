@@ -99,6 +99,10 @@ pub struct Playback {
 pub enum DynamicVisual {
     Hidden,
     Animated(Playback),
+    Static {
+        frame: tje_simulation::FrameId,
+        style: VisualStyle,
+    },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Prop {
@@ -441,6 +445,7 @@ impl<'a> PublicationBuilder<'a> {
         }
         for (id, effect) in items.effects() {
             if self.active(effect.level) {
+                let before = self.scene.actors.len();
                 self.dynamic(
                     resources,
                     DrawId::Actor(
@@ -451,6 +456,19 @@ impl<'a> PublicationBuilder<'a> {
                     effect.position,
                     source.effect_visual(id)?,
                 )?;
+                if effect.kind == tje_simulation::resources::EffectKind::Decoy
+                    && self.scene.actors.len() != before
+                {
+                    let owner = match effect.owner {
+                        tje_simulation::resources::EffectOwner::Seat(owner) => owner,
+                        _ => {
+                            return Err(Error::Invalid("decoy instance has no hero palette owner"));
+                        }
+                    };
+                    let actor = self.scene.actors.last_mut().expect("published decoy");
+                    actor.style.character = Some(source.players().players[owner.index()].character);
+                    actor.style.seat = Some(owner);
+                }
             }
         }
         for prop in source.props() {
@@ -589,19 +607,18 @@ impl<'a> PublicationBuilder<'a> {
         position: Position,
         visual: DynamicVisual,
     ) -> Result<()> {
-        if let DynamicVisual::Animated(playback) = visual
-            && !playback.style.hidden
-        {
-            let (frame, flip) =
-                resources.selected_frame(playback.animation, playback.sequence_index)?;
+        let (frame, flip, style) = match visual {
+            DynamicVisual::Hidden => return Ok(()),
+            DynamicVisual::Static { frame, style } => (frame, false, style),
+            DynamicVisual::Animated(playback) => {
+                let (frame, flip) =
+                    resources.selected_frame(playback.animation, playback.sequence_index)?;
+                (frame, flip, playback.style)
+            }
+        };
+        if !style.hidden {
             self.push(frozen_actor(
-                resources,
-                id,
-                level,
-                position,
-                frame,
-                flip,
-                playback.style,
+                resources, id, level, position, frame, flip, style,
             ))?;
         }
         Ok(())
@@ -768,7 +785,7 @@ impl PublicationRuntime {
         self.compositor.evict_resources();
     }
     #[cfg(feature = "enhanced-mode")]
-    pub fn refresh<S: tje_engine_runtime::enhanced::Sidecar + FrozenPublicationSource>(
+    pub fn refresh<S: tje_simulation::session::SessionStorage>(
         &mut self,
         mode: &tje_engine_runtime::enhanced::EnhancedMode,
         memory: &AddressSpace,
@@ -777,8 +794,10 @@ impl PublicationRuntime {
         original: &[Color],
     ) -> Result<()> {
         self.refresh_source(
-            mode.sidecars().get::<S>()?,
-            mode.sidecars().resource::<ResourceCatalog>()?,
+            mode.sidecars().get::<S>()?.session(),
+            mode.sidecars()
+                .resource::<resources::SessionCatalogue<S>>()?
+                .catalogue(),
             memory,
             vram,
             cram,

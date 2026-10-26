@@ -127,6 +127,14 @@ catalogues without cloning them. This readonly view does not replace real device
 reads/waits: audio, input and interrupt progress still use the resumable scheduler
 and approved original device calls.
 
+Mode-owned kernels borrow the common aggregate through
+`session::SessionStorage`. Co-op implements it directly on `Session`; a mode
+with additional rules may own one enclosing sidecar and return disjoint shared
+session/director borrows internally. `SessionCatalogue<S>` binds immutable
+graphics and its precommit validation to that actual owner. It does not register
+an inner Session separately or duplicate imported contracts to avoid a crate
+dependency cycle.
+
 
 ### Four-pad routing and integration
 
