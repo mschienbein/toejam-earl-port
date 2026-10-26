@@ -140,3 +140,102 @@ fn bad_crossrefs_and_wrong_aggregate_identity_never_commit_hardware() {
         before.as_bytes()
     );
 }
+
+#[test]
+fn even_checkpoint_restores_frozen_publication_across_floor_insertion() {
+    use crate::publication::{GeometryReference, PublishedKind, PublishedView};
+    use tje_world::{
+        Cell, CellPosition, generation::Phase as Loading, population::PopulationBaseline,
+    };
+    for revision in [Revision::Rev00, Revision::Rev02] {
+        let mut engine = machine(revision);
+        let mut mode = mode(revision, 123);
+        let input = advance(&mut mode, 0);
+        mode.play_frame(&mut engine, input.hardware_inputs().unwrap())
+            .unwrap();
+        let level = crate::LevelId::new(2).unwrap();
+        let inserted = crate::LevelId::new(3).unwrap();
+        {
+            let state = mode.sidecars_mut().get_mut::<Session>().unwrap();
+            let stamp = crate::PublicationStamp {
+                hardware_frame: 0,
+                phase: Phase::PresentationA,
+                epoch: 1,
+            };
+            state.publish(stamp).unwrap();
+            state.published.kind = PublishedKind::World;
+            state.published.stamp = Some(stamp);
+            state.published.geometry.push(GeometryReference {
+                level,
+                epoch: state.world.floor(level).unwrap().geometry_epoch(),
+            });
+            state.published.views[0] = PublishedView::World {
+                seat: crate::SeatId::ALL[0],
+                level,
+                origin: [0, 0],
+                attributes: 0x8000,
+                starfield: true,
+            };
+        }
+        let input = advance(&mut mode, 1);
+        mode.play_frame(&mut engine, input.hardware_inputs().unwrap())
+            .unwrap();
+        {
+            let state = mode.sidecars_mut().get_mut::<Session>().unwrap();
+            state
+                .world
+                .request_load(
+                    inserted,
+                    PopulationBaseline {
+                        walkable_tiles: 19 * 26 * 64,
+                        ordinary_items: 12,
+                        earthlings: 10,
+                        reserved_items: 2,
+                        ship_piece: true,
+                        mailbox: true,
+                    },
+                )
+                .unwrap();
+            let mut complete = false;
+            for _ in 0..100_000 {
+                match state
+                    .world
+                    .advance_loading(&crate::session_tests::Solid, 1024)
+                    .unwrap()
+                {
+                    Loading::Complete => {
+                        complete = true;
+                        break;
+                    }
+                    Loading::Rejected => panic!("authored floor insertion rejected"),
+                    _ => {}
+                }
+            }
+            assert!(complete);
+            crate::session_tests::stage_population(&state.world, &mut state.population, inserted);
+        }
+        let checkpoint = mode.snapshot(&engine).unwrap();
+        let frozen = mode.sidecars().get::<Session>().unwrap().published.clone();
+        let hardware = engine.snapshot().unwrap();
+        {
+            let state = mode.sidecars_mut().get_mut::<Session>().unwrap();
+            state
+                .world
+                .floor_mut(level)
+                .unwrap()
+                .replace_cell(CellPosition { x: 0, y: 0 }, Cell::new(1, 0).unwrap(), 0)
+                .unwrap();
+        }
+        assert!(mode.snapshot(&engine).is_err());
+        assert_eq!(engine.snapshot().unwrap().as_bytes(), hardware.as_bytes());
+        mode.restore(&mut engine, &checkpoint).unwrap();
+        let restored = mode.sidecars().get::<Session>().unwrap();
+        assert!(restored.world.floor(inserted).is_some());
+        assert_eq!(restored.published, frozen);
+        assert_eq!(restored.clock.epoch(), 2);
+        assert_eq!(
+            mode.snapshot(&engine).unwrap().as_bytes(),
+            checkpoint.as_bytes()
+        );
+    }
+}

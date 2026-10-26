@@ -10,6 +10,27 @@ pub(super) fn dispatch(
     for offset in 0..4 {
         let seat = SeatId::ALL[usize::from((priority + offset) & 3)];
         let Some(hero) = sink.hero(seat) else {
+            if actor.service_owner == Some(seat) {
+                if let Some(service) = actor.kind.service() {
+                    request(
+                        actor,
+                        seat,
+                        ContactEffect::Service {
+                            service,
+                            stage: ServiceStage::End,
+                            cost: 0,
+                        },
+                        sink,
+                    )?;
+                    actor.set_state(0);
+                    actor.timer = 0;
+                } else if actor.kind == Kind::Mole {
+                    request(actor, seat, ContactEffect::MoleRelease, sink)?;
+                }
+                actor.service_owner = None;
+                actor.service_timer = 0;
+            }
+            actor.interactions[seat.index()] = Interaction::Idle;
             continue;
         };
         let within = hero.level == actor.id.level
@@ -420,7 +441,7 @@ fn service(
             }
         }
         Interaction::Active => {
-            if matches!(service, Service::Heal | Service::Opera) && !actor.animation_finished {
+            if service == Service::Heal && !actor.animation_finished {
                 return Ok(());
             }
             if request(

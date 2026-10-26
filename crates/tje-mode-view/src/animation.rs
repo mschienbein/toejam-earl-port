@@ -119,6 +119,31 @@ impl Program {
             .and_then(Option::as_ref)
             .ok_or(Error::Invalid("animation frame not imported"))
     }
+    /// Read a saved logical selection without admitting a tick or motion event.
+    pub fn frame_at(&self, sequence_index: u16) -> Result<(u16, bool)> {
+        match self.sequence.get(usize::from(sequence_index)) {
+            Some(Entry::Frame { index, flip }) => Ok((u16::from(*index), *flip)),
+            _ => Err(Error::Invalid(
+                "saved sequence index does not select a frame",
+            )),
+        }
+    }
+
+    pub fn imported_frames(&self) -> impl Iterator<Item = (u16, &Frame)> {
+        self.frames
+            .iter()
+            .enumerate()
+            .filter_map(|(index, frame)| frame.as_ref().map(|frame| (index as u16, frame)))
+    }
+
+    pub fn selection_count(&self) -> u16 {
+        (self.sequence.len() - 1) as u16
+    }
+
+    pub fn storage_bytes(&self) -> usize {
+        self.sequence.capacity() * std::mem::size_of::<Entry>()
+            + self.frames.capacity() * std::mem::size_of::<Option<Frame>>()
+    }
     fn selection(&self, cursor: &Cursor) -> Result<(u8, bool)> {
         match self.sequence.get(usize::from(cursor.sequence_index)) {
             Some(Entry::Frame { index, flip }) => Ok((*index, *flip)),

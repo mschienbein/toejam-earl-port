@@ -11,6 +11,30 @@ use tje_four_player::{
 };
 use tje_world::{Dimensions, LevelId};
 
+mod audio;
+pub use audio::{AudioCommand, AudioCue, AudioIntent, AudioQueue, PcmSound};
+mod audio_catalog;
+mod effect_timing;
+pub use audio_catalog::CheckedAudioCatalog;
+pub use effect_timing::{
+    AnimationPeriod, EffectAnimation, EffectAnimationTiming, effect_animation_timing,
+};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
+pub enum VoluntaryScale {
+    #[default]
+    Normal,
+    Snared,
+}
+impl VoluntaryScale {
+    fn delta(self, value: i32) -> i32 {
+        match self {
+            Self::Normal => value,
+            Self::Snared => ((i64::from(value) * 3) / 4) as i32,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerError {
     Invalid(&'static str),
@@ -65,7 +89,7 @@ pub struct PlayerAnimationStep {
     pub ticks_left: u8,
     pub flip_horizontal: bool,
     pub held: bool,
-    pub motion: Option<AuthoredMotion>,
+    pub motion: Option<[i8; 2]>,
 }
 
 /// Geometry is borrowed by LevelId. Collision includes solid world actors and
@@ -81,6 +105,29 @@ pub trait PlayerGeometry {
         position: Position,
     ) -> PlayerResult<bool>;
     fn respawn(&self, seat: SeatId, checkpoint: Landing) -> PlayerResult<Landing>;
+    fn movement_blocked(
+        &self,
+        seat: SeatId,
+        archetype: Archetype,
+        level: LevelId,
+        _previous: Position,
+        proposed: Position,
+    ) -> PlayerResult<bool> {
+        self.blocked(seat, archetype, level, proposed)
+    }
+    fn terrain_cache(&self, landing: Landing) -> PlayerResult<[[u8; 5]; 5]> {
+        let mut tiles = [[0; 5]; 5];
+        for (row, values) in tiles.iter_mut().enumerate() {
+            for (column, tile) in values.iter_mut().enumerate() {
+                *tile = self.terrain(
+                    landing.level,
+                    ((landing.position.x >> 11) + column as i32 - 2) * 8,
+                    ((landing.position.y >> 11) + row as i32 - 2) * 8,
+                )?;
+            }
+        }
+        Ok(tiles)
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldPresent {
@@ -99,12 +146,22 @@ pub enum WorldPresent {
         owner: SeatId,
         level: LevelId,
         position: Position,
+        choice: u16,
     },
     OpenTelephone {
         owner: SeatId,
         level: LevelId,
         position: Position,
     },
+    OpenDecoy {
+        owner: SeatId,
+        level: LevelId,
+        position: Position,
+    },
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorldCommit {
+    pub effect_position: Option<Position>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorEffect {
@@ -139,6 +196,13 @@ pub enum ActorEffect {
         level: LevelId,
         position: Position,
     },
+    Retire {
+        effect: EffectId,
+        level: LevelId,
+    },
+    Opera {
+        seats: SeatMask,
+    },
 }
 /// External mutations are implemented by the aggregate's geometry/population
 /// adapter, not discarded events. A rejected present MUST leave its world
@@ -146,7 +210,12 @@ pub enum ActorEffect {
 /// Projectile returns true only for a real authoritative hit; sleep/music tokens
 /// name their effect generation so one boombox cannot wake another's sleepers.
 pub trait PlayerWorld: PlayerGeometry {
-    fn commit_present(&mut self, present: WorldPresent) -> PlayerResult<()>;
+    fn commit_present(&mut self, present: WorldPresent) -> PlayerResult<WorldCommit>;
+    fn commit_arrival(&mut self, seat: SeatId, landing: Landing) -> PlayerResult<()>;
+    fn release_hero(&mut self, seat: SeatId) -> PlayerResult<()>;
+    fn effect_created(&mut self, id: EffectId, effect: Effect) -> PlayerResult<()>;
+    fn choose_present(&self, rng: &mut tje_world::random::StageRng) -> PlayerResult<PresentKind>;
+    fn contact_damage(&self, kind: crate::population::Kind) -> PlayerResult<u8>;
     fn apply_actor_effect(&mut self, effect: ActorEffect) -> PlayerResult<bool>;
     fn doorway_crossing(
         &mut self,
@@ -162,8 +231,9 @@ pub trait PlayerWorld: PlayerGeometry {
         hero: SeatId,
         level: LevelId,
     ) -> PlayerResult<()>;
-    /// Runtime-imported cardinal entries from the bounded remap catalogue.
-    fn control_remap(&self, selection: u8) -> PlayerResult<[u8; 4]>;
+    /// Exact indexed direction-mask row, including neutral at zero. Inputs are
+    /// normalized before indexing; diagonals are not reconstructed by OR.
+    fn control_remap(&self, selection: u8) -> PlayerResult<[u8; 16]>;
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
@@ -181,6 +251,7 @@ pub enum PlayerMode {
     Falling,
     AwaitingFloor,
     Dying,
+    MoleCaptured,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -229,9 +300,12 @@ pub struct PlayerRuntime {
     pub rain_left: u8,
     pub rain_delay: u8,
     pub shot_delay: u8,
-    pub remap: [u8; 4],
+    pub remap: [u8; 16],
     pub checkpoint: Option<Landing>,
     pub previous_input: PlayerInput,
+    pub effective_input: PlayerInput,
+    pub last_animation_tick: Option<u64>,
+    pub locomotion_locked: bool,
     pub fall_requested: bool,
     pub fall_token: Option<u32>,
     pub ui_service: Option<ActorId>,
@@ -239,6 +313,7 @@ pub struct PlayerRuntime {
     pub ui_intent: Option<UiCommand>,
     pub blocked_axes: u8,
     pub service: Option<HeroService>,
+    pub contacts: crate::contact::SeatContacts,
     pub lemonade_rewarded: bool,
 }
 impl Default for PlayerRuntime {
@@ -258,9 +333,12 @@ impl Default for PlayerRuntime {
             rain_left: 0,
             rain_delay: 0,
             shot_delay: 0,
-            remap: [1, 2, 4, 8],
+            remap: IDENTITY_REMAP,
             checkpoint: None,
             previous_input: PlayerInput::default(),
+            effective_input: PlayerInput::default(),
+            last_animation_tick: None,
+            locomotion_locked: false,
             fall_requested: false,
             fall_token: None,
             ui_service: None,
@@ -269,6 +347,7 @@ impl Default for PlayerRuntime {
             blocked_axes: 0,
             service: None,
             lemonade_rewarded: false,
+            contacts: crate::contact::SeatContacts::default(),
         }
     }
 }
@@ -317,7 +396,7 @@ pub struct DamageRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusRequest {
     Hula(u8),
-    Remap { ticks: u16, directions: [u8; 4] },
+    Remap { ticks: u16, directions: [u8; 16] },
     Sleep(u16),
     Whirlwind { ticks: u16, position: Position },
 }
@@ -333,13 +412,40 @@ pub struct PresentReceipt {
     pub effect: Option<EffectId>,
 }
 
+/// A prepared arrival is a linear, local transaction token. It contains no
+/// borrowed geometry and cannot be serialized across an intervening world step.
+#[derive(Debug)]
+pub(crate) struct PreparedArrivals {
+    entries: [Option<PreparedArrival>; SEATS],
+    policy: ArrivalPolicy,
+    fall_slot: Option<usize>,
+}
+#[derive(Debug, Clone, Copy)]
+struct PreparedArrival {
+    seat: SeatId,
+    landing: Landing,
+    terrain: [[u8; 5]; 5],
+    count: u32,
+    health: Option<u8>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArrivalPolicy {
+    Setup { lives: u8 },
+    Relocate,
+    Fall { token: u32 },
+    Revive { lives: u8 },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct PlayerServices {
     pub runtime: [PlayerRuntime; SEATS],
     pub resources: ResourceState,
     pub fall_cohorts: [Option<FallCohort>; SEATS],
     pub randomization: Option<Randomization>,
+    pub audio: AudioQueue,
     last_player_tick: Option<u64>,
+    last_movement_tick: Option<u64>,
+    pub(crate) last_input_tick: Option<u64>,
     last_effect_tick: Option<u64>,
     donation_tick: Option<u64>,
     donated_mask: u8,
@@ -351,7 +457,10 @@ impl PlayerServices {
             resources: ResourceState::new(seed, limits)?,
             fall_cohorts: [None; SEATS],
             randomization: None,
+            audio: AudioQueue::default(),
             last_player_tick: None,
+            last_movement_tick: None,
+            last_input_tick: None,
             last_effect_tick: None,
             donation_tick: None,
             donated_mask: 0,
@@ -361,6 +470,7 @@ impl PlayerServices {
         coop.validate()
             .map_err(|_| PlayerError::Invalid("canonical seat state"))?;
         self.resources.validate(coop)?;
+        self.audio.validate()?;
         if self.donated_mask & !15 != 0 {
             return Err(PlayerError::Invalid("donation mask"));
         }
@@ -374,6 +484,7 @@ impl PlayerServices {
         let mut falling = 0;
         for (index, runtime) in self.runtime.iter().enumerate() {
             let player = &coop.players[index];
+            runtime.contacts.validate(player.seat, self)?;
             if runtime.facing > 3
                 || runtime.authored_motion.axes & !3 != 0
                 || runtime.blocked_axes & !3 != 0
@@ -487,8 +598,8 @@ impl PlayerServices {
         }
         Ok(())
     }
-    /// Called after the aggregate's new-session arrival transaction, never by an
-    /// original SetupPlayer callback. Inventories can be authored before setup.
+    /// Prepare one unplaced hero against frozen geometry, then publish only the
+    /// already-checked state. Aggregate loaders use the cohort API below.
     pub fn setup_seat(
         &mut self,
         coop: &mut CoopState,
@@ -499,36 +610,182 @@ impl PlayerServices {
     ) -> PlayerResult<()> {
         seat.validate()
             .map_err(|_| PlayerError::Invalid("setup seat"))?;
-        if lives > 127 || !coop.config().participants.contains(seat) {
-            return Err(PlayerError::Invalid("setup roster/lives"));
-        }
-        validate_landing(
-            world,
-            seat,
-            coop.players[seat.index()].character.archetype,
-            landing,
-        )?;
-        let count = coop.levels[landing.level.index()].arrivals[seat.index()]
-            .checked_add(1)
-            .ok_or(PlayerError::Invalid("arrival counter"))?;
-        let terrain = sample_terrain(world, landing)?;
-        let health = maximum_health(&coop.players[seat.index()])?;
-        let player = &mut coop.players[seat.index()];
-        if player.life != LifeState::Unplaced {
-            return Err(PlayerError::Rejected("hero setup was already committed"));
-        }
-        player.life = LifeState::Alive;
-        player.level = Some(landing.level);
-        player.motion = Motion {
-            position: landing.position,
-            ..Motion::default()
-        };
-        player.lives = lives;
-        player.health = health;
-        player.terrain = terrain;
-        coop.levels[landing.level.index()].arrivals[seat.index()] = count;
-        self.runtime[seat.index()].checkpoint = Some(landing);
+        let mut destinations = [None; SEATS];
+        destinations[seat.index()] = Some(landing);
+        let prepared =
+            self.prepare_arrivals(coop, destinations, ArrivalPolicy::Setup { lives }, world)?;
+        self.commit_arrivals(coop, prepared);
         Ok(())
+    }
+    pub(crate) fn prepare_arrivals(
+        &self,
+        coop: &CoopState,
+        destinations: [Option<Landing>; SEATS],
+        policy: ArrivalPolicy,
+        world: &impl PlayerGeometry,
+    ) -> PlayerResult<PreparedArrivals> {
+        let bits = destinations
+            .iter()
+            .enumerate()
+            .fold(0_u8, |bits, (index, landing)| {
+                bits | (u8::from(landing.is_some()) << index)
+            });
+        if bits == 0 {
+            return Err(PlayerError::Rejected("empty arrival cohort"));
+        }
+        if matches!(policy, ArrivalPolicy::Setup { lives } | ArrivalPolicy::Revive { lives } if lives > 127)
+        {
+            return Err(PlayerError::Invalid("arrival life supply"));
+        }
+        let fall_slot = if let ArrivalPolicy::Fall { token } = policy {
+            let slot = self
+                .fall_cohorts
+                .iter()
+                .position(|cohort| {
+                    cohort
+                        .is_some_and(|cohort| cohort.token == token && cohort.seats.bits() == bits)
+                })
+                .ok_or(PlayerError::Rejected("partial or unknown fall cohort"))?;
+            if !self.fall_ready(token) {
+                return Err(PlayerError::Rejected("fall cohort not ready"));
+            }
+            Some(slot)
+        } else {
+            None
+        };
+        let mut entries = [None; SEATS];
+        for seat in SeatId::ALL {
+            let Some(landing) = destinations[seat.index()] else {
+                continue;
+            };
+            let player = &coop.players[seat.index()];
+            if !coop.config().participants.contains(seat) {
+                return Err(PlayerError::Rejected("arrival names disabled hero"));
+            }
+            let eligible = match policy {
+                ArrivalPolicy::Setup { .. } => player.life == LifeState::Unplaced,
+                ArrivalPolicy::Relocate => {
+                    player.life == LifeState::Alive
+                        && self.runtime[seat.index()].fall_token.is_none()
+                }
+                ArrivalPolicy::Fall { .. } => player.life == LifeState::Alive,
+                ArrivalPolicy::Revive { .. } => {
+                    player.life == LifeState::Eliminated
+                        || player.life == LifeState::Alive
+                            && self.runtime[seat.index()].mode == PlayerMode::Dying
+                }
+            };
+            if !eligible {
+                return Err(PlayerError::Rejected("arrival hero state"));
+            }
+            validate_landing(world, seat, player.character.archetype, landing)?;
+            let count = coop.levels[landing.level.index()].arrivals[seat.index()]
+                .checked_add(1)
+                .ok_or(PlayerError::Invalid("arrival counter"))?;
+            let terrain = sample_terrain(world, landing)?;
+            let health = if matches!(
+                policy,
+                ArrivalPolicy::Setup { .. } | ArrivalPolicy::Revive { .. }
+            ) {
+                Some(maximum_health(player)?)
+            } else {
+                None
+            };
+            entries[seat.index()] = Some(PreparedArrival {
+                seat,
+                landing,
+                terrain,
+                count,
+                health,
+            });
+        }
+        Ok(PreparedArrivals {
+            entries,
+            policy,
+            fall_slot,
+        })
+    }
+    /// Must be called immediately after preflight, with no intervening mutation
+    /// of the aggregate. No geometry/resource call can fail in this commit.
+    pub(crate) fn commit_arrivals(&mut self, coop: &mut CoopState, prepared: PreparedArrivals) {
+        for entry in prepared.entries.into_iter().flatten() {
+            let player = &mut coop.players[entry.seat.index()];
+            let runtime = &mut self.runtime[entry.seat.index()];
+            let landing = entry.landing;
+            let falling = matches!(prepared.policy, ArrivalPolicy::Fall { .. });
+            player.life = LifeState::Alive;
+            player.level = Some(landing.level);
+            player.motion = Motion {
+                position: if falling {
+                    Position {
+                        elevation: 70 * 256,
+                        ..landing.position
+                    }
+                } else {
+                    landing.position
+                },
+                acceleration: if falling || landing.position.elevation > 0 {
+                    [0, 0, -32]
+                } else {
+                    [0; 3]
+                },
+                ..Motion::default()
+            };
+            player.terrain = entry.terrain;
+            player.spectating = None;
+            player.counters.fall = if falling {
+                FallState::Landing
+            } else {
+                FallState::None
+            };
+            player.ui.overlay = Overlay::Closed;
+            player.ui.choice = None;
+            runtime.mode = if falling || landing.position.elevation > 0 {
+                PlayerMode::Jumping
+            } else {
+                PlayerMode::Grounded
+            };
+            runtime.fall_token = None;
+            runtime.locomotion_locked = false;
+            runtime.fall_requested = false;
+            runtime.checkpoint = Some(Landing {
+                position: Position {
+                    elevation: 0,
+                    ..landing.position
+                },
+                ..landing
+            });
+            runtime.ui_service = None;
+            runtime.ui_offer = None;
+            runtime.ui_intent = None;
+            runtime.service = None;
+            runtime.contacts = Default::default();
+            if let Some(health) = entry.health {
+                player.health = health;
+            }
+            match prepared.policy {
+                ArrivalPolicy::Setup { lives } => player.lives = lives,
+                ArrivalPolicy::Revive { lives } => {
+                    player.lives = lives;
+                    player.active_present = None;
+                    player.counters = Default::default();
+                    let lemonade_rewarded = runtime.lemonade_rewarded;
+                    *runtime = PlayerRuntime {
+                        checkpoint: Some(landing),
+                        invulnerable_ticks: 60,
+                        lemonade_rewarded,
+                        ..PlayerRuntime::default()
+                    };
+                }
+                ArrivalPolicy::Relocate | ArrivalPolicy::Fall { .. } => {
+                    runtime.invulnerable_ticks = 30
+                }
+            }
+            coop.levels[landing.level.index()].arrivals[entry.seat.index()] = entry.count;
+        }
+        if let Some(slot) = prepared.fall_slot {
+            self.fall_cohorts[slot] = None;
+        }
     }
     pub fn refresh_terrain(
         &self,
@@ -549,51 +806,252 @@ impl PlayerServices {
         )?;
         Ok(())
     }
-    pub fn set_authored_motion(
-        &mut self,
-        seat: SeatId,
-        motion: AuthoredMotion,
-    ) -> PlayerResult<()> {
+    pub fn animation_axes(&self, seat: SeatId) -> PlayerResult<u8> {
         seat.validate()
-            .map_err(|_| PlayerError::Invalid("animation motion seat"))?;
-        if motion.axes & !3 != 0 {
-            return Err(PlayerError::Invalid("animation motion axes"));
-        }
-        self.runtime[seat.index()].authored_motion = motion;
-        Ok(())
+            .map_err(|_| PlayerError::Invalid("animation axes seat"))?;
+        Ok(self.runtime[seat.index()].authored_motion.axes)
     }
-    /// Called only at simulation-animation admission, never at draw submission.
-    /// None means no new frame callback, not zero authored motion.
+    /// Admit a simulation-animation result once. Only a newly authored frame
+    /// callback moves authored axes; held/redraw-only samples never replay it.
     pub fn apply_animation(
         &mut self,
         coop: &mut CoopState,
         seat: SeatId,
+        tick: u64,
         step: PlayerAnimationStep,
-    ) -> PlayerResult<()> {
+        scale: VoluntaryScale,
+        world: &impl PlayerGeometry,
+    ) -> PlayerResult<bool> {
         seat.validate()
             .map_err(|_| PlayerError::Invalid("animation seat"))?;
+        let runtime = &self.runtime[seat.index()];
+        if runtime.last_animation_tick == Some(tick) {
+            return Ok(false);
+        }
+        if runtime.last_animation_tick.is_some_and(|last| tick < last) {
+            return Err(PlayerError::Invalid("animation tick moved backwards"));
+        }
         if step.descriptor > 120
             || coop.players[seat.index()].animation.descriptor != step.descriptor
-            || step.motion.is_some_and(|motion| motion.axes & !3 != 0)
         {
             return Err(PlayerError::Invalid(
                 "animation admission descriptor/motion",
             ));
         }
         let player = &mut coop.players[seat.index()];
+        let runtime = &mut self.runtime[seat.index()];
+        if let Some(motion) = step.motion {
+            if player.life == LifeState::Alive
+                && !runtime.locomotion_locked
+                && !matches!(
+                    runtime.mode,
+                    PlayerMode::Falling
+                        | PlayerMode::AwaitingFloor
+                        | PlayerMode::Dying
+                        | PlayerMode::Whirlwind
+                )
+            {
+                let mut delta = [0; 2];
+                for (axis, value) in delta.iter_mut().enumerate() {
+                    if runtime.authored_motion.axes & (1 << axis) != 0 {
+                        *value = player.motion.velocity[axis]
+                            .checked_mul(i32::from(motion[axis]))
+                            .ok_or(PlayerError::Invalid("authored motion overflow"))?;
+                        if ordinary_voluntary(player, runtime) {
+                            *value = scale.delta(*value);
+                        }
+                    }
+                }
+                apply_displacement(world, seat, player, runtime, delta)?;
+            }
+            runtime.authored_motion.multiplier = motion;
+        }
         player.animation.sequence_index = step.sequence_index;
         player.animation.ticks_left = step.ticks_left;
         player.animation.flip_horizontal = step.flip_horizontal;
-        let runtime = &mut self.runtime[seat.index()];
         runtime.animation = AnimationPlayback {
             descriptor: step.descriptor,
             started: true,
             held: step.held,
         };
-        if let Some(motion) = step.motion {
-            runtime.authored_motion = motion;
+        runtime.last_animation_tick = Some(tick);
+        Ok(true)
+    }
+    /// Continuous velocity/acceleration is independent of animation callback
+    /// cadence and advances on both original even phases, never on redraw.
+    pub fn advance_movement(
+        &mut self,
+        coop: &mut CoopState,
+        tick: u64,
+        scales: [VoluntaryScale; SEATS],
+        world: &impl PlayerGeometry,
+    ) -> PlayerResult<bool> {
+        if self.last_movement_tick == Some(tick) {
+            return Ok(false);
+        }
+        if self.last_movement_tick.is_some_and(|last| tick < last) {
+            return Err(PlayerError::Invalid("movement tick moved backwards"));
+        }
+        for seat in SeatId::ALL {
+            let player = &mut coop.players[seat.index()];
+            let runtime = &mut self.runtime[seat.index()];
+            if player.life != LifeState::Alive || runtime.mode == PlayerMode::AwaitingFloor {
+                continue;
+            }
+            runtime.blocked_axes = 0;
+            if runtime.mode == PlayerMode::Falling {
+                integrate_vertical(&mut player.motion)?;
+                if player.motion.position.elevation <= -224 * 256 {
+                    runtime.mode = PlayerMode::AwaitingFloor;
+                    player.motion.velocity = [0; 3];
+                    player.motion.acceleration = [0; 3];
+                }
+                continue;
+            }
+            if runtime.locomotion_locked || runtime.mode == PlayerMode::Whirlwind {
+                continue;
+            }
+            let mut delta = [0; 2];
+            for (axis, value) in delta.iter_mut().enumerate() {
+                if runtime.authored_motion.axes & (1 << axis) == 0 {
+                    player.motion.velocity[axis] = checked_add(
+                        player.motion.velocity[axis],
+                        player.motion.acceleration[axis],
+                    )?
+                    .clamp(-64 * 256, 64 * 256);
+                    *value = player.motion.velocity[axis];
+                    if ordinary_voluntary(player, runtime) {
+                        *value = scales[seat.index()].delta(*value);
+                    }
+                }
+            }
+            apply_displacement(world, seat, player, runtime, delta)?;
+            if player.motion.position.elevation > 0
+                || player.motion.velocity[2] != 0
+                || player.motion.acceleration[2] != 0
+            {
+                integrate_vertical(&mut player.motion)?;
+            }
+            let level = player.level.expect("alive movement level");
+            if runtime.mode != PlayerMode::Dying
+                && player.motion.position.elevation <= 0
+                && world.terrain(
+                    level,
+                    player.motion.position.x >> 8,
+                    player.motion.position.y >> 8,
+                )? & 0xf0
+                    <= 0x50
+            {
+                player.motion.position.elevation = 0;
+                player.motion.velocity[2] = 0;
+                player.motion.acceleration[2] = 0;
+                player.counters.fall = FallState::None;
+                if matches!(
+                    runtime.mode,
+                    PlayerMode::Jumping | PlayerMode::Flying | PlayerMode::Swimming
+                ) {
+                    runtime.mode = PlayerMode::Grounded;
+                }
+            }
+            player
+                .motion
+                .position
+                .validate()
+                .map_err(|_| PlayerError::Invalid("hero motion bound"))?;
+        }
+        for effect in self.resources.effects_mut() {
+            if matches!(
+                effect.kind,
+                EffectKind::Tomato
+                    | EffectKind::Slingshot
+                    | EffectKind::RainTomato
+                    | EffectKind::ControlRemap
+                    | EffectKind::StolenPresent
+            ) {
+                for axis in 0..3 {
+                    effect.velocity[axis] =
+                        checked_add(effect.velocity[axis], effect.acceleration[axis])?;
+                }
+                effect.position.x = checked_add(effect.position.x, effect.velocity[0])?;
+                effect.position.y = checked_add(effect.position.y, effect.velocity[1])?;
+                effect.position.elevation =
+                    checked_add(effect.position.elevation, effect.velocity[2])?;
+                effect
+                    .position
+                    .validate()
+                    .map_err(|_| PlayerError::Invalid("effect position overflow"))?;
+            }
+        }
+        self.last_movement_tick = Some(tick);
+        Ok(true)
+    }
+    pub fn enter_transition(&mut self, coop: &mut CoopState, seats: SeatMask) -> PlayerResult<()> {
+        seats
+            .validate()
+            .map_err(|_| PlayerError::Invalid("transition mask"))?;
+        for seat in seats.iter() {
+            if coop.players[seat.index()].life != LifeState::Alive {
+                return Err(PlayerError::Rejected("transition hero is not alive"));
+            }
+        }
+        for seat in seats.iter() {
+            self.runtime[seat.index()].locomotion_locked = true;
+            if !matches!(
+                self.runtime[seat.index()].mode,
+                PlayerMode::Falling | PlayerMode::AwaitingFloor
+            ) {
+                coop.players[seat.index()].motion.velocity = [0; 3];
+                coop.players[seat.index()].motion.acceleration = [0; 3];
+            }
         }
         Ok(())
+    }
+    pub fn leave_transition(&mut self, seats: SeatMask) -> PlayerResult<()> {
+        seats
+            .validate()
+            .map_err(|_| PlayerError::Invalid("transition mask"))?;
+        for seat in seats.iter() {
+            self.runtime[seat.index()].locomotion_locked = false;
+        }
+        Ok(())
+    }
+    pub fn try_ground_bump(
+        &mut self,
+        coop: &mut CoopState,
+        seat: SeatId,
+        destination: Landing,
+        world: &impl PlayerGeometry,
+    ) -> PlayerResult<bool> {
+        seat.validate()
+            .map_err(|_| PlayerError::Invalid("bump seat"))?;
+        let player = &coop.players[seat.index()];
+        let runtime = &self.runtime[seat.index()];
+        if !self.can_receive_effect(coop, seat)
+            || runtime.mode != PlayerMode::Grounded
+            || runtime.locomotion_locked
+            || runtime.service.is_some()
+            || player.ui.overlay != Overlay::Closed
+            || player.counters.respawn_suppression_ticks != 0
+            || player.counters.hula_dance_ticks != 0
+            || player.level != Some(destination.level)
+            || destination.position.elevation != 0
+        {
+            return Ok(false);
+        }
+        let dx = i64::from(destination.position.x) - i64::from(player.motion.position.x);
+        let dy = i64::from(destination.position.y) - i64::from(player.motion.position.y);
+        if dx * dx + dy * dy > i64::from(12 * 256).pow(2) {
+            return Ok(false);
+        }
+        match validate_landing(world, seat, player.character.archetype, destination) {
+            Ok(()) => {}
+            Err(PlayerError::Geometry("unsafe landing")) => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        let terrain = sample_terrain(world, destination)?;
+        coop.players[seat.index()].motion.position = destination.position;
+        coop.players[seat.index()].terrain = terrain;
+        Ok(true)
     }
     pub fn ui(&mut self, coop: &mut CoopState, seat: SeatId, intent: UiIntent) -> PlayerResult<()> {
         seat.validate()
@@ -766,6 +1224,90 @@ impl PlayerServices {
         };
         Ok(true)
     }
+    pub(crate) fn advance_automatic_service(
+        &mut self,
+        coop: &mut CoopState,
+        seat: SeatId,
+        actor: ActorId,
+        kind: HeroServiceKind,
+        position: Position,
+        world: &impl PlayerGeometry,
+    ) -> PlayerResult<(bool, Option<ActorEffect>)> {
+        let existing = self.runtime[seat.index()].service;
+        if !self.service_contact(coop, seat, actor, kind, position)? {
+            return Ok((false, None));
+        }
+        if existing.is_none() {
+            return Ok((true, None));
+        }
+        self.audio.reserve(2)?;
+        let was_rewarded = self.runtime[seat.index()].lemonade_rewarded;
+        let previous_stage = existing.expect("existing service").stage;
+        let input = self.runtime[seat.index()].previous_input;
+        let mut effect = None;
+        let accepted = tick_service(
+            &mut coop.players[seat.index()],
+            &mut self.runtime[seat.index()],
+            input,
+            world,
+            &mut effect,
+        )?;
+        let runtime = &self.runtime[seat.index()];
+        if kind == HeroServiceKind::Lemonade && runtime.service.is_none() {
+            self.audio.enqueue(
+                seat,
+                AudioCue::Pcm {
+                    sound: PcmSound::Burp,
+                    priority: 50,
+                    mode: 0,
+                },
+            )?;
+            if !was_rewarded && runtime.lemonade_rewarded {
+                self.audio.enqueue(
+                    seat,
+                    AudioCue::Pcm {
+                        sound: PcmSound::ExtraLife,
+                        priority: 87,
+                        mode: 0,
+                    },
+                )?;
+            }
+        }
+        if kind == HeroServiceKind::HotTub
+            && previous_stage == ServiceStage::Descend
+            && runtime
+                .service
+                .is_some_and(|service| service.stage == ServiceStage::Splash)
+        {
+            self.audio.enqueue(
+                seat,
+                AudioCue::Pcm {
+                    sound: PcmSound::Splash,
+                    priority: 50,
+                    mode: 0,
+                },
+            )?;
+        }
+        Ok((accepted, effect))
+    }
+    pub(crate) fn release_forced_pose(&mut self, coop: &mut CoopState, seat: SeatId) {
+        let player = &mut coop.players[seat.index()];
+        let runtime = &mut self.runtime[seat.index()];
+        if matches!(
+            runtime.mode,
+            PlayerMode::Grounded | PlayerMode::Swimming | PlayerMode::MoleCaptured
+        ) {
+            if runtime.mode == PlayerMode::MoleCaptured {
+                runtime.mode = PlayerMode::Grounded;
+            }
+            select_motion_pose(
+                player,
+                runtime,
+                PlayerInput::default(),
+                player.terrain[2][2] & 0xf0,
+            );
+        }
+    }
     pub fn can_receive_effect(&self, coop: &CoopState, seat: SeatId) -> bool {
         let player = &coop.players[seat.index()];
         let runtime = &self.runtime[seat.index()];
@@ -802,9 +1344,27 @@ impl PlayerServices {
         if request.amount == 0 || !self.can_receive_effect(coop, seat) {
             return Ok(false);
         }
+        let cue = match request.style {
+            DamageStyle::Direct => AudioCue::Psg {
+                command: 18,
+                priority: 40,
+            },
+            DamageStyle::Squish => AudioCue::Pcm {
+                sound: PcmSound::Squish,
+                priority: 50,
+                mode: 0,
+            },
+            DamageStyle::Hurt => AudioCue::Pcm {
+                sound: PcmSound::youch(coop.players[seat.index()].character.archetype),
+                priority: 50,
+                mode: 0,
+            },
+        };
+        self.audio.reserve(1)?;
         if request.style == DamageStyle::Direct {
             let player = &mut coop.players[seat.index()];
             player.health = player.health.saturating_sub(request.amount);
+            self.audio.enqueue(seat, cue)?;
             return Ok(true);
         }
         if request.style == DamageStyle::Squish {
@@ -817,6 +1377,9 @@ impl PlayerServices {
             runtime.mode = PlayerMode::Squished;
             runtime.mode_ticks = 30;
             runtime.invulnerable_ticks = 30;
+            runtime.authored_motion.axes = 3;
+            reset_playback(player, runtime);
+            self.audio.enqueue(seat, cue)?;
             return Ok(true);
         }
         let player = &coop.players[seat.index()];
@@ -848,6 +1411,9 @@ impl PlayerServices {
         runtime.mode = PlayerMode::Hurt;
         runtime.mode_ticks = 12;
         player.animation.descriptor = 52 + facing;
+        runtime.authored_motion.axes = 3;
+        reset_playback(player, runtime);
+        self.audio.enqueue(seat, cue)?;
         Ok(true)
     }
     pub fn status(
@@ -888,6 +1454,7 @@ impl PlayerServices {
             StatusRequest::Hula(ticks) => {
                 player.counters.hula_dance_ticks = ticks;
                 player.animation.descriptor = 89;
+                runtime.authored_motion.axes = 3;
             }
             StatusRequest::Remap { ticks, directions } => {
                 runtime.remap = directions;
@@ -897,17 +1464,20 @@ impl PlayerServices {
                 runtime.sleep_ticks = ticks;
                 runtime.mode = PlayerMode::Sleeping;
                 player.animation.descriptor = 117;
+                runtime.authored_motion.axes = 0;
             }
             StatusRequest::Whirlwind { ticks, position } => {
                 runtime.mode = PlayerMode::Whirlwind;
                 runtime.mode_ticks = ticks;
                 player.motion.position = position;
                 player.animation.descriptor = 79;
+                runtime.authored_motion.axes = 0;
             }
         }
         if !matches!(status, StatusRequest::Remap { .. }) {
             player.motion.velocity = [0; 3];
             player.motion.acceleration = [0; 3];
+            reset_playback(player, runtime);
         }
         Ok(true)
     }
@@ -919,7 +1489,7 @@ impl PlayerServices {
         tick: u64,
         donor: SeatId,
         recipient: SeatId,
-        world: &impl PlayerGeometry,
+        world: &mut impl PlayerWorld,
     ) -> PlayerResult<()> {
         self.check_donation(tick, donor, recipient)?;
         let from = &coop.players[donor.index()];
@@ -931,12 +1501,26 @@ impl PlayerServices {
             .checkpoint
             .ok_or(PlayerError::Invalid("life recipient checkpoint"))?;
         let landing = world.respawn(recipient, checkpoint)?;
-        validate_landing(world, recipient, to.character.archetype, landing)?;
-        let count = coop.levels[landing.level.index()].arrivals[recipient.index()]
-            .checked_add(1)
-            .ok_or(PlayerError::Invalid("arrival counter"))?;
+        let mut destinations = [None; SEATS];
+        destinations[recipient.index()] = Some(landing);
+        let prepared = self.prepare_arrivals(
+            coop,
+            destinations,
+            ArrivalPolicy::Revive { lives: 0 },
+            world,
+        )?;
+        self.audio.reserve(1)?;
+        world.commit_arrival(recipient, landing)?;
         coop.players[donor.index()].lives -= 1;
-        self.revive(coop, recipient, landing, count)?;
+        self.commit_arrivals(coop, prepared);
+        self.audio.enqueue(
+            recipient,
+            AudioCue::Pcm {
+                sound: PcmSound::ExtraLife,
+                priority: 87,
+                mode: 0,
+            },
+        )?;
         self.commit_donation(tick, donor, recipient);
         Ok(())
     }
@@ -993,37 +1577,6 @@ impl PlayerServices {
         self.donation_tick = Some(tick);
         self.donated_mask |= (1 << donor.get()) | (1 << recipient.get());
     }
-    fn revive(
-        &mut self,
-        coop: &mut CoopState,
-        seat: SeatId,
-        landing: Landing,
-        count: u32,
-    ) -> PlayerResult<()> {
-        let health = maximum_health(&coop.players[seat.index()])?;
-        let player = &mut coop.players[seat.index()];
-        player.life = LifeState::Alive;
-        player.level = Some(landing.level);
-        player.motion = Motion {
-            position: landing.position,
-            ..Motion::default()
-        };
-        player.health = health;
-        player.spectating = None;
-        player.active_present = None;
-        player.counters = Default::default();
-        player.animation = Default::default();
-        player.ui = Default::default();
-        coop.levels[landing.level.index()].arrivals[seat.index()] = count;
-        let runtime = &mut self.runtime[seat.index()];
-        *runtime = PlayerRuntime {
-            checkpoint: Some(landing),
-            invulnerable_ticks: 60,
-            lemonade_rewarded: runtime.lemonade_rewarded,
-            ..PlayerRuntime::default()
-        };
-        Ok(())
-    }
     pub fn pending_falls(&self) -> SeatMask {
         SeatMask::new(
             self.runtime
@@ -1073,6 +1626,7 @@ impl PlayerServices {
             player.ui.overlay = Overlay::Closed;
             player.motion.velocity = [0; 3];
             player.motion.acceleration = [0, 0, -128];
+            runtime.authored_motion.axes = 0;
             player.animation.descriptor = 20 + runtime.facing;
         }
         Ok(())
@@ -1098,57 +1652,9 @@ impl PlayerServices {
         destinations: [Option<Landing>; SEATS],
         world: &impl PlayerGeometry,
     ) -> PlayerResult<()> {
-        let index = self
-            .fall_cohorts
-            .iter()
-            .position(|cohort| cohort.is_some_and(|value| value.token == token))
-            .ok_or(PlayerError::Rejected("unknown fall cohort"))?;
-        let cohort = self.fall_cohorts[index].expect("cohort");
-        if !self.fall_ready(token) {
-            return Err(PlayerError::Rejected("fall cohort not ready"));
-        }
-        let mut tiles = [[[0; 5]; 5]; SEATS];
-        for seat in SeatId::ALL {
-            if cohort.seats.contains(seat) != destinations[seat.index()].is_some() {
-                return Err(PlayerError::Rejected(
-                    "partial fall destination transaction",
-                ));
-            }
-            if let Some(landing) = destinations[seat.index()] {
-                validate_landing(
-                    world,
-                    seat,
-                    coop.players[seat.index()].character.archetype,
-                    landing,
-                )?;
-                coop.levels[landing.level.index()].arrivals[seat.index()]
-                    .checked_add(1)
-                    .ok_or(PlayerError::Invalid("arrival counter"))?;
-                tiles[seat.index()] = sample_terrain(world, landing)?;
-            }
-        }
-        for seat in cohort.seats.iter() {
-            let landing = destinations[seat.index()].expect("validated destination");
-            let player = &mut coop.players[seat.index()];
-            player.level = Some(landing.level);
-            player.motion = Motion {
-                position: Position {
-                    elevation: 70 * 256,
-                    ..landing.position
-                },
-                acceleration: [0, 0, -32],
-                ..Motion::default()
-            };
-            player.terrain = tiles[seat.index()];
-            player.counters.fall = FallState::Landing;
-            coop.levels[landing.level.index()].arrivals[seat.index()] += 1;
-            let runtime = &mut self.runtime[seat.index()];
-            runtime.mode = PlayerMode::Jumping;
-            runtime.fall_token = None;
-            runtime.checkpoint = Some(landing);
-            runtime.invulnerable_ticks = 30;
-        }
-        self.fall_cohorts[index] = None;
+        let prepared =
+            self.prepare_arrivals(coop, destinations, ArrivalPolicy::Fall { token }, world)?;
+        self.commit_arrivals(coop, prepared);
         Ok(())
     }
     pub fn open_present(
@@ -1187,7 +1693,15 @@ impl PlayerServices {
         // Roll locally first: rejection does not consume randomness or inventory.
         let mut rng = self.resources.effect_rng;
         let kind = if requested == PresentKind::Mystery {
-            PresentKind::ALL[rng.bounded(26) as usize]
+            let mut resolved = None;
+            for _ in 0..1024 {
+                let candidate = world.choose_present(&mut rng)?;
+                if candidate != PresentKind::Mystery {
+                    resolved = Some(candidate);
+                    break;
+                }
+            }
+            resolved.ok_or(PlayerError::Rejected("mystery resolution exhausted"))?
         } else {
             requested
         };
@@ -1215,7 +1729,14 @@ impl PlayerServices {
             PresentKind::Boombox => Some((EffectKind::Boombox, 300)),
             _ => None,
         };
+        let existing_effect = effect_kind.and_then(|(kind, _)| {
+            self.resources
+                .effects()
+                .find(|(_, effect)| effect.owner == EffectOwner::Seat(seat) && effect.kind == kind)
+                .map(|(id, effect)| (id, *effect))
+        });
         if effect_kind.is_some()
+            && existing_effect.is_none()
             && !self
                 .resources
                 .effect_capacity_available(EffectOwner::Seat(seat))
@@ -1249,12 +1770,14 @@ impl PlayerServices {
         } else {
             None
         };
+        let present_audio = present_audio(kind, food_delta);
+        self.audio.reserve(present_audio.iter().flatten().count())?;
         if let Some(target) = target {
             let other = &coop.players[target.index()];
             let destination = Landing {
                 level: other.level.expect("alive target"),
                 position: Position {
-                    elevation: 0,
+                    elevation: 70 * 256,
                     ..other.motion.position
                 },
             };
@@ -1268,38 +1791,76 @@ impl PlayerServices {
                 destination,
             })?;
         }
+        let mut effect_position = position;
         match kind {
-            PresentKind::Earthling => world.commit_present(WorldPresent::SpawnEarthling {
-                owner: seat,
-                level,
-                position,
-                choice: rng.next_u16(),
-            })?,
-            PresentKind::Doorway => world.commit_present(WorldPresent::OpenDoorway {
-                owner: seat,
-                level,
-                position,
-            })?,
-            PresentKind::Telephone => world.commit_present(WorldPresent::OpenTelephone {
-                owner: seat,
-                level,
-                position,
-            })?,
+            PresentKind::Earthling => {
+                world.commit_present(WorldPresent::SpawnEarthling {
+                    owner: seat,
+                    level,
+                    position,
+                    choice: rng.next_u16(),
+                })?;
+            }
+            PresentKind::Decoy | PresentKind::Doorway | PresentKind::Telephone => {
+                let request = match kind {
+                    PresentKind::Decoy => WorldPresent::OpenDecoy {
+                        owner: seat,
+                        level,
+                        position,
+                    },
+                    PresentKind::Doorway => WorldPresent::OpenDoorway {
+                        owner: seat,
+                        level,
+                        position,
+                        choice: rng.next_u16(),
+                    },
+                    PresentKind::Telephone => WorldPresent::OpenTelephone {
+                        owner: seat,
+                        level,
+                        position,
+                    },
+                    _ => unreachable!("checked placement kind"),
+                };
+                effect_position =
+                    world
+                        .commit_present(request)?
+                        .effect_position
+                        .ok_or(PlayerError::Invalid(
+                            "present world omitted accepted placement",
+                        ))?;
+                effect_position
+                    .validate()
+                    .map_err(|_| PlayerError::Invalid("accepted effect placement"))?;
+            }
+            PresentKind::Boombox => {
+                effect_position.y = checked_add(effect_position.y, 4 * 256)?;
+            }
             _ => {}
         }
         let effect = if let Some((effect_kind, ticks)) = effect_kind {
-            Some(self.resources.spawn_effect(Effect::stationary(
-                seat,
-                kind,
-                effect_kind,
-                level,
-                position,
-                ticks,
-            ))?)
+            let fresh = Effect::stationary(seat, kind, effect_kind, level, effect_position, ticks);
+            let id = if let Some((id, previous)) = existing_effect {
+                world.apply_actor_effect(ActorEffect::Retire {
+                    effect: id,
+                    level: previous.level,
+                })?;
+                *self
+                    .resources
+                    .effect_mut(id)
+                    .expect("live preflight effect") = fresh;
+                id
+            } else {
+                self.resources.spawn_effect(fresh)?
+            };
+            world.effect_created(id, fresh)?;
+            Some(id)
         } else {
             None
         };
         self.resources.effect_rng = rng;
+        for cue in present_audio.into_iter().flatten() {
+            self.audio.enqueue(seat, cue)?;
+        }
         if requested != PresentKind::Mystery {
             self.resources.presents.identify(wrapper);
         }
@@ -1345,7 +1906,7 @@ impl PlayerServices {
             }
             PresentKind::RootBeer => {
                 runtime.burps_left = runtime.burps_left.saturating_add(burps);
-                runtime.burp_delay = 1;
+                runtime.burp_delay = 50;
                 player.health = player.health.saturating_add(4).min(maximum_health(player)?);
             }
             PresentKind::Promotion => {
@@ -1467,17 +2028,13 @@ impl PlayerServices {
         }
         runtime.invulnerable_ticks = runtime.invulnerable_ticks.saturating_sub(1);
         runtime.shot_delay = runtime.shot_delay.saturating_sub(1);
+        input.directions = normalize_directions(input.directions);
+        runtime.contacts.shark_alert_ticks = runtime.contacts.shark_alert_ticks.saturating_sub(1);
         if player.counters.controls_remap_ticks != 0 {
             player.counters.controls_remap_ticks -= 1;
-            let mut remapped = 0;
-            for direction in 0..4 {
-                if input.directions & (1 << direction) != 0 {
-                    remapped |= runtime.remap[direction];
-                }
-            }
-            input.directions = remapped;
+            input.directions = runtime.remap[usize::from(input.directions)];
             if player.counters.controls_remap_ticks == 0 {
-                runtime.remap = [1, 2, 4, 8];
+                runtime.remap = IDENTITY_REMAP;
             }
         }
         let blocked_input = player.ui.overlay != Overlay::Closed;
@@ -1583,20 +2140,41 @@ impl PlayerServices {
                 return Ok(());
             }
             if player.lives == 0 {
+                world.release_hero(seat)?;
                 player.life = LifeState::Eliminated;
                 player.level = None;
                 player.motion = Motion::default();
+                runtime.contacts = Default::default();
+                runtime.service = None;
+                runtime.fall_token = None;
+                for entry in &mut self.fall_cohorts {
+                    if let Some(cohort) = entry
+                        && cohort.seats.contains(seat)
+                    {
+                        let seats = cohort.seats.bits() & !(1 << seat.get());
+                        if seats == 0 {
+                            *entry = None;
+                        } else {
+                            cohort.seats = SeatMask::new(seats).expect("four seats");
+                        }
+                    }
+                }
             } else {
                 let checkpoint = runtime
                     .checkpoint
                     .ok_or(PlayerError::Invalid("death checkpoint"))?;
                 let landing = world.respawn(seat, checkpoint)?;
-                validate_landing(world, seat, player.character.archetype, landing)?;
-                let count = coop.levels[landing.level.index()].arrivals[index]
-                    .checked_add(1)
-                    .ok_or(PlayerError::Invalid("arrival counter"))?;
-                player.lives -= 1;
-                self.revive(coop, seat, landing, count)?;
+                let lives = player.lives - 1;
+                let mut destinations = [None; SEATS];
+                destinations[seat.index()] = Some(landing);
+                let prepared = self.prepare_arrivals(
+                    coop,
+                    destinations,
+                    ArrivalPolicy::Revive { lives },
+                    world,
+                )?;
+                world.commit_arrival(seat, landing)?;
+                self.commit_arrivals(coop, prepared);
             }
             return Ok(());
         }
@@ -1614,20 +2192,25 @@ impl PlayerServices {
             return Ok(());
         }
         if runtime.mode == PlayerMode::Falling {
-            integrate_vertical(&mut player.motion)?;
-            if player.motion.position.elevation <= -224 * 256 {
-                runtime.mode = PlayerMode::AwaitingFloor;
-                player.motion.velocity = [0; 3];
-                player.motion.acceleration = [0; 3];
-            }
+            runtime.effective_input = PlayerInput::default();
             return Ok(());
         }
         let terrain = player.terrain[2][2] & 0xf0;
-        if !matches!(
-            runtime.mode,
-            PlayerMode::Hurt | PlayerMode::Squished | PlayerMode::Sleeping
-        ) && tick_service(player, runtime, input, world)?
+        if runtime.service.is_some()
+            || runtime.contacts.offer.is_some_and(|offer| {
+                offer.active
+                    && matches!(
+                        offer.service,
+                        crate::population::Service::Heal | crate::population::Service::Opera
+                    )
+            })
+            || runtime.mode == PlayerMode::MoleCaptured
         {
+            runtime.effective_input = PlayerInput::default();
+            return Ok(());
+        }
+        if runtime.locomotion_locked {
+            runtime.effective_input = PlayerInput::default();
             return Ok(());
         }
         if terrain == 0x90 && player.motion.position.elevation <= 0 {
@@ -1730,7 +2313,22 @@ impl PlayerServices {
                 player.motion.velocity[1] = vertical * if horizontal != 0 { sy } else { sx };
             }
         }
-        move_player(world, seat, player, runtime)?;
+        runtime.authored_motion.axes = match runtime.mode {
+            PlayerMode::Grounded | PlayerMode::Swimming if input.directions != 0 => {
+                if runtime.equipped == Some(PresentKind::SuperHiTops)
+                    && (input.jump || input.action)
+                {
+                    0
+                } else if input.directions & 12 != 0 {
+                    3
+                } else {
+                    2
+                }
+            }
+            PlayerMode::Hurt | PlayerMode::Squished => 3,
+            _ => 0,
+        };
+        runtime.effective_input = input;
         select_motion_pose(player, runtime, input, terrain);
         if player.counters.idle_ticks > 300
             && runtime.mode == PlayerMode::Grounded
@@ -1748,11 +2346,16 @@ impl PlayerServices {
                 Some(PresentKind::Tomatoes | PresentKind::Slingshot | PresentKind::RoseBushes)
             )
         {
-            self.launch_present(coop, seat)?;
+            self.launch_present(coop, seat, world)?;
         }
         Ok(())
     }
-    fn launch_present(&mut self, coop: &CoopState, seat: SeatId) -> PlayerResult<()> {
+    fn launch_present(
+        &mut self,
+        coop: &CoopState,
+        seat: SeatId,
+        world: &mut impl PlayerWorld,
+    ) -> PlayerResult<()> {
         let player = &coop.players[seat.index()];
         let runtime = &mut self.runtime[seat.index()];
         let source = runtime
@@ -1812,7 +2415,8 @@ impl PlayerServices {
             ];
             effect.acceleration[2] = az;
         }
-        self.resources.spawn_effect(effect)?;
+        let id = self.resources.spawn_effect(effect)?;
+        world.effect_created(id, effect)?;
         runtime.shot_delay = if kind == EffectKind::RoseBush { 20 } else { 10 };
         Ok(())
     }
@@ -1829,16 +2433,23 @@ impl PlayerServices {
             return Err(PlayerError::Invalid("repeated effect phase"));
         }
         if let Some(randomization) = &mut self.randomization {
-            for hero in &mut coop.players {
-                for wrapper in hero.inventory.iter_mut().flatten() {
-                    if wrapper.get() < 26 {
-                        *wrapper = tje_four_player::state::PresentWrapper::new(
-                            self.resources.effect_rng.bounded(26) as u8,
-                        )
-                        .expect("wrapper");
+            let mut rng = self.resources.effect_rng;
+            let mut inventory =
+                std::array::from_fn::<_, SEATS, _>(|index| coop.players[index].inventory);
+            for hero in &mut inventory {
+                for wrapper in hero.iter_mut().flatten() {
+                    if self.resources.presents.kind(*wrapper) != PresentKind::BonusHiTops {
+                        *wrapper = self
+                            .resources
+                            .presents
+                            .wrapper_for(world.choose_present(&mut rng)?);
                     }
                 }
             }
+            for (player, inventory) in coop.players.iter_mut().zip(inventory) {
+                player.inventory = inventory;
+            }
+            self.resources.effect_rng = rng;
             randomization.steps_left -= 1;
             if randomization.steps_left == 0 {
                 self.randomization = None;
@@ -1861,13 +2472,22 @@ impl PlayerServices {
             if runtime.burps_left != 0 {
                 runtime.burp_delay = runtime.burp_delay.saturating_sub(1);
                 if runtime.burp_delay == 0 {
+                    self.audio.reserve(1)?;
                     world.apply_actor_effect(ActorEffect::Burp {
                         owner: seat,
                         level: player.level.expect("alive level"),
                         position: player.motion.position,
                     })?;
+                    self.audio.enqueue(
+                        seat,
+                        AudioCue::Pcm {
+                            sound: PcmSound::Burp,
+                            priority: 50,
+                            mode: 0,
+                        },
+                    )?;
                     runtime.burps_left -= 1;
-                    runtime.burp_delay = 30 + self.resources.effect_rng.bounded(60) as u16;
+                    runtime.burp_delay = 20 + self.resources.effect_rng.bounded(81) as u16;
                 }
             }
             if runtime.rain_left != 0 {
@@ -1896,7 +2516,8 @@ impl PlayerServices {
                     effect.position.elevation = 224 * 256;
                     effect.velocity[2] = -384;
                     effect.acceleration[2] = -18;
-                    self.resources.spawn_effect(effect)?;
+                    let id = self.resources.spawn_effect(effect)?;
+                    world.effect_created(id, effect)?;
                     runtime.rain_left -= 1;
                     runtime.rain_delay = self.resources.effect_rng.bounded(5) as u8 + 4;
                 }
@@ -1904,6 +2525,41 @@ impl PlayerServices {
         }
         self.last_effect_tick = Some(tick);
         Ok(())
+    }
+    pub fn retire_effect(
+        &mut self,
+        id: EffectId,
+        world: &mut impl PlayerWorld,
+    ) -> PlayerResult<bool> {
+        let Some(effect) = self.resources.effect(id).copied() else {
+            return Ok(false);
+        };
+        world.apply_actor_effect(ActorEffect::Retire {
+            effect: id,
+            level: effect.level,
+        })?;
+        Ok(self.resources.release_effect(id))
+    }
+    pub fn set_effect_animation(&mut self, id: EffectId, held: bool) -> PlayerResult<()> {
+        let effect = self
+            .resources
+            .effect_mut(id)
+            .ok_or(PlayerError::Invalid("stale effect animation"))?;
+        effect.animation_complete = held;
+        Ok(())
+    }
+    pub fn hit_decoy(&mut self, id: EffectId, world: &mut impl PlayerWorld) -> PlayerResult<bool> {
+        if !self.resources.hit_decoy(id) {
+            return Ok(false);
+        }
+        if self
+            .resources
+            .effect(id)
+            .is_some_and(|effect| effect.hits >= 3)
+        {
+            self.retire_effect(id, world)?;
+        }
+        Ok(true)
     }
     fn tick_effect(
         &mut self,
@@ -1922,7 +2578,7 @@ impl PlayerServices {
                     level: effect.level,
                 })?;
             }
-            self.resources.release_effect(id);
+            self.retire_effect(id, world)?;
             return Ok(());
         }
         let owner = match effect.owner {
@@ -1934,7 +2590,7 @@ impl PlayerServices {
                 if owner.is_none_or(|seat| coop.players[seat.index()].level != Some(effect.level))
                     || effect.hits >= 3
                 {
-                    self.resources.release_effect(id);
+                    self.retire_effect(id, world)?;
                     return Ok(());
                 }
             }
@@ -1942,7 +2598,7 @@ impl PlayerServices {
                 let seat = owner.ok_or(PlayerError::Invalid("rain cloud seat owner"))?;
                 let hero = &coop.players[seat.index()];
                 if hero.life != LifeState::Alive {
-                    self.resources.release_effect(id);
+                    self.retire_effect(id, world)?;
                     return Ok(());
                 }
                 effect.level = hero.level.expect("alive level");
@@ -1974,29 +2630,48 @@ impl PlayerServices {
                 })?;
             }
             EffectKind::RoseBush => {
-                world.apply_actor_effect(ActorEffect::Roses {
-                    effect: id,
-                    owner: owner.ok_or(PlayerError::Invalid("rose owner"))?,
-                    level: effect.level,
-                    position: effect.position,
-                })?;
+                if effect.animation_complete {
+                    world.apply_actor_effect(ActorEffect::Roses {
+                        effect: id,
+                        owner: owner.ok_or(PlayerError::Invalid("rose owner"))?,
+                        level: effect.level,
+                        position: effect.position,
+                    })?;
+                    let damage = world.contact_damage(crate::population::Kind::Devil)?;
+                    for seat in SeatId::ALL {
+                        let hero = &coop.players[seat.index()];
+                        let near = hero.life == LifeState::Alive
+                            && hero.level == Some(effect.level)
+                            && (i64::from(hero.motion.position.x) - i64::from(effect.position.x))
+                                .abs()
+                                < 25 * 256
+                            && (i64::from(hero.motion.position.y) - i64::from(effect.position.y))
+                                .abs()
+                                < 10 * 256;
+                        if near && effect.contact_mask & (1 << seat.get()) == 0 {
+                            if self.damage(
+                                coop,
+                                seat,
+                                DamageRequest {
+                                    source: DamageSource::Effect(id),
+                                    amount: damage,
+                                    style: DamageStyle::Hurt,
+                                    origin: effect.position,
+                                },
+                                world,
+                            )? {
+                                effect.contact_mask |= 1 << seat.get();
+                            }
+                        } else if !near {
+                            effect.contact_mask &= !(1 << seat.get());
+                        }
+                    }
+                }
             }
             EffectKind::Tomato
             | EffectKind::Slingshot
             | EffectKind::RainTomato
             | EffectKind::ControlRemap => {
-                for axis in 0..3 {
-                    effect.velocity[axis] =
-                        checked_add(effect.velocity[axis], effect.acceleration[axis])?;
-                }
-                effect.position.x = checked_add(effect.position.x, effect.velocity[0])?;
-                effect.position.y = checked_add(effect.position.y, effect.velocity[1])?;
-                effect.position.elevation =
-                    checked_add(effect.position.elevation, effect.velocity[2])?;
-                effect
-                    .position
-                    .validate()
-                    .map_err(|_| PlayerError::Invalid("projectile position overflow"))?;
                 if effect.position.elevation >= 0 && effect.position.elevation <= 25 * 256 {
                     for seat in SeatId::ALL {
                         let hero = &coop.players[seat.index()];
@@ -2046,7 +2721,7 @@ impl PlayerServices {
                                     world,
                                 )?;
                             }
-                            self.resources.release_effect(id);
+                            self.retire_effect(id, world)?;
                             return Ok(());
                         }
                     }
@@ -2063,8 +2738,8 @@ impl PlayerServices {
                             .then_some(target)
                     });
                     if let Some(decoy) = decoy {
-                        self.resources.hit_decoy(decoy);
-                        self.resources.release_effect(id);
+                        self.hit_decoy(decoy, world)?;
+                        self.retire_effect(id, world)?;
                         return Ok(());
                     }
                 }
@@ -2077,7 +2752,7 @@ impl PlayerServices {
                         damage: 1,
                     })?
                 {
-                    self.resources.release_effect(id);
+                    self.retire_effect(id, world)?;
                     return Ok(());
                 }
             }
@@ -2097,15 +2772,15 @@ impl PlayerServices {
                             owner,
                             seat,
                             effect.level,
-                            effect.position,
+                            hero.motion.position,
                         )? {
                             if landing.level != effect.level {
                                 return Err(PlayerError::Invalid("doorway changed floor"));
                             }
                             validate_landing(world, seat, hero.character.archetype, landing)?;
                             coop.players[seat.index()].motion.position = landing.position;
+                            effect.contact_mask |= 1 << seat.get();
                         }
-                        effect.contact_mask |= 1 << seat.get();
                     } else if !in_range {
                         effect.contact_mask &= !(1 << seat.get());
                     }
@@ -2117,17 +2792,23 @@ impl PlayerServices {
                     let near = hero.life == LifeState::Alive
                         && hero.level == Some(effect.level)
                         && (i64::from(hero.motion.position.x) - i64::from(effect.position.x)).abs()
-                            < 24 * 256
+                            < 16 * 256
                         && (i64::from(hero.motion.position.y) - i64::from(effect.position.y)).abs()
-                            < 16 * 256;
+                            < 8 * 256;
                     if near
                         && hero.ui.overlay == Overlay::Closed
                         && effect.contact_mask & (1 << seat.get()) == 0
-                        && self.runtime[seat.index()].previous_input.action
                     {
                         world.answer_telephone(id, seat, effect.level)?;
+                        coop.players[seat.index()].ui.overlay = Overlay::Map;
                         effect.contact_mask |= 1 << seat.get();
                     }
+                }
+            }
+            EffectKind::StolenPresent => {
+                if effect.position.elevation <= 0 {
+                    self.retire_effect(id, world)?;
+                    return Ok(());
                 }
             }
         }
@@ -2138,14 +2819,14 @@ impl PlayerServices {
     }
 }
 
-fn maximum_health(player: &tje_four_player::state::PlayerState) -> PlayerResult<u8> {
+pub(crate) fn maximum_health(player: &tje_four_player::state::PlayerState) -> PlayerResult<u8> {
     player
         .character
         .archetype
         .maximum_health(player.rank)
         .map_err(|_| PlayerError::Invalid("hero rank"))
 }
-fn validate_landing(
+pub(crate) fn validate_landing(
     world: &impl PlayerGeometry,
     seat: SeatId,
     archetype: Archetype,
@@ -2182,35 +2863,42 @@ fn integrate_vertical(motion: &mut Motion) -> PlayerResult<()> {
     motion.position.elevation = checked_add(motion.position.elevation, motion.velocity[2])?;
     Ok(())
 }
-fn move_player(
+fn ordinary_voluntary(
+    player: &tje_four_player::state::PlayerState,
+    runtime: &PlayerRuntime,
+) -> bool {
+    runtime.mode == PlayerMode::Grounded
+        && !runtime.locomotion_locked
+        && runtime.service.is_none()
+        && player.ui.overlay == Overlay::Closed
+        && player.counters.hula_dance_ticks == 0
+        && runtime.effective_input.directions != 0
+}
+fn apply_displacement(
     world: &impl PlayerGeometry,
     seat: SeatId,
     player: &mut tje_four_player::state::PlayerState,
     runtime: &mut PlayerRuntime,
+    delta: [i32; 2],
 ) -> PlayerResult<()> {
-    let level = player.level.expect("alive level");
+    if delta == [0; 2] {
+        return Ok(());
+    }
+    let level = player.level.expect("alive movement level");
     let old = player.motion.position;
     let mut candidate = old;
     let (width, height) = world.dimensions(level)?.world_envelope();
     let (hero_width, hero_height) = player.character.archetype.dimensions();
-    runtime.blocked_axes = 0;
-    for axis in 0..2 {
-        player.motion.velocity[axis] = checked_add(
-            player.motion.velocity[axis],
-            player.motion.acceleration[axis],
-        )?
-        .clamp(-64 * 256, 64 * 256);
-        let delta = if runtime.authored_motion.axes & (1 << axis) != 0 {
-            player.motion.velocity[axis]
-                .checked_mul(i32::from(runtime.authored_motion.multiplier[axis]))
-                .ok_or(PlayerError::Invalid("authored 24.8 motion overflow"))?
-        } else {
-            player.motion.velocity[axis]
-        };
+    // Preserve the source's general overlap-escape policy; this is not an
+    // exception for an owner's decoy or any particular collision kind.
+    for (axis, value) in delta.into_iter().enumerate() {
+        if value == 0 {
+            continue;
+        }
         if axis == 0 {
-            candidate.x = checked_add(old.x, delta)?;
+            candidate.x = checked_add(old.x, value)?;
         } else {
-            candidate.y = checked_add(old.y, delta)?;
+            candidate.y = checked_add(old.y, value)?;
         }
         let x = candidate.x >> 8;
         let y = candidate.y >> 8;
@@ -2228,7 +2916,7 @@ fn move_player(
             );
         if outside
             || unsupported
-            || world.blocked(seat, player.character.archetype, level, candidate)?
+            || world.movement_blocked(seat, player.character.archetype, level, old, candidate)?
         {
             if axis == 0 {
                 candidate.x = old.x;
@@ -2238,33 +2926,10 @@ fn move_player(
             runtime.blocked_axes |= 1 << axis;
         }
     }
-    player.motion.position.x = candidate.x;
-    player.motion.position.y = candidate.y;
-    if player.motion.position.elevation > 0
-        || player.motion.velocity[2] != 0
-        || player.motion.acceleration[2] != 0
-    {
-        integrate_vertical(&mut player.motion)?;
-    }
-    if player.motion.position.elevation <= 0
-        && world.terrain(level, candidate.x >> 8, candidate.y >> 8)? & 0xf0 <= 0x50
-    {
-        player.motion.position.elevation = 0;
-        player.motion.velocity[2] = 0;
-        player.motion.acceleration[2] = 0;
-        player.counters.fall = FallState::None;
-        if matches!(
-            runtime.mode,
-            PlayerMode::Jumping | PlayerMode::Flying | PlayerMode::Swimming
-        ) {
-            runtime.mode = PlayerMode::Grounded;
-        }
-    }
-    player
-        .motion
-        .position
+    candidate
         .validate()
         .map_err(|_| PlayerError::Invalid("hero motion exceeded 24.8 bounds"))?;
+    player.motion.position = candidate;
     Ok(())
 }
 fn direction_facing(input: u8) -> u8 {
@@ -2278,15 +2943,19 @@ fn direction_facing(input: u8) -> u8 {
         1
     }
 }
-fn valid_remap(remap: [u8; 4]) -> bool {
-    let mut seen = 0;
-    for direction in remap {
-        if !matches!(direction, 1 | 2 | 4 | 8) || seen & direction != 0 {
-            return false;
-        }
-        seen |= direction;
+pub const IDENTITY_REMAP: [u8; 16] = [0, 1, 2, 0, 4, 5, 6, 0, 8, 9, 10, 0, 0, 0, 0, 0];
+pub const fn normalize_directions(mut input: u8) -> u8 {
+    input &= 15;
+    if input & 3 == 3 {
+        input &= !3;
     }
-    seen == 15
+    if input & 12 == 12 {
+        input &= !12;
+    }
+    input
+}
+fn valid_remap(remap: [u8; 16]) -> bool {
+    remap[0] == 0 && remap.into_iter().all(|direction| direction <= 15)
 }
 fn validate_ui_command(command: UiCommand) -> PlayerResult<()> {
     match command {
@@ -2325,25 +2994,19 @@ fn refresh_spectators(coop: &mut CoopState) {
     }
 }
 
-fn sample_terrain(world: &impl PlayerGeometry, landing: Landing) -> PlayerResult<[[u8; 5]; 5]> {
-    let mut tiles = [[0; 5]; 5];
-    for (row, values) in tiles.iter_mut().enumerate() {
-        for (column, tile) in values.iter_mut().enumerate() {
-            *tile = world.terrain(
-                landing.level,
-                ((landing.position.x >> 11) + column as i32 - 2) * 8,
-                ((landing.position.y >> 11) + row as i32 - 2) * 8,
-            )?;
-        }
-    }
-    Ok(tiles)
+pub(crate) fn sample_terrain(
+    world: &impl PlayerGeometry,
+    landing: Landing,
+) -> PlayerResult<[[u8; 5]; 5]> {
+    world.terrain_cache(landing)
 }
 
 fn tick_service(
     player: &mut tje_four_player::state::PlayerState,
     runtime: &mut PlayerRuntime,
     input: PlayerInput,
-    world: &mut impl PlayerWorld,
+    world: &impl PlayerGeometry,
+    effect: &mut Option<ActorEffect>,
 ) -> PlayerResult<bool> {
     let Some(mut service) = runtime.service else {
         return Ok(false);
@@ -2357,11 +3020,6 @@ fn tick_service(
                 }
                 runtime.lemonade_rewarded = true;
             }
-            world.apply_actor_effect(ActorEffect::Burp {
-                owner: player.seat,
-                level: player.level.expect("alive service"),
-                position: player.motion.position,
-            })?;
             runtime.service = None;
             player.animation.descriptor = 0;
         } else {
@@ -2371,20 +3029,20 @@ fn tick_service(
     }
     match service.stage {
         ServiceStage::Windup if service.ticks > 4 => {
-            world.apply_actor_effect(ActorEffect::ServiceCollision {
+            *effect = Some(ActorEffect::ServiceCollision {
                 actor: service.actor,
                 collidable: false,
-            })?;
+            });
             service.stage = ServiceStage::Takeoff;
             service.ticks = 0;
             player.motion.position.elevation = 256;
             player.animation.descriptor = if service.approach_left { 35 } else { 34 };
         }
         ServiceStage::Takeoff if animation_complete(player, runtime) => {
-            world.apply_actor_effect(ActorEffect::ServiceCollision {
+            *effect = Some(ActorEffect::ServiceCollision {
                 actor: service.actor,
                 collidable: true,
-            })?;
+            });
             player.motion.position = Position {
                 elevation: 35 * 256,
                 ..service.position
@@ -2394,7 +3052,6 @@ fn tick_service(
             player.animation.descriptor = if service.approach_left { 39 } else { 38 };
         }
         ServiceStage::Descend => {
-            integrate_vertical(&mut player.motion)?;
             if player.motion.position.elevation < 22 * 256 {
                 player.motion.position.elevation = 22 * 256;
                 player.motion.velocity[2] = 0;
@@ -2540,4 +3197,53 @@ fn select_motion_pose(
             ..AnimationPlayback::default()
         };
     }
+}
+
+pub(crate) fn reset_playback(
+    player: &mut tje_four_player::state::PlayerState,
+    runtime: &mut PlayerRuntime,
+) {
+    runtime.animation = AnimationPlayback {
+        descriptor: player.animation.descriptor,
+        ..AnimationPlayback::default()
+    };
+    player.animation.sequence_index = 0;
+    player.animation.ticks_left = 0;
+}
+fn present_audio(kind: PresentKind, food_delta: i16) -> [Option<AudioCue>; 2] {
+    let pcm = |sound, priority, mode| {
+        Some(AudioCue::Pcm {
+            sound,
+            priority,
+            mode,
+        })
+    };
+    let cue = match kind {
+        PresentKind::Decoy | PresentKind::Doorway | PresentKind::Togetherness => {
+            Some(AudioCue::Psg {
+                command: 16,
+                priority: 50,
+            })
+        }
+        PresentKind::RocketSkates => Some(AudioCue::Psg {
+            command: 5,
+            priority: 94,
+        }),
+        PresentKind::Randomizer => pcm(PcmSound::Randomize, 96, 1),
+        PresentKind::ExtraLife => pcm(PcmSound::ExtraLife, 87, 0),
+        PresentKind::ExtraBuck | PresentKind::Jackpot => pcm(PcmSound::Money, 50, 0),
+        PresentKind::RootBeer => Some(AudioCue::Template { effect: 14 }),
+        PresentKind::Boombox => Some(AudioCue::BoomboxStart),
+        PresentKind::Food if food_delta < 0 => Some(AudioCue::Psg {
+            command: 18,
+            priority: 40,
+        }),
+        PresentKind::Food | PresentKind::FudgeSundae => pcm(PcmSound::ChowDown, 50, 0),
+        PresentKind::TotalBummer => Some(AudioCue::Psg {
+            command: 18,
+            priority: 40,
+        }),
+        _ => None,
+    };
+    [cue, None]
 }

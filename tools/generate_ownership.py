@@ -18,7 +18,7 @@ import re
 from typing import Any, Iterator
 
 from trace_functions import (
-    CATALOGUED_ENTRIES, Sources, TraceError, array_entries, fields, integer, text,
+    CATALOGUED_ENTRIES, Sources, TraceError, array_entries, catalog_entries, fields, integer, text,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +48,7 @@ def digest(data: bytes) -> str:
 
 def metadata(root: Path) -> list[dict[str, Any]]:
     sources = Sources(root)
-    catalogue = sources.catalog(CATALOGUED_ENTRIES)
+    catalogue = catalog_entries(sources.modules, CATALOGUED_ENTRIES)
     values: dict[int, dict[str, Any]] = {}
     for module, nodes in sources.modules.items():
         if not module.startswith("metadata::part_"):

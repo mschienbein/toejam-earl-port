@@ -13,7 +13,7 @@ struct Actor {
     sleeping: Option<crate::EffectId>,
 }
 #[derive(Debug, Clone, Default)]
-struct World {
+pub(crate) struct World {
     actors: Vec<Actor>,
     wall: Option<(i32, i32, i32, i32)>,
     water: Option<(i32, i32)>,
@@ -23,6 +23,11 @@ struct World {
     burps: u16,
     rejected: bool,
     service_collisions: Vec<(ActorId, bool)>,
+    pub(crate) births: Vec<(crate::EffectId, Effect)>,
+    pub(crate) retirements: Vec<crate::EffectId>,
+    arrivals: Vec<(SeatId, Landing)>,
+    releases: Vec<SeatId>,
+    pub(crate) played: Vec<AudioCue>,
 }
 impl PlayerGeometry for World {
     fn dimensions(&self, _: LevelId) -> PlayerResult<Dimensions> {
@@ -58,10 +63,16 @@ impl PlayerGeometry for World {
     }
 }
 impl PlayerWorld for World {
-    fn commit_present(&mut self, present: WorldPresent) -> PlayerResult<()> {
+    fn commit_present(&mut self, present: WorldPresent) -> PlayerResult<WorldCommit> {
         if self.rejected {
             return Err(PlayerError::Rejected("fixture world has no reservation"));
         }
+        let effect_position = match present {
+            WorldPresent::OpenDoorway { position, .. }
+            | WorldPresent::OpenTelephone { position, .. }
+            | WorldPresent::OpenDecoy { position, .. } => Some(position),
+            _ => None,
+        };
         match present {
             WorldPresent::SpawnEarthling {
                 level,
@@ -85,14 +96,34 @@ impl PlayerWorld for World {
                 owner,
                 level,
                 position,
+                ..
             } => self.doors.push((owner, level, position)),
             WorldPresent::OpenTelephone {
                 owner,
                 level,
                 position,
             } => self.phones.push((owner, level, position)),
+            WorldPresent::OpenDecoy { .. } => {}
         }
+        Ok(WorldCommit { effect_position })
+    }
+    fn commit_arrival(&mut self, seat: SeatId, landing: Landing) -> PlayerResult<()> {
+        self.arrivals.push((seat, landing));
         Ok(())
+    }
+    fn release_hero(&mut self, seat: SeatId) -> PlayerResult<()> {
+        self.releases.push(seat);
+        Ok(())
+    }
+    fn effect_created(&mut self, id: crate::EffectId, effect: Effect) -> PlayerResult<()> {
+        self.births.push((id, effect));
+        Ok(())
+    }
+    fn choose_present(&self, rng: &mut tje_world::random::StageRng) -> PlayerResult<PresentKind> {
+        PresentCatalog::new([1; 27])?.choose(rng)
+    }
+    fn contact_damage(&self, _: crate::population::Kind) -> PlayerResult<u8> {
+        Ok(4)
     }
     fn apply_actor_effect(&mut self, effect: ActorEffect) -> PlayerResult<bool> {
         let mut hit = false;
@@ -165,6 +196,25 @@ impl PlayerWorld for World {
                 }
                 hit = true;
             }
+            ActorEffect::Retire { effect, level } => {
+                self.retirements.push(effect);
+                for actor in &mut self.actors {
+                    if actor.level == level && actor.sleeping == Some(effect) {
+                        actor.sleeping = None;
+                    }
+                }
+            }
+            ActorEffect::Opera { seats } => {
+                for actor in &mut self.actors {
+                    if seats
+                        .iter()
+                        .any(|seat| actor.level == level(u16::from(seat.get()) + 2))
+                    {
+                        actor.health = actor.health.saturating_sub(1);
+                        hit = true;
+                    }
+                }
+            }
         }
         Ok(hit)
     }
@@ -200,28 +250,24 @@ impl PlayerWorld for World {
         self.revealed |= 1 << hero.get();
         Ok(())
     }
-    fn control_remap(&self, selection: u8) -> PlayerResult<[u8; 4]> {
-        // Newly authored permutations; production resolves its user's catalogue.
-        Ok(match selection {
-            0 => [2, 1, 8, 4],
-            1 => [4, 8, 2, 1],
-            2 => [8, 4, 1, 2],
-            3 => [1, 2, 8, 4],
-            _ => return Err(PlayerError::Invalid("remap selection")),
-        })
+    fn control_remap(&self, selection: u8) -> PlayerResult<[u8; 16]> {
+        if selection >= 4 {
+            return Err(PlayerError::Invalid("remap selection"));
+        }
+        Ok(authored_remap(selection))
     }
 }
-fn point(x: i32, y: i32) -> Position {
+pub(crate) fn point(x: i32, y: i32) -> Position {
     Position {
         x: x * 256,
         y: y * 256,
         elevation: 0,
     }
 }
-fn level(value: u16) -> LevelId {
+pub(crate) fn level(value: u16) -> LevelId {
     LevelId::new(value).unwrap()
 }
-fn fixture(archetype: Archetype, seat: SeatId) -> (CoopState, PlayerServices, World) {
+pub(crate) fn fixture(archetype: Archetype, seat: SeatId) -> (CoopState, PlayerServices, World) {
     let mut config = Config::four_seats(123);
     config.roster[seat.index()].archetype = archetype;
     let mut coop = CoopState::new(config).unwrap();
@@ -273,7 +319,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                 match applied {
                     PresentKind::IcarusWings | PresentKind::SpringShoes => {
                         services
-                            .tick_players(
+                            .tick_frame(
                                 &mut coop,
                                 0,
                                 input_for(
@@ -291,7 +337,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     PresentKind::Innertube => {
                         world.water = Some((300, 800));
                         services
-                            .tick_players(
+                            .tick_frame(
                                 &mut coop,
                                 0,
                                 input_for(
@@ -315,7 +361,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                             sleeping: None,
                         });
                         services
-                            .tick_players(
+                            .tick_frame(
                                 &mut coop,
                                 0,
                                 input_for(
@@ -329,6 +375,10 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                             )
                             .unwrap();
                         assert_eq!(services.resources.effects().count(), 1);
+                        if applied == PresentKind::RoseBushes {
+                            let id = services.resources.effects().next().unwrap().0;
+                            services.set_effect_animation(id, true).unwrap();
+                        }
                         services.tick_effects(&mut coop, 0, &mut world).unwrap();
                         assert_eq!(world.actors[0].health, 2, "{seat:?} {applied:?}");
                     }
@@ -336,7 +386,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     | PresentKind::SuperHiTops
                     | PresentKind::BonusHiTops => {
                         services
-                            .tick_players(
+                            .tick_frame(
                                 &mut coop,
                                 0,
                                 input_for(
@@ -363,7 +413,9 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     PresentKind::RootBeer => {
                         assert!((12..=18).contains(&services.runtime[index].burps_left));
                         assert_eq!(coop.players[index].health, 16);
-                        services.tick_effects(&mut coop, 0, &mut world).unwrap();
+                        for tick in 0..50 {
+                            services.tick_effects(&mut coop, tick, &mut world).unwrap();
+                        }
                         assert_eq!(world.burps, 1);
                     }
                     PresentKind::Promotion => assert_eq!(coop.players[index].rank, 1),
@@ -383,16 +435,16 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     }
                     PresentKind::Decoy => {
                         let id = receipt.effect.unwrap();
-                        assert!(services.resources.hit_decoy(id));
-                        assert!(services.resources.hit_decoy(id));
+                        assert!(services.hit_decoy(id, &mut world).unwrap());
+                        assert!(services.hit_decoy(id, &mut world).unwrap());
                         assert!(services.resources.effect(id).is_some());
-                        assert!(services.resources.hit_decoy(id));
+                        assert!(services.hit_decoy(id, &mut world).unwrap());
                         assert!(services.resources.effect(id).is_none());
                     }
                     PresentKind::TotalBummer => {
                         assert_eq!(coop.players[index].health, 0);
                         services
-                            .tick_players(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
+                            .tick_frame(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
                             .unwrap();
                         assert_eq!(services.runtime[index].mode, PlayerMode::Dying);
                     }
@@ -400,7 +452,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     PresentKind::Randomizer => assert_eq!(services.resources.presents.epoch, 2),
                     PresentKind::Telephone => {
                         services
-                            .tick_players(
+                            .tick_frame(
                                 &mut coop,
                                 0,
                                 input_for(
@@ -429,7 +481,7 @@ fn every_present_has_real_semantics_in_every_seat_and_archetype() {
                     PresentKind::SchoolBook => {
                         for tick in 0..60 {
                             services
-                                .tick_players(
+                                .tick_frame(
                                     &mut coop,
                                     tick,
                                     [PlayerInput::default(); 4],
@@ -477,7 +529,7 @@ fn terrain_collision_hurt_death_respawn_and_overlays_are_seat_owned() {
                 450,
             ));
             services
-                .tick_players(
+                .tick_frame(
                     &mut coop,
                     0,
                     input_for(
@@ -514,14 +566,14 @@ fn terrain_collision_hurt_death_respawn_and_overlays_are_seat_owned() {
             );
             for tick in 1..=12 {
                 services
-                    .tick_players(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
+                    .tick_frame(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
                     .unwrap();
             }
             assert_eq!(coop.players[index].health, archetype.base_health() - 8);
             assert_eq!(coop.players[(index + 1) % 4].health, other.health);
             for tick in 13..=42 {
                 services
-                    .tick_players(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
+                    .tick_frame(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
                     .unwrap();
             }
             assert!(
@@ -541,7 +593,7 @@ fn terrain_collision_hurt_death_respawn_and_overlays_are_seat_owned() {
             );
             for tick in 43..=103 {
                 services
-                    .tick_players(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
+                    .tick_frame(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
                     .unwrap();
             }
             assert_eq!(coop.players[index].health, archetype.base_health());
@@ -563,7 +615,7 @@ fn four_independent_terrain_caches_and_fall_cohort_commit_atomically() {
     services.begin_fall(&mut coop, cohort).unwrap();
     for tick in 0..40 {
         services
-            .tick_players(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
+            .tick_frame(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
             .unwrap();
     }
     assert!(services.fall_ready(13));
@@ -619,6 +671,7 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
                 level: level(2),
                 position: point(400, 400),
                 kind: ItemKind::Present(present),
+                appearance: ItemAppearance::Present,
                 collected: false,
             })
             .unwrap();
@@ -630,6 +683,7 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
             level: level(2),
             position: point(400, 400),
             kind: ItemKind::ShipPart(9),
+            appearance: ItemAppearance::ShipPart(9),
             collected: false,
         })
         .unwrap();
@@ -640,7 +694,9 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     });
     services
         .resources
-        .transact(&mut coop, 0, &requests, &mut output)
+        .transact(&mut coop, 0, &requests, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert_eq!(
         output
@@ -656,7 +712,9 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     });
     services
         .resources
-        .transact(&mut coop, 1, &requests, &mut output)
+        .transact(&mut coop, 1, &requests, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert!(coop.players[1].inventory[0].is_some());
     requests = SeatId::ALL.map(|seat| ResourceRequest {
@@ -665,7 +723,9 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     });
     services
         .resources
-        .transact(&mut coop, 2, &requests, &mut output)
+        .transact(&mut coop, 2, &requests, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert_eq!(services.resources.ship_parts, 1 << 9);
     assert_eq!(
@@ -684,6 +744,7 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
             kind: ServiceKind::MailOrder,
             level: level(2),
             position: point(400, 400),
+            source: None,
         })
         .unwrap();
     services
@@ -693,6 +754,7 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
             kind: ServiceKind::Identify,
             level: level(2),
             position: point(400, 400),
+            source: None,
         })
         .unwrap();
     services
@@ -702,7 +764,7 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
             service: mail,
             present,
             price: 3,
-            stock: 1,
+            stock: MailStock::Finite(1),
         })
         .unwrap();
     requests = SeatId::ALL.map(|seat| ResourceRequest {
@@ -714,7 +776,9 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     });
     services
         .resources
-        .transact(&mut coop, 3, &requests, &mut output)
+        .transact(&mut coop, 3, &requests, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert_eq!(
         coop.players
@@ -735,12 +799,15 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     }];
     services
         .resources
-        .transact(&mut coop, 4, &drop_request, &mut output)
+        .transact(&mut coop, 4, &drop_request, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     let drop = match output[0].result.unwrap() {
         ResourceReceipt::Dropped(id) => id,
         _ => unreachable!(),
     };
+    coop.players[2].motion.position = services.resources.drop(drop).unwrap().position;
     assert_eq!(services.resources.drops().count(), 1);
     let claim_request = [ResourceRequest {
         seat: SeatId::ALL[2],
@@ -748,7 +815,9 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     }];
     services
         .resources
-        .transact(&mut coop, 5, &claim_request, &mut output)
+        .transact(&mut coop, 5, &claim_request, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert!(output[0].result.is_ok());
     assert_eq!(services.resources.drops().count(), 0);
@@ -768,12 +837,16 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     }];
     services
         .resources
-        .transact(&mut coop, 6, &identify_request, &mut output)
+        .transact(&mut coop, 6, &identify_request, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert_eq!(coop.players[2].bucks, 8);
     services
         .resources
-        .transact(&mut coop, 7, &identify_request, &mut output)
+        .transact(&mut coop, 7, &identify_request, &mut output, |rng| {
+            world.choose_present(rng)
+        })
         .unwrap();
     assert_eq!(output[0].result, Err(ResourceFailure::AlreadyIdentified));
     assert_eq!(coop.players[2].bucks, 8);
@@ -781,7 +854,8 @@ fn claims_ship_parts_purchases_drops_and_identification_conserve_resources() {
     assert!(
         services
             .resources
-            .transact(&mut coop, 7, &identify_request, &mut output)
+            .transact(&mut coop, 7, &identify_request, &mut output, |rng| world
+                .choose_present(rng))
             .is_err()
     );
     assert_eq!((coop.clone(), services.clone()), before);
@@ -832,7 +906,7 @@ fn effect_generation_quotas_and_failed_present_are_transactional() {
 
 #[test]
 fn identified_donations_are_conservative_and_cannot_chain() {
-    let (mut coop, mut services, world) = fixture(Archetype::Earl, SeatId::ALL[3]);
+    let (mut coop, mut services, mut world) = fixture(Archetype::Earl, SeatId::ALL[3]);
     for hero in &mut coop.players {
         hero.motion.position = point(400, 400);
     }
@@ -866,14 +940,14 @@ fn identified_donations_are_conservative_and_cannot_chain() {
     coop.players[2].lives = 0;
     let lives = coop.players[1].lives;
     services
-        .donate_life(&mut coop, 11, SeatId::ALL[1], SeatId::ALL[2], &world)
+        .donate_life(&mut coop, 11, SeatId::ALL[1], SeatId::ALL[2], &mut world)
         .unwrap();
     assert_eq!(coop.players[1].lives, lives - 1);
     assert_eq!(coop.players[2].life, LifeState::Alive);
     assert_eq!(coop.players[2].lives, 0);
     assert!(
         services
-            .donate_life(&mut coop, 11, SeatId::ALL[2], SeatId::ALL[3], &world)
+            .donate_life(&mut coop, 11, SeatId::ALL[2], SeatId::ALL[3], &mut world)
             .is_err()
     );
     services.validate(&coop).unwrap();
@@ -905,7 +979,7 @@ fn overlays_intents_and_pause_do_not_alias_or_grant_immunity() {
     assert!(!services.pause_agreed(&coop));
     let before = std::array::from_fn::<_, 4, _>(|index| coop.players[index].motion.position);
     services
-        .tick_players(
+        .tick_frame(
             &mut coop,
             0,
             [PlayerInput {
@@ -937,7 +1011,7 @@ fn player_effect_status_snapshot_roundtrip_and_duplicate_phase_do_not_advance() 
             SeatId::ALL[2],
             StatusRequest::Remap {
                 ticks: 100,
-                directions: [8, 4, 1, 2],
+                directions: authored_remap(2),
             },
         )
         .unwrap();
@@ -951,7 +1025,7 @@ fn player_effect_status_snapshot_roundtrip_and_duplicate_phase_do_not_advance() 
         )
         .unwrap();
     services
-        .tick_players(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
+        .tick_frame(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
         .unwrap();
     services.tick_effects(&mut coop, 0, &mut world).unwrap();
     let codec = bincode::config::standard()
@@ -997,7 +1071,7 @@ fn automatic_services_complete_for_both_archetypes_in_every_seat() {
             for tick in 0..40 {
                 finish_authored_animation(&mut services, &mut coop, seat);
                 services
-                    .tick_players(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
+                    .tick_frame(&mut coop, tick, [PlayerInput::default(); 4], &mut world)
                     .unwrap();
             }
             assert_eq!(
@@ -1007,7 +1081,7 @@ fn automatic_services_complete_for_both_archetypes_in_every_seat() {
             assert!(coop.players[index].health > 1);
             assert_eq!(world.service_collisions, [(actor, true)]);
             services
-                .tick_players(
+                .tick_frame(
                     &mut coop,
                     40,
                     input_for(
@@ -1022,7 +1096,7 @@ fn automatic_services_complete_for_both_archetypes_in_every_seat() {
                 .unwrap();
             finish_authored_animation(&mut services, &mut coop, seat);
             services
-                .tick_players(&mut coop, 41, [PlayerInput::default(); 4], &mut world)
+                .tick_frame(&mut coop, 41, [PlayerInput::default(); 4], &mut world)
                 .unwrap();
             assert!(services.runtime[index].service.is_none());
             assert!(coop.players[index].motion.position.x < center.x);
@@ -1037,10 +1111,23 @@ fn automatic_services_complete_for_both_archetypes_in_every_seat() {
             );
             finish_authored_animation(&mut services, &mut coop, seat);
             services
-                .tick_players(&mut coop, 42, [PlayerInput::default(); 4], &mut world)
+                .tick_frame(&mut coop, 42, [PlayerInput::default(); 4], &mut world)
                 .unwrap();
             assert_eq!(coop.players[index].lives, lives + 1);
-            assert_eq!(world.burps, 1);
+            assert_eq!(
+                world
+                    .played
+                    .iter()
+                    .filter(|cue| matches!(
+                        cue,
+                        AudioCue::Pcm {
+                            sound: PcmSound::Burp,
+                            ..
+                        }
+                    ))
+                    .count(),
+                1
+            );
             services.runtime[index].previous_input.directions = 1;
             assert!(
                 services
@@ -1049,10 +1136,23 @@ fn automatic_services_complete_for_both_archetypes_in_every_seat() {
             );
             finish_authored_animation(&mut services, &mut coop, seat);
             services
-                .tick_players(&mut coop, 43, [PlayerInput::default(); 4], &mut world)
+                .tick_frame(&mut coop, 43, [PlayerInput::default(); 4], &mut world)
                 .unwrap();
             assert_eq!(coop.players[index].lives, lives + 1);
-            assert_eq!(world.burps, 2);
+            assert_eq!(
+                world
+                    .played
+                    .iter()
+                    .filter(|cue| matches!(
+                        cue,
+                        AudioCue::Pcm {
+                            sound: PcmSound::Burp,
+                            ..
+                        }
+                    ))
+                    .count(),
+                2
+            );
             services.validate(&coop).unwrap();
         }
     }
@@ -1115,20 +1215,13 @@ fn randomizer_is_a_saved_sixty_step_shared_resource_operation() {
 
 fn finish_authored_animation(services: &mut PlayerServices, coop: &mut CoopState, seat: SeatId) {
     let descriptor = coop.players[seat.index()].animation.descriptor;
-    services
-        .apply_animation(
-            coop,
-            seat,
-            PlayerAnimationStep {
-                descriptor,
-                sequence_index: 1,
-                ticks_left: 0,
-                flip_horizontal: false,
-                held: true,
-                motion: None,
-            },
-        )
-        .unwrap();
+    services.runtime[seat.index()].animation = AnimationPlayback {
+        descriptor,
+        started: true,
+        held: true,
+    };
+    coop.players[seat.index()].animation.sequence_index = 1;
+    coop.players[seat.index()].animation.ticks_left = 0;
 }
 
 #[test]
@@ -1181,7 +1274,7 @@ fn animation_zero_duration_is_not_an_unstarted_or_completed_sequence() {
             .unwrap()
     );
     services
-        .tick_players(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
+        .tick_frame(&mut coop, 0, [PlayerInput::default(); 4], &mut world)
         .unwrap();
     assert!(services.runtime[2].service.is_some());
     let descriptor = coop.players[2].animation.descriptor;
@@ -1189,29 +1282,33 @@ fn animation_zero_duration_is_not_an_unstarted_or_completed_sequence() {
         .apply_animation(
             &mut coop,
             seat,
+            1,
             PlayerAnimationStep {
                 descriptor,
                 sequence_index: 0,
                 ticks_left: 0,
                 flip_horizontal: false,
                 held: false,
-                motion: Some(AuthoredMotion {
-                    axes: 3,
-                    multiplier: [1, 2],
-                }),
+                motion: Some([1, 2]),
             },
+            VoluntaryScale::Normal,
+            &world,
         )
         .unwrap();
     services
-        .tick_players(&mut coop, 1, [PlayerInput::default(); 4], &mut world)
+        .tick_frame(&mut coop, 1, [PlayerInput::default(); 4], &mut world)
         .unwrap();
     assert!(services.runtime[2].service.is_some());
     finish_authored_animation(&mut services, &mut coop, seat);
     services
-        .tick_players(&mut coop, 2, [PlayerInput::default(); 4], &mut world)
+        .tick_frame(&mut coop, 2, [PlayerInput::default(); 4], &mut world)
         .unwrap();
     assert!(services.runtime[2].service.is_none());
-    assert_eq!(services.runtime[2].authored_motion.multiplier, [1, 2]);
+    assert_eq!(
+        services.runtime[2].authored_motion.multiplier,
+        [1, 1],
+        "the next authored frame replaces multipliers"
+    );
 }
 
 #[test]
@@ -1237,7 +1334,7 @@ fn remap_projectiles_apply_status_not_damage_to_each_seat() {
             coop.players[seat.index()].counters.controls_remap_ticks,
             240
         );
-        assert_ne!(services.runtime[seat.index()].remap, [1, 2, 4, 8]);
+        assert_ne!(services.runtime[seat.index()].remap, IDENTITY_REMAP);
         services.validate(&coop).unwrap();
     }
 }
@@ -1301,6 +1398,7 @@ fn original_item_binding_preserves_all_present_kinds_source_holes_and_large_item
                 action: ResourceAction::Claim(ItemRef::Placed(2 * 128 + 32)),
             }],
             &mut output,
+            |rng| world.choose_present(rng),
         )
         .unwrap();
     assert_eq!(coop.players[0].health, Archetype::ToeJam.base_health() - 8);
@@ -1345,6 +1443,7 @@ fn randomizing_wrappers_does_not_change_ground_or_dropped_present_contents() {
             level: level(2),
             position: point(400, 400),
             kind: ItemKind::Present(wrapper),
+            appearance: ItemAppearance::Present,
             collected: false,
         })
         .unwrap();
@@ -1360,6 +1459,7 @@ fn randomizing_wrappers_does_not_change_ground_or_dropped_present_contents() {
                 action: ResourceAction::Drop { slot: 0 },
             }],
             &mut output,
+            |rng| world.choose_present(rng),
         )
         .unwrap();
     equip(&mut coop, &services, seat, PresentKind::Randomizer);
@@ -1410,7 +1510,7 @@ fn direct_damage_and_remap_preserve_existing_motion_and_facing() {
             seat,
             StatusRequest::Remap {
                 ticks: 240,
-                directions: [8, 4, 1, 2],
+                directions: authored_remap(2),
             },
         )
         .unwrap();
@@ -1490,7 +1590,7 @@ fn walking_sleep_and_present_pose_ids_follow_archetype_independent_source_famili
         for seat in SeatId::ALL {
             let (mut coop, mut services, mut world) = fixture(archetype, seat);
             services
-                .tick_players(
+                .tick_frame(
                     &mut coop,
                     0,
                     input_for(
@@ -1533,7 +1633,7 @@ fn overlay_actions_do_not_also_answer_a_world_telephone() {
         .ui(&mut coop, seat, UiIntent::OpenInventory)
         .unwrap();
     services
-        .tick_players(
+        .tick_frame(
             &mut coop,
             0,
             input_for(
@@ -1550,7 +1650,7 @@ fn overlay_actions_do_not_also_answer_a_world_telephone() {
     assert_eq!(world.revealed, 0);
     services.ui(&mut coop, seat, UiIntent::Close).unwrap();
     services
-        .tick_players(
+        .tick_frame(
             &mut coop,
             1,
             input_for(
@@ -1565,4 +1665,84 @@ fn overlay_actions_do_not_also_answer_a_world_telephone() {
         .unwrap();
     services.tick_effects(&mut coop, 1, &mut world).unwrap();
     assert_eq!(world.revealed, 1);
+}
+
+fn authored_remap(selection: u8) -> [u8; 16] {
+    std::array::from_fn(|mask| {
+        let mask = normalize_directions(mask as u8);
+        let horizontal = i16::from(mask & 8 != 0) - i16::from(mask & 4 != 0);
+        let vertical = i16::from(mask & 2 != 0) - i16::from(mask & 1 != 0);
+        let (x, y) = match selection {
+            0 => (-horizontal, -vertical),
+            1 => (-vertical, horizontal),
+            2 => (vertical, -horizontal),
+            _ => (-horizontal, vertical),
+        };
+        u8::from(y < 0) | (u8::from(y > 0) << 1) | (u8::from(x < 0) << 2) | (u8::from(x > 0) << 3)
+    })
+}
+
+trait AuthoredPlayerHarness {
+    fn tick_frame(
+        &mut self,
+        coop: &mut CoopState,
+        tick: u64,
+        inputs: [PlayerInput; 4],
+        world: &mut World,
+    ) -> PlayerResult<()>;
+}
+impl AuthoredPlayerHarness for PlayerServices {
+    fn tick_frame(
+        &mut self,
+        coop: &mut CoopState,
+        tick: u64,
+        inputs: [PlayerInput; 4],
+        world: &mut World,
+    ) -> PlayerResult<()> {
+        self.tick_players(coop, tick, inputs, world)?;
+        self.advance_movement(coop, tick, [VoluntaryScale::Normal; 4], world)?;
+        for seat in SeatId::ALL {
+            let Some(service) = self.runtime[seat.index()].service else {
+                continue;
+            };
+            let (_, effect) = self.advance_automatic_service(
+                coop,
+                seat,
+                service.actor,
+                service.kind,
+                service.position,
+                world,
+            )?;
+            if let Some(effect) = effect {
+                world.apply_actor_effect(effect)?;
+            }
+        }
+        for seat in SeatId::ALL {
+            if coop.players[seat.index()].life == LifeState::Alive
+                && self.runtime[seat.index()].service.is_none()
+            {
+                let descriptor = coop.players[seat.index()].animation.descriptor;
+                self.apply_animation(
+                    coop,
+                    seat,
+                    tick,
+                    PlayerAnimationStep {
+                        descriptor,
+                        sequence_index: 0,
+                        ticks_left: 1,
+                        flip_horizontal: false,
+                        held: false,
+                        motion: Some([1, 1]),
+                    },
+                    VoluntaryScale::Normal,
+                    world,
+                )?;
+            }
+        }
+        while let Some(intent) = self.audio.front().copied() {
+            world.played.push(intent.cue);
+            self.audio.acknowledge(intent.sequence)?;
+        }
+        Ok(())
+    }
 }

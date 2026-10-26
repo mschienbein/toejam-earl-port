@@ -1,6 +1,6 @@
 use crate::{
     CANVAS_HEIGHT, CANVAS_WIDTH, Error, HEIGHT, MAX_CACHE_BYTES, Packet, Result, WIDTH, overlay,
-    packet::{Actor, View},
+    packet::{Actor, Metasprite, Shadow, View, VramShadow},
     source::FrameSource,
 };
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -69,6 +69,7 @@ pub struct Compositor {
     cache: Cache,
     shadow_highlight: bool,
     revision: Option<tje_rom::Revision>,
+    authored: [bool; 2],
 }
 impl Default for Compositor {
     fn default() -> Self {
@@ -87,6 +88,7 @@ impl Compositor {
             cache: Cache::new(),
             shadow_highlight: false,
             revision: None,
+            authored: [false; 2],
         }
     }
     pub fn frame(&self) -> (&[Color], FrameSize) {
@@ -103,6 +105,29 @@ impl Compositor {
     }
     pub fn set_shadow_highlight(&mut self, enabled: bool) {
         self.shadow_highlight = enabled;
+    }
+    /// Preserve genuine authored pixels at native density, centered on the
+    /// candidate's fixed canvas. This is an explicit scene, not a world fallback.
+    pub fn compose_authored(&mut self, original: &[Color]) -> Result<()> {
+        if original.len() < 320 * 224 {
+            return Err(Error::Invalid(
+                "authored scene lacks its genuine 320x224 hardware surface",
+            ));
+        }
+        let pending = self.active ^ 1;
+        if !self.authored[pending] {
+            self.canvases[pending].fill(Color::BLACK);
+        }
+        let left = (CANVAS_WIDTH - 320) / 2;
+        let top = (CANVAS_HEIGHT - 224) / 2;
+        for row in 0..224 {
+            let target = (top + row) * CANVAS_WIDTH + left;
+            self.canvases[pending][target..target + 320]
+                .copy_from_slice(&original[row * 320..(row + 1) * 320]);
+        }
+        self.authored[pending] = true;
+        self.active = pending;
+        Ok(())
     }
     pub fn compose(&mut self, packet: &Packet, source: &impl FrameSource) -> Result<()> {
         if packet.stamp() != Some(source.stamp()) {
@@ -138,8 +163,16 @@ impl Compositor {
                 }
                 // Original chain semantics: all world bodies, then all shadows.
                 for actor in packet.actors().iter().filter(|actor| actor.level == level) {
-                    if let Some(piece) = actor.shadow {
-                        self.paint_actor(source.rom(), actor, piece, origin, true)?;
+                    match &actor.shadow {
+                        Some(Shadow::Rom(frame)) => {
+                            for piece in frame.pieces.iter().take(usize::from(frame.count)) {
+                                self.paint_actor(source.rom(), actor, *piece, origin, true)?;
+                            }
+                        }
+                        Some(Shadow::Vram(shadow)) => {
+                            self.paint_vram_shadow(source.vram(), actor, *shadow, origin)?
+                        }
+                        None => {}
                     }
                 }
                 for (target, (terrain, sprite)) in self
@@ -195,9 +228,9 @@ impl Compositor {
             packet.overlays()[index].paint(&mut self.view, source)?;
             if let Some(inventory) = &packet.overlays()[index].inventory {
                 for (slot, item) in inventory.slots.iter().enumerate() {
-                    if let Some(piece) = item.and_then(|item| item.icon) {
+                    if let Some(icon) = item.as_ref().and_then(|item| item.icon.as_ref()) {
                         let position = [23 + (slot % 8) as i32 * 46, 40 + (slot / 8) as i32 * 68];
-                        self.paint_icon(source, piece, position)?;
+                        self.paint_icon(source, icon, position)?;
                     }
                 }
             }
@@ -210,6 +243,7 @@ impl Compositor {
                     .copy_from_slice(&self.view[row * WIDTH..(row + 1) * WIDTH]);
             }
         }
+        self.authored[self.active ^ 1] = false;
         self.active ^= 1;
         Ok(())
     }
@@ -286,31 +320,122 @@ impl Compositor {
         }
         Ok(())
     }
+    fn paint_vram_shadow(
+        &mut self,
+        vram: &[u8],
+        actor: &Actor,
+        shadow: VramShadow,
+        origin: [i32; 2],
+    ) -> Result<()> {
+        if vram.len() != 0x10000 {
+            return Err(tje_extended_view::RenderError::InvalidVramLength(vram.len()).into());
+        }
+        let [tiles_x, tiles_y] = shadow.size.map(usize::from);
+        let width = tiles_x * 8;
+        let height = tiles_y * 8;
+        let x = actor.position[0] - origin[0] + i32::from(shadow.offset[0]);
+        let y = actor.position[1] - origin[1] + i32::from(shadow.offset[1]);
+        for row in 0..height {
+            let sy = y + row as i32;
+            if !(0..HEIGHT as i32).contains(&sy) {
+                continue;
+            }
+            for column in 0..width {
+                let sx = x + column as i32;
+                if !(0..WIDTH as i32).contains(&sx) {
+                    continue;
+                }
+                let tx = if shadow.tile & 0x0800 != 0 {
+                    width - 1 - column
+                } else {
+                    column
+                };
+                let ty = if shadow.tile & 0x1000 != 0 {
+                    height - 1 - row
+                } else {
+                    row
+                };
+                let tile = tx / 8 * tiles_y + ty / 8;
+                let address =
+                    (usize::from(shadow.tile & 0x07ff) * 32 + tile * 32 + ty % 8 * 4 + tx % 8 / 2)
+                        & 0xffff;
+                let packed = vram[address];
+                let color = if tx & 1 == 0 {
+                    packed >> 4
+                } else {
+                    packed & 15
+                };
+                let target = &mut self.sprites[sy as usize * WIDTH + sx as usize];
+                if color != 0 && !target.occupied {
+                    *target = SpritePixel {
+                        index: (((shadow.tile >> 9) & 0x30) as u8) | color,
+                        high: shadow.tile & 0x8000 != 0,
+                        occupied: true,
+                        character: None,
+                    };
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn paint_icon(
         &mut self,
         source: &impl FrameSource,
-        piece: Piece,
+        icon: &Metasprite,
         origin: [i32; 2],
     ) -> Result<()> {
-        let bytes = self.cache.piece(source.rom(), piece)?;
-        let width = usize::from(piece.width) * 8;
-        let height = usize::from(piece.height) * 8;
-        for y in 0..height {
-            for x in 0..width {
-                let sx = origin[0] + x as i32;
-                let sy = origin[1] + y as i32;
-                if !(0..WIDTH as i32).contains(&sx) || !(0..HEIGHT as i32).contains(&sy) {
-                    continue;
-                }
-                let packed =
-                    bytes[(x / 8 * usize::from(piece.height) + y / 8) * 32 + y % 8 * 4 + x % 8 / 2];
-                let color = if x & 1 == 0 { packed >> 4 } else { packed & 15 };
-                if color != 0 {
-                    self.view[sy as usize * WIDTH + sx as usize] = source.color(
-                        usize::from(piece.format as u8 & 3) * 16 + usize::from(color),
-                        None,
-                        0,
-                    );
+        let pieces = &icon.pieces[..usize::from(icon.count)];
+        let left = pieces
+            .iter()
+            .map(|piece| i32::from(piece.x))
+            .min()
+            .expect("validated icon");
+        let top = pieces
+            .iter()
+            .map(|piece| i32::from(piece.y))
+            .min()
+            .expect("validated icon");
+        let right = pieces
+            .iter()
+            .map(|piece| i32::from(piece.x) + i32::from(piece.width) * 8)
+            .max()
+            .expect("validated icon");
+        let bottom = pieces
+            .iter()
+            .map(|piece| i32::from(piece.y) + i32::from(piece.height) * 8)
+            .max()
+            .expect("validated icon");
+        let offset = [
+            (32 - (right - left)).div_euclid(2) - left,
+            (32 - (bottom - top)).div_euclid(2) - top,
+        ];
+        // Paint back-to-front so the first authored piece retains sprite order.
+        for &piece in pieces.iter().rev() {
+            let bytes = self.cache.piece(source.rom(), piece)?;
+            let width = usize::from(piece.width) * 8;
+            let height = usize::from(piece.height) * 8;
+            for y in 0..height {
+                for x in 0..width {
+                    let sx = origin[0] + offset[0] + i32::from(piece.x) + x as i32;
+                    let sy = origin[1] + offset[1] + i32::from(piece.y) + y as i32;
+                    if !(origin[0]..origin[0] + 32).contains(&sx)
+                        || !(origin[1]..origin[1] + 32).contains(&sy)
+                        || !(0..WIDTH as i32).contains(&sx)
+                        || !(0..HEIGHT as i32).contains(&sy)
+                    {
+                        continue;
+                    }
+                    let packed = bytes
+                        [(x / 8 * usize::from(piece.height) + y / 8) * 32 + y % 8 * 4 + x % 8 / 2];
+                    let color = if x & 1 == 0 { packed >> 4 } else { packed & 15 };
+                    if color != 0 {
+                        self.view[sy as usize * WIDTH + sx as usize] = source.color(
+                            usize::from(piece.format as u8 & 3) * 16 + usize::from(color),
+                            None,
+                            0,
+                        );
+                    }
                 }
             }
         }

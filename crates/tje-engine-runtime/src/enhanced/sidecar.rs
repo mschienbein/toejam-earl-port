@@ -78,6 +78,7 @@ pub(super) struct Image {
 #[derive(Default)]
 pub struct Sidecars {
     entries: Vec<Entry>,
+    resources: Option<super::Resources>,
 }
 impl Sidecars {
     pub fn register<T: Sidecar>(&mut self, initial: T) -> Result<()> {
@@ -155,6 +156,70 @@ impl Sidecars {
             .ok_or_else(|| error("sidecar key belongs to another type"))
     }
 
+    pub(super) fn install_resources(&mut self, resources: super::Resources) -> Result<()> {
+        if self.resources.is_some() {
+            return Err(error("enhanced immutable resources are already installed"));
+        }
+        let manifest = resources.manifest()?;
+        self.register(manifest)?;
+        self.resources = Some(resources);
+        Ok(())
+    }
+    pub fn resource<T: super::Resource>(&self) -> Result<&T> {
+        self.resources
+            .as_ref()
+            .ok_or_else(|| error("enhanced immutable resources are absent"))?
+            .get::<T>()
+    }
+    /// Split disjoint storage without cloning authoritative state or resources.
+    pub fn state_and_resource<T: Sidecar, R: super::Resource>(&mut self) -> Result<(&mut T, &R)> {
+        let resource = self
+            .resources
+            .as_ref()
+            .ok_or_else(|| error("enhanced immutable resources are absent"))?
+            .get::<R>()?;
+        let index = self
+            .entries
+            .binary_search_by_key(&T::KEY, |entry| entry.key)
+            .map_err(|_| error("sidecar type is not registered"))?;
+        let state = self.entries[index]
+            .state
+            .any_mut()
+            .downcast_mut()
+            .ok_or_else(|| error("sidecar key belongs to another type"))?;
+        Ok((state, resource))
+    }
+    pub fn state_and_resources<T: Sidecar, A: super::Resource, B: super::Resource>(
+        &mut self,
+    ) -> Result<(&mut T, &A, &B)> {
+        let resources = self
+            .resources
+            .as_ref()
+            .ok_or_else(|| error("enhanced immutable resources are absent"))?;
+        let a = resources.get::<A>()?;
+        let b = resources.get::<B>()?;
+        let index = self
+            .entries
+            .binary_search_by_key(&T::KEY, |entry| entry.key)
+            .map_err(|_| error("sidecar type is not registered"))?;
+        let state = self.entries[index]
+            .state
+            .any_mut()
+            .downcast_mut()
+            .ok_or_else(|| error("sidecar key belongs to another type"))?;
+        Ok((state, a, b))
+    }
+    pub(super) fn validate_restore(
+        &self,
+        prepared: &Prepared,
+        hardware: &super::SnapshotView<'_>,
+    ) -> Result<()> {
+        if let Some(resources) = &self.resources {
+            resources.validate_restore(prepared, hardware)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn images(&self) -> Result<Vec<Image>> {
         let mut total = 0_usize;
         self.entries
@@ -220,7 +285,15 @@ impl Sidecars {
     }
 }
 
-pub(super) struct Prepared(Vec<Box<dyn Erased>>);
+pub struct Prepared(Vec<Box<dyn Erased>>);
+impl Prepared {
+    pub fn get<T: Sidecar>(&self) -> Result<&T> {
+        self.0
+            .iter()
+            .find_map(|state| state.any().downcast_ref::<T>())
+            .ok_or_else(|| error("prepared sidecar type is not registered"))
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,5 @@
 use crate::bridge::{self, Operation, PhaseServices};
-use crate::session::{Roles, Session, SessionConfig, SetupRoot, SetupTransaction};
+use crate::session::{Roles, Session, SessionConfig, SetupRoot, SetupTransaction, SimulationState};
 use crate::{Admission, Error, LevelId, Phase, PublicationStamp, Result, SeatMask};
 use tje_four_player::{
     CoopState, SeatId,
@@ -9,7 +9,7 @@ use tje_four_player::{
 use tje_world::{Cell, Density, LevelSize, Resources, Shape, WorldConfig, world::WorldState};
 
 // Authored solid/void terrain only: no ROM map or recovered lookup table.
-struct Solid;
+pub(crate) struct Solid;
 impl Resources for Solid {
     fn parameter(&self, _: LevelId, parameter: u8) -> tje_world::Result<(u8, u8)> {
         Ok(if parameter == 6 { (3, 6) } else { (55, 70) })
@@ -51,6 +51,7 @@ fn session_for_roles(seed: u64, roles: Roles) -> Session {
     let mut config = SessionConfig::new(
         world_config.clone(),
         coop_config.clone(),
+        tje_world::original::OriginalRevision::Rev02,
         tje_world::GeneratorId::ExpandedV1,
         None,
         &[],
@@ -110,10 +111,91 @@ fn session_for_roles(seed: u64, roles: Roles) -> Session {
     for seat in roles.heroes.iter() {
         world.set_active(seat.get(), level).unwrap();
     }
-    SetupTransaction::prepare(config, world, players, vec![])
+    let mut state = SimulationState::new(&config).unwrap();
+    state.world = world;
+    state.players = players;
+    for seat in roles.heroes.iter() {
+        state.services.runtime[seat.index()].checkpoint = Some(crate::players::Landing {
+            level,
+            position: state.players.players[seat.index()].motion.position,
+        });
+    }
+    stage_population(&state.world, &mut state.population, level);
+    for seat in roles.heroes.iter() {
+        state.population.retain(seat, level).unwrap();
+    }
+    state.loading.initial_setup = true;
+    SetupTransaction::prepare(config, state, vec![])
         .unwrap()
         .finish_setup()
         .unwrap()
+}
+
+pub(crate) fn stage_population(
+    world: &WorldState,
+    population: &mut crate::population::PopulationState,
+    level: LevelId,
+) {
+    use crate::population::{
+        AuthoredActor, Definition, DefinitionCatalog, Kind, Movement, Thinker, TickRange, Touch,
+    };
+    let range = TickRange {
+        minimum: 1,
+        maximum: 1,
+    };
+    let definition = Definition {
+        thinker: Thinker::None,
+        movement: Movement::None,
+        touch: Touch::Hurt,
+        axes: 0,
+        width: 24,
+        height: 32,
+        target_chance: 0,
+        target_distance: 0,
+        turn_chance: 0,
+        companion: false,
+        change_axis: false,
+        radius: 0,
+        contact_x: 0,
+        contact_y: 0,
+        damage: 0,
+        target_time: range,
+        turn_time: range,
+        move_time: range,
+        state_delay: 0,
+        health: 1,
+    };
+    let catalog = DefinitionCatalog::new(
+        [definition; 25],
+        crate::population::ProjectileVectors {
+            thresholds: [0; 8],
+            velocities: [[0; 2]; 9],
+        },
+    )
+    .unwrap();
+    let actors: Vec<_> = world
+        .floor(level)
+        .unwrap()
+        .generated
+        .population
+        .earthlings
+        .iter()
+        .map(|actor| AuthoredActor {
+            local: actor.id,
+            kind: if actor.role == tje_world::population::PlacementRole::Mailbox {
+                Kind::Mailbox
+            } else {
+                Kind::Devil
+            },
+            position: Position {
+                x: actor.x * 256,
+                y: actor.y * 256,
+                elevation: 0,
+            },
+            mail_order: actor.role == tje_world::population::PlacementRole::Mailbox,
+        })
+        .collect();
+    population.stage_floor(level, &actors, &catalog).unwrap();
 }
 
 #[test]
@@ -145,6 +227,7 @@ fn original_and_expanded_generator_capabilities_cannot_alias() {
     let original = SessionConfig::stock(
         expanded.world.config().clone(),
         expanded.players.config().clone(),
+        expanded.config().revision,
         &[],
     )
     .unwrap();
@@ -153,8 +236,13 @@ fn original_and_expanded_generator_capabilities_cannot_alias() {
     assert!(
         SetupTransaction::prepare(
             original,
-            expanded.world.clone(),
-            expanded.players.clone(),
+            SimulationState {
+                world: expanded.world.clone(),
+                players: expanded.players.clone(),
+                services: expanded.services.clone(),
+                population: expanded.population.clone(),
+                loading: expanded.loading.clone(),
+            },
             vec![]
         )
         .is_err()
@@ -183,6 +271,7 @@ fn pending_designed_imports_authenticate_course_and_definition_provenance() {
     let config = SessionConfig::new(
         template.world.config().clone(),
         template.players.config().clone(),
+        template.config().revision,
         tje_world::GeneratorId::DesignedV1,
         Some(CourseManifest {
             identity: [3; 32],
@@ -196,10 +285,9 @@ fn pending_designed_imports_authenticate_course_and_definition_provenance() {
     )
     .unwrap();
     let prepare = |candidate: ImportSpec| {
-        let mut world = WorldState::new(candidate.config.clone()).unwrap();
-        world.request_import(candidate).unwrap();
-        let players = CoopState::new(template.players.config().clone()).unwrap();
-        SetupTransaction::prepare(config.clone(), world, players, vec![])
+        let mut state = SimulationState::new(&config).unwrap();
+        state.world.request_import(candidate).unwrap();
+        SetupTransaction::prepare(config.clone(), state, vec![])
     };
     assert!(prepare(spec.clone()).is_ok());
     let mut wrong_course = spec.clone();
@@ -421,4 +509,78 @@ fn missing_operation_rejects_before_mutation_and_execution_errors_latch() {
         .is_err()
     );
     assert_eq!(session, failed);
+}
+
+#[test]
+fn aggregate_checks_hero_and_population_pose_bindings_before_restore() {
+    use crate::visual::{EarthlingBinding, ProgramContract};
+    let template = session(123);
+    let mut config = template.config().clone();
+    let animation = crate::AnimationId::new(0).unwrap();
+    config.catalogue_identity = [29; 32];
+    config.frame_count = 2;
+    config.animations.programs = vec![ProgramContract {
+        selections: 2,
+        frame_indices: vec![0, 1],
+        flips: [0; 4],
+        period: Some(2),
+    }];
+    config.animations.heroes = std::array::from_fn(|_| vec![animation; 121]);
+    config.animations.earthlings = crate::population::Kind::ALL
+        .into_iter()
+        .map(|kind| EarthlingBinding {
+            kind: kind.index() as u8,
+            state: 0,
+            animation,
+        })
+        .collect();
+    let mut state = SimulationState::new(&config).unwrap();
+    state.world = template.world;
+    state.players = template.players;
+    state.services = template.services;
+    let level = LevelId::new(2).unwrap();
+    stage_population(&state.world, &mut state.population, level);
+    for seat in config.roles.heroes.iter() {
+        state.population.retain(seat, level).unwrap();
+    }
+    state.loading.initial_setup = true;
+    let valid = SetupTransaction::prepare(config, state, vec![])
+        .unwrap()
+        .finish_setup()
+        .unwrap();
+    valid.validate().unwrap();
+    let mut bad = valid.clone();
+    bad.players.players[0].animation.sequence_index = 2;
+    assert!(bad.validate().is_err());
+    let mut bad = valid.clone();
+    bad.players.players[0].animation.ticks_left = 3;
+    assert!(bad.validate().is_err());
+    let mut bad = valid.clone();
+    bad.services.runtime[0].animation.descriptor = 1;
+    assert!(bad.validate().is_err());
+    let id = valid.population.floors()[0].actors[0].id;
+    let mut bad = valid.clone();
+    bad.population.actor_mut(id).unwrap().state = 3;
+    assert!(bad.validate().is_err());
+    let mut bad = valid;
+    let actor = bad.population.actor_mut(id).unwrap();
+    actor.animation.started = true;
+    actor.animation.ticks_left = 2;
+    actor.animation_frame = 1;
+    assert!(bad.validate().is_err());
+}
+
+#[test]
+fn hero_service_sources_must_have_issued_population_generations() {
+    let mut bad = session(123);
+    let source = bad.population.floors()[0].actors[0].id;
+    bad.services.runtime[0].contacts.offer = Some(crate::contact::OfferedService {
+        source,
+        actor: crate::ActorId::new(crate::ActorId::POPULATION_START, 1).unwrap(),
+        service: crate::population::Service::Heal,
+        cost: 1,
+        active: false,
+    });
+    bad.services.validate(&bad.players).unwrap();
+    assert!(bad.validate().is_err());
 }

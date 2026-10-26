@@ -225,12 +225,13 @@ impl<B: Backend> Machine<PlatformDevices, B> {
     }
 
     #[cfg(feature = "enhanced-mode")]
-    pub(crate) fn restore_enhanced(
+    pub(crate) fn restore_enhanced_checked(
         &mut self,
         snapshot: &MachineSnapshot,
         profile: &str,
+        validate: impl FnOnce(tje_native_platform::SnapshotView<'_>) -> Result<(), String>,
     ) -> Result<(), SnapshotError> {
-        self.restore_profile_parts(snapshot, profile, true)
+        self.restore_profile_parts_checked(snapshot, profile, true, validate)
     }
 
     fn restore_profile_parts(
@@ -238,6 +239,16 @@ impl<B: Backend> Machine<PlatformDevices, B> {
         snapshot: &MachineSnapshot,
         profile: &str,
         enhanced: bool,
+    ) -> Result<(), SnapshotError> {
+        self.restore_profile_parts_checked(snapshot, profile, enhanced, |_| Ok(()))
+    }
+
+    fn restore_profile_parts_checked(
+        &mut self,
+        snapshot: &MachineSnapshot,
+        profile: &str,
+        enhanced: bool,
+        validate_hardware: impl FnOnce(tje_native_platform::SnapshotView<'_>) -> Result<(), String>,
     ) -> Result<(), SnapshotError> {
         let bytes = &snapshot.bytes;
         validate(bytes)?;
@@ -272,7 +283,10 @@ impl<B: Backend> Machine<PlatformDevices, B> {
             last_muldiv: words.next().unwrap(),
         };
         self.devices
-            .restore_snapshot(&bytes[HARDWARE_OFFSET..hardware_end(bytes)?])
+            .restore_snapshot_checked(
+                &bytes[HARDWARE_OFFSET..hardware_end(bytes)?],
+                validate_hardware,
+            )
             .map_err(SnapshotError::Hardware)?;
         self.cpu = cpu;
         self.frames = snapshot.frame_count();

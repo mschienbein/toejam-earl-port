@@ -4,13 +4,17 @@
 //! ordinary `Machine::step` and `Machine::play_frame` paths never consult it.
 
 mod context;
+mod resources;
 mod resumable;
 mod sidecar;
 mod snapshot;
+pub use resources::{Resource, Resources};
 pub use resumable::{
     Context, Continuation, EnhancedInputs, OverrideStep, ResumableTranslation, Wait,
 };
+pub use sidecar::Prepared as PreparedSidecars;
 pub use sidecar::{Sidecar, Sidecars};
+pub use tje_native_platform::SnapshotView;
 #[cfg(test)]
 mod tests;
 
@@ -126,6 +130,7 @@ pub struct EnhancedMode {
     pending: Vec<resumable::Invocation>,
     interrupts: u64,
     failed: bool,
+    started: bool,
 }
 
 #[derive(Default)]
@@ -262,6 +267,18 @@ impl EnhancedMode {
         &mut self.sidecars
     }
 
+    /// Attach one complete immutable resource set before execution. Snapshots
+    /// authenticate its manifest without serializing decoded ROM/GPU payloads.
+    pub fn with_resources(mut self, resources: Resources) -> tje_game::Result<Self> {
+        if self.driver.profile.is_none() || self.started || self.failed {
+            return Err(context::error(
+                "install enhanced resources before selected execution",
+            ));
+        }
+        self.sidecars.install_resources(resources)?;
+        Ok(self)
+    }
+
     pub fn reset<B: Backend>(&mut self, engine: &mut Engine<B>) {
         engine.reset();
         self.failed = false;
@@ -312,6 +329,7 @@ impl EnhancedMode {
                 "enhanced profile belongs to a different cartridge revision",
             )));
         }
+        self.started = true;
         self.inputs = inputs;
         let result = self.scheduled_step(engine);
         if result.is_err() {

@@ -35,6 +35,9 @@ impl FrameSource for Source {
     fn rom(&self) -> &[u8] {
         &self.rom
     }
+    fn vram(&self) -> &[u8] {
+        &[0; 0x10000]
+    }
     fn revision(&self) -> tje_rom::Revision {
         tje_rom::Revision::Rev02
     }
@@ -77,6 +80,12 @@ fn views(disjoint: bool) -> [View; 4] {
         starfield: true,
     })
 }
+fn one_piece(piece: Piece) -> crate::packet::Metasprite {
+    crate::packet::Metasprite {
+        count: 1,
+        pieces: [piece; 12],
+    }
+}
 fn actor(slot: u16, level: u16, x: i32, y: i32, source: u32) -> Actor {
     let mut pieces = [Piece::default(); 12];
     pieces[0] = Piece {
@@ -87,7 +96,7 @@ fn actor(slot: u16, level: u16, x: i32, y: i32, source: u32) -> Actor {
         ..Piece::default()
     };
     Actor {
-        id: ActorId::new(slot, 1).unwrap(),
+        id: crate::packet::DrawId::Actor(ActorId::new(slot, 1).unwrap()),
         level: LevelId::new(level).unwrap(),
         position: [x, y],
         elevation: 0,
@@ -204,11 +213,11 @@ fn masks_flips_submerged_cutoff_shadows_and_each_quadrant_clip_are_explicit() {
     let mut publisher = Publisher::new();
     let mut renderer = Compositor::new();
     let mut body = actor(1, 2, -4, 10, 96);
-    body.shadow = Some(Piece {
+    body.shadow = Some(crate::packet::Shadow::Rom(one_piece(Piece {
         source: 64,
         y: 8,
         ..body.pieces[0]
-    });
+    })));
     let mut masked = actor(2, 2, 20, 10, 128);
     masked.mask_pixels = true;
     let mut submerged = actor(3, 2, 40, 10, 32);
@@ -307,12 +316,16 @@ fn per_instance_palettes_four_overlays_and_level_keyed_priority_patches_are_loca
             wrapper: 2,
             identified: true,
             icon: None,
+            price: None,
+            available: true,
         }); 16],
     });
     ui[1].map = Some(Map {
         level: LevelId::new(3).unwrap(),
         dimensions: [19, 26],
         discovery: [u64::MAX; 9],
+        discovery_columns: 8,
+        discovery_rows: 7,
         markers: [None; 68],
     });
     ui[2].speech = Speech::new(b"NEWLY AUTHORED TEST", true, true).unwrap();
@@ -347,7 +360,7 @@ fn shadows_keep_their_own_priority_bank_and_orientation() {
     body.character = Some(Character::DEFAULT_ROSTER[2]);
     body.flip_horizontal = true;
     body.mask_pixels = true;
-    body.shadow = Some(Piece {
+    body.shadow = Some(crate::packet::Shadow::Rom(one_piece(Piece {
         width: 1,
         height: 1,
         source: 64,
@@ -355,7 +368,7 @@ fn shadows_keep_their_own_priority_bank_and_orientation() {
         y: 8,
         flipped_x: 20,
         ..Piece::default()
-    });
+    })));
     let mut publisher = Publisher::new();
     publisher
         .publish(stamp(1), views(false), &[body], &overlays(), &[])
@@ -364,4 +377,79 @@ fn shadows_keep_their_own_priority_bank_and_orientation() {
     renderer.compose(publisher.current(), &source).unwrap();
     assert_eq!(pixel(&renderer, 0, 10, 18), source.color(50, None, 0));
     assert_eq!(pixel(&renderer, 0, 30, 18), source.color(10, None, 0));
+}
+
+#[test]
+fn static_ids_do_not_consume_or_alias_simulation_body_slots() {
+    use crate::packet::DrawId;
+    let mut actors = Vec::new();
+    for level in 2..6 {
+        for id in 0..128 {
+            let mut item = actor(0, level, 10, 10, 32);
+            item.id = DrawId::Item {
+                level: item.level,
+                id,
+            };
+            actors.push(item);
+        }
+    }
+    let mut hero = actor(0, 2, 10, 10, 64);
+    actors.push(hero.clone());
+    let mut publisher = Publisher::new();
+    publisher
+        .publish(stamp(1), views(true), &actors, &overlays(), &[])
+        .unwrap();
+    let saved = publisher.current().clone();
+    actors.push(actors[0].clone());
+    assert!(
+        publisher
+            .publish(stamp(2), views(true), &actors, &overlays(), &[])
+            .is_err()
+    );
+    assert_eq!(publisher.current(), &saved);
+    actors.pop();
+    hero.id = DrawId::Actor(ActorId::new(0, 2).unwrap());
+    actors.push(hero);
+    assert!(
+        publisher
+            .publish(stamp(2), views(true), &actors, &overlays(), &[])
+            .is_err()
+    );
+}
+
+#[test]
+fn static_vram_shadow_uses_its_own_tile_attributes_and_clips() {
+    let mut vram = vec![0; 0x10000];
+    vram[32..64].fill(0x22);
+    let body = actor(1, 2, -3, 10, 32);
+    let mut renderer = Compositor::new();
+    renderer
+        .paint_vram_shadow(
+            &vram,
+            &body,
+            crate::packet::VramShadow {
+                tile: 0xe001,
+                size: [1, 1],
+                offset: [0, 0],
+            },
+            [0, 0],
+        )
+        .unwrap();
+    assert_eq!(renderer.sprites[10 * WIDTH].index, 50);
+    assert!(renderer.sprites[10 * WIDTH].high);
+    assert!(!renderer.sprites[10 * WIDTH + 5].occupied);
+    assert!(
+        renderer
+            .paint_vram_shadow(
+                &[],
+                &body,
+                crate::packet::VramShadow {
+                    tile: 1,
+                    size: [1, 1],
+                    offset: [0, 0],
+                },
+                [0, 0]
+            )
+            .is_err()
+    );
 }

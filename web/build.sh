@@ -7,6 +7,10 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BINDGEN="${WASM_BINDGEN:-wasm-bindgen}"
+if [[ "${TJE_COOP_ACCEPTANCE:-0}" != 0 ]]; then
+  printf '%s\n' 'Internal co-op candidates are never release artifacts; use web/build-replay.sh with a private scratch output.' >&2
+  exit 1
+fi
 if [[ "$("$BINDGEN" --version)" != 'wasm-bindgen 0.2.129' ]]; then
   printf '%s\n' 'tje-web requires wasm-bindgen CLI 0.2.129 (matching Cargo.toml).' >&2
   exit 1

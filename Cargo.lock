@@ -3331,6 +3331,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tje-coop"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "sha2",
+ "tje-engine-runtime",
+ "tje-extended-view",
+ "tje-four-player",
+ "tje-game",
+ "tje-mem",
+ "tje-mode-view",
+ "tje-native-platform",
+ "tje-rom",
+ "tje-simulation",
+ "tje-world",
+]
+
+[[package]]
 name = "tje-display"
 version = "0.1.0"
 dependencies = [

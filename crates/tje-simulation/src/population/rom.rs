@@ -138,12 +138,30 @@ impl<'a, B: Bus + ?Sized> RomDefinitions<'a, B> {
     pub fn callbacks(&self) -> &[[Option<FunctionId>; 3]; 25] {
         &self.callbacks
     }
+    /// Bounded slot extent, including explicit null holes; not an admitted-pose count.
     pub fn state_count(&self, kind: Kind) -> u8 {
         self.state_counts[kind.index()]
     }
     pub fn descriptor(&self, kind: Kind, state: u8) -> Result<AnimationDescriptor> {
+        self.optional_descriptor(kind, state)?
+            .ok_or(Error::Resource(
+                "Earthling animation state has no authored descriptor",
+            ))
+    }
+    /// Bounds are an envelope, not proof that every slot is authored. A complete
+    /// null pointer pair denotes an absent state; malformed pairs still reject.
+    pub fn optional_descriptor(
+        &self,
+        kind: Kind,
+        state: u8,
+    ) -> Result<Option<AnimationDescriptor>> {
+        if !self.catalog.get(kind).supports_state(kind, state) {
+            return Err(Error::Resource(
+                "Earthling animation state has no typed producer",
+            ));
+        }
         let (address, sleep) = if state == SLEEP_STATE {
-            if kind.index() >= 23 {
+            if !kind.supports_sleep() {
                 return Err(Error::Resource("kind has no sleep descriptor"));
             }
             (
@@ -161,22 +179,7 @@ impl<'a, B: Bus + ?Sized> RomDefinitions<'a, B> {
                 false,
             )
         };
-        checked_range(address, if sleep { 8 } else { 10 }, self.length)?;
-        let descriptor = AnimationDescriptor {
-            sequence: self.bus.read_u32(address),
-            frames: self.bus.read_u32(address + 4),
-            period: if sleep {
-                6
-            } else {
-                self.bus.read_u8(address + 8)
-            },
-        };
-        checked_range(descriptor.sequence, 1, self.length)?;
-        checked_range(descriptor.frames, 4, self.length)?;
-        if descriptor.period > 127 {
-            return Err(Error::Resource("invalid Earthling animation period"));
-        }
-        Ok(descriptor)
+        read_descriptor(self.bus, address, sleep, self.length)
     }
     /// Original campaign composition is resolved from the user's ROM, not an
     /// embedded list. Authored courses provide Kind references directly instead.
@@ -198,6 +201,42 @@ impl<'a, B: Bus + ?Sized> RomDefinitions<'a, B> {
         }
     }
 }
+fn read_descriptor(
+    bus: &(impl Bus + ?Sized),
+    address: u32,
+    sleep: bool,
+    length: usize,
+) -> Result<Option<AnimationDescriptor>> {
+    checked_range(address, if sleep { 8 } else { 10 }, length)?;
+    if address & 1 != 0 {
+        return Err(Error::Resource("unaligned Earthling animation descriptor"));
+    }
+    let sequence = bus.read_u32(address);
+    let frames = bus.read_u32(address + 4);
+    if sequence == 0 && frames == 0 {
+        return Ok(None);
+    }
+    if sequence == 0 || frames == 0 {
+        return Err(Error::Resource(
+            "partial null Earthling animation descriptor",
+        ));
+    }
+    checked_range(sequence, 1, length)?;
+    checked_range(frames, 4, length)?;
+    if frames & 1 != 0 {
+        return Err(Error::Resource("unaligned Earthling frame pointer table"));
+    }
+    let period = if sleep { 6 } else { bus.read_u8(address + 8) };
+    if period > 127 {
+        return Err(Error::Resource("invalid Earthling animation period"));
+    }
+    Ok(Some(AnimationDescriptor {
+        sequence,
+        frames,
+        period,
+    }))
+}
+
 fn checked_range(address: u32, count: usize, length: usize) -> Result<()> {
     if address as usize >= length
         || (address as usize)
@@ -256,5 +295,57 @@ fn contact(id: Option<FunctionId>) -> Result<Touch> {
         Some(ids::LEMONADE_ABILITY) => Ok(Touch::Lemonade),
         Some(ids::HOTTUB_ABILITY) => Ok(Touch::HotTub),
         _ => Err(Error::Resource("unowned Earthling touch callback")),
+    }
+}
+
+#[cfg(test)]
+mod descriptor_tests {
+    use super::*;
+    fn descriptor(sequence: u32, frames: u32) -> AddressSpace {
+        let mut bytes = vec![0; 512];
+        bytes[0x40..0x44].copy_from_slice(&sequence.to_be_bytes());
+        bytes[0x44..0x48].copy_from_slice(&frames.to_be_bytes());
+        bytes[0x48] = 6;
+        AddressSpace::new(bytes, Revision::Rev02)
+    }
+    #[test]
+    fn null_holes_are_explicit_but_partial_or_unmapped_descriptors_reject() {
+        assert_eq!(
+            read_descriptor(&descriptor(0, 0), 0x40, false, 512).unwrap(),
+            None
+        );
+        let valid = read_descriptor(&descriptor(0x100, 0x180), 0x40, false, 512)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (valid.sequence, valid.frames, valid.period),
+            (0x100, 0x180, 6)
+        );
+        for (sequence, frames) in [
+            (0, 0x180),
+            (0x100, 0),
+            (0x100, 0x181),
+            (0x100, u32::MAX),
+            (u32::MAX, 0x180),
+        ] {
+            assert!(read_descriptor(&descriptor(sequence, frames), 0x40, false, 512).is_err());
+        }
+    }
+    #[test]
+    fn sleep_capability_matches_the_original_pre_index_guard() {
+        for kind in Kind::ALL {
+            assert_eq!(
+                kind.supports_sleep(),
+                !matches!(
+                    kind,
+                    Kind::ShipPiece
+                        | Kind::Whirlwind
+                        | Kind::Shark
+                        | Kind::Santa
+                        | Kind::LemonadeStand
+                        | Kind::HotTub
+                )
+            );
+        }
     }
 }

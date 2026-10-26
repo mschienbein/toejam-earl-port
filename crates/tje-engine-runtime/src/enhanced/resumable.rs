@@ -69,6 +69,8 @@ pub enum OverrideStep {
 pub trait Context: tje_game::Context {
     fn sidecars(&self) -> &Sidecars;
     fn sidecars_mut(&mut self) -> &mut Sidecars;
+    /// Readonly cartridge/RAM view disjoint from mutable authoritative state.
+    fn state_and_memory(&mut self) -> (&mut Sidecars, &tje_mem::AddressSpace);
     fn inputs(&self) -> EnhancedInputs;
     fn frame_count(&self) -> u64;
     fn entry_arguments(&self) -> Result<Vec<u32>>;

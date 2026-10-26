@@ -65,6 +65,19 @@ impl Kind {
     pub const fn index(self) -> usize {
         self as usize
     }
+    /// G/spawning_and_banks.c:659-664 excludes these objective/hazard/service
+    /// kinds before indexing the sparse sleep-descriptor table.
+    pub const fn supports_sleep(self) -> bool {
+        !matches!(
+            self,
+            Self::ShipPiece
+                | Self::Whirlwind
+                | Self::Shark
+                | Self::Santa
+                | Self::LemonadeStand
+                | Self::HotTub
+        )
+    }
     pub const fn required(self) -> bool {
         matches!(
             self,
@@ -198,6 +211,49 @@ pub struct Definition {
     pub health: u8,
 }
 impl Definition {
+    /// Conservative envelope of the finite producers in ai.rs/contacts.rs and
+    /// PersistentActor::new, not a transcription of ROM table slots. Every pose
+    /// inside this envelope still requires a valid authored descriptor/program.
+    pub fn supports_state(self, kind: Kind, state: u8) -> bool {
+        if state == super::SLEEP_STATE {
+            return kind.supports_sleep();
+        }
+        if state >= 16 {
+            return false;
+        }
+        let mut states = 1_u16; // Every kind can begin in state zero.
+        if self.companion {
+            states |= 1 << 2;
+        }
+        states |= match self.thinker {
+            Thinker::None => 0,
+            Thinker::Generic | Thinker::Timed | Thinker::HorizontalWander => 0x00f3,
+            Thinker::HorizontalTurn | Thinker::Santa => 0x00ff,
+            Thinker::HorizontalReversal => 0x000f,
+            Thinker::Whirlwind => 0x001d,
+        };
+        if kind == Kind::Whirlwind {
+            states |= 1 << 3;
+        }
+        if kind == Kind::IceCreamTruck && self.thinker == Thinker::Timed {
+            states |= 0xff00;
+        }
+        if kind == Kind::Cupid {
+            states |= (1 << 10) | (1 << 11);
+        }
+        if kind == Kind::Mailbox {
+            states |= 1 << 4;
+        } // Contact state 3 completes into 4.
+        states |= match self.touch {
+            Touch::Hurt if matches!(kind, Kind::Dentist | Kind::DentistVariant) => 0x0f00,
+            Touch::Chicken | Touch::Boogie => 0x0f00,
+            Touch::Cupid => (1 << 3) | (1 << 10) | (1 << 11),
+            Touch::Wizard => (1 << 2) | (1 << 3),
+            Touch::Mole | Touch::Mailbox | Touch::Opera | Touch::Santa => 1 << 3,
+            _ => 0,
+        };
+        states & (1 << state) != 0
+    }
     pub fn validate(self) -> Result<()> {
         if self.axes > 3
             || self.width == 0

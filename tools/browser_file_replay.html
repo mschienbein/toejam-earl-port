@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Private faithful frontend replay</title>
+<input id="rom" type="file" aria-label="Private user cartridge">
+<canvas id="canvas" width="640" height="448"></canvas>
+<pre id="status">Waiting for explicit local proof inputs.</pre>
+<script type="module">
+// Development-only file harness. It never imports a reference CPU, opens a
+// server, uploads assets, or installs an enhanced gameplay profile.
+const parameters = new URLSearchParams(location.search);
+const packageURL = new URL(parameters.get('pkg'));
+if (packageURL.protocol !== 'file:') throw new Error('Proof package must be a local file URL.');
+const status = document.getElementById('status');
+window.tjeFileReplay = {
+  ready: true,
+  running: false,
+  start(recording, expected) {
+    if (this.running) throw new Error('A replay is already running.');
+    this.running = true;
+    // Store and settle the promise in the page. A slow cold compile or full
+    // recording must never keep one CDP Runtime.callFunctionOn request pending.
+    this.result = run(recording, expected).then(result => {
+      const { hashes, stages, ...summary } = result;
+      status.textContent = JSON.stringify({ ...summary, observationCount: hashes.length, compilationStages: stages }, null, 2);
+      globalThis.tjeReplayComplete(JSON.stringify({ ok: true, result }));
+      return result;
+    }).catch(error => {
+      const failure = { message: String(error.message ?? error), stack: String(error.stack ?? '') };
+      status.textContent = JSON.stringify(failure, null, 2);
+      globalThis.tjeReplayComplete(JSON.stringify({ ok: false, error: failure }));
+    });
+  },
+};
+globalThis.tjeReplayReady('ready');
+async function run(recording, expected) {
+  if (recording.format !== 1 || recording.start?.kind !== 'power_on' || !Array.isArray(recording.runs)
+      || !Array.isArray(expected) || expected.length !== recording.frames + 1) throw new Error('Proof requires one complete faithful power-on recording and its original observations.');
+  const module = await import(new URL('tje_web.js', packageURL));
+  await module.default({ module_or_path: new URL('tje_web_bg.wasm', packageURL) });
+  const input = document.getElementById('rom').files[0];
+  if (!input) throw new Error('The caller did not provide the private cartridge file.');
+  const stages = [];
+  const cartridge = await module.CompiledCartridge.load(new Uint8Array(await input.arrayBuffer()), 48000, stage => {
+    stages.push(stage); status.textContent = JSON.stringify({ stage, completedFrames: 0 });
+  });
+  cartridge.set_enhanced_debug(false);
+  cartridge.set_extended_view(0);
+  const game = await module.WebGame.create(document.getElementById('canvas'), 'webgl');
+  const revision = game.install(cartridge);
+  if (typeof game.observation !== 'function') throw new Error('Use an observation-only development build, never a release package.');
+  let comparedBytes = 0;
+  const hashes = [];
+  async function compare(frame) {
+    const observation = game.observation();
+    const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', observation)), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (actual !== expected[frame]) throw new Error(`Frame ${frame}: canonical observation ${actual} != original ${expected[frame]}`);
+    comparedBytes += observation.length; hashes.push(actual);
+  }
+  await compare(0);
+  let frame = 0;
+  const started = performance.now();
+  for (const run of recording.runs) {
+    if (!Number.isSafeInteger(run.frames) || run.frames <= 0 || !Array.isArray(run.pads) || run.pads.length !== 2) throw new Error('Invalid faithful controller run.');
+    for (let tick = 0; tick < run.frames; tick++) {
+      game.step(run.pads[0] & 255, run.pads[1] & 255, !!(run.pads[1] & 256));
+      await compare(++frame);
+      if (frame % 60 === 0) status.textContent = JSON.stringify({ completedFrames: frame, expectedFrames: recording.frames });
+    }
+  }
+  if (frame !== recording.frames) throw new Error('Controller run extent does not match the declared recording.');
+  const beforeRedraw = game.observation().slice();
+  game.render(640, 448, false, true, module.VideoFilter.Nearest, 0);
+  const afterRedraw = game.observation();
+  if (beforeRedraw.length !== afterRedraw.length || beforeRedraw.some((byte, index) => byte !== afterRedraw[index])) throw new Error('Presentation advanced or changed faithful simulation/audio.');
+  return { revision, frames: frame, comparedBytes, sampleRate: 48000, redrawObservationEqual: true, elapsedMs: performance.now() - started,
+    comparison: 'SHA-1 equality of every complete canonical observation, including full RGBA pixels and stereo f64 sample bits/counts',
+    initialHash: hashes[0], finalHash: hashes.at(-1), hashes, stages };
+}
+</script>

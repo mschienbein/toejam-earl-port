@@ -391,3 +391,74 @@ fn shared_piece_decoder_bounds_dimensions_and_reuses_caller_storage() {
     );
     assert!(resources::frame_pieces(&rom, u32::MAX, &mut [Piece::default(); 12]).is_err());
 }
+
+#[test]
+fn rle_finishes_whole_runs_before_testing_the_declared_tile_quota() {
+    use presentation::Piece;
+    use resources::decode_piece_into;
+    // Newly authored tokens: a 33-byte literal run for a 32-byte tile. The
+    // cartridge consumes the final byte even though it is outside the tile.
+    let mut stream = vec![33];
+    stream.extend((0..33).map(|index| (index * 7 + 3) as u8));
+    let piece = Piece {
+        width: 1,
+        height: 1,
+        ..Piece::default()
+    };
+    let mut output = [0; 32];
+    decode_piece_into(&stream, piece, &mut output).unwrap();
+    assert_eq!(output.as_slice(), &stream[1..33]);
+    assert!(decode_piece_into(&stream[..33], piece, &mut output).is_err());
+}
+
+#[test]
+fn interleaved_spill_consumes_the_complete_run_before_starting_the_next_lane() {
+    use presentation::Piece;
+    use resources::decode_piece_into;
+    // Four authored eight-byte lane windows, each exhausted in the middle of a
+    // finite run: literal, repeated value, zero fill, alternating nibbles.
+    let mut stream = vec![10];
+    stream.extend((0..10).map(|index| (index * 3 + 1) as u8));
+    stream.extend([0xf6, 0x23, 0xb6, 0x6b, 0x45]);
+    let piece = Piece {
+        width: 1,
+        height: 1,
+        format: -128,
+        ..Piece::default()
+    };
+    let mut output = [0; 32];
+    decode_piece_into(&stream, piece, &mut output).unwrap();
+    for (index, row) in output.as_chunks::<4>().0.iter().enumerate() {
+        assert_eq!(
+            *row,
+            [
+                (index * 3 + 1) as u8,
+                0x23,
+                0,
+                if index & 1 == 0 { 0x45 } else { 0x54 }
+            ]
+        );
+    }
+}
+
+#[test]
+fn rle_spill_never_admits_zero_counts_alternating_underflow_or_truncated_values() {
+    use presentation::Piece;
+    use resources::decode_piece_into;
+    let piece = Piece {
+        width: 1,
+        height: 1,
+        format: -128,
+        ..Piece::default()
+    };
+    let mut output = [0; 32];
+    for stream in [
+        &[0][..],
+        &[0x40][..],
+        &[0x60, 0x23][..],
+        &[0x61, 0x23][..],
+        &[0xf0][..],
+    ] {
+        assert!(decode_piece_into(stream, piece, &mut output).is_err());
+    }
+}

@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use tje_four_player::input::{InputFrame, Router, SourceId};
 
 const MAGIC: &[u8; 8] = b"TJEINPUT";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const HEADER_BYTES: usize = 48;
 pub const MAX_RECORDING_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_RUNS: usize = 262_144;
@@ -52,14 +52,22 @@ impl Assignment {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Recording {
     configuration: SessionConfig,
+    configuration_identity: [u8; 32],
     initial_router: Router,
     frames: u64,
     runs: Vec<Run>,
     assignments: Vec<Assignment>,
 }
 impl Recording {
-    pub fn new(configuration: SessionConfig, initial_router: Router) -> Result<Self> {
+    pub fn new(mut configuration: SessionConfig, initial_router: Router) -> Result<Self> {
         configuration.validate()?;
+        if configuration.roles.director.is_some()
+            || configuration.roles.inputs != configuration.roles.heroes
+        {
+            return Err(Error::Ownership(
+                "director role/command recording schema is not admitted",
+            ));
+        }
         initial_router
             .validate()
             .map_err(|_| Error::State("invalid initial recorded source routing"))?;
@@ -70,14 +78,23 @@ impl Recording {
                 "recorded router differs from immutable input configuration",
             ));
         }
+        let configuration_identity = configuration.identity();
+        // A controller recording carries settings and catalogue identity, never
+        // the imported ROM animation contracts used by private snapshots.
+        configuration.animations = Default::default();
         Ok(Self {
             configuration,
+            configuration_identity,
             initial_router,
             frames: 0,
             runs: Vec::new(),
             assignments: Vec::new(),
         })
     }
+    pub const fn configuration_identity(&self) -> &[u8; 32] {
+        &self.configuration_identity
+    }
+    /// Assetless normalized settings. Bind the actual catalogue before play.
     pub fn configuration(&self) -> &SessionConfig {
         &self.configuration
     }
@@ -97,7 +114,9 @@ impl Recording {
     /// the digest claimed by a file. Generator/roles/caps/resources are included.
     pub fn authenticate(&self, expected: &SessionConfig) -> Result<()> {
         expected.validate()?;
-        if &self.configuration != expected {
+        if self.configuration_identity != expected.identity()
+            || self.configuration.settings_identity() != expected.settings_identity()
+        {
             return Err(Error::Ownership(
                 "recording ROM/profile/generator/role/configuration mismatch",
             ));
@@ -167,7 +186,19 @@ impl Recording {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
-        self.configuration.validate()?;
+        self.configuration.validate_settings()?;
+        if self.configuration.roles.director.is_some()
+            || self.configuration.roles.inputs != self.configuration.roles.heroes
+        {
+            return Err(Error::Ownership(
+                "director role/command recording schema is not admitted",
+            ));
+        }
+        if self.configuration.animations != Default::default() {
+            return Err(Error::State(
+                "controller recording contains imported resource programs",
+            ));
+        }
         self.initial_router
             .validate()
             .map_err(|_| Error::State("invalid initial recorded routing"))?;
@@ -381,6 +412,31 @@ mod tests {
         let wrong = session(124);
         assert!(restored.authenticate(wrong.config()).is_err());
         restored.authenticate(recording.configuration()).unwrap();
+    }
+    #[test]
+    fn recordings_authenticate_imported_contracts_without_serializing_them() {
+        let template = recording();
+        let mut config = template.configuration.clone();
+        config.catalogue_identity = [31; 32];
+        config.frame_count = 2;
+        config
+            .animations
+            .programs
+            .push(crate::visual::ProgramContract {
+                selections: 2,
+                frame_indices: vec![0, 1],
+                flips: [0; 4],
+                period: Some(3),
+            });
+        let mut recording = Recording::new(config.clone(), template.initial_router).unwrap();
+        recording.record(InputFrame::neutral(0)).unwrap();
+        assert!(recording.configuration.animations.programs.is_empty());
+        assert_eq!(recording.configuration_identity, config.identity());
+        let restored = Recording::from_bytes(&recording.to_bytes().unwrap()).unwrap();
+        restored.authenticate(&config).unwrap();
+        assert!(restored.configuration.animations.programs.is_empty());
+        config.animations.programs[0].frame_indices.swap(0, 1);
+        assert!(restored.authenticate(&config).is_err());
     }
     #[test]
     fn explicit_same_frame_swaps_replay_once_and_disconnect_does_not_reassign() {

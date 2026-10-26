@@ -1,7 +1,8 @@
 use crate::{Error, MAX_ACTORS, MAX_PATCHES, MAX_PIECES, Result, overlay::SeatOverlay};
 use tje_extended_view::{presentation::Piece, resources::piece_length};
 use tje_four_player::{Character, SeatId};
-use tje_simulation::{ActorId, PublicationStamp};
+pub use tje_simulation::DrawId;
+use tje_simulation::PublicationStamp;
 use tje_world::LevelId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,9 +23,38 @@ pub struct PriorityPatch {
     pub minimum: [i32; 2],
     pub maximum: [i32; 2],
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Metasprite {
+    pub count: u8,
+    pub pieces: [Piece; MAX_PIECES],
+}
+impl Metasprite {
+    pub fn validate(&self) -> Result<()> {
+        if self.count == 0 || usize::from(self.count) > MAX_PIECES {
+            return Err(Error::Invalid("invalid metasprite piece count"));
+        }
+        for piece in self.pieces.iter().take(usize::from(self.count)) {
+            piece_length(*piece)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VramShadow {
+    pub tile: u16,
+    pub size: [u8; 2],
+    pub offset: [i8; 2],
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shadow {
+    Rom(Metasprite),
+    Vram(VramShadow),
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Actor {
-    pub id: ActorId,
+    pub id: DrawId,
     pub level: LevelId,
     pub position: [i32; 2],
     pub elevation: i32,
@@ -39,12 +69,12 @@ pub struct Actor {
     pub submerged: bool,
     pub count: u8,
     pub pieces: [Piece; MAX_PIECES],
-    /// A resolved runtime ROM shadow frame, explicitly behind every world actor.
-    pub shadow: Option<Piece>,
+    /// Runtime resource descriptor, explicitly behind every world body.
+    pub shadow: Option<Shadow>,
 }
 impl Actor {
     pub fn validate(&self) -> Result<()> {
-        if !self.id.valid()
+        if !self.id.valid_for(self.level)
             || self.level.validate().is_err()
             || self.palette_bank > 3
             || self.count == 0
@@ -65,13 +95,17 @@ impl Actor {
         {
             return Err(Error::Invalid("published actor exceeds world envelope"));
         }
-        for piece in self
-            .pieces
-            .iter()
-            .take(usize::from(self.count))
-            .chain(self.shadow.iter())
-        {
+        for piece in self.pieces.iter().take(usize::from(self.count)) {
             piece_length(*piece)?;
+        }
+        match &self.shadow {
+            Some(Shadow::Rom(frame)) => frame.validate()?,
+            Some(Shadow::Vram(shadow))
+                if shadow.size.iter().any(|axis| !(1..=4).contains(axis)) =>
+            {
+                return Err(Error::Invalid("invalid VRAM shadow extent"));
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -115,6 +149,7 @@ impl Packet {
 pub struct Publisher {
     buffers: [Packet; 2],
     active: usize,
+    identities: Vec<DrawId>,
 }
 impl Default for Publisher {
     fn default() -> Self {
@@ -126,6 +161,7 @@ impl Publisher {
         Self {
             buffers: [Packet::empty(), Packet::empty()],
             active: 0,
+            identities: Vec::with_capacity(MAX_ACTORS),
         }
     }
     pub fn current(&self) -> &Packet {
@@ -159,13 +195,21 @@ impl Publisher {
             return Err(Error::Invalid("publication is repeated or out of order"));
         }
         let mut occupied = [false; MAX_ACTORS];
+        self.identities.clear();
         for actor in actors {
             actor.validate()?;
-            if std::mem::replace(&mut occupied[actor.id.index()], true) {
+            if let DrawId::Actor(id) = actor.id
+                && std::mem::replace(&mut occupied[id.index()], true)
+            {
                 return Err(Error::Invalid(
                     "duplicate actor slot or stale generation in publication",
                 ));
             }
+            self.identities.push(actor.id);
+        }
+        self.identities.sort_unstable();
+        if self.identities.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Invalid("duplicate persistent draw identity"));
         }
         for (index, view) in views.iter().enumerate() {
             if let View::World {

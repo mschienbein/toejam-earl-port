@@ -24,6 +24,7 @@ pub trait FrameSource {
     fn stamp(&self) -> PublicationStamp;
     fn revision(&self) -> tje_rom::Revision;
     fn rom(&self) -> &[u8];
+    fn vram(&self) -> &[u8];
     fn terrain(&self, view: View, output: &mut [IndexedPixel]) -> Result<()>;
     fn color(&self, index: usize, character: Option<Character>, modifier: i8) -> Color;
     fn map_color(&self, level: LevelId, position: [i32; 2]) -> Result<Color>;
@@ -36,6 +37,7 @@ pub struct WorldSource<'a> {
     renderer: MapRenderer<'a>,
     palettes: [[[Color; 64]; 3]; 3],
     levels: &'a [(LevelId, &'a LevelGeometry)],
+    vram: &'a [u8],
 }
 impl<'a> WorldSource<'a> {
     pub fn new(
@@ -78,6 +80,7 @@ impl<'a> WorldSource<'a> {
             renderer: MapRenderer::new(memory, vram)?,
             palettes,
             levels,
+            vram,
         })
     }
     fn geometry(&self, level: LevelId) -> Result<GeometrySource<'_>> {
@@ -100,6 +103,9 @@ impl FrameSource for WorldSource<'_> {
     }
     fn rom(&self) -> &[u8] {
         self.memory.rom()
+    }
+    fn vram(&self) -> &[u8] {
+        self.vram
     }
     fn terrain(&self, view: View, output: &mut [IndexedPixel]) -> Result<()> {
         let View::World {

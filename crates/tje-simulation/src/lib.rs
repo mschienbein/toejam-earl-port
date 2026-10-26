@@ -6,21 +6,26 @@
 
 pub mod bridge;
 pub mod capacity;
+pub mod contact;
 #[cfg(all(test, feature = "enhanced-mode"))]
 mod enhanced_tests;
 pub mod ids;
+pub mod loading;
 pub mod ownership;
 pub mod phase;
 #[cfg(test)]
 mod player_tests;
 pub mod players;
 pub mod population;
+pub mod publication;
 pub mod recording;
 pub mod resources;
 pub mod session;
 #[cfg(test)]
 mod session_tests;
-pub use ids::{ActorId, AnimationId, BehaviorId, DefinitionId, EffectId, FrameId};
+pub mod visual;
+pub mod world_bridge;
+pub use ids::{ActorId, AnimationId, BehaviorId, DefinitionId, DrawId, EffectId, FrameId};
 pub use phase::{Admission, Phase, PhaseClock, PublicationStamp};
 pub use tje_four_player::{SeatId, SeatMask};
 pub use tje_world::{GeneratorId, LevelId};

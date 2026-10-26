@@ -9,6 +9,10 @@ use tje_four_player::{
 };
 use tje_world::{LevelId, random::StageRng};
 
+mod catalog;
+mod interaction;
+pub use catalog::{MailChoice, PresentCatalog};
+
 pub const PRESENT_COUNT: usize = 28;
 pub const MAX_REQUESTS: usize = 64;
 
@@ -244,6 +248,7 @@ pub enum EffectKind {
     RoseBush,
     RainTomato,
     ControlRemap,
+    StolenPresent,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct Effect {
@@ -258,6 +263,7 @@ pub struct Effect {
     pub contact_mask: u8,
     pub hits: u8,
     pub delay: u16,
+    pub animation_complete: bool,
 }
 impl Effect {
     pub fn stationary(
@@ -280,6 +286,7 @@ impl Effect {
             contact_mask: 0,
             hits: 0,
             delay: 0,
+            animation_complete: false,
         }
     }
     fn validate(self) -> PlayerResult<()> {
@@ -345,6 +352,13 @@ pub struct DropId {
     generation: u32,
 }
 impl DropId {
+    pub const fn new(slot: u16, generation: u32) -> Option<Self> {
+        if slot < 128 && generation != 0 {
+            Some(Self { slot, generation })
+        } else {
+            None
+        }
+    }
     pub const fn slot(self) -> u16 {
         self.slot
     }
@@ -357,7 +371,7 @@ impl DropId {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct DroppedPresent {
-    pub owner: SeatId,
+    pub owner: EffectOwner,
     pub level: LevelId,
     pub position: Position,
     pub present: PresentWrapper,
@@ -376,11 +390,36 @@ pub enum ItemKind {
     ShipPart(u8),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum ItemAppearance {
+    Present,
+    Ground(u8),
+    Large(u8),
+    ShipPart(u8),
+}
+impl ItemAppearance {
+    fn validate(self, kind: ItemKind) -> PlayerResult<()> {
+        let valid = match (self, kind) {
+            (Self::Present, ItemKind::Present(_)) => true,
+            (Self::Ground(16), ItemKind::Buck(_)) => true,
+            (Self::Ground(index), ItemKind::Food(_)) => index < 16,
+            (Self::Large(index), ItemKind::Food(_)) => index < 3,
+            (Self::ShipPart(index), ItemKind::ShipPart(part)) => index < 10 && index == part,
+            _ => false,
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(PlayerError::Invalid("item appearance/identity mismatch"))
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct PlacedItem {
     pub id: u32,
     pub level: LevelId,
     pub position: Position,
     pub kind: ItemKind,
+    pub appearance: ItemAppearance,
     pub collected: bool,
 }
 
@@ -393,6 +432,12 @@ pub struct StockItem {
     pub level: LevelId,
     pub x: i32,
     pub y: i32,
+}
+#[derive(Debug)]
+pub(crate) struct PreparedStockItems {
+    level: LevelId,
+    wrapper_epoch: u32,
+    entries: [Option<PlacedItem>; 32],
 }
 pub trait ItemDefinitions {
     fn food_health_delta(&self, kind: u8) -> PlayerResult<i8>;
@@ -435,6 +480,22 @@ pub struct TradeService {
     pub kind: ServiceKind,
     pub level: LevelId,
     pub position: Position,
+    pub source: Option<crate::population::PopulationId>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum MailStock {
+    Unlimited,
+    Finite(u16),
+}
+impl MailStock {
+    pub fn available(self) -> bool {
+        !matches!(self, Self::Finite(0))
+    }
+    fn take_one(&mut self) {
+        if let Self::Finite(count) = self {
+            *count -= 1;
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct MailOffer {
@@ -442,7 +503,7 @@ pub struct MailOffer {
     pub service: ActorId,
     pub present: PresentWrapper,
     pub price: u8,
-    pub stock: u16,
+    pub stock: MailStock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -566,6 +627,11 @@ impl ResourceState {
             .filter(|slot| slot.generation == id.generation())
             .and_then(|slot| slot.value.as_ref())
     }
+    pub(crate) fn effects_mut(&mut self) -> impl Iterator<Item = &mut Effect> {
+        self.effects
+            .iter_mut()
+            .filter_map(|slot| slot.value.as_mut())
+    }
     pub fn effect_mut(&mut self, id: EffectId) -> Option<&mut Effect> {
         self.effects
             .get_mut(id.index())
@@ -598,6 +664,122 @@ impl ResourceState {
         slot.value = Some(effect);
         Ok(id)
     }
+    /// Issued generations remain valid provenance after their live record ends.
+    pub fn known_effect(&self, id: EffectId) -> bool {
+        if !id.valid() {
+            return false;
+        }
+        self.effects.get(id.index()).is_some_and(|slot| {
+            slot.generation == 0
+                || id.generation() < slot.generation
+                || id.generation() == slot.generation && slot.value.is_some()
+        })
+    }
+    pub(crate) fn collect_ship_part(&mut self, part: u8) -> PlayerResult<bool> {
+        if part >= 10 {
+            return Err(PlayerError::Invalid("ship part binding"));
+        }
+        let bit = 1 << part;
+        if self.ship_parts & bit != 0 {
+            return Ok(false);
+        }
+        self.ship_parts |= bit;
+        Ok(true)
+    }
+    pub(crate) fn steal_present(
+        &mut self,
+        coop: &mut CoopState,
+        seat: SeatId,
+        random: u16,
+    ) -> PlayerResult<Option<PresentWrapper>> {
+        seat.validate()
+            .map_err(|_| PlayerError::Invalid("theft seat"))?;
+        let inventory = &mut coop.players[seat.index()].inventory;
+        let count = inventory.iter().flatten().count();
+        if count == 0 {
+            return Ok(None);
+        }
+        let selected = usize::from(random) % count;
+        let slot = inventory
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| value.is_some())
+            .nth(selected)
+            .map(|(slot, _)| slot)
+            .expect("occupied selection");
+        let last = inventory
+            .iter()
+            .rposition(Option::is_some)
+            .expect("occupied inventory");
+        let present = inventory[slot];
+        inventory[slot] = inventory[last];
+        inventory[last] = None;
+        Ok(present)
+    }
+    /// One batch reserves every slot/quota before assigning any generation.
+    pub(crate) fn spawn_drop_batch(
+        &mut self,
+        drops: &[DroppedPresent],
+        output: &mut [Option<DropId>],
+    ) -> PlayerResult<()> {
+        if drops.is_empty() || drops.len() > 128 || output.len() < drops.len() {
+            return Err(PlayerError::Invalid("drop batch extent"));
+        }
+        let mut owner_counts = [0_u16; SEATS];
+        for (_, existing) in self.drops() {
+            if let EffectOwner::Seat(seat) = existing.owner {
+                owner_counts[seat.index()] += 1;
+            }
+        }
+        for drop in drops {
+            drop.level
+                .validate()
+                .map_err(|_| PlayerError::Invalid("drop level"))?;
+            drop.position
+                .validate()
+                .map_err(|_| PlayerError::Invalid("drop position"))?;
+            drop.present
+                .validate()
+                .map_err(|_| PlayerError::Invalid("drop wrapper"))?;
+            match drop.owner {
+                EffectOwner::Seat(seat) => {
+                    seat.validate()
+                        .map_err(|_| PlayerError::Invalid("drop seat"))?;
+                    owner_counts[seat.index()] += 1;
+                    if owner_counts[seat.index()] > self.limits.drops_per_seat {
+                        return Err(PlayerError::Capacity("drop owner quota"));
+                    }
+                }
+                EffectOwner::Actor(actor) if !actor.valid() => {
+                    return Err(PlayerError::Invalid("drop actor"));
+                }
+                EffectOwner::Actor(_) | EffectOwner::World => {}
+            }
+        }
+        let mut free = [0_u16; 128];
+        let mut found = 0;
+        for (index, slot) in self.drops.iter().enumerate() {
+            if slot.value.is_none() && slot.generation != 0 {
+                free[found] = index as u16;
+                found += 1;
+                if found == drops.len() {
+                    break;
+                }
+            }
+        }
+        if found != drops.len() {
+            return Err(PlayerError::Capacity("drop pool"));
+        }
+        for (offset, &drop) in drops.iter().enumerate() {
+            let slot = &mut self.drops[usize::from(free[offset])];
+            slot.value = Some(drop);
+            output[offset] = Some(DropId {
+                slot: free[offset],
+                generation: slot.generation,
+            });
+        }
+        Ok(())
+    }
     pub fn release_effect(&mut self, id: EffectId) -> bool {
         let Some(slot) = self
             .effects
@@ -611,17 +793,17 @@ impl ResourceState {
         slot.generation = slot.generation.checked_add(1).unwrap_or(0);
         true
     }
-    pub fn hit_decoy(&mut self, id: EffectId) -> bool {
+    /// Register a physical hit without silently releasing world-owned bindings.
+    /// The owning player/contact service retires exhausted decoys through its
+    /// PlayerWorld bridge before clearing the pool entry.
+    pub(crate) fn hit_decoy(&mut self, id: EffectId) -> bool {
         let Some(effect) = self
             .effect_mut(id)
-            .filter(|effect| effect.kind == EffectKind::Decoy)
+            .filter(|effect| effect.kind == EffectKind::Decoy && effect.hits < 3)
         else {
             return false;
         };
-        effect.hits = effect.hits.saturating_add(1);
-        if effect.hits >= 3 {
-            self.release_effect(id);
-        }
+        effect.hits += 1;
         true
     }
     pub fn drops(&self) -> impl Iterator<Item = (DropId, &DroppedPresent)> {
@@ -654,14 +836,24 @@ impl ResourceState {
             .checked_shl(u32::from(level.get()))
             .is_some_and(|bit| self.stock_imported & bit != 0)
     }
-    /// Prepare all definitions, source slots and capacity before publishing any
-    /// item. Reentry reuses this ledger, never imports and repopulates a floor.
     pub fn import_stock_items(
         &mut self,
         level: LevelId,
         source: &[StockItem],
         definitions: &impl ItemDefinitions,
     ) -> PlayerResult<()> {
+        let prepared = self.prepare_stock_items(level, source, definitions)?;
+        self.commit_stock_items(prepared);
+        Ok(())
+    }
+    /// Prepare all definitions, source slots and capacity before publishing any
+    /// item. Reentry reuses this ledger, never imports and repopulates a floor.
+    pub(crate) fn prepare_stock_items(
+        &self,
+        level: LevelId,
+        source: &[StockItem],
+        definitions: &impl ItemDefinitions,
+    ) -> PlayerResult<PreparedStockItems> {
         level
             .validate()
             .map_err(|_| PlayerError::Invalid("stock item floor"))?;
@@ -721,6 +913,12 @@ impl ResourceState {
                 level,
                 position,
                 kind,
+                appearance: match item.kind {
+                    0..=27 => ItemAppearance::Present,
+                    64..=80 => ItemAppearance::Ground((item.kind - 64) as u8),
+                    81..=83 => ItemAppearance::Large((item.kind - 81) as u8),
+                    _ => unreachable!("validated source kind"),
+                },
                 collected: false,
             });
             count += 1;
@@ -728,12 +926,21 @@ impl ResourceState {
         if self.items.len() + count > usize::from(self.limits.placed_items) {
             return Err(PlayerError::Capacity("stock items"));
         }
-        for item in prepared.into_iter().flatten() {
+        Ok(PreparedStockItems {
+            level,
+            wrapper_epoch: self.presents.epoch,
+            entries: prepared,
+        })
+    }
+    /// Called immediately after preflight, without intervening resource writes.
+    /// The linear token is not a save-state/loading-continuation payload.
+    pub(crate) fn commit_stock_items(&mut self, prepared: PreparedStockItems) {
+        debug_assert_eq!(prepared.wrapper_epoch, self.presents.epoch);
+        for item in prepared.entries.into_iter().flatten() {
             let index = self.items.partition_point(|existing| existing.id < item.id);
             self.items.insert(index, item);
         }
-        self.stock_imported |= 1 << level.get();
-        Ok(())
+        self.stock_imported |= 1 << prepared.level.get();
     }
     pub(crate) fn reroll_wrappers(&mut self) {
         let old = self.presents.kinds;
@@ -761,6 +968,7 @@ impl ResourceState {
             .validate()
             .map_err(|_| PlayerError::Invalid("item position"))?;
         validate_item(item.kind)?;
+        item.appearance.validate(item.kind)?;
         if item.id == 0 || item.collected || self.item(item.id).is_some() {
             return Err(PlayerError::Invalid(
                 "duplicate/collected initial item identity",
@@ -847,6 +1055,7 @@ impl ResourceState {
         tick: u64,
         requests: &[ResourceRequest],
         output: &mut [ResourceOutcome],
+        mut choose_present: impl FnMut(&mut StageRng) -> PlayerResult<PresentKind>,
     ) -> PlayerResult<usize> {
         if requests.len() > MAX_REQUESTS
             || output.len() < requests.len()
@@ -883,7 +1092,7 @@ impl ResourceState {
                     Err(ResourceFailure::DuplicateRequest)
                 } else {
                     used[seat.index()] |= tag;
-                    self.apply(coop, *request)
+                    self.apply(coop, *request, &mut choose_present)
                 };
                 output[written] = ResourceOutcome {
                     request: index as u8,
@@ -904,6 +1113,7 @@ impl ResourceState {
         &mut self,
         coop: &mut CoopState,
         request: ResourceRequest,
+        choose_present: &mut impl FnMut(&mut StageRng) -> PlayerResult<PresentKind>,
     ) -> Result<ResourceReceipt, ResourceFailure> {
         let seat = request.seat;
         let player = &coop.players[seat.index()];
@@ -921,7 +1131,10 @@ impl ResourceState {
                     .copied()
                     .flatten()
                     .ok_or(ResourceFailure::InvalidSlot)?;
-                if self.drops().filter(|(_, drop)| drop.owner == seat).count()
+                if self
+                    .drops()
+                    .filter(|(_, drop)| drop.owner == EffectOwner::Seat(seat))
+                    .count()
                     >= usize::from(self.limits.drops_per_seat)
                 {
                     return Err(ResourceFailure::Unavailable);
@@ -931,16 +1144,27 @@ impl ResourceState {
                     .iter()
                     .position(|slot| slot.value.is_none() && slot.generation != 0)
                     .ok_or(ResourceFailure::Unavailable)?;
+                let mut rng = self.effect_rng;
+                let position = self
+                    .drop_position(
+                        player.level.expect("alive level"),
+                        player.motion.position,
+                        &player.terrain,
+                        rng.next_u16(),
+                        &[],
+                    )
+                    .ok_or(ResourceFailure::Unavailable)?;
                 let id = DropId {
                     slot: index as u16,
                     generation: self.drops[index].generation,
                 };
                 self.drops[index].value = Some(DroppedPresent {
-                    owner: seat,
+                    owner: EffectOwner::Seat(seat),
                     level: player.level.expect("alive level"),
-                    position: player.motion.position,
+                    position,
                     present: wrapper,
                 });
+                self.effect_rng = rng;
                 compact_slot(&mut coop.players[seat.index()].inventory, usize::from(slot));
                 Ok(ResourceReceipt::Dropped(id))
             }
@@ -951,7 +1175,9 @@ impl ResourceState {
                 let offer = self
                     .offers
                     .iter_mut()
-                    .find(|value| value.id == offer && value.service == service && value.stock != 0)
+                    .find(|value| {
+                        value.id == offer && value.service == service && value.stock.available()
+                    })
                     .ok_or(ResourceFailure::Unavailable)?;
                 let slot = player
                     .inventory
@@ -964,7 +1190,7 @@ impl ResourceState {
                 let player = &mut coop.players[seat.index()];
                 player.bucks -= offer.price;
                 player.inventory[slot] = Some(offer.present);
-                offer.stock -= 1;
+                offer.stock.take_one();
                 Ok(ResourceReceipt::Purchased)
             }
             ResourceAction::Identify { slot, service } => {
@@ -986,7 +1212,18 @@ impl ResourceState {
                     return Err(ResourceFailure::AlreadyIdentified);
                 }
                 let actual = if self.presents.kind(wrapper) == PresentKind::Mystery {
-                    let kind = PresentKind::ALL[self.effect_rng.bounded(26) as usize];
+                    let mut rng = self.effect_rng;
+                    let mut chosen = None;
+                    for _ in 0..1024 {
+                        let kind =
+                            choose_present(&mut rng).map_err(|_| ResourceFailure::Unavailable)?;
+                        if kind != PresentKind::Mystery {
+                            chosen = Some(kind);
+                            break;
+                        }
+                    }
+                    let kind = chosen.ok_or(ResourceFailure::Unavailable)?;
+                    self.effect_rng = rng;
                     self.presents.wrapper_for(kind)
                 } else {
                     wrapper
@@ -1108,9 +1345,20 @@ impl ResourceState {
         }
         for slot in &self.drops {
             if let Some(drop) = slot.value {
-                drop.owner
-                    .validate()
-                    .map_err(|_| PlayerError::Invalid("drop owner"))?;
+                match drop.owner {
+                    EffectOwner::Seat(seat) => {
+                        seat.validate()
+                            .map_err(|_| PlayerError::Invalid("drop owner"))?;
+                        if !coop.config().participants.contains(seat) {
+                            return Err(PlayerError::Invalid("drop has disabled owner"));
+                        }
+                        drops[seat.index()] += 1;
+                    }
+                    EffectOwner::Actor(actor) if !actor.valid() => {
+                        return Err(PlayerError::Invalid("drop actor owner"));
+                    }
+                    EffectOwner::Actor(_) | EffectOwner::World => {}
+                }
                 drop.level
                     .validate()
                     .map_err(|_| PlayerError::Invalid("drop level"))?;
@@ -1120,10 +1368,9 @@ impl ResourceState {
                 drop.present
                     .validate()
                     .map_err(|_| PlayerError::Invalid("drop wrapper"))?;
-                if slot.generation == 0 || !coop.config().participants.contains(drop.owner) {
-                    return Err(PlayerError::Invalid("retired drop or disabled owner"));
+                if slot.generation == 0 {
+                    return Err(PlayerError::Invalid("retired drop"));
                 }
-                drops[drop.owner.index()] += 1;
             }
         }
         if effects
@@ -1145,6 +1392,7 @@ impl ResourceState {
                 .validate()
                 .map_err(|_| PlayerError::Invalid("item position"))?;
             validate_item(item.kind)?;
+            item.appearance.validate(item.kind)?;
             per_floor[item.level.index()] += 1;
             if per_floor[item.level.index()] > 128 {
                 return Err(PlayerError::Invalid("per-floor item capacity"));

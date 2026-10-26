@@ -3,6 +3,10 @@
 mod ai;
 mod contacts;
 mod definitions;
+pub mod director;
+mod effects;
+mod preparation;
+mod preparation_job;
 pub mod rom;
 mod spawning;
 pub mod stock;
@@ -15,6 +19,7 @@ pub use definitions::{
     Definition, DefinitionCatalog, Kind, Movement, ProjectileVectors, Service, Thinker, TickRange,
     Touch,
 };
+pub use preparation_job::{StockPopulationJob, StockPopulationProgress};
 pub use terrain::WorldEnvironment;
 use tje_four_player::state::{Motion, Position};
 use tje_world::{Dimensions, Error, Result, population::StableBits, random::StageRng};
@@ -153,6 +158,8 @@ pub struct ContactRequest {
     pub source: PopulationId,
     pub actor: ActorId,
     pub seat: SeatId,
+    pub animation_finished: bool,
+    pub interest: SeatMask,
     pub kind: Kind,
     pub position: Position,
     pub effect: ContactEffect,
@@ -233,6 +240,8 @@ pub enum Interaction {
 pub struct PersistentActor {
     pub id: PopulationId,
     pub kind: Kind,
+    pub owner: Option<SeatId>,
+    pub pending_director: bool,
     pub motion: Motion,
     pub saved_position: Position,
     pub state: u8,
@@ -291,6 +300,8 @@ impl PersistentActor {
         Self {
             id,
             kind,
+            owner: None,
+            pending_director: false,
             motion,
             saved_position: position,
             state,
@@ -340,6 +351,11 @@ impl PersistentActor {
     }
     fn validate(&self) -> Result<()> {
         self.id.level.validate()?;
+        if let Some(owner) = self.owner {
+            owner
+                .validate()
+                .map_err(|_| Error::State("Earthling owner seat"))?;
+        }
         self.motion
             .validate()
             .map_err(|_| Error::State("Earthling motion"))?;
@@ -385,12 +401,22 @@ pub struct PopulationFloor {
     pub failed: StableBits,
     pub collected: StableBits,
     pub spawn_rng: StageRng,
+    /// Includes unused original source slots; IDs are never compacted or reused.
+    pub declared_slots: u64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 struct BodySlot {
     generation: u32,
     owner: Option<PopulationId>,
     companion: bool,
+}
+
+/// Linear, non-serialized receipt for a synchronous aggregate arrival commit.
+#[derive(Debug)]
+pub struct PreparedRetains {
+    previous: [Option<LevelId>; 4],
+    next: [Option<LevelId>; 4],
+    identity: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -400,6 +426,11 @@ pub struct PopulationState {
     floors: Vec<PopulationFloor>,
     retained: [Option<LevelId>; 4],
     bodies: Vec<BodySlot>,
+    sleep_contacts: Vec<effects::EffectContact>,
+    thorn_contacts: Vec<effects::EffectContact>,
+    consumed_projectiles: [u32; 64],
+    directors: [Option<director::DirectorSlot>; director::MAX_DIRECTOR_SPAWNS],
+    next_director_source: u32,
     pub parity: u8,
     pub contact_priority: u8,
     last_tick: Option<u64>,
@@ -421,6 +452,11 @@ impl PopulationState {
                     companion: false,
                 })
                 .collect(),
+            sleep_contacts: Vec::with_capacity(effects::MAX_CONTACTS),
+            thorn_contacts: Vec::with_capacity(effects::MAX_CONTACTS),
+            consumed_projectiles: [0; 64],
+            directors: [None; director::MAX_DIRECTOR_SPAWNS],
+            next_director_source: 1,
             parity: 0,
             contact_priority: 0,
             last_tick: None,
@@ -547,9 +583,13 @@ impl PopulationState {
         }
         let mut records = Vec::with_capacity(usize::from(self.limits.per_floor));
         for actor in actors {
-            let mut label = *b"runtime-ai\0\0";
-            label[10..].copy_from_slice(&actor.local.to_be_bytes());
-            let rng = StageRng::derive(&self.identity, level, 0, &label);
+            let rng = initial_actor_rng(
+                &self.identity,
+                PopulationId {
+                    level,
+                    local: actor.local,
+                },
+            );
             records.push(PersistentActor::new(
                 PopulationId {
                     level,
@@ -569,6 +609,9 @@ impl PopulationState {
             failed: StableBits::new(MAX_POPULATION)?,
             collected: StableBits::new(MAX_POPULATION)?,
             spawn_rng: StageRng::derive(&self.identity, level, 0, b"population-present"),
+            declared_slots: actors
+                .iter()
+                .fold(0, |bits, actor| bits | (1_u64 << actor.local)),
         };
         let index = self
             .floors
@@ -580,8 +623,72 @@ impl PopulationState {
     pub fn retain(&mut self, seat: SeatId, level: LevelId) -> Result<()> {
         seat.validate()
             .map_err(|_| Error::State("population retain seat"))?;
-        self.floor_index(level)?;
-        self.retained[seat.index()] = Some(level);
+        let mut next = self.retained;
+        next[seat.index()] = Some(level);
+        let prepared = self.prepare_retains(next)?;
+        self.commit_retains(prepared);
+        Ok(())
+    }
+    pub fn preflight_retain(&self, seat: SeatId, level: LevelId) -> Result<()> {
+        seat.validate()
+            .map_err(|_| Error::State("population retain seat"))?;
+        let mut next = self.retained;
+        next[seat.index()] = Some(level);
+        self.prepare_retains(next).map(|_| ())
+    }
+    pub fn prepare_retains(&self, next: [Option<LevelId>; 4]) -> Result<PreparedRetains> {
+        self.limits.validate()?;
+        if self.potential_body_demand(&next)? > self.bodies.len() {
+            return Err(Error::Capacity("retained-floor logical body reservations"));
+        }
+        Ok(PreparedRetains {
+            previous: self.retained,
+            next,
+            identity: self.identity,
+        })
+    }
+    /// Preflight all aggregate owners before changing any, then consume their
+    /// linear receipts without yielding or running unrelated mutations.
+    pub fn commit_retains(&mut self, prepared: PreparedRetains) {
+        debug_assert_eq!(prepared.identity, self.identity);
+        debug_assert_eq!(prepared.previous, self.retained);
+        self.retained = prepared.next;
+    }
+    fn potential_body_demand(&self, retained: &[Option<LevelId>; 4]) -> Result<usize> {
+        let mut required = self
+            .floors
+            .iter()
+            .flat_map(|floor| &floor.actors)
+            .filter(|actor| actor.pending_director)
+            .count();
+        for (index, level) in retained.iter().enumerate() {
+            let Some(level) = level else {
+                continue;
+            };
+            if retained[..index].contains(&Some(*level)) {
+                continue;
+            }
+            let floor = &self.floors[self.floor_index(*level)?];
+            for actor in &floor.actors {
+                if !actor.pending_director
+                    && !actor.retired
+                    && !floor.removed.contains(actor.id.local)
+                    && !floor.failed.contains(actor.id.local)
+                {
+                    required += 1 + usize::from(actor.companion);
+                }
+            }
+        }
+        Ok(required)
+    }
+    fn preflight_growth(&self, additional: usize) -> Result<()> {
+        if self
+            .potential_body_demand(&self.retained)?
+            .checked_add(additional)
+            .is_none_or(|required| required > self.bodies.len())
+        {
+            return Err(Error::Capacity("future-interest logical body reservations"));
+        }
         Ok(())
     }
     pub fn release(&mut self, seat: SeatId) -> Result<()> {
@@ -590,12 +697,39 @@ impl PopulationState {
         self.retained[seat.index()] = None;
         Ok(())
     }
+    pub fn release_seat_contacts(&mut self, seat: SeatId) -> Result<()> {
+        seat.validate()
+            .map_err(|_| Error::State("released population contact seat"))?;
+        let bit = !(1_u8 << seat.get());
+        for floor in &mut self.floors {
+            for actor in &mut floor.actors {
+                actor.mole_contacts =
+                    SeatMask::new(actor.mole_contacts.bits() & bit).expect("four seats");
+                actor.target_alerts =
+                    SeatMask::new(actor.target_alerts.bits() & bit).expect("four seats");
+                actor.interactions[seat.index()] = Interaction::Idle;
+                if actor.service_owner == Some(seat) {
+                    actor.service_owner = None;
+                    actor.service_timer = 0;
+                    if actor.kind.service().is_some() {
+                        actor.set_state(0);
+                        actor.timer = 0;
+                        actor.state_delay = 0;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     /// Preflight the entire activity change before allocating or releasing anything.
     /// Resource pressure cannot relocate, erase, reroll or partially activate actors.
     pub fn refresh_activity(&mut self, heroes: &[Option<HeroView>; 4]) -> Result<()> {
         validate_heroes(heroes, &self.retained)?;
         let desired = |floor: &PopulationFloor, actor: &PersistentActor| {
-            if floor.removed.contains(actor.id.local) || floor.failed.contains(actor.id.local) {
+            if actor.pending_director
+                || floor.removed.contains(actor.id.local)
+                || floor.failed.contains(actor.id.local)
+            {
                 return SeatMask::NONE;
             }
             let (x, y) = actor.pixels();
@@ -611,7 +745,12 @@ impl PopulationState {
             }
             SeatMask::new(mask).expect("four seats")
         };
-        let mut needed = 0;
+        let mut needed = self
+            .floors
+            .iter()
+            .flat_map(|floor| &floor.actors)
+            .filter(|actor| actor.pending_director)
+            .count();
         for floor in &self.floors {
             for actor in &floor.actors {
                 if desired(floor, actor) != SeatMask::NONE {
@@ -629,6 +768,9 @@ impl PopulationState {
                 let actor = self
                     .actor(owner)
                     .ok_or(Error::State("body owner missing"))?;
+                if actor.pending_director {
+                    continue;
+                }
                 if (desired(floor, actor) == SeatMask::NONE || slot.companion && !actor.companion)
                     && slot.generation == u32::MAX
                 {
@@ -638,6 +780,9 @@ impl PopulationState {
         }
         for floor in &mut self.floors {
             for actor in &mut floor.actors {
+                if actor.pending_director {
+                    continue;
+                }
                 // Compute against disjoint state without cloning any floor.
                 let mut mask = 0;
                 if !floor.removed.contains(actor.id.local) && !floor.failed.contains(actor.id.local)
@@ -688,8 +833,20 @@ impl PopulationState {
         decoys: &[DecoyView],
         sink: &mut impl ContactSink,
     ) -> Result<bool> {
+        self.step_controlled(tick, environment, catalog, decoys, sink, None)
+            .map(|receipt| receipt.advanced)
+    }
+    pub fn step_controlled(
+        &mut self,
+        tick: u64,
+        environment: &impl Environment,
+        catalog: &DefinitionCatalog,
+        decoys: &[DecoyView],
+        sink: &mut impl ContactSink,
+        intent: Option<director::DecisionIntent>,
+    ) -> Result<director::StepReceipt> {
         if self.last_tick == Some(tick) {
-            return Ok(false);
+            return Ok(director::StepReceipt::default());
         }
         if self.last_tick.is_some_and(|last| tick < last) {
             return Err(Error::State("population tick moved backwards"));
@@ -697,15 +854,25 @@ impl PopulationState {
         validate_decoys(decoys)?;
         let heroes = SeatId::ALL.map(|seat| sink.hero(seat));
         validate_heroes(&heroes, &self.retained)?;
+        if let Some(intent) = intent {
+            self.validate_control(intent, catalog)?;
+        }
+        let mut decision = director::DecisionSlot {
+            intent,
+            receipt: director::DecisionReceipt::default(),
+        };
         self.retreat_santas(&heroes, environment, catalog)?;
         self.refresh_activity(&heroes)?;
         for floor in &mut self.floors {
             for actor in &mut floor.actors {
-                if actor.body.is_none() || actor.id.local % 2 != u16::from(self.parity) {
+                if actor.pending_director
+                    || actor.body.is_none()
+                    || actor.id.local % 2 != u16::from(self.parity)
+                {
                     continue;
                 }
                 if actor.state != SLEEP_STATE {
-                    ai::think(actor, catalog, &heroes, decoys, sink)?;
+                    ai::think_controlled(actor, catalog, &heroes, decoys, sink, &mut decision)?;
                     contacts::dispatch(
                         actor,
                         catalog.get(actor.kind),
@@ -723,7 +890,10 @@ impl PopulationState {
         self.parity ^= 1;
         self.contact_priority = (self.contact_priority + 1) & 3;
         self.remove_collected()?;
-        Ok(true)
+        Ok(director::StepReceipt {
+            advanced: true,
+            decision: decision.receipt,
+        })
     }
     /// Continuous 24.8 motion for every active actor, on both even phases.
     pub fn advance_motion(
@@ -783,7 +953,7 @@ impl PopulationState {
         }
         for floor in &mut self.floors {
             for actor in &mut floor.actors {
-                if actor.body.is_none() {
+                if actor.pending_director || actor.body.is_none() {
                     continue;
                 }
                 let sample = if physics {
@@ -847,6 +1017,7 @@ impl PopulationState {
         if collected {
             floor.collected.insert(id.local)?;
         }
+        self.discard_actor_contacts(id);
         Ok(true)
     }
     fn remove_collected(&mut self) -> Result<()> {
@@ -867,32 +1038,51 @@ impl PopulationState {
                 }
             }
         }
+        self.discard_removed_contacts();
         Ok(())
     }
-    pub fn damage(&mut self, id: PopulationId, points: u8) -> Result<bool> {
+    fn prepared_damage(&self, id: PopulationId, points: u8) -> Result<Option<u8>> {
         if points == 0 {
-            return Ok(false);
+            return Ok(None);
         }
-        let floor_index = self.floor_index(id.level)?;
-        let actor = self.floors[floor_index]
-            .actors
-            .iter_mut()
-            .find(|actor| actor.id == id)
+        let actor = self
+            .actor(id)
             .ok_or(Error::State("damage unknown Earthling"))?;
-        if matches!(
-            actor.kind,
-            Kind::ShipPiece | Kind::Santa | Kind::LemonadeStand | Kind::HotTub
-        ) || actor.mail_order
+        if actor.pending_director
             || actor.retired
+            || actor.mail_order
+            || matches!(
+                actor.kind,
+                Kind::ShipPiece | Kind::Santa | Kind::LemonadeStand | Kind::HotTub
+            )
         {
-            return Ok(false);
+            return Ok(None);
         }
         let protected = actor.kind == Kind::OperaSinger && actor.state == 3
             || actor.kind == Kind::Wizard && actor.state == 2
             || actor.kind == Kind::Wiseman
                 && actor.state <= 1
                 && actor.interactions.contains(&Interaction::Active);
-        actor.health = actor.health.saturating_sub(points).max(u8::from(protected));
+        let health = actor.health.saturating_sub(points).max(u8::from(protected));
+        if health == 0 {
+            preflight_body_release(&self.bodies, actor.body)?;
+        }
+        if health == 0 || actor.companion {
+            preflight_body_release(&self.bodies, actor.companion_body)?;
+        }
+        Ok(Some(health))
+    }
+    pub fn damage(&mut self, id: PopulationId, points: u8) -> Result<bool> {
+        let Some(health) = self.prepared_damage(id, points)? else {
+            return Ok(false);
+        };
+        let floor_index = self.floor_index(id.level)?;
+        let actor = self.floors[floor_index]
+            .actors
+            .iter_mut()
+            .find(|actor| actor.id == id)
+            .ok_or(Error::State("damage unknown Earthling"))?;
+        actor.health = health;
         if actor.companion {
             actor.set_state(0);
             actor.timer = 0;
@@ -932,50 +1122,6 @@ impl PopulationState {
             }
         }
         Ok(count)
-    }
-    pub fn sleep_near(&mut self, level: LevelId, position: Position) -> Result<usize> {
-        let index = self.floor_index(level)?;
-        let mut count = 0;
-        for actor in &mut self.floors[index].actors {
-            if actor.body.is_none()
-                || actor.state == SLEEP_STATE
-                || actor.mail_order
-                || matches!(
-                    actor.kind,
-                    Kind::ShipPiece
-                        | Kind::Whirlwind
-                        | Kind::Shark
-                        | Kind::Santa
-                        | Kind::LemonadeStand
-                        | Kind::HotTub
-                )
-                || matches!(actor.kind, Kind::Cupid | Kind::Mole) && actor.state == 3
-                || actor.kind == Kind::Wiseman && actor.state < 2
-                || matches!(actor.kind, Kind::OperaSinger | Kind::Wizard) && actor.state & 0xfc != 4
-            {
-                continue;
-            }
-            let (x, y) = actor.pixels();
-            if (i64::from(x) - i64::from(position.x >> 8)).abs() >= 320
-                || (i64::from(y) - i64::from(position.y >> 8)).abs() >= 224
-            {
-                continue;
-            }
-            actor.set_state(SLEEP_STATE);
-            actor.motion.velocity = [0; 3];
-            release_body(&mut self.bodies, &mut actor.companion_body)?;
-            count += 1;
-        }
-        Ok(count)
-    }
-    pub fn wake_level(&mut self, level: LevelId) -> Result<()> {
-        let index = self.floor_index(level)?;
-        for actor in &mut self.floors[index].actors {
-            if actor.state == SLEEP_STATE {
-                actor.set_state(0);
-            }
-        }
-        Ok(())
     }
     pub fn clear_mole_contacts(&mut self, seat: SeatId, level: LevelId) -> Result<()> {
         seat.validate()
@@ -1027,6 +1173,7 @@ impl PopulationState {
     }
     pub fn validate(&self) -> Result<()> {
         self.limits.validate()?;
+        self.preflight_growth(0)?;
         if self.floors.len() > 32
             || self.bodies.len() != usize::from(self.limits.active_bodies)
             || self.parity > 1
@@ -1034,6 +1181,7 @@ impl PopulationState {
         {
             return Err(Error::State("population extent/phase"));
         }
+        self.validate_directors()?;
         for level in self.retained.iter().flatten() {
             self.floor_index(*level)?;
         }
@@ -1046,27 +1194,8 @@ impl PopulationState {
                 return Err(Error::State("ordered population floors"));
             }
             previous = Some(floor.level);
-            floor.removed.validate(MAX_POPULATION)?;
-            floor.failed.validate(MAX_POPULATION)?;
-            floor.collected.validate(MAX_POPULATION)?;
-            if !floor.spawn_rng.valid() {
-                return Err(Error::State("population spawn RNG"));
-            }
-            let mut previous_actor = None;
+            floor.validate_records(self.limits.per_floor)?;
             for actor in &floor.actors {
-                actor.validate()?;
-                if actor.id.level != floor.level
-                    || actor.id.local >= self.limits.per_floor
-                    || previous_actor.is_some_and(|id| id >= actor.id.local)
-                {
-                    return Err(Error::State("ordered population actor identity"));
-                }
-                previous_actor = Some(actor.id.local);
-                if floor.removed.contains(actor.id.local)
-                    && (actor.body.is_some() || actor.companion_body.is_some())
-                {
-                    return Err(Error::State("removed actor has body"));
-                }
                 for (handle, companion) in [(actor.body, false), (actor.companion_body, true)] {
                     if let Some(handle) = handle {
                         let slot = self
@@ -1085,18 +1214,6 @@ impl PopulationState {
                             return Err(Error::State("body generation/owner reference"));
                         }
                     }
-                }
-            }
-            for local in 0..MAX_POPULATION {
-                if (floor.removed.contains(local)
-                    || floor.failed.contains(local)
-                    || floor.collected.contains(local))
-                    && !floor.actors.iter().any(|actor| actor.id.local == local)
-                {
-                    return Err(Error::State("population bit without stable record"));
-                }
-                if floor.collected.contains(local) && !floor.removed.contains(local) {
-                    return Err(Error::State("collected Earthling remains alive"));
                 }
             }
         }
@@ -1118,8 +1235,15 @@ impl PopulationState {
                 }
             }
         }
+        self.validate_effect_contacts()?;
         Ok(())
     }
+}
+
+fn initial_actor_rng(identity: &[u8; 32], id: PopulationId) -> StageRng {
+    let mut label = *b"runtime-ai\0\0";
+    label[10..].copy_from_slice(&id.local.to_be_bytes());
+    StageRng::derive(identity, id.level, 0, &label)
 }
 
 fn validate_heroes(heroes: &[Option<HeroView>; 4], retained: &[Option<LevelId>; 4]) -> Result<()> {
@@ -1185,6 +1309,24 @@ fn allocate_body(slots: &mut [BodySlot], owner: PopulationId, companion: bool) -
     slot.companion = companion;
     Ok(ActorId::new(32 + index as u16, slot.generation).expect("bounded body arena"))
 }
+fn preflight_body_release(slots: &[BodySlot], handle: Option<ActorId>) -> Result<()> {
+    if let Some(body) = handle {
+        let index = body
+            .slot()
+            .checked_sub(32)
+            .ok_or(Error::State("Earthling body domain"))?;
+        let slot = slots
+            .get(usize::from(index))
+            .ok_or(Error::State("Earthling body extent"))?;
+        if slot.generation != body.generation() || slot.owner.is_none() {
+            return Err(Error::State("stale Earthling body"));
+        }
+        if slot.generation == u32::MAX {
+            return Err(Error::Capacity("Earthling generation exhausted"));
+        }
+    }
+    Ok(())
+}
 fn release_body(slots: &mut [BodySlot], handle: &mut Option<ActorId>) -> Result<()> {
     if let Some(body) = *handle {
         let index = body
@@ -1209,4 +1351,4 @@ fn release_body(slots: &mut [BodySlot], handle: &mut Option<ActorId>) -> Result<
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

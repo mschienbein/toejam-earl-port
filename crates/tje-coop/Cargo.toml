@@ -1,0 +1,28 @@
+[package]
+name = "tje-coop"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Mode-owned local co-op integration and immutable host publication"
+
+[features]
+default = []
+enhanced-mode = ["dep:tje-engine-runtime", "tje-engine-runtime/enhanced-mode", "tje-simulation/enhanced-mode"]
+
+[dependencies]
+bincode = "2"
+sha2 = "0.10"
+tje-game = { path = "../tje-game" }
+tje-mem = { path = "../tje-mem" }
+tje-rom = { path = "../tje-rom" }
+tje-world = { path = "../tje-world" }
+tje-four-player = { path = "../tje-four-player" }
+tje-simulation = { path = "../tje-simulation" }
+tje-mode-view = { path = "../tje-mode-view" }
+tje-extended-view = { path = "../tje-extended-view" }
+tje-engine-runtime = { path = "../tje-engine-runtime", optional = true, default-features = false }
+
+[dev-dependencies]
+tje-native-platform = { path = "../tje-native-platform" }

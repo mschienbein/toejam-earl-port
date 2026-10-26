@@ -25,6 +25,7 @@ mod z80_capacity_tests;
 mod discard_tests;
 
 mod snapshot;
+pub use snapshot::SnapshotView;
 
 pub use genesis_core::native::RamWrite;
 pub use genesis_core::native::{DeviceWrite, Origin, TimedWrite};

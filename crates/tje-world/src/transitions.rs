@@ -461,10 +461,65 @@ impl Journey {
             }
         }
         world.commit_cohort(self.cohort, destinations)?;
+        self.commit_after_world(world)
+    }
+    /// Aggregate arrival tokens already checked geometry and every owner. This
+    /// completes only the journey ledger after that one atomic world commit.
+    pub fn commit_after_world(&mut self, world: &WorldState) -> Result<[Option<Position>; 4]> {
+        if self.phase != TravelPhase::Ready || self.committed {
+            return Err(Error::State("journey is not awaiting atomic arrival"));
+        }
+        for (seat, arrival) in self.arrivals.iter().enumerate() {
+            if let Some(arrival) = arrival
+                && world.active()[seat] != Some(arrival.level)
+            {
+                return Err(Error::State(
+                    "journey destination was not atomically committed",
+                ));
+            }
+        }
         self.phase = TravelPhase::Arriving;
         self.remaining = self.timing.arrival_ticks;
         self.committed = true;
         Ok(self.arrivals)
+    }
+    pub fn retarget_landings(&mut self, landings: [Option<Landing>; 4]) -> Result<()> {
+        if self.committed
+            || !matches!(
+                self.phase,
+                TravelPhase::Joining | TravelPhase::Departing | TravelPhase::Loading
+            )
+        {
+            return Err(Error::State("journey landing was already prepared"));
+        }
+        for (seat, landing) in landings.into_iter().enumerate() {
+            if self.destinations[seat].is_some() != landing.is_some() {
+                return Err(Error::State("retargeted journey cohort mask"));
+            }
+        }
+        for (seat, landing) in landings.into_iter().enumerate() {
+            if let Some(landing) = landing {
+                self.destinations[seat]
+                    .as_mut()
+                    .expect("cohort destination")
+                    .landing = landing;
+            }
+        }
+        Ok(())
+    }
+    /// Removing an eliminated hero must not strand surviving fall/rider cohorts.
+    /// Returns true only when no participant remains in this journey.
+    pub fn remove_seat(&mut self, seat: u8) -> Result<bool> {
+        if seat >= 4 {
+            return Err(Error::Bounds("journey released seat"));
+        }
+        let index = usize::from(seat);
+        self.cohort &= !(1 << seat);
+        self.sources[index] = None;
+        self.destinations[index] = None;
+        self.arrivals[index] = None;
+        self.searches[index] = None;
+        Ok(self.cohort == 0)
     }
     pub fn validate(&self, world: &WorldState) -> Result<()> {
         self.timing.validate()?;
@@ -504,7 +559,8 @@ impl Journey {
                 Self::validate_link(self.kind, source, destination, 0x3ff)?;
                 if matches!(self.kind, TravelKind::Elevator | TravelKind::Ship { .. })
                     && (self.sources[seat] != self.sources[leader]
-                        || self.destinations[seat] != self.destinations[leader])
+                        || self.destinations[seat].map(|target| target.level)
+                            != self.destinations[leader].map(|target| target.level))
                 {
                     return Err(Error::State("elevator/ship cohort spans unrelated routes"));
                 }

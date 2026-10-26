@@ -31,107 +31,62 @@ impl PopulationState {
         if kinds.len() > usize::from(self.limits.per_floor) {
             return Err(Error::Capacity("requested Earthling population"));
         }
-        let dimensions = environment.dimensions(level)?;
-        let mut rng = StageRng::derive(&self.identity, level, 0, b"population");
-        let mut records = Vec::with_capacity(kinds.len());
-        let mut failures = StableBits::new(MAX_POPULATION)?;
-        for anchor in required {
-            if usize::from(anchor.local) >= kinds.len()
-                || kinds[usize::from(anchor.local)] != anchor.kind
-                || required
-                    .iter()
-                    .filter(|other| other.local == anchor.local)
-                    .count()
-                    != 1
-            {
-                return Err(Error::State("required Earthling identity"));
-            }
-            let x = anchor.position.x >> 8;
-            let y = anchor.position.y >> 8;
-            if dimensions.world_cell(x, y).is_none()
-                || !environment.allows_placement(level, x, y)?
-            {
-                return Err(Error::Bounds("required Earthling anchor"));
-            }
+        if required
+            .iter()
+            .any(|anchor| kinds.get(usize::from(anchor.local)) != Some(&anchor.kind))
+        {
+            return Err(Error::State("required Earthling identity"));
         }
-        for (index, &kind) in kinds.iter().enumerate() {
-            if let Some(anchor) = required
-                .iter()
-                .find(|anchor| usize::from(anchor.local) == index)
-            {
-                records.push(*anchor);
-                continue;
-            }
-            let position = find_spawn(level, kind, environment, &mut rng, |x, y| {
-                for other in records.iter().chain(required) {
-                    let clearance = (i64::from(catalog.get(kind).radius)
-                        + i64::from(catalog.get(other.kind).radius))
-                        * 4;
-                    if (i64::from(x) - i64::from(other.position.x >> 8)).abs() < clearance
-                        && (i64::from(y) - i64::from(other.position.y >> 8)).abs() < clearance
-                    {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            })?;
-            let (x, y) = if let Some(position) = position {
-                position
-            } else {
-                if kind.required() {
-                    return Err(Error::Capacity("required Earthling placement"));
-                }
-                failures.insert(index as u16)?;
-                (128, 64)
-            };
-            records.push(AuthoredActor {
-                local: index as u16,
-                kind,
-                position: Position {
-                    x: x * 256,
-                    y: y * 256,
-                    elevation: 0,
-                },
-                mail_order: false,
-            });
+        let mut slots = [None; MAX_POPULATION as usize];
+        for (slot, &kind) in slots.iter_mut().zip(kinds) {
+            *slot = Some(kind);
         }
-        self.stage_floor(level, &records, catalog)?;
-        let floor_index = self.floor_index(level)?;
-        self.floors[floor_index].failed = failures;
-        self.floors[floor_index].spawn_rng = rng;
+        let floor =
+            self.prepare_slots(level, &slots[..kinds.len()], required, environment, catalog)?;
+        self.install_prepared_floor(floor)?;
         Ok(true)
     }
     /// A present-created actor uses free stable capacity, never an inactive
     /// original actor's identity. Failure leaves RNG, pools and records unchanged.
     pub fn spawn_present(
         &mut self,
-        hero: HeroView,
+        owner: SeatId,
+        level: LevelId,
+        origin: Position,
+        choice: u16,
         environment: &impl Environment,
         catalog: &DefinitionCatalog,
     ) -> Result<PopulationId> {
-        if self.retained[hero.seat.index()] != Some(hero.level) {
+        owner
+            .validate()
+            .map_err(|_| Error::State("Earthling present owner"))?;
+        origin
+            .validate()
+            .map_err(|_| Error::Bounds("Earthling present origin"))?;
+        if self.retained[owner.index()] != Some(level) {
             return Err(Error::State("Earthling present hero retain"));
         }
-        let index = self.floor_index(hero.level)?;
+        let index = self.floor_index(level)?;
         let floor = &self.floors[index];
-        let local = floor.actors.last().map_or(0, |actor| actor.id.local + 1);
+        let local = (u64::BITS - floor.declared_slots.leading_zeros()) as u16;
         if local >= self.limits.per_floor {
             return Err(Error::Capacity("stable Earthling present records"));
         }
         let mut rng = floor.spawn_rng;
-        let (hero_x, hero_y) = (hero.position.x >> 8, hero.position.y >> 8);
-        let current = environment.terrain(hero.level, hero_x, hero_y)?;
+        let (hero_x, hero_y) = (origin.x >> 8, origin.y >> 8);
+        let current = environment.terrain(level, hero_x, hero_y)?;
+        let (maximum_x, maximum_y) = environment.dimensions(level)?.world_envelope();
         let mut position = None;
         for _ in 0..4 {
             let x = hero_x + if rng.next_u16() & 1 != 0 { 40 } else { -40 };
             let y = hero_y + if rng.next_u16() & 1 != 0 { 25 } else { -25 };
-            let terrain = environment.terrain(hero.level, x, y)?;
-            if environment
-                .dimensions(hero.level)?
-                .world_cell(x, y)
-                .is_some()
+            let terrain = environment.terrain(level, x, y)?;
+            if x >= 8
+                && y >= 8
+                && x < maximum_x - 8
+                && y < maximum_y - 8
                 && (current == 0x80) == (terrain == 0x80)
-                && environment.allows_placement(hero.level, x, y)?
+                && environment.allows_placement(level, x, y)?
             {
                 position = Some((x, y, terrain));
                 break;
@@ -141,7 +96,7 @@ impl PopulationState {
             position.ok_or(Error::Capacity("near-hero Earthling present placement"))?;
         let mut allowed = [None; 22];
         let mut count = 0;
-        if hero.level.get() == 0 {
+        if level.get() == 0 {
             allowed[0] = Some(Kind::HulaDancer);
             count = 1;
         } else if terrain == 0x80 {
@@ -153,7 +108,7 @@ impl PopulationState {
         } else {
             for kind in Kind::ALL.into_iter().skip(1).take(22) {
                 if kind == Kind::Shark
-                    || kind == Kind::Mailbox && hero.level.get() < 2
+                    || kind == Kind::Mailbox && level.get() < 2
                     || kind == Kind::Whirlwind && terrain != 0x20
                     || kind == Kind::Lawnmower && terrain != 0x10
                 {
@@ -176,13 +131,9 @@ impl PopulationState {
         if count == 0 {
             return Err(Error::Capacity("Earthling present kind eligibility"));
         }
-        let kind = allowed[rng.bounded(count as u32) as usize].expect("bounded candidate set");
-        let id = PopulationId {
-            level: hero.level,
-            local,
-        };
-        let mut label = *b"runtime-ai\0\0";
-        label[10..].copy_from_slice(&local.to_be_bytes());
+        let kind = allowed[usize::from(choice) % count].expect("bounded candidate set");
+        let id = PopulationId { level, local };
+        let actor_rng = initial_actor_rng(&self.identity, id);
         let mut actor = PersistentActor::new(
             id,
             kind,
@@ -192,10 +143,12 @@ impl PopulationState {
                 elevation: 0,
             },
             catalog.get(kind),
-            StageRng::derive(&self.identity, hero.level, 0, &label),
+            actor_rng,
             false,
         );
+        actor.owner = Some(owner);
         let required_bodies = 1 + usize::from(actor.companion);
+        self.preflight_growth(required_bodies)?;
         if self
             .bodies
             .iter()
@@ -209,8 +162,9 @@ impl PopulationState {
         if actor.companion {
             actor.companion_body = Some(allocate_body(&mut self.bodies, id, true)?);
         }
-        actor.interest = SeatMask::new(1 << hero.seat.get()).expect("four seats");
+        actor.interest = SeatMask::new(1 << owner.get()).expect("four seats");
         self.floors[index].actors.push(actor);
+        self.floors[index].declared_slots |= 1_u64 << local;
         self.floors[index].spawn_rng = rng;
         Ok(id)
     }
@@ -236,7 +190,7 @@ impl PopulationState {
         let actor = self
             .actor(id)
             .ok_or(Error::State("relocate unknown Earthling"))?;
-        if actor.retired || actor.kind.required() {
+        if actor.pending_director || actor.retired || actor.kind.required() {
             return Err(Error::State("cannot relocate removed/required Earthling"));
         }
         let mut rng = actor.rng;
@@ -324,7 +278,7 @@ impl PopulationState {
         let index = self.floor_index(level)?;
         let mut removed = 0;
         for actor in &mut self.floors[index].actors {
-            if actor.body.is_none() || actor.kind.hazard_immune() {
+            if actor.pending_director || actor.body.is_none() || actor.kind.hazard_immune() {
                 continue;
             }
             let (x, y) = actor.pixels();
@@ -341,7 +295,7 @@ impl PopulationState {
         Ok(removed)
     }
 }
-fn find_spawn(
+pub(super) fn find_spawn(
     level: LevelId,
     kind: Kind,
     environment: &impl Environment,
@@ -359,7 +313,7 @@ fn find_spawn(
         Ok(Some((x, y)))
     })
 }
-pub(super) fn scan_spawn<R: tje_world::random::Random16>(
+pub(crate) fn scan_spawn<R: tje_world::random::Random16>(
     dimensions: Dimensions,
     rng: &mut R,
     mut try_cell: impl FnMut(u16, u16, &mut R) -> Result<Option<(i32, i32)>>,

@@ -11,6 +11,13 @@ from trace_functions import TraceError
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_metadata_uses_the_current_trace_catalogue_api(self) -> None:
+        entries = ownership.metadata(ownership.ROOT)
+        document = json.loads((ownership.ROOT / ownership.DESTINATION).read_text())
+        self.assertEqual([entry["constant"] for entry in entries],
+                         [entry["constant"] for entry in document["functions"]])
+        self.assertTrue(all(entry["callees"] is not None for entry in entries))
+
     def test_transitive_metadata_and_source_reference_edges(self) -> None:
         entries = [{"index": 0, "callees": [1]}, {"index": 1, "callees": []},
                    {"index": 2, "callees": []}, {"index": 3, "callees": []}]

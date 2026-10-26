@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use tje_world::LevelId;
 
 /// A runtime body, never an original signed-byte object selector or pointer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode)]
@@ -32,6 +33,24 @@ impl ActorId {
     }
     pub const fn valid(self) -> bool {
         Self::new(self.slot, self.generation).is_some()
+    }
+}
+
+/// Stable publication identity; static instances are not simulation arena slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
+pub enum DrawId {
+    Actor(ActorId),
+    Item { level: LevelId, id: u32 },
+    Prop { level: LevelId, id: u16 },
+}
+impl DrawId {
+    pub fn valid_for(self, level: LevelId) -> bool {
+        match self {
+            Self::Actor(actor) => actor.valid(),
+            Self::Item { level: owner, .. } | Self::Prop { level: owner, .. } => {
+                owner == level && owner.validate().is_ok()
+            }
+        }
     }
 }
 

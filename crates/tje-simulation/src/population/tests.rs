@@ -68,7 +68,7 @@ fn base_definition() -> Definition {
         health: 3,
     }
 }
-fn catalog() -> DefinitionCatalog {
+pub(crate) fn catalog() -> DefinitionCatalog {
     let mut values = [base_definition(); 25];
     for kind in Kind::ALL {
         let value = &mut values[kind.index()];
@@ -390,10 +390,9 @@ fn canonical_interest_has_exact_boundaries_and_no_camera_input() {
 #[test]
 fn allocation_pressure_is_atomic_and_never_relocates_or_removes() {
     let (mut state, _) = staged(&[Kind::Devil; 4], 3);
-    state.retain(SeatId::ALL[0], level(2)).unwrap();
     let before = state.clone();
-    let heroes = [Some(hero(0, 2, 640, 400)), None, None, None];
-    assert!(state.refresh_activity(&heroes).is_err());
+    assert!(state.preflight_retain(SeatId::ALL[0], level(2)).is_err());
+    assert!(state.retain(SeatId::ALL[0], level(2)).is_err());
     assert_eq!(state, before);
 }
 #[test]
@@ -594,10 +593,16 @@ fn sleep_is_kind_and_state_specific_and_not_a_draw_residency_test() {
     state.floors[0].actors[4].state = 4;
     state.floors[0].actors[5].state = 3;
     state.floors[0].actors[6].state = 3;
-    assert_eq!(state.sleep_near(level(2), position(680, 400)).unwrap(), 2);
+    let source = crate::EffectId::new(0, 1).unwrap();
+    assert_eq!(
+        state
+            .sleep_near(source, level(2), position(680, 400))
+            .unwrap(),
+        2
+    );
     assert_eq!(state.floors[0].actors[0].state, SLEEP_STATE);
     assert_eq!(state.floors[0].actors[4].state, SLEEP_STATE);
-    state.wake_level(level(2)).unwrap();
+    state.wake_level(source, level(2)).unwrap();
     assert_eq!(state.floors[0].actors[0].state, 0);
 }
 #[test]
@@ -648,7 +653,14 @@ fn present_capacity_failure_does_not_touch_records_rng_or_existing_actor() {
     let saved = state.clone();
     assert!(
         state
-            .spawn_present(view, &Ground::default(), &definitions)
+            .spawn_present(
+                view.seat,
+                view.level,
+                view.position,
+                17,
+                &Ground::default(),
+                &definitions
+            )
             .is_err()
     );
     assert_eq!(state, saved);
@@ -659,7 +671,14 @@ fn present_spawn_and_relocation_are_bounded_and_preserve_stable_ids() {
     let view = hero(3, 2, 900, 500);
     attach(&mut state, &[None, None, None, Some(view)]);
     let id = state
-        .spawn_present(view, &Ground::default(), &definitions)
+        .spawn_present(
+            view.seat,
+            view.level,
+            view.position,
+            17,
+            &Ground::default(),
+            &definitions,
+        )
         .unwrap();
     assert_eq!(id.local, 1);
     assert_eq!(state.actor(id).unwrap().id.level, level(2));
@@ -1202,4 +1221,582 @@ fn historical_effect_sources_do_not_resolve_as_current_service_bodies() {
     assert!(state.resolve(body).is_none());
     assert!(state.service(body).is_none());
     assert!(!state.known_body(ActorId::new(32, 2).unwrap()));
+}
+
+#[test]
+fn stock_population_preparation_preserves_holes_and_publishes_atomically() {
+    let definitions = catalog();
+    let mut state = PopulationState::new(PopulationLimits::default(), [7; 32]).unwrap();
+    let mut slots = [None; 20];
+    slots[1] = Some(Kind::Devil);
+    slots[7] = Some(Kind::Dentist);
+    slots[19] = Some(Kind::HulaDancer);
+    let required = [AuthoredActor {
+        local: 0,
+        kind: Kind::ShipPiece,
+        position: position(1800, 1000),
+        mail_order: false,
+    }];
+    let before = state.clone();
+    let mut floor = state
+        .prepare_stock_floor(
+            level(2),
+            &slots,
+            &required,
+            &Ground::default(),
+            &definitions,
+        )
+        .unwrap();
+    assert_eq!(state, before);
+    assert_eq!(
+        floor
+            .actors
+            .iter()
+            .map(|actor| actor.id.local)
+            .collect::<Vec<_>>(),
+        [0, 1, 7, 19]
+    );
+    assert_eq!(floor.declared_slots, (1 << 20) - 1);
+    floor.removed.insert(18).unwrap();
+    floor.removed.insert(0).unwrap();
+    floor.collected.insert(0).unwrap();
+    state.preflight_prepared_floor(&floor).unwrap();
+    let duplicate = floor.clone();
+    state.install_prepared_floor(floor).unwrap();
+    assert!(
+        state
+            .actor(PopulationId {
+                level: level(2),
+                local: 0
+            })
+            .unwrap()
+            .retired
+    );
+    let installed = state.clone();
+    assert!(state.install_prepared_floor(duplicate).is_err());
+    assert_eq!(state, installed);
+    state.validate().unwrap();
+    let view = hero(3, 2, 900, 500);
+    attach(&mut state, &[None, None, None, Some(view)]);
+    let spawned = state
+        .spawn_present(
+            view.seat,
+            view.level,
+            view.position,
+            17,
+            &Ground::default(),
+            &definitions,
+        )
+        .unwrap();
+    assert_eq!(spawned.local, 20);
+    state.validate().unwrap();
+}
+
+#[test]
+fn prepared_population_failure_flags_are_bounded_to_declared_sources() {
+    let definitions = catalog();
+    let mut state = PopulationState::new(PopulationLimits::default(), [3; 32]).unwrap();
+    let mut slots = [None; 20];
+    slots[19] = Some(Kind::Devil);
+    let unavailable = Ground {
+        no_placement: true,
+        ..Ground::default()
+    };
+    let mut floor = state
+        .prepare_stock_floor(level(2), &slots, &[], &unavailable, &definitions)
+        .unwrap();
+    assert!(floor.failed.contains(19));
+    floor.failed.insert(7).unwrap();
+    state.preflight_prepared_floor(&floor).unwrap();
+    floor.failed.insert(40).unwrap();
+    assert!(state.preflight_prepared_floor(&floor).is_err());
+    assert!(state.install_prepared_floor(floor).is_err());
+    assert!(state.floors().is_empty());
+    slots[19] = Some(Kind::ShipPiece);
+    assert!(
+        state
+            .prepare_stock_floor(level(2), &slots, &[], &unavailable, &definitions)
+            .is_err()
+    );
+    assert!(state.floors().is_empty());
+}
+
+#[test]
+fn overlapping_music_leases_wake_only_their_own_source_generation() {
+    let (mut state, _) = staged(&[Kind::Devil], 8);
+    let views = [Some(hero(0, 2, 650, 400)), None, None, None];
+    attach(&mut state, &views);
+    let first = crate::EffectId::new(0, 1).unwrap();
+    let second = crate::EffectId::new(1, 1).unwrap();
+    assert_eq!(
+        state
+            .sleep_near(first, level(2), position(640, 400))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        state
+            .sleep_near(first, level(2), position(640, 400))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        state
+            .sleep_near(second, level(2), position(640, 400))
+            .unwrap(),
+        1
+    );
+    assert_eq!(state.sleep_sources().count(), 2);
+    state.retire_effect(first, level(2)).unwrap();
+    assert_eq!(state.floors[0].actors[0].state, SLEEP_STATE);
+    let stale = crate::EffectId::new(1, 2).unwrap();
+    assert_eq!(state.wake_level(stale, level(2)).unwrap(), 0);
+    assert_eq!(state.floors[0].actors[0].state, SLEEP_STATE);
+    state.release(SeatId::ALL[0]).unwrap();
+    state.refresh_activity(&[None; 4]).unwrap();
+    state.retire_effect(second, level(2)).unwrap();
+    assert_eq!(state.floors[0].actors[0].state, 0);
+    state.validate().unwrap();
+}
+
+#[test]
+fn rose_damage_is_generation_scoped_and_rearms_only_on_exit() {
+    let (mut state, _) = staged(&[Kind::Devil], 8);
+    attach(&mut state, &[Some(hero(0, 2, 650, 400)), None, None, None]);
+    let source = crate::EffectId::new(0, 1).unwrap();
+    assert_eq!(
+        state
+            .rose_contacts(source, level(2), position(640, 400))
+            .unwrap(),
+        1
+    );
+    assert_eq!(state.floors[0].actors[0].health, 2);
+    assert_eq!(
+        state
+            .rose_contacts(source, level(2), position(640, 400))
+            .unwrap(),
+        0
+    );
+    state.floors[0].actors[0].motion.position.x += 30 * 256;
+    state
+        .rose_contacts(source, level(2), position(640, 400))
+        .unwrap();
+    state.floors[0].actors[0].motion.position.x -= 30 * 256;
+    state
+        .rose_contacts(source, level(2), position(640, 400))
+        .unwrap();
+    assert_eq!(state.floors[0].actors[0].health, 1);
+    state.retire_effect(source, level(2)).unwrap();
+    assert_eq!(state.thorn_sources().count(), 0);
+    state.validate().unwrap();
+}
+
+#[test]
+fn projectile_impacts_are_idempotent_and_immune_bodies_still_consume() {
+    let (mut state, definitions) = staged(&[Kind::Devil, Kind::Santa], 8);
+    attach(&mut state, &[Some(hero(0, 2, 700, 400)), None, None, None]);
+    let source = crate::EffectId::new(0, 1).unwrap();
+    let mut point = position(650, 400);
+    point.elevation = 10 * 256;
+    assert!(
+        state
+            .projectile_contact(source, None, level(2), point, 1, &definitions)
+            .unwrap()
+    );
+    assert_eq!(state.floors[0].actors[1].health, 3);
+    point.x = 640 * 256;
+    assert!(
+        state
+            .projectile_contact(source, None, level(2), point, 1, &definitions)
+            .unwrap()
+    );
+    assert_eq!(state.floors[0].actors[0].health, 3);
+    let next = crate::EffectId::new(0, 2).unwrap();
+    assert!(
+        state
+            .projectile_contact(next, None, level(2), point, 1, &definitions)
+            .unwrap()
+    );
+    assert_eq!(state.floors[0].actors[0].health, 2);
+    state.validate().unwrap();
+}
+
+#[test]
+fn rejected_actor_generation_release_does_not_partially_damage_or_receipt() {
+    let (mut state, definitions) = staged(&[Kind::Devil], 8);
+    attach(&mut state, &[Some(hero(0, 2, 700, 400)), None, None, None]);
+    state.bodies[0].generation = u32::MAX;
+    state.floors[0].actors[0].body = ActorId::new(32, u32::MAX);
+    let before = state.clone();
+    let mut point = position(640, 400);
+    point.elevation = 10 * 256;
+    assert!(
+        state
+            .projectile_contact(
+                crate::EffectId::new(0, 1).unwrap(),
+                None,
+                level(2),
+                point,
+                3,
+                &definitions
+            )
+            .is_err()
+    );
+    assert_eq!(state, before);
+}
+
+#[test]
+fn active_opera_contacts_publish_each_performance_tick_and_completion() {
+    let (mut state, definitions) = staged(&[Kind::OperaSinger], 8);
+    let views = [None, None, None, Some(hero(3, 2, 650, 400))];
+    attach(&mut state, &views);
+    let mut sink = Sink::new(views);
+    let actor = &mut state.floors[0].actors[0];
+    actor.set_state(3);
+    actor.service_owner = Some(SeatId::ALL[3]);
+    actor.interactions[3] = Interaction::Active;
+    actor.animation_finished = false;
+    contacts::dispatch(actor, definitions.get(Kind::OperaSinger), 0, &mut sink).unwrap();
+    assert!(
+        sink.requests
+            .iter()
+            .any(|request| !request.animation_finished
+                && matches!(
+                    request.effect,
+                    ContactEffect::Service {
+                        service: Service::Opera,
+                        stage: ServiceStage::Tick,
+                        ..
+                    }
+                ))
+    );
+    actor.animation_finished = true;
+    contacts::dispatch(actor, definitions.get(Kind::OperaSinger), 0, &mut sink).unwrap();
+    assert!(
+        sink.requests
+            .iter()
+            .any(|request| request.animation_finished
+                && matches!(
+                    request.effect,
+                    ContactEffect::Service {
+                        service: Service::Opera,
+                        stage: ServiceStage::Tick,
+                        ..
+                    }
+                ))
+    );
+}
+
+#[test]
+fn full_stock_twenty_keeps_initial_count_but_reserves_room_for_real_present_spawn() {
+    let definitions = catalog();
+    let mut state = PopulationState::new(
+        PopulationLimits {
+            per_floor: 64,
+            active_bodies: 316,
+        },
+        [5; 32],
+    )
+    .unwrap();
+    let slots = [Some(Kind::Devil); 20];
+    let floor = state
+        .prepare_stock_floor(level(2), &slots, &[], &Ground::default(), &definitions)
+        .unwrap();
+    assert_eq!(floor.actors.len(), 20);
+    assert_eq!(floor.declared_slots, (1_u64 << 20) - 1);
+    state.install_prepared_floor(floor).unwrap();
+    let view = hero(0, 2, 900, 500);
+    attach(&mut state, &[Some(view), None, None, None]);
+    let id = state
+        .spawn_present(
+            view.seat,
+            view.level,
+            view.position,
+            0,
+            &Ground::default(),
+            &definitions,
+        )
+        .unwrap();
+    assert_eq!(id.local, 20);
+    assert_eq!(state.floors()[0].actors.len(), 21);
+    assert_eq!(state.actor(id).unwrap().owner, Some(view.seat));
+    assert!(
+        state.floors()[0].actors[..20]
+            .iter()
+            .all(|actor| actor.owner.is_none())
+    );
+    while state.floors()[0].declared_slots != u64::MAX {
+        state
+            .spawn_present(
+                view.seat,
+                view.level,
+                view.position,
+                0,
+                &Ground::default(),
+                &definitions,
+            )
+            .unwrap();
+    }
+    let exhausted = state.clone();
+    assert!(
+        state
+            .spawn_present(
+                view.seat,
+                view.level,
+                view.position,
+                0,
+                &Ground::default(),
+                &definitions
+            )
+            .is_err()
+    );
+    assert_eq!(state, exhausted);
+    state.validate().unwrap();
+}
+
+#[test]
+fn cohort_retention_reserves_the_complete_final_floor_set_before_commit() {
+    let definitions = catalog();
+    let mut state = PopulationState::new(
+        PopulationLimits {
+            per_floor: 64,
+            active_bodies: 3,
+        },
+        [5; 32],
+    )
+    .unwrap();
+    for floor in 2..6 {
+        state
+            .stage_floor(
+                level(floor),
+                &[AuthoredActor {
+                    local: 0,
+                    kind: Kind::Devil,
+                    position: position(640, 400),
+                    mail_order: false,
+                }],
+                &definitions,
+            )
+            .unwrap();
+    }
+    for seat in SeatId::ALL {
+        state
+            .preflight_retain(seat, level(u16::from(seat.get()) + 2))
+            .unwrap();
+    }
+    let before = state.clone();
+    let together = SeatId::ALL.map(|seat| Some(level(u16::from(seat.get()) + 2)));
+    assert!(state.prepare_retains(together).is_err());
+    assert_eq!(state, before);
+    let shared = [Some(level(2)); 4];
+    let prepared = state.prepare_retains(shared).unwrap();
+    state.commit_retains(prepared);
+    assert_eq!(state.retained(), &shared);
+}
+
+#[test]
+fn missing_or_released_customer_cannot_permanently_lock_a_friendly_actor() {
+    let (mut state, definitions) = staged(&[Kind::Wizard], 8);
+    let views = [None, None, None, Some(hero(3, 2, 650, 400))];
+    attach(&mut state, &views);
+    let actor = &mut state.floors[0].actors[0];
+    actor.service_owner = Some(SeatId::ALL[3]);
+    actor.interactions[3] = Interaction::Active;
+    actor.set_state(2);
+    let mut sink = Sink::new([None; 4]);
+    contacts::dispatch(actor, definitions.get(Kind::Wizard), 0, &mut sink).unwrap();
+    assert_eq!(actor.service_owner, None);
+    assert_eq!(actor.interactions[3], Interaction::Idle);
+    assert!(sink.requests.iter().any(|request| matches!(
+        request.effect,
+        ContactEffect::Service {
+            stage: ServiceStage::End,
+            ..
+        }
+    )));
+    actor.service_owner = Some(SeatId::ALL[3]);
+    actor.interactions[3] = Interaction::Active;
+    state.release_seat_contacts(SeatId::ALL[3]).unwrap();
+    assert_eq!(state.floors[0].actors[0].service_owner, None);
+}
+
+#[test]
+fn population_preparation_yields_one_candidate_per_unit_and_restores_every_cursor() {
+    struct Counted {
+        ground: Ground,
+        candidates: std::cell::Cell<u32>,
+    }
+    impl Environment for Counted {
+        fn dimensions(&self, level: LevelId) -> Result<Dimensions> {
+            self.ground.dimensions(level)
+        }
+        fn terrain(&self, level: LevelId, x: i32, y: i32) -> Result<u8> {
+            self.ground.terrain(level, x, y)
+        }
+        fn base_metatile(&self, level: LevelId, x: i32, y: i32) -> Result<Option<u8>> {
+            self.ground.base_metatile(level, x, y)
+        }
+        fn placement(
+            &self,
+            level: LevelId,
+            kind: Kind,
+            column: u16,
+            row: u16,
+            rng: &mut StageRng,
+        ) -> Result<Option<(i32, i32)>> {
+            self.candidates.set(self.candidates.get() + 1);
+            self.ground.placement(level, kind, column, row, rng)
+        }
+        fn allows_placement(&self, level: LevelId, x: i32, y: i32) -> Result<bool> {
+            self.ground.allows_placement(level, x, y)
+        }
+        fn animation_step(
+            &self,
+            _: Kind,
+            _: u8,
+            _: &mut AnimationCursor,
+        ) -> Result<AnimationSample> {
+            panic!("population preparation must never run animation")
+        }
+    }
+    let definitions = catalog();
+    let state = PopulationState::new(PopulationLimits::default(), [4; 32]).unwrap();
+    let slots = [Some(Kind::Devil); 20];
+    let environment = Counted {
+        ground: Ground {
+            no_placement: true,
+            ..Ground::default()
+        },
+        candidates: std::cell::Cell::new(0),
+    };
+    let mut job = state
+        .prepare_stock_job(level(2), &slots, &[], Dimensions::ORIGINAL)
+        .unwrap();
+    assert!(job.clone().finish().is_err());
+    let config = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_limit::<4194304>();
+    let mut units = 0;
+    while job.progress() != StockPopulationProgress::Complete {
+        let before = environment.candidates.get();
+        job.advance(&environment, &definitions, 1).unwrap();
+        assert_eq!(environment.candidates.get() - before, 1);
+        units += 1;
+        if units % 37 == 0 {
+            let bytes = bincode::encode_to_vec(&job, config).unwrap();
+            let (restored, used): (StockPopulationJob, usize) =
+                bincode::decode_from_slice(&bytes, config).unwrap();
+            assert_eq!(used, bytes.len());
+            assert_eq!(restored, job);
+            state.validate_preparation_job(&restored).unwrap();
+            job = restored;
+        }
+    }
+    assert_eq!(units, 20 * (10 + Dimensions::ORIGINAL.area()));
+    let expected = job.finish().unwrap();
+    assert_eq!(expected.actors.len(), 20);
+    assert!((0..20).all(|id| expected.failed.contains(id)));
+    for quantum in [7, 64, 1024] {
+        let mut job = state
+            .prepare_stock_job(level(2), &slots, &[], Dimensions::ORIGINAL)
+            .unwrap();
+        while job.advance(&environment, &definitions, quantum).unwrap()
+            != StockPopulationProgress::Complete
+        {}
+        assert_eq!(job.finish().unwrap(), expected);
+    }
+    assert!(state.floors().is_empty());
+}
+
+#[test]
+fn preparation_continuation_rejects_bad_work_identity_and_retains_sparse_order() {
+    let definitions = catalog();
+    let state = PopulationState::new(PopulationLimits::default(), [4; 32]).unwrap();
+    let mut slots = [None; 20];
+    slots[3] = Some(Kind::Devil);
+    slots[19] = Some(Kind::Dentist);
+    let required = [AuthoredActor {
+        local: 0,
+        kind: Kind::ShipPiece,
+        position: position(1800, 1000),
+        mail_order: false,
+    }];
+    let mut job = state
+        .prepare_stock_job(level(2), &slots, &required, Dimensions::ORIGINAL)
+        .unwrap();
+    let before = job.clone();
+    assert!(job.advance(&Ground::default(), &definitions, 0).is_err());
+    assert_eq!(job, before);
+    let other = PopulationState::new(PopulationLimits::default(), [5; 32]).unwrap();
+    assert!(other.validate_preparation_job(&job).is_err());
+    while job.advance(&Ground::default(), &definitions, 1).unwrap()
+        != StockPopulationProgress::Complete
+    {}
+    let floor = job.finish().unwrap();
+    assert_eq!(
+        floor
+            .actors
+            .iter()
+            .map(|actor| actor.id.local)
+            .collect::<Vec<_>>(),
+        [0, 3, 19]
+    );
+    assert_eq!(floor.declared_slots, (1_u64 << 20) - 1);
+}
+
+#[test]
+fn reserved_state_three_requires_a_real_typed_producer() {
+    let base = base_definition();
+    assert!(!base.supports_state(Kind::HulaDancer, 3));
+    assert!(!base.supports_state(Kind::Dentist, 3));
+    assert!(base.supports_state(Kind::Whirlwind, 3)); // Explicit initial state.
+    for thinker in [
+        Thinker::HorizontalTurn,
+        Thinker::HorizontalReversal,
+        Thinker::Whirlwind,
+        Thinker::Santa,
+    ] {
+        assert!(Definition { thinker, ..base }.supports_state(Kind::Devil, 3));
+    }
+    for touch in [
+        Touch::Cupid,
+        Touch::Mole,
+        Touch::Mailbox,
+        Touch::Wizard,
+        Touch::Opera,
+        Touch::Santa,
+    ] {
+        assert!(Definition { touch, ..base }.supports_state(Kind::Devil, 3));
+    }
+    for state in [0, 1, 4, 5, 6, 7] {
+        assert!(base.supports_state(Kind::HulaDancer, state));
+    }
+    assert!(!base.supports_state(Kind::HulaDancer, 2));
+    assert!(
+        Definition {
+            companion: true,
+            ..base
+        }
+        .supports_state(Kind::HulaDancer, 2)
+    );
+    assert!(!base.supports_state(Kind::Devil, 8));
+    assert!(base.supports_state(Kind::Dentist, 8));
+    assert!(base.supports_state(Kind::DentistVariant, 11));
+    assert!(!base.supports_state(Kind::IceCreamTruck, 15));
+    assert!(
+        Definition {
+            thinker: Thinker::Timed,
+            ..base
+        }
+        .supports_state(Kind::IceCreamTruck, 15)
+    );
+    assert!(base.supports_state(Kind::HulaDancer, SLEEP_STATE));
+    assert!(!base.supports_state(Kind::ShipPiece, SLEEP_STATE));
+    assert!(!base.supports_state(Kind::HulaDancer, 16));
+    for revision in Revision::ALL {
+        let memory = synthetic_rom(revision, false);
+        let imported = rom::RomDefinitions::new(&memory).unwrap();
+        assert!(imported.descriptor(Kind::HulaDancer, 3).is_err());
+        assert!(imported.optional_descriptor(Kind::HulaDancer, 3).is_err());
+    }
 }

@@ -97,6 +97,37 @@ The complete enhanced image (including pending continuations and input phase)
 is the rewind/save/netplay divergence hash. Existing frontend netplay remains
 faithful-only until its enhanced-profile transport is separately enabled.
 
+### Immutable imported resources
+
+Decoded ROM programs/catalogues are immutable derivative data, not an excuse to
+serialize GPU caches or copy the world per callback. Build a `Resources` set of
+`Resource` values (bounded unique key, nonzero version, identity authenticated
+against actual imported ROM/config values), then consume a fresh selected mode
+through `with_resources`. Installation is one-shot and rejects after execution
+or restore; reset retains the same immutable resources.
+
+Only a small canonical resource manifest is registered as a configuration-bound
+sidecar. The existing format-3 transaction therefore rejects a different
+resource key/version/identity before hardware restore, without serializing host
+pointers or decoded resource payloads. Existing profiles with no resource set
+keep their prior payload; faithful format 2 is unchanged.
+
+`Resource::validate_restore` receives decoded `PreparedSidecars` and a borrowed
+`SnapshotView` of the **captured** RAM/VRAM/CRAM before either hardware or sidecar
+commit. Use it for catalogue/contract and actual device-pattern cross-checks;
+never validate only after hardware changed. Bounded typed relational animation
+contracts may accompany the aggregate as its authenticated manifest. Decoded
+catalogue programs/art stay off-snapshot, and shareable controller recordings
+strip the relational contracts as well.
+
+Callbacks use `Context::state_and_memory` for disjoint mutable sidecars and a
+readonly cartridge/RAM view, then `Sidecars::state_and_resource<T, R>` or
+`state_and_resources<T, A, B>` to borrow the aggregate and one/two immutable
+catalogues without cloning them. This readonly view does not replace real device
+reads/waits: audio, input and interrupt progress still use the resumable scheduler
+and approved original device calls.
+
+
 ### Four-pad routing and integration
 
 `EnhancedInputs { pads: [GenesisController; 4] }` carries four complete controller

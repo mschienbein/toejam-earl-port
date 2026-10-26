@@ -127,12 +127,17 @@ impl EnhancedMode {
             }
         }
         let sidecars = self.sidecars.prepare(state.sidecars).map_err(invalid)?;
-        engine.restore_enhanced(snapshot, self.profile_id())?;
+        engine.restore_enhanced_checked(snapshot, self.profile_id(), |hardware| {
+            self.sidecars
+                .validate_restore(&sidecars, &hardware)
+                .map_err(|error| error.to_string())
+        })?;
         self.sidecars.commit(sidecars);
         self.inputs = state.inputs;
         self.interrupts = state.interrupts;
         self.pending = state.pending;
         self.failed = false;
+        self.started = true;
         Ok(())
     }
 }

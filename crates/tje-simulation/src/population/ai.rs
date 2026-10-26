@@ -230,16 +230,36 @@ pub(super) fn request(
         seat,
         kind: actor.kind,
         position: actor.motion.position,
+        animation_finished: actor.animation_finished,
+        interest: actor.interest,
         effect,
     })
 }
 
+#[cfg(test)]
 pub(super) fn think(
     actor: &mut PersistentActor,
     catalog: &DefinitionCatalog,
     heroes: &[Option<HeroView>; 4],
     decoys: &[DecoyView],
     sink: &mut impl ContactSink,
+) -> Result<()> {
+    think_controlled(
+        actor,
+        catalog,
+        heroes,
+        decoys,
+        sink,
+        &mut director::DecisionSlot::default(),
+    )
+}
+pub(super) fn think_controlled(
+    actor: &mut PersistentActor,
+    catalog: &DefinitionCatalog,
+    heroes: &[Option<HeroView>; 4],
+    decoys: &[DecoyView],
+    sink: &mut impl ContactSink,
+    decision: &mut director::DecisionSlot,
 ) -> Result<()> {
     if actor.mail_order || actor.state == SLEEP_STATE {
         return Ok(());
@@ -269,6 +289,7 @@ pub(super) fn think(
             heroes,
             decoys,
             sink,
+            decision,
         )?,
         Thinker::Timed => timed(
             actor,
@@ -340,6 +361,7 @@ fn generic(
     heroes: &[Option<HeroView>; 4],
     decoys: &[DecoyView],
     sink: &mut impl ContactSink,
+    decision: &mut director::DecisionSlot,
 ) -> Result<()> {
     if special(actor, projectiles, heroes, decoys, sink)? {
         return Ok(());
@@ -351,6 +373,13 @@ fn generic(
     }
     actor.timer = actor.timer.saturating_sub(1);
     if actor.timer < 0 {
+        if let Some(intent) = decision
+            .intent
+            .filter(|intent| actor.body == Some(intent.actor))
+        {
+            decision.receipt = director::decide(actor, definition, intent)?;
+            return Ok(());
+        }
         actor.motion.velocity[0] = 0;
         actor.motion.velocity[1] = 0;
         let mut next = None;

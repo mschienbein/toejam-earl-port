@@ -199,7 +199,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ((index - 1) / 32) as i32 * 28 + 50
                 };
                 actors.push(Actor {
-                    id: ActorId::new((seat * 129 + index) as u16, 1).unwrap(),
+                    id: tje_mode_view::packet::DrawId::Actor(
+                        ActorId::new((seat * 129 + index) as u16, 1).unwrap(),
+                    ),
                     level: floor_ids[if disjoint { seat } else { 0 }],
                     position: [camera[0] + x + seat as i32 * 16, camera[1] + y],
                     elevation: 0,
@@ -236,12 +238,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     wrapper: 4,
                     identified: false,
                     icon: None,
+                    price: None,
+                    available: true,
                 }); 16],
             });
             ui[1].map = Some(Map {
                 level: floor_ids[1],
                 dimensions: [19, 26],
                 discovery: [u64::MAX; 9],
+                discovery_columns: 8,
+                discovery_rows: 7,
                 markers: [None; 68],
             });
             ui[2].speech = Speech::new(b"PRIVATE COMPOSITION FIXTURE", true, true)?;

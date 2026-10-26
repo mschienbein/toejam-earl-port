@@ -40,58 +40,9 @@ impl StockSpecialPositions {
         ship: Option<(i32, i32)>,
         resources: &impl crate::Resources,
     ) -> Result<Self> {
-        level.validate()?;
-        if level.get() > 26 || geometry.dimensions() != Dimensions::ORIGINAL {
-            return Err(Error::Bounds("OriginalV1 special prefix extent"));
-        }
-        let mut result = Self {
-            positions: [None; 2],
-            mail_order: true,
-            failed: 0,
-        };
-        if level.get() <= 1 || level.get() == 26 {
-            return Ok(result);
-        }
-        let mut rng = OriginalRng::new(u32::from(seed));
-        result.mail_order = level.get() < 4 || level.get() == 12 || rng.next_u16() % 100 >= 50;
-        let mut placement = None;
-        for _ in 0..10 {
-            let row = rng.bounded(26) as u16;
-            let column = rng.bounded(19) as u16;
-            if let Some(position) =
-                special_candidate(level, column, row, geometry, resources, &mut rng)?
-            {
-                placement = Some(position);
-                break;
-            }
-        }
-        if placement.is_none() {
-            let first_row = rng.bounded(26) as u16;
-            let first_column = rng.bounded(19) as u16;
-            'scan: for row_offset in 0..26 {
-                for column_offset in 0..19 {
-                    let row = (first_row + row_offset) % 26;
-                    let column = (first_column + column_offset) % 19;
-                    if let Some(position) =
-                        special_candidate(level, column, row, geometry, resources, &mut rng)?
-                    {
-                        placement = Some(position);
-                        break 'scan;
-                    }
-                }
-            }
-        }
-        result.positions[0] = placement;
-        if placement.is_none() {
-            result.failed |= 1;
-        }
-        if let Some((x, y)) = ship {
-            if geometry.dimensions().world_cell(x, y).is_none() {
-                return Err(Error::Bounds("OriginalV1 ship-piece position"));
-            }
-            result.positions[1] = Some((x, y));
-        }
-        Ok(result)
+        let mut job = StockSpecialJob::new(level, seed, geometry, ship)?;
+        while !job.advance(geometry, resources, 256)? {}
+        job.finish()
     }
     pub fn is_near(&self, x: i32, y: i32) -> bool {
         self.positions.iter().enumerate().any(|(index, position)| {
@@ -115,6 +66,157 @@ impl StockSpecialPositions {
             }
         }
         Ok(())
+    }
+}
+
+/// Candidate-sized continuation for the seeded mailbox/ship prefix. The
+/// standalone helper above drives this same owner, not a second search.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct StockSpecialJob {
+    level: LevelId,
+    seed: u16,
+    rng: OriginalRng,
+    result: StockSpecialPositions,
+    random_trials: u8,
+    scan_start: Option<(u16, u16)>,
+    scanned: u16,
+    complete: bool,
+}
+impl StockSpecialJob {
+    pub fn new(
+        level: LevelId,
+        seed: u16,
+        geometry: &crate::LevelGeometry,
+        ship: Option<(i32, i32)>,
+    ) -> Result<Self> {
+        level.validate()?;
+        if level.get() > 26
+            || geometry.dimensions() != Dimensions::ORIGINAL
+            || ship.is_some_and(|(x, y)| geometry.dimensions().world_cell(x, y).is_none())
+        {
+            return Err(Error::Bounds("OriginalV1 special prefix extent/ship"));
+        }
+        let complete = level.get() <= 1 || level.get() == 26;
+        let mut rng = OriginalRng::new(u32::from(seed));
+        let mail_order =
+            complete || level.get() < 4 || level.get() == 12 || rng.next_u16() % 100 >= 50;
+        Ok(Self {
+            level,
+            seed,
+            rng,
+            result: StockSpecialPositions {
+                positions: [None, if complete { None } else { ship }],
+                mail_order,
+                failed: 0,
+            },
+            random_trials: 0,
+            scan_start: None,
+            scanned: 0,
+            complete,
+        })
+    }
+    pub const fn level(&self) -> LevelId {
+        self.level
+    }
+    pub const fn seed(&self) -> u16 {
+        self.seed
+    }
+    pub const fn ship_position(&self) -> Option<(i32, i32)> {
+        self.result.positions[1]
+    }
+    pub fn validate(&self) -> Result<()> {
+        self.level.validate()?;
+        self.result.validate()?;
+        let mut initial = OriginalRng::new(u32::from(self.seed));
+        let special = self.level.get() <= 1 || self.level.get() == 26;
+        let mail_order = special
+            || self.level.get() < 4
+            || self.level.get() == 12
+            || initial.next_u16() % 100 >= 50;
+        if self.result.mail_order != mail_order
+            || special
+                && (self.result.positions != [None; 2] || self.result.failed != 0 || !self.complete)
+        {
+            return Err(Error::State("OriginalV1 special seed/mode identity"));
+        }
+        if self.level.get() > 26
+            || self.random_trials > 10
+            || self.scanned > 494
+            || self
+                .scan_start
+                .is_some_and(|(row, column)| row >= 26 || column >= 19)
+            || self.scanned != 0 && self.scan_start.is_none()
+            || self.scan_start.is_some() && self.random_trials != 10
+            || !self.complete && (self.result.positions[0].is_some() || self.result.failed != 0)
+            || self.result.failed & !1 != 0
+            || !self.complete && self.scanned == 494
+            || !special
+                && self.complete
+                && (self.result.positions[0].is_none() != (self.result.failed & 1 != 0))
+            || special
+                && (self.random_trials != 0 || self.scan_start.is_some() || self.scanned != 0)
+        {
+            return Err(Error::State("OriginalV1 special prefix continuation"));
+        }
+        Ok(())
+    }
+    pub fn advance(
+        &mut self,
+        geometry: &crate::LevelGeometry,
+        resources: &impl crate::Resources,
+        work: u32,
+    ) -> Result<bool> {
+        self.validate()?;
+        if !(1..=1024).contains(&work) || geometry.dimensions() != Dimensions::ORIGINAL {
+            return Err(Error::Bounds("OriginalV1 special prefix work"));
+        }
+        for _ in 0..work {
+            if self.complete {
+                break;
+            }
+            let random = self.random_trials < 10;
+            let mut rng = self.rng;
+            let (row, column, start) = if random {
+                (
+                    rng.bounded(26) as u16,
+                    rng.bounded(19) as u16,
+                    self.scan_start,
+                )
+            } else {
+                let (row, column) = self
+                    .scan_start
+                    .unwrap_or_else(|| (rng.bounded(26) as u16, rng.bounded(19) as u16));
+                (
+                    (row + self.scanned / 19) % 26,
+                    (column + self.scanned % 19) % 19,
+                    Some((row, column)),
+                )
+            };
+            let candidate =
+                special_candidate(self.level, column, row, geometry, resources, &mut rng)?;
+            self.rng = rng;
+            self.scan_start = start;
+            if random {
+                self.random_trials += 1;
+            } else {
+                self.scanned += 1;
+            }
+            if let Some(position) = candidate {
+                self.result.positions[0] = Some(position);
+                self.complete = true;
+            } else if self.scanned == 494 {
+                self.result.failed |= 1;
+                self.complete = true;
+            }
+        }
+        Ok(self.complete)
+    }
+    pub fn finish(self) -> Result<StockSpecialPositions> {
+        self.validate()?;
+        if !self.complete {
+            return Err(Error::State("OriginalV1 special prefix is incomplete"));
+        }
+        Ok(self.result)
     }
 }
 fn special_candidate(

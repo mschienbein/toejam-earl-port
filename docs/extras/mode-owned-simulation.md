@@ -59,9 +59,9 @@ The saved bridge starts with `PresentationA (1) → Population (2) → Presentat
 
 ### Explicit generator/configuration and recording prerequisites
 
-`SessionConfig` schema 2 authenticates `tje-world::GeneratorId::{OriginalV1,ExpandedV1,DesignedV1}` separately from dimensions/density. Stock co-op requires **OriginalV1**: the revision-bound original seeds, draw order, geometry and items, proven against original-engine generated map RAM for the same seeds/levels across floors 0–26 in both revisions. ExpandedV1 remains the larger-world generator. A synthetic 19×26 ExpandedV1 fixture is explicitly not an OriginalV1 receipt. Completed floors and pending generation/import work must agree with the selected generator. DesignedV1 additionally authenticates a bounded immutable per-level course/source/definition manifest before aggregate restore commits hardware.
+`SessionConfig` schema 3 authenticates the actual ROM revision and `tje-world::GeneratorId::{OriginalV1,ExpandedV1,DesignedV1}` separately from dimensions/density. Stock co-op requires **OriginalV1** with exact seeds, draw order, geometry and items; its private Engine/IR comparison covers both revisions and floors 0–26. ExpandedV1 remains the larger-world generator; a synthetic 19×26 ExpandedV1 fixture is not an OriginalV1 receipt. Completed floors and pending source/import jobs must agree with the trusted configuration. DesignedV1 also freezes per-level source/definition identities. Bounded immutable animation contracts and catalogue/frame identities validate saved logical cursors before hardware restore, while decoded ROM/GPU resources stay off-snapshot.
 
-The controller-only enhanced recording format is separate from faithful `tje-session`: eight-byte `TJEINPUT` magic, little-endian u16 version 1 and zero u16 flags, u32 body length, SHA-256 of the body, then canonical fixed-width little-endian bincode. The typed body contains complete normalized session configuration, initial stable input routing, compressed four-pad/action runs, and frame/epoch-ordered explicit source assignments. It contains no RAM recipe, snapshot, ROM resource data or executable pointers. Payloads are bounded at 16 MiB, 262144 runs and 65536 assignments; unknown versions/flags, bad checksums/lengths, stale assignment epochs, disabled/unassigned input, trailing bytes and config/ROM/generator mismatches reject. SHA-256 is corruption/identity checking, not author authentication.
+The controller-only enhanced recording format is separate from faithful `tje-session`: eight-byte `TJEINPUT` magic, little-endian u16 version **2** and zero u16 flags, u32 body length, SHA-256 of the body, then canonical fixed-width little-endian bincode. Its body carries normalized user settings and the full prepared-configuration digest, initial stable routing, compressed four-pad/action runs, and frame/epoch-ordered explicit source assignments. Imported animation contracts are stripped: recordings contain no RAM recipe, snapshot, ROM program payload or executable pointer. Binding verifies the actual prepared ROM/catalogue/configuration digest before play. Payloads are bounded at 16 MiB, 262144 runs and 65536 assignments; unknown versions/flags, bad checksums/lengths, stale epochs, disabled/unassigned input, trailing bytes and configuration mismatches reject. Director configurations remain rejected until a versioned finite role/command-event schema exists. SHA-256 is corruption/identity checking, not author authentication.
 
 Replay's seek index is derivative and rebuilt once; rewinding seeks by the restored hardware frame, never a serialized host iterator. Disconnect records neutral input without silently transferring a seat. The aggregate latches hero input only at the Players phase, including a first hardware frame after boot/intro; it does not reuse the primitive codec's consecutive-from-zero bookkeeping helper for gameplay cadence. Recording primitives do not install a playable profile, add transport, or supply the still-required actual native/browser four-pad transition evidence.
 ## 3. Subsystems that move together
@@ -99,15 +99,17 @@ Authoritative state uses ordered, bounded storage; allocate session capacity onc
 | Session identity / phase bridge | Ruleset/body manifest, ROM identity, course/config/generator digest, root seed/independent RNG streams, hardware frame/phase/input admission, mutation queue, shared objectives, publication epoch | Immutable identity authenticated against normalized configuration; phase/mutation/RNG state fully saved. No wall-time or idle-loop randomness. |
 | `tje-four-player::CoopState` | Fixed `[PlayerState; 4]`, `SeatId`, independent archetype/palette, stats/inventory/counters/terrain/UI, stable input source map and assignment epoch, four input/action words, seat-local per-LevelId arrival history and claim priority | The current primitive has no simulated effects, entity ownership handles or transition implementation; these are added with the owning services. Array position must match seat, roster/settings must match immutable identity, disabled seats cannot acquire input/history by arrival. |
 | `tje-world` shared persistent world | Sorted LevelId records: dimensions/cells/path edits/dirty flags, fog/discovery, anchors/links/elevators, population/items and stable collected/removed/failure state, accepted generation attempts and loading work | One mutable record per visited level. Original campaign 0–26; shared Maker envelope at most 32 floors, at most four hero-active floors. Cache/camera slot is never a level identity. |
-| Runtime entity/effect arena | Generation-checked IDs, kind/owner/source/level, motion/behavior/status/contact data; quotas and reserved progression resources; global dropped/projectile/effect pools | Both stock four-player and expanded profiles reserve a **1024-entry** logical arena. Stock four-floor density uses 20 Earthlings and 32 placed items per floor; the maximum four-floor expanded profile uses 64 Earthlings and **112 placed items per floor**, plus 128 global drops and 64 effects. Individual shared-world format limits of 128 items/floor are not simultaneously admissible on four active floors with every other pool full. These are explicit joint profile caps, not unconditional counts or extra original RAM. |
+| Runtime entity/effect arena | Generation-checked IDs, kind/owner/source/level, motion/behavior/status/contact data; quotas and reserved progression resources; global dropped/projectile/effect pools | Both stock four-player and expanded profiles reserve a **1024-entry** logical arena. Stock keeps the original **20-slot ordinary-floor initial population**, including source-placed services/objectives, but reserves **64 persistent ID slots per floor** for services, Earthling presents and owner receipts; this capacity does not spawn extra ambient actors. Special floors retain their original source populations. Stock has 32 placed-item slots per floor. The maximum four-floor expanded profile uses 64 Earthling slots and **112 placed-item slots per floor**, plus 128 global drops and 64 effects. Individual format maxima do not promise joint admission; no silent quota borrowing or extra Genesis RAM. |
 | Per-seat / role state | Overlay/choice/release/pause latches; elevator/fall cohort; effect IDs, donor/recipient and service references; Overlord role/budget/commands when enabled | Explicit IDs/masks; no `player ^ 1`. Four-pad input does not imply four hero bodies in a 3-vs-1 ruleset. |
+| Frozen logical publication | Bounded saved actor/resource-ID, UI and fog rows plus per-floor geometry epochs and the last odd-phase publication stamp | Authoritative logical rows, not pixels or world copies. Even-phase restore materializes the last published scene against the same epochs; it never relabels newer actors/UI with an older stamp or steps simulation to repair a restore. |
 | Rebuildable presentation | Decoded ROM tiles/pieces/palettes, GPU bindings, view transforms, UI layout, visible draw lists and clip scratch | Not authoritative. Rebuild after restore; eviction or skipped presentation must not alter AI, motion, collisions, discovery, RNG or allocation success. |
 
 Keep **participating input seats**, **hero-body seats** and **network ownership** as distinct masks in the generalized role manifest. They coincide only in ordinary co-op. The current co-op-only `Config::participants` deliberately couples its hero/input masks; Overlord must version and extend that configuration/validation before accepting director input with no hero body. It cannot route a director by merely disabling player four or assigning that seat an original player index.
 
-Worst-case admission arithmetic (Main-approved S1 contract):
+Worst-case admission arithmetic (Main-approved S1/S6 contract):
 
-- Stock four-player: `4 heroes + 4×20 Earthlings + 4×32 items + 28 progression actors + 60 companions + 64 effects + 128 drops = 492` logical actors. The former 256-entry stock proposal cannot guarantee four disjoint floors.
+- Stock initial-20 case: `4 heroes + 4×20 initial Earthlings + 4×32 items + 28 progression actors + 60 companions + 64 effects + 128 drops = 492` logical actors. This is the initial-population case, not the lifetime ID reservation.
+- Stock persistent-capacity case: `4 + 4×64 persistent ID slots + 4×32 items + 28 + 60 + 64 + 128 = 668`, within 1024. A full twenty-record floor can therefore admit a real Earthling present without reusing a removed ID; exhaustion of all 64 IDs rejects transactionally. The original initial count stays twenty.
 - Maximum four-floor expanded profile: `4 + 4×64 + 4×112 + 28 + 60 + 64 + 128 = 988`, within 1024.
 - Requesting all individual maxima instead gives `4 + 4×64 + 4×128 + 28 + 60 + 64 + 128 = 1052`, exceeding 1024. Reject that request **before mutation**; never silently trim items, despawn required actors, or let allocation/render order choose a different world.
 - Reserve all simultaneously live authoritative storage as well: at most 32 floors × 48 KiB geometry/persistence, 512 KiB pending bounded generation, 1024 × 512 bytes runtime actor allowance, and 128 KiB aggregate/control/input/config/continuation allowance = **2.625 MiB**. This conservative reservation remains below the shared 4 MiB format-3 cap; actual codec bounds are also enforced at registration/capture/restore. The separate 64 MiB presentation allowance cannot authorize simulation allocation.
@@ -156,6 +158,17 @@ bodies and UI above them. Every quadrant clips independently. Palette variants
 use live CRAM words per instance, preserving neutral/outline/index-zero semantics
 and adding seat-number indicators rather than rewriting global CRAM.
 
+S6 publication distinguishes `DrawId::Actor(ActorId)` from stable
+`DrawId::Item { level, id }` and `DrawId::Prop { level, id }`. Static display
+instances do not consume simulation-body slots; duplicate/stale identities and
+the joint 1024-instance packet cap still reject publication. Frozen map packets
+carry the authoritative discovery column/row stride rather than reconstructing
+it from the envelope width. Static original shadow tiles are explicit bounded
+VRAM descriptors, separate from ROM-piece shadows and hero palette instances.
+Their patterns are borrowed only while composing an admitted publication, not
+sampled during arbitrary redraws.
+
+
 `animation::Program` imports bounded sequence/frame resources from the user's
 ROM. `start` and `step` run only at simulation-animation admission; their saved
 cursor records sequence index, remaining ticks, flip, held and started state.
@@ -180,6 +193,46 @@ four-overlay fixtures with the same compositor. Its images and frame/audio
 observations must remain private. The fixture does not simulate extra heroes,
 prove a transition, or satisfy S6's four-pad campaign evidence.
 
+`ResourceCatalog::load` is the admission-only immutable importer for the S6 adapter:
+finite hero/Earthling/effect/companion/transition programs, checked item frames,
+actual frame/flip contracts, stable logical frame IDs, stock choices and static
+shadow initialization metadata. Kernel callbacks borrow it through immutable
+enhanced resources; decoded graphics are neither copied per phase nor serialized.
+Earthling animation table extents include explicit null holes: only a complete
+null sequence/frame pair denotes an unavailable pose; partial-null, unaligned or
+out-of-ROM descriptors reject. The immutable bindings contain the authored poses
+only, and selecting an unavailable pose remains an error. Sleep imports and
+runtime sleep eligibility share the original pre-index kind capability guard
+(`G:src/earthlings/spawning_and_banks.c:659-664`); objective, special hazard and
+special-floor service actors never acquire fabricated sleep programs.
+Reserved state three additionally requires an actual typed producer: horizontal
+turn/reversal, Whirlwind/Santa thinking, the explicit Cupid/Mole/mailbox/wizard/
+opera/Santa contact transitions, or Whirlwind's initial state. A non-null unused
+slot is not made playable merely by lying inside the table envelope. Other
+producer-envelope slots still require successfully imported bounded resources;
+no decoder failure is caught and turned into an admitted pose.
+`PublicationBuilder` borrows pre-reserved saved `PublishedScene` rows at Publish.
+Rendering later materializes only those frozen rows against matching geometry
+epochs and captured device CRAM; even-phase live actor/UI changes cannot leak
+into an earlier image. Palette-only changes recompose frozen rows without a
+world step. Reset/restore invalidate derivative materialization, and the resource
+restore validator checks world shadow patterns before hardware/sidecar commit.
+
+The current integrated service increment does **not** install a gameplay factory,
+`coop-acceptance` frontend capability, hidden candidate flag or public session
+choice. Both browser build scripts reject `TJE_COOP_ACCEPTANCE` until a complete
+structural factory and its actual enhanced-input runner exist. Faithful two-pad
+recording/replay and current netplay remain separate and unchanged.
+
+`tools/browser_file_replay.mjs` connects only to an explicitly provided existing
+local CDP browser with file access enabled. It imports an observation-only Wasm
+package through local files and streams original-reference observation hashes
+without running a server. Page-side completion bindings keep cold compilation
+and replay out of long-pending CDP evaluation calls. Output, screenshots and
+reference observations must stay under private `scratch/`; neither this harness
+nor a candidate build is a release/playability claim.
+
+
 
 ## 6. Determinism, saves, rewind, recordings and networking
 
@@ -192,6 +245,25 @@ prove a transition, or satisfy S6's four-pad campaign evidence.
 - Stable source IDs and recorded explicit reassignments determine seats; current poll order does not. Disconnect means neutral input, not transferring a hero. A/C swap is explicit and tested: wire directions/A/B/C/Start becomes gameplay directions/B/C/A/Start. Only pads zero/one reach original hardware.
 - Current netplay stays **faithful-only**. A complete enhanced hash does not grant protocol compatibility. Enhanced networking must separately negotiate profile/body/rules/config/course/ROM identity, all seat/role owners, predictions/confirmations and disconnect policy. Four independent peers/topology/relay or hosted services require a later user decision; no transport changes, accounts or spending belong to this cutover.
 - ROM-derived palettes/decoded tiles/maps/screenshots/PCM/snapshots remain private. Public fixtures are authored metadata/synthetic colors/opcodes only; never commit a generated map or a private contact sheet as a test golden.
+
+
+The aggregate and `SessionConfig` use schema 3. Controller-only `TJEINPUT`
+recordings use version 2: normalized settings, ROM/catalogue/config identities,
+four pad/action words and actual stable-source assignment epochs, **not** imported
+animation programs or ROM-derived frames. Playback must bind the actual ROM
+catalogues and authenticate the complete configuration before accepting inputs.
+
+The approved ending boundary is authored-scene presentation, not a return to a
+two-player gameplay simulation. `Scene::ShipEnding` suspends the typed four-seat
+world/progress/resources while the audited original story owns a separate
+narrative ToeJam/Earl cast and genuine device state. Its trusted initialization,
+retail scene cleanup, callbacks and ROM resources require preflight; `SetupPlayer`
+alone is not a fresh allocator/cast reset. No session hero is copied or aliased
+into original player RAM. Hardware and the resumable scene continuation remain
+inside the same enhanced snapshot, and completion cannot implicitly resume an
+original two-player world consumer. A mode-owned four-player results UI may
+follow; the original story itself is not edited. This is the integration contract,
+not a claim that an ending gameplay run has already passed.
 
 ## 7. Staged implementation and estimated size
 
@@ -231,6 +303,28 @@ Before a gameplay selector is admitted:
 8. Run the repository's fmt, default/enhanced clippy/tests, both wasm builds, function-trace check, tools unittests and public audit after integration. Report exact exercised evidence, known gaps and remaining capability admission, not inferred playability.
 
 Current fail-closed primitives intentionally do not satisfy items 3–7's gameplay acceptance. No private four-player gameplay screenshot or level-transition run is claimed by this foundation delivery.
+
+## S3 service integration: contacts, input and saved cadence
+
+`tje-simulation::contact::PlayerContacts` implements the population's contact sink
+over the real four-seat health, inventory, service and effect state. It borrows
+frozen geometry, then returns bounded deferred world operations for the bridge to
+apply after releasing the population borrow. Paid offers and donations retain
+their exact actor generation and identified recipient; Santa, mole, projectile,
+decoy and ship-part contacts do not route through original two-player callbacks.
+The four-pad dispatcher owns per-seat UI edges and submits one rotating-priority
+resource batch. Mystery identification uses the same imported weighted present
+catalogue as opening and spawning, with failed selection leaving its RNG intact.
+
+Status/input, continuous 24.8 movement and authored animation-motion callbacks
+have separate saved once-per-phase admissions. Moving effects share continuous
+even-phase movement; their AI, collision and lifetime work stays in the effects
+phase. Rose damage waits for authored growth completion and has independent
+hero-entry latches. Telephone contact uses the original strict 16-by-8 automatic
+answer region. A fixed acknowledged audio FIFO preserves requests across the
+real IRQ continuation; the checked ROM audio catalogue accepts only its finite
+opcode-7 callback and rejects unknown executable addresses. None of these
+services enables the gameplay selector or substitutes for S6's private runs.
 
 ## S4 service increment: AI and persistent populations
 
@@ -300,4 +394,80 @@ not a four-pad campaign recording, native/browser parity proof or balance claim.
 OriginalV1 full-generator RAM parity and S6 frontend/campaign evidence remain
 their respective owners' admission work. No engine/frontend selection or
 faithful gameplay path changes in this service increment.
+
+
+### S6 borrowed world bridge
+
+`tje-simulation::world_bridge` implements the player geometry and world-mutation
+contracts over disjoint borrowed world, population and loading owners. It never
+holds mutable `PlayerServices` or aliases the co-op hero array. The caller first
+captures compact immutable hero/effect views; a frozen collider view supports
+contacts while population is mutably executing. Fixed-size pose/lifetime and
+effect birth/retirement overlays expose earlier committed mutations within the
+same phase without cloning a floor, a player service or the full effect pool.
+
+Geometry shares actual terrain, per-hero doorway-aware 5×5 caches, archetype
+volumes, physical present colliders and directional elevator barriers. Strict
+landing checks differ explicitly from movement out of an existing overlap.
+Respawn searches are bounded and deterministic. Togetherness, revival and final
+elimination update the world/population floor ledgers through preflighted loading
+transactions before S3 commits its hero state.
+
+Present creation returns the accepted doorway, telephone or decoy pose. Effect
+birth and retirement bind exact generations, including effects created inside a
+mutably owned player tick. Projectile impacts, rose entry, overlapping boombox
+sleep leases, burps, service solidity and opera audiences mutate real population
+state. Rose damage waits for authored growth completion; one music source cannot
+wake another source's sleepers. Runtime present weights, definition damage and
+all indexed control-remap masks resolve from the user's cartridge rather than
+invented uniform choices, fixed damage or diagonal reconstruction by OR.
+
+Sparse original population slots remain declared lifetime identities even when
+unused. Offline population preparation uses a saved `StockPopulationJob`: each
+work unit visits one hole/fixed actor or one candidate metatile, retaining the
+ten-random-then-cyclic scan and its RNG across yields. The synchronous helper
+drives that same implementation rather than maintaining a second algorithm.
+Complete cohort body reservations allow loading to validate all owners before
+publication. Dynamic present/director
+IDs do not write unrepresented source removal bits; the explicit delta sync and
+validation helpers reconcile only original world actor source identities.
+
+This bridge is simulation integration code, not a profile/frontend selector or
+an independent S6 admission receipt. Tests supplied with its source cover real
+geometry, transactional present/arrival/effect operations and sparse capacity
+boundaries; the integration owner runs their gate together with the other S6
+owners. Four-pad native/browser campaign and faithful frame/audio evidence remain
+the plan's admission requirements.
+
+
+## S6 aggregate service integration
+
+Schema-3 `Session` now contains the real shared world, four-seat state, player and
+resource services, persistent populations, bounded loading jobs, logical animation
+continuations and frozen publication rows. Registration/capture/restore validate
+their level, source-ID, issued-generation, pose/timer/frame and configuration
+references together. A frozen actor may legitimately retain a previously issued
+generation after an even-phase death/collection, but it cannot name an unissued
+body. Actual catalogue/full-contract and device-pattern checks run before the
+hardware restore commit.
+
+Initial placement preserves the original special-floor rule: qualify one fully
+supported 16×8-tile cell, then pack the cohort's real 4×2-tile footprints within
+that cell using a saved candidate cursor. Four independent centre-only searches
+would incorrectly exhaust a valid one-cell island. Every candidate still checks
+actual terrain, elevator exclusions and the other cohort members; water is not
+silently accepted and no ROM coordinates are embedded.
+
+Private checks exercise both revisions' real first-floor source loading and
+atomic four-hero setup, all 121 hero animation descriptors in each archetype/seat,
+frozen palette/cache restoration and catalogue-contract rejection without
+hardware/sidecar mutation. These are data/service proofs, not selected four-pad
+gameplay. Faithful native byte comparisons and browser complete-observation
+hashes cover both existing power-on co-op recordings, including frame pixels,
+stereo audio and redraw invariance; receipts remain private.
+
+No selected gameplay kernel, original-root/IRQ adapter, enhanced lobby/replay
+runner or gameplay selector is installed by this service increment. The
+section-8 enhanced four-pad transition/campaign evidence is still required, and
+the ownership admission registry remains closed.
 

@@ -14,6 +14,7 @@ mod devices;
 
 #[cfg(feature = "game-adapter")]
 pub use context::{InterruptHandlers, NativePlatform, StartError};
+pub use devices::SnapshotView;
 pub use devices::{
     BusReadPurpose, ClockedDevices, DeviceAccess, DeviceRuntime, DeviceStep, DeviceTrace,
     DeviceWrite, Origin, RamWrite, Registers, TimedWrite,

@@ -78,6 +78,15 @@ fn codec() -> impl bincode::config::Config {
         .with_limit::<{ 16 * 1024 * 1024 }>()
 }
 
+/// Decoded-but-uncommitted hardware for cross-owner restore validation. No MMIO
+/// reads, clock progression or copies are performed while this view is borrowed.
+pub struct SnapshotView<'a> {
+    pub ram: &'a [u8; RAM_SIZE],
+    pub vram: &'a [u8],
+    pub cram: &'a [u16],
+    pub frames: u64,
+}
+
 impl DeviceRuntime {
     /// Computed lazily: faithful play never hashes or copies the ROM for extras.
     pub fn snapshot_rom_hash(&self) -> [u8; 20] {
@@ -132,6 +141,14 @@ impl DeviceRuntime {
     /// Decode and validate fully before replacing anything. Immutable cartridge
     /// storage, its process identity and observer enablement are retained.
     pub fn restore_snapshot(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.restore_snapshot_checked(bytes, |_| Ok(()))
+    }
+
+    pub fn restore_snapshot_checked(
+        &mut self,
+        bytes: &[u8],
+        validate: impl FnOnce(SnapshotView<'_>) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (state, used): (Restore, _) =
             bincode::decode_from_slice(bytes, codec()).map_err(|error| error.to_string())?;
         if used != bytes.len() {
@@ -143,6 +160,17 @@ impl DeviceRuntime {
         if !(8_000..=192_000).contains(&state.audio_sample_rate) {
             return Err("snapshot audio sample rate must be between 8000 and 192000 Hz".into());
         }
+        let (vram, cram, _) = state.vdp.hybrid_memories();
+        validate(SnapshotView {
+            ram: state
+                .ram
+                .as_slice()
+                .try_into()
+                .expect("fixed decoded RAM extent"),
+            vram,
+            cram,
+            frames: state.frames,
+        })?;
         let bus = &mut self.bus;
         bus.memory.ram_mut().copy_from_slice(state.ram.as_slice());
         bus.audio_ram.copy_from_slice(state.audio_ram.as_slice());

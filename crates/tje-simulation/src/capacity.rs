@@ -23,13 +23,13 @@ pub struct CapacityPlan {
     pub presentation_bytes: u32,
 }
 impl CapacityPlan {
-    /// Four independent stock-density floors plus full global resource pools.
-    /// The old proposed 256-entry arena cannot cover that simultaneous maximum.
+    /// Twenty original initial slots on ordinary floors, including source
+    /// services/objectives; sixty-four persistent IDs allow later owner receipts.
     pub const STOCK_COOP: Self = Self {
         floors: 27,
         active_floors: 4,
         actors: 1024,
-        earthlings_per_floor: 20,
+        earthlings_per_floor: 64,
         items_per_floor: 32,
         progression: 28,
         companions: 60,
@@ -61,7 +61,7 @@ impl CapacityPlan {
         let population = u32::from(self.active_floors) * u32::from(self.earthlings_per_floor)
             + u32::from(self.companions);
         let items = u32::from(self.active_floors) * u32::from(self.items_per_floor);
-        if population > u32::from(ActorId::POPULATION_CAPACITY) || items > 480 {
+        if population > u32::from(ActorId::POPULATION_CAPACITY) {
             return Err(Error::Capacity("actor identity domain reservation"));
         }
         let actors = u32::from(heroes)
@@ -106,8 +106,15 @@ mod tests {
     #[test]
     fn reserves_all_independent_floors_and_full_effect_drop_pools() {
         let reservation = CapacityPlan::STOCK_COOP.reserve(4).unwrap();
-        assert_eq!(reservation.required_actors, 492);
+        assert_eq!(reservation.required_actors, 668);
         assert!(reservation.authoritative_bytes < AUTHORITATIVE_LIMIT);
+        let initial = CapacityPlan {
+            earthlings_per_floor: 20,
+            ..CapacityPlan::STOCK_COOP
+        }
+        .reserve(4)
+        .unwrap();
+        assert_eq!(initial.required_actors, 492);
         let maximum = CapacityPlan {
             floors: 32,
             earthlings_per_floor: 64,
@@ -133,6 +140,7 @@ mod tests {
         assert!(
             CapacityPlan {
                 items_per_floor: 128,
+                earthlings_per_floor: 64,
                 ..CapacityPlan::STOCK_COOP
             }
             .reserve(4)

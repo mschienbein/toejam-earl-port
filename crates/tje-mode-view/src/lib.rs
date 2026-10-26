@@ -9,6 +9,7 @@ pub mod packet;
 pub mod source;
 
 pub use compositor::Compositor;
+pub use jgenesis_common::frontend::{Color, FrameSize};
 pub use packet::{Actor, Packet, Publisher, View};
 use std::fmt;
 

@@ -341,6 +341,13 @@ where
         self.sidecars.as_deref_mut().expect("resumable context")
     }
 
+    fn state_and_memory(&mut self) -> (&mut Sidecars, &tje_mem::AddressSpace) {
+        (
+            self.sidecars.as_deref_mut().expect("resumable context"),
+            self.engine.devices().memory(),
+        )
+    }
+
     fn inputs(&self) -> EnhancedInputs {
         self.enhanced_inputs
     }

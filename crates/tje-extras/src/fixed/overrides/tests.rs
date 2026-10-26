@@ -259,6 +259,9 @@ impl Context for Fixture {
     fn sidecars_mut(&mut self) -> &mut Sidecars {
         &mut self.sidecars
     }
+    fn state_and_memory(&mut self) -> (&mut Sidecars, &AddressSpace) {
+        (&mut self.sidecars, &self.memory)
+    }
     fn inputs(&self) -> EnhancedInputs {
         EnhancedInputs::default()
     }

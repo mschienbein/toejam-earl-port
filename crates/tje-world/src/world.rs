@@ -51,6 +51,15 @@ impl Discovery {
     pub const fn awards(&self) -> u32 {
         self.awards
     }
+    pub const fn columns(&self) -> u16 {
+        self.columns
+    }
+    pub const fn rows(&self) -> u16 {
+        self.rows
+    }
+    pub fn revealed(&self, index: u16) -> bool {
+        self.visited.contains(index)
+    }
     pub fn validate(&self, dimensions: crate::Dimensions) -> Result<()> {
         let expected = Self::new(dimensions)?;
         if self.columns != expected.columns
@@ -70,26 +79,46 @@ pub struct StoredFloor {
     pub discovery: Discovery,
     pub dirty_cells: StableBits,
     pub land: LandState,
+    geometry_epoch: u64,
 }
 impl StoredFloor {
+    pub const fn geometry_epoch(&self) -> u64 {
+        self.geometry_epoch
+    }
     pub fn replace_cell(&mut self, position: CellPosition, cell: Cell, path: u8) -> Result<()> {
         let index = position.index(self.generated.geometry.dimensions())?;
+        let next_epoch = self
+            .geometry_epoch
+            .checked_add(1)
+            .ok_or(Error::Capacity("geometry publication epoch"))?;
         self.generated.geometry.replace_cell(position, cell, path)?;
         self.land
             .set_flags(position, path != 0, self.land.alternate(position))?;
         self.dirty_cells.insert(index as u16)?;
+        self.geometry_epoch = next_epoch;
         Ok(())
     }
     pub fn step_land(
         &mut self,
         resources: &impl crate::land::PathResources,
     ) -> Result<Option<crate::land::LandChange>> {
-        self.land.step(
+        if !self.land.busy() {
+            return Ok(None);
+        }
+        let next_epoch = self
+            .geometry_epoch
+            .checked_add(1)
+            .ok_or(Error::Capacity("geometry publication epoch"))?;
+        let change = self.land.step(
             &mut self.generated.geometry,
             &mut self.dirty_cells,
             &mut self.generated.runtime_rng,
             resources,
-        )
+        )?;
+        if change.is_some() {
+            self.geometry_epoch = next_epoch;
+        }
+        Ok(change)
     }
     pub fn validate(&self, config: &WorldConfig) -> Result<()> {
         self.spec.validate()?;
@@ -187,6 +216,13 @@ impl WorldState {
     pub fn active(&self) -> &[Option<LevelId>; 4] {
         &self.active
     }
+    pub fn release_seat(&mut self, seat: u8) -> Result<()> {
+        if seat >= 4 {
+            return Err(Error::Bounds("released active seat"));
+        }
+        self.active[usize::from(seat)] = None;
+        Ok(())
+    }
     pub fn dropped(&self) -> &[DroppedItem] {
         &self.dropped
     }
@@ -240,6 +276,7 @@ impl WorldState {
             spec,
             generated,
             land,
+            geometry_epoch: 0,
             discovery: Discovery::new(dimensions)?,
             dirty_cells: StableBits::new(dimensions.area() as u16)?,
         };

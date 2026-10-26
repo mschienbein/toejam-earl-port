@@ -111,11 +111,13 @@ reservations; they are not a promise that every maximum fits simultaneously.
 The S1 session reservation accounts for progression props as well: its complete
 four-floor maximum request is 1052 actors and rejects before mutation against
 1024. A negotiated 112-item/floor expanded profile reserves 988 actors; stock
-four-disjoint-floor capacity reserves 492, not the earlier 256 proposal.
+four-disjoint-floor capacity reserves 668 with 64 persistent IDs per floor.
+The original twenty-actor initial population is unchanged (its initial case is
+492); extra IDs permit real presents/services rather than extra ambient spawns.
 The canonical codec is fixed-width little-endian bincode with a 4 MiB decoding
 ceiling. Schema/configuration/extent/work invariants validate before standalone
 restore and in enhanced format 3; the changed standalone world sidecar schema is
-version 2, with no version-1 shim. Nothing allocates extra Genesis RAM, VRAM,
+version 3, with no older-schema shim. Nothing allocates extra Genesis RAM, VRAM,
 CRAM or hardware sprite entries. Native/profile admission remains closed.
 Actual imported sprite-piece residency admission is still part of the closed
 native boundary, not something these placement primitives claim to prove.
@@ -224,6 +226,23 @@ then feeds `OriginalGeometry` through the existing `CellSource`/`ImportJob`.
 AI owner's bounded persistent actor records; it never fabricates actors or
 widens original RAM banks. S3's stock resolver imports item definitions from the
 user's ROM. Source completion is not a profile/admission exception.
+
+S6's aggregate `tje-simulation::loading::LoadingState` owns bounded campaign
+seed/ship metadata, up to four source jobs and disjoint journeys, accepted source
+identities and prop continuations. It prepares real stock population and item
+bindings before one multi-owner publication. Initial heroes remain `Unplaced`
+until the prepared setup commit; it never calls arrival bookkeeping first.
+Player arrival caches/counts and population retains preflight before any owner
+commits, without cloning the full world. Effect creation/retirement binds exact
+doorway/telephone generations; map reveal is separate from the drawable prop.
+
+Every stored floor starts with `geometry_epoch == 0`. Successful cell/path edits
+and land consumption increment it with checked arithmetic. Live geometry
+mutation belongs exclusively to the odd Land→Publish atomic callback; other
+phases queue intent. Frozen logical publications record level and epoch, and
+aggregate validation rejects a stale geometry reference before hardware restore.
+These ownership services alone do not admit the co-op profile.
+
 
 The private `proof/original.rs` harness executed the original cartridge
 instructions through `tje-engine-runtime::Engine` with the IR oracle backend.

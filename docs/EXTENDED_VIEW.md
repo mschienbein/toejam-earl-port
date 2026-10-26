@@ -35,6 +35,16 @@ The separate mode-owned compositor consumes immutable phase-stamped packets and
 renders four 400×224 views into 800×448 without SAT/scanline allocation limits.
 Its resource cache is bounded, rebuildable and unrelated to simulation activity.
 
+RLE termination follows the cartridge's complete-run rule: a run is consumed in
+full before its signed remaining-byte quota is tested (`G:src/asm/rle.s:119-124,
+196-201`). An authored final run may extend beyond a piece or interleaved lane's
+declared tile count. The host retains only that declared tile window, while
+consuming all source bytes so the next lane begins at the correct token. This
+does not reproduce writes past the cartridge staging buffer. Truncated streams,
+zero-count runs and alternating-run DBRA underflow remain rejected; there is no
+blank-frame, raw-format or skipped-resource fallback.
+
+
 
 ## Source and citation convention
 

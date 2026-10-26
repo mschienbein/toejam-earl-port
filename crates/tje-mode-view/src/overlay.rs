@@ -1,7 +1,7 @@
 //! Bounded per-seat UI packets. These are display data, not blocking menu loops.
+use crate::packet::Metasprite;
 use crate::{Error, HEIGHT, Result, WIDTH, source::FrameSource};
 use jgenesis_common::frontend::Color;
-use tje_extended_view::presentation::Piece;
 use tje_four_player::SeatId;
 use tje_world::LevelId;
 
@@ -26,7 +26,9 @@ pub enum InventoryKind {
 pub struct Item {
     pub wrapper: u8,
     pub identified: bool,
-    pub icon: Option<Piece>,
+    pub icon: Option<Metasprite>,
+    pub price: Option<u8>,
+    pub available: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Inventory {
@@ -45,6 +47,8 @@ pub struct Map {
     pub dimensions: [u16; 2],
     /// Shared discovery bins are 320x256 world units, anchored at (72,8).
     pub discovery: [u64; 9],
+    pub discovery_columns: u16,
+    pub discovery_rows: u16,
     pub markers: [Option<Marker>; 68],
 }
 impl Map {
@@ -52,12 +56,14 @@ impl Map {
         if position[0] < 72 || position[1] < 8 {
             return false;
         }
-        let columns = (i32::from(self.dimensions[0]) + 2) * 128;
-        let columns = ((columns - 72 + 319) / 320) as usize;
+        let columns = usize::from(self.discovery_columns);
         let x = ((position[0] - 72) / 320) as usize;
         let y = ((position[1] - 8) / 256) as usize;
         let index = y * columns + x;
-        x < columns && index < 576 && self.discovery[index / 64] & (1 << (index % 64)) != 0
+        x < columns
+            && y < usize::from(self.discovery_rows)
+            && index < 576
+            && self.discovery[index / 64] & (1 << (index % 64)) != 0
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,8 +129,8 @@ impl SeatOverlay {
                 if item.wrapper >= 28 {
                     return Err(Error::Invalid("invalid wrapper display identity"));
                 }
-                if let Some(piece) = item.icon {
-                    tje_extended_view::resources::piece_length(piece)?;
+                if let Some(icon) = &item.icon {
+                    icon.validate()?;
                 }
             }
         }
@@ -133,6 +139,12 @@ impl SeatOverlay {
                 || map.dimensions.iter().any(|axis| !(8..=64).contains(axis))
             {
                 return Err(Error::Invalid("invalid map overlay geometry"));
+            }
+            if map.discovery_columns == 0
+                || map.discovery_rows == 0
+                || usize::from(map.discovery_columns) * usize::from(map.discovery_rows) > 576
+            {
+                return Err(Error::Invalid("invalid authoritative discovery stride"));
             }
             if map.markers.iter().flatten().any(|marker| {
                 marker
@@ -220,6 +232,12 @@ impl SeatOverlay {
                         number(output, x + 10, y + 40, u32::from(item.wrapper) + 1);
                     } else {
                         text(output, x + 10, y + 40, b"??", Color::rgb(240, 240, 240));
+                    }
+                    if !item.available {
+                        text(output, x + 7, y + 48, b"OUT", Color::rgb(180, 180, 180));
+                    } else if let Some(price) = item.price {
+                        text(output, x + 2, y + 48, b"$", Color::rgb(240, 220, 120));
+                        number(output, x + 9, y + 48, u32::from(price));
                     }
                 }
             }
@@ -473,5 +491,25 @@ fn glyph(byte: u8) -> &'static [&'static str; 7] {
         _ => &[
             "#####", "#...#", "..#.#", "..#..", "..#..", ".....", "..#..",
         ],
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[test]
+    fn map_uses_authoritative_coarse_stride_not_envelope_width() {
+        let mut map = Map {
+            level: LevelId::new(2).unwrap(),
+            dimensions: [19, 26],
+            discovery_columns: 8,
+            discovery_rows: 7,
+            discovery: [0; 9],
+            markers: [None; 68],
+        };
+        map.discovery[0] = 1 << 8;
+        assert!(map.discovered([72, 264]));
+        assert!(!map.discovered([392, 264]));
+        assert!(!map.discovered([2632, 264]));
     }
 }

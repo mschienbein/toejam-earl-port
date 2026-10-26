@@ -110,7 +110,14 @@ pub fn decode_piece_into(rom: &[u8], piece: Piece, output: &mut [u8]) -> Result<
             } else {
                 usize::from(token)
             };
-            if count == 0 || produced + count > quota {
+            // The cartridge emits the whole run before checking its signed
+            // remaining quota (G/src/asm/rle.s:119-124,196-201). Some authored
+            // pieces deliberately exhaust a lane part-way through that run.
+            // Consume every literal/value byte, but retain only this piece's
+            // declared tile window rather than reproducing staging-buffer spill.
+            // Zero runs and alternating count one cause DBRA underflow in the
+            // original; they are not bounded resources this host can admit.
+            if count == 0 || (lanes == 4 && token & 0xe0 == 0x60 && count == 1) {
                 return Err(RenderError::InvalidSprite("invalid RLE run"));
             }
             let repeated = if token & 0x80 != 0 {
@@ -136,7 +143,9 @@ pub fn decode_piece_into(rom: &[u8], piece: Piece, output: &mut [u8]) -> Result<
                     Some(value) => value,
                     None => next(&mut source)?,
                 };
-                output[lane + (produced + i) * lanes] = value;
+                if produced + i < quota {
+                    output[lane + (produced + i) * lanes] = value;
+                }
             }
             produced += count;
         }
