@@ -250,6 +250,20 @@ Additional `TJE native` device-only interfaces:
   `reference_basic_rom_is_mapped` query in
   `backend/genesis-components/src/cartridge.rs` inspects mapping/ranges only,
   never a value or latch. The legacy MMIO helper table remains unchanged.
+- `backend/genesis-core/src/{api,reference_proof}.rs`: explicit diagnostic
+  counter-provider setup and a feature-only sealed passive journal loan/view.
+  Vendor-owned reusable suffixes accept no caller records or numeric counters.
+  Cleanup restores foreign options/prefixes/suffixes, marker indices, DMA
+  filtering and existing enabled settings while retaining real observed count
+  deltas. Public mutation still invalidates both reset/audio origin and the
+  active observation; Clone/Decode never copy the loan. No CPU/device/time
+  execution, state repair, ROM move or original-origin credential is exposed.
+  Only metadata-only frame-trace enable/drain methods are unconditional.
+- `backend/genesis-components/src/cartridge.rs`: immutable `rom_len` byte-length
+  inspection supports analysis-asset preflight without a mutable cartridge
+  escape. It does not transfer assets, read a mapped value or mint authority.
+  Authored counter/loan/option/origin/clone/frame-trace/asset tests accompany
+  these additions; shipping feature guards remain binding.
 
 
 Removed upstream source modules, rather than leaving unsupported feature paths:

@@ -2399,8 +2399,16 @@ original behavior.
 
 `tje_game::control` defines emulator-independent, constructible **data**:
 `ControlRequest`, `ControlObservation`/`ControlActual`, `ControlSite`,
-`ControlSpan`, `RetryDelayKind` and `ExitObservation`. It adds no Context method,
-runtime hook, execution class, registration or activation.
+`ControlSpan`, `RetryDelayKind` and `ExitObservation`. Data alone adds no runtime
+hook, execution class, registration or activation.
+
+`Platform::control_effect(ControlRequest) -> Result<()>` is the explicit request
+surface for a separately supported control profile. Its default returns
+`Error::UnsupportedControlEffect(request)` without reading/writing the CPU, bus
+or clock. Request data is intent, never a site, token or execution receipt.
+Even an idempotent SR/USP request needs genuine source evidence; ordinary CCR
+setters cannot satisfy its mandatory frontier. This capability declaration
+does not enable any platform, replay admission, body, class or production status.
 
 Sites keep signed root-relative byte offsets, including preceding retry
 fragments. Spans are half-open indices in one original invocation's successful

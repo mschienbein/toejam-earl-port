@@ -118,6 +118,18 @@ impl GenesisEmulator {
         &mut self.bus
     }
 
+    /// Enable metadata-only frame tracing without a mutable bus escape. An
+    /// existing option/prefix is untouched; no caller records are accepted.
+    pub fn enable_hybrid_write_trace(&mut self) {
+        self.bus.hybrid_writes.get_or_insert_with(Vec::new);
+    }
+
+    /// Drain only actual recorded frame writes; there is no inverse import and
+    /// no CPU, device, time, read or original-origin authority is returned.
+    pub fn drain_hybrid_writes(&mut self) -> Option<std::vec::Drain<'_, crate::bus::HybridWrite>> {
+        self.bus.hybrid_writes.as_mut().map(|writes| writes.drain(..))
+    }
+
     #[cfg(feature = "reference-proof-hooks")]
     pub(crate) fn reference_parts(&mut self) -> (&mut M68000, &mut GenesisBus) {
         (&mut self.m68k, &mut self.bus)
@@ -792,6 +804,54 @@ mod hybrid_control_tests {
         let bus = GenesisBus::new(timing_mode, None, &config);
         let audio_resampler = GenesisAudioResampler::new(timing_mode, &config);
         GenesisEmulator { m68k, z80, bus, timing_mode, audio_resampler, config }
+    }
+    #[cfg(test)]
+    mod rom_length_tests {
+        use super::Cartridge;
+        use jgenesis_common::frontend::PartialClone;
+
+        #[test]
+        fn immutable_length_preserves_assets_and_identifies_empty_analysis_depots() {
+            let mut source = Cartridge::new(vec![0; 1024], None, None, &[]);
+            let before = bincode::encode_to_vec(&source, bincode::config::standard()).unwrap();
+            let shared = &source;
+            assert_eq!(shared.rom_len(), 1024);
+            assert_eq!(shared.rom_len(), 1024);
+            assert_eq!(
+                bincode::encode_to_vec(&source, bincode::config::standard()).unwrap(),
+                before
+            );
+            let mut analysis = source.partial_clone();
+            assert_eq!(analysis.rom_len(), 0);
+            analysis.take_rom_from(&mut source);
+            assert_eq!(analysis.rom_len(), 1024);
+            assert_eq!(source.rom_len(), 0);
+        }
+    }
+
+    #[test]
+    fn frame_trace_metadata_methods_preserve_prefix_options_and_machine() {
+        let mut emulator = machine();
+        let physical = bincode::encode_to_vec(&emulator, bincode::config::standard()).unwrap();
+        let cpu = emulator.hybrid_cpu().hybrid_state_words();
+        let checkpoint = emulator.hybrid_bus().hybrid_checkpoint();
+        assert!(emulator.drain_hybrid_writes().is_none());
+        emulator.enable_hybrid_write_trace();
+        let event = crate::bus::HybridWrite::Psg { value: 0x9f };
+        // Authored diagnostic prefix, not original execution evidence.
+        emulator.bus.hybrid_writes.as_mut().unwrap().push(event);
+        emulator.enable_hybrid_write_trace();
+        assert_eq!(emulator.drain_hybrid_writes().unwrap().collect::<Vec<_>>(), [event]);
+        assert!(emulator.bus.hybrid_writes.as_ref().unwrap().is_empty());
+        assert_eq!(emulator.hybrid_cpu().hybrid_state_words(), cpu);
+        assert_eq!(emulator.hybrid_bus().hybrid_checkpoint(), checkpoint);
+        // Ignore only this explicitly installed diagnostic option in a unit
+        // comparison; no live machine state or original lineage is repaired.
+        emulator.bus.hybrid_writes = None;
+        assert_eq!(
+            bincode::encode_to_vec(&emulator, bincode::config::standard()).unwrap(),
+            physical
+        );
     }
 
     #[test]
