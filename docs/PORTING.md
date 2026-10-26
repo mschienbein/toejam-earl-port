@@ -196,6 +196,26 @@ fixtures still supply explicit classes using `register_execution_contract`.
 Native dispatchers reject missing translations/classes at startup and never
 fall back to ROM; native contexts must implement their real execution capability.
 
+Check hosts own one separate analysis ROM asset, copied once from the admitted
+cartridge bytes. Explicit source-proof registries also opt in while advancing
+their Reference prefix; ordinary Reference/Replace hosts allocate no unused
+analysis asset. Fork execution loans this cached allocation only to ROM-less
+analysis machines, never moves or mutably borrows the live cartridge, and returns
+the exact asset on success, Result failure or unwind without repairing CPU/RAM/
+device snapshots. Private nested analysis hosts share that same asset, not a
+per-root copy or a second reference emulator. An occupied destination, absent
+source, wrong Host revision or incompatible registry rejects before a loan.
+
+Frame snapshots and live RAM observations use immutable ROM/RAM inspection;
+hardware-write configuration/draining changes only observer metadata. These
+operations do not revoke the retained original's reset/audio origin. Analysis
+copies still cannot mint live-origin credentials, and real live-machine mutation
+still invalidates them, even for a same-value store. Labelled fixture preparation
+and restoration remain real mutations, not an origin-preserving snapshot waiver.
+The authored loan tests check allocation identity, no per-call allocation, nested
+unwind cleanup and these authority gates; they do not prove a retail function or
+an authored audio interval.
+
 For fast lane iteration, check only your subsystem(s) or an explicit list of
 canonical function names/inventory IDs (`func_...`):
 
@@ -2399,8 +2419,16 @@ original behavior.
 
 `tje_game::control` defines emulator-independent, constructible **data**:
 `ControlRequest`, `ControlObservation`/`ControlActual`, `ControlSite`,
-`ControlSpan`, `RetryDelayKind` and `ExitObservation`. It adds no Context method,
-runtime hook, execution class, registration or activation.
+`ControlSpan`, `RetryDelayKind` and `ExitObservation`. Data alone adds no runtime
+hook, execution class, registration or activation.
+
+`Platform::control_effect(ControlRequest) -> Result<()>` is the explicit request
+surface for a separately supported control profile. Its default returns
+`Error::UnsupportedControlEffect(request)` without reading/writing the CPU, bus
+or clock. Request data is intent, never a site, token or execution receipt.
+Even an idempotent SR/USP request needs genuine source evidence; ordinary CCR
+setters cannot satisfy its mandatory frontier. This capability declaration
+does not enable any platform, replay admission, body, class or production status.
 
 Sites keep signed root-relative byte offsets, including preceding retry
 fragments. Spans are half-open indices in one original invocation's successful

@@ -11,6 +11,7 @@ pub mod abi;
 #[cfg(test)]
 #[path = "../tests/support/allocation_counter.rs"]
 mod allocation_counter;
+mod analysis_rom;
 mod call_clock;
 pub mod call_observation;
 pub use call_clock::CallClockRecord;
@@ -44,6 +45,7 @@ mod stack_dependency;
 pub mod timing_region;
 
 use abi::{HookContext, OrderedWrite, set_sp};
+use analysis_rom::AnalysisRom;
 use execution::{WaitClock, WaitInputPoller};
 use genesis_config::{GenesisEmulatorConfig, GenesisInputs};
 use genesis_core::{GenesisEmulator, HybridWrite};
@@ -298,6 +300,7 @@ impl CheckReport {
 
 pub struct Host {
     emulator: GenesisEmulator,
+    analysis_rom: Option<AnalysisRom>,
     registry: HookRegistry,
     mode: Mode,
     revision: Revision,
@@ -375,12 +378,15 @@ impl Host {
                 mode,
             )?)
         };
+        let analysis_rom = (mode == Mode::Check || !registry.timing_sources().is_empty())
+            .then(|| AnalysisRom::new(rom.bytes(), &config));
         let mut saves = NoCartridgeSaves;
         let mut emulator = GenesisEmulator::create(Some(rom.into_bytes()), config, &mut saves);
-        emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+        emulator.enable_hybrid_write_trace();
         let checks = CheckReport::registered(&registry);
         Ok(Self {
             emulator,
+            analysis_rom,
             registry,
             mode,
             revision,
@@ -515,9 +521,9 @@ impl Host {
         idle_random_draws: u64,
         lag_events: Vec<LagEvent>,
     ) -> Result<FrameSnapshot> {
-        let frame_counter = self.context().read_u16(catalogue::FRAME_COUNTER);
-        let bus = self.emulator.hybrid_bus_mut();
-        let (ram, _) = bus.memory.debug_ram_view();
+        let bus = self.emulator.hybrid_bus();
+        let frame_counter = bus.memory.read_main_ram_word(catalogue::FRAME_COUNTER);
+        let ram = bus.memory.hybrid_raw_main_ram();
         let mut ram_bytes = Vec::with_capacity(65_536);
         ram_bytes.extend(ram.iter().flat_map(|word| word.to_be_bytes()));
         let ram = ram_bytes.into_boxed_slice();
@@ -532,11 +538,10 @@ impl Host {
             )
             .map_err(|e| HostError::Emulator(e.to_string()))?,
         };
-        let writes = bus
-            .hybrid_writes
-            .as_mut()
+        let writes = self
+            .emulator
+            .drain_hybrid_writes()
             .expect("trace enabled")
-            .drain(..)
             .map(Into::into)
             .collect();
         Ok(FrameSnapshot {
@@ -559,46 +564,17 @@ impl Host {
         fork
     }
 
-    /// Move, don't copy, the read-only ROM into a sequentially executed fork.
-    /// Return the same asset on Result errors or unwind, preserving the exact
-    /// unwind payload. CPU/SP/device state is never copied or restored here.
+    /// Loan the cached analysis-only ROM, never the live cartridge. Return the
+    /// exact asset on errors/unwind; CPU/SP/device state is not restored here.
+    /// Private raw-machine callers are the baseline/probe forks from `self.fork`
+    /// and authored observer tests using this Host's partial clones. Cartridge
+    /// metadata is not used to authenticate a foreign ROM-less machine.
     fn execute_fork<T>(
         &mut self,
         fork: &mut GenesisEmulator,
         execute: impl FnOnce(&mut GenesisEmulator) -> Result<T>,
     ) -> Result<T> {
-        Self::execute_rom_fork(&mut self.emulator, fork, execute)
-    }
-
-    fn execute_rom_fork<T>(
-        origin: &mut GenesisEmulator,
-        fork: &mut GenesisEmulator,
-        execute: impl FnOnce(&mut GenesisEmulator) -> Result<T>,
-    ) -> Result<T> {
-        fork.hybrid_bus_mut()
-            .cartridge
-            .as_mut()
-            .expect("standalone cartridge")
-            .take_rom_from(
-                origin
-                    .hybrid_bus_mut()
-                    .cartridge
-                    .as_mut()
-                    .expect("cartridge"),
-            );
-        // The fork stays owned by the caller outside the catch, so unwinding
-        // cannot drop the leased cartridge before ownership is returned.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(fork)));
-        origin
-            .hybrid_bus_mut()
-            .cartridge
-            .as_mut()
-            .expect("cartridge")
-            .take_rom_from(fork.hybrid_bus_mut().cartridge.as_mut().expect("cartridge"));
-        match result {
-            Ok(result) => result,
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
+        self.with_fork_rom(fork, execute)
     }
 
     fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {

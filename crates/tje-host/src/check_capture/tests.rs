@@ -3,7 +3,7 @@ use crate::{
     Mode,
     abi::HookContext,
     execution::WaitInputPoller,
-    fixture::tests::synthetic_host,
+    fixture::tests::synthetic_host_from_rom,
     hooks::HookRegistry,
     input::InputScript,
     sinks::{Inputs, NoCartridgeSaves},
@@ -71,13 +71,7 @@ fn host(body: crate::hooks::HookFn) -> crate::Host {
             rom[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
         }
     }
-    let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
-    host.emulator = GenesisEmulator::create(
-        Some(rom),
-        GenesisEmulatorConfig::default(),
-        &mut NoCartridgeSaves,
-    );
-    host.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+    let mut host = synthetic_host_from_rom(rom);
     host.wait_clock.poller = Some(Arc::new(InputScript::default()));
     let mut symbol = ids::GET_RANDOM_NUMBER.metadata().clone();
     symbol.name = "AuthoredCapturedCall";

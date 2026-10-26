@@ -130,8 +130,18 @@ effective contract, required outputs and actual `discharged_by` packet remain
 linked by report hash and JSON pointer. These process-local descriptions are
 never compared across jobs to mint or import proof authority.
 
-Reports and logs are fsynced before an atomic, directory-fsynced completion
-receipt. Restart the same command to reuse intact matching receipts; damaged,
+Reports and logs are fsynced before an atomic completion receipt; the receipt's
+temporary file is flushed before replacement. POSIX also fsyncs the parent
+directories. Windows reopens reports with non-truncating write access for
+`os.fsync` (`_commit`/`FlushFileBuffers`); it skips directory fsync because Python
+does not expose a portable Windows directory-flush descriptor. This is not a
+claim of POSIX-equivalent power-loss durability for directory metadata. Windows
+launches native Cargo/workers directly from `PATH`, without a POSIX environment
+script; POSIX retains the sourced `--env-script`. Worker log handles stay owned
+by the parent through process completion and fsync; unrelated descriptors are
+not inherited.
+
+Restart the same command to reuse intact matching receipts; damaged,
 unparsable or identity-mismatched jobs are not done. Recorded failures are retained
 without confirmation retries. Source/binary/ROM/root-scope changes require a new
 output directory. No more than ten workers run, and every zero-checked requested

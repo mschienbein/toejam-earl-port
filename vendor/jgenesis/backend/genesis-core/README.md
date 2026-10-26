@@ -111,3 +111,29 @@ remain untrusted. Bounded capture overflow, incomplete/exceptional reset and
 changed entry fail closed without changing reference execution. Authored
 ROM-free regressions cover physical-state/timing inertness, one-shot freshness,
 stale re-entry, same-value escape, archival copies and reset-on-clone denial.
+
+### Passive diagnostic loans
+
+`ensure_reference_instruction_counter` explicitly installs a persistent
+diagnostic provider only when absent; existing tallies and enabled settings are
+unchanged. This setup is distinct from borrowing. `begin_reference_journal`
+rejects an absent provider before any journal/counter change, then installs empty
+vendor-owned native/chronology/exception/read-context suffixes. No caller event
+buffer or numeric counter is accepted. Its opaque loan and immutable
+`reference_journal` view are diagnostic ownership, not source/entry/read/reset
+authority. Finish the same loan on every success/error/unwind cleanup path.
+
+`finish_reference_journal` consumes it once and restores foreign options,
+prefixes, observed suffixes, exception indices, DMA filters and the existing
+counter's enabled flag. Real observed count deltas remain; no counts are
+rewound. Missing channels and public mutable escapes fail and clean up without
+fabricating records or reviving origin. Clone/Decode cannot reuse a live loan.
+These APIs exist only with `reference-proof-hooks`; they change no CPU register,
+RAM, device, reset, import or clock behavior. Ordinary mutable/ROM-ownership
+escape remains invalidating even if its caller describes it as observational.
+
+The unconditional metadata-only `enable_hybrid_write_trace` and
+`drain_hybrid_writes` let Host constructor/frame collection avoid a mutable bus
+escape; they accept no records or marks. The immutable cartridge `rom_len`
+reports the stored byte length without moving the asset. Neither grants a
+provider, source instruction, read, reset or replay capability.

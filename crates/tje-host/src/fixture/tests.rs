@@ -34,17 +34,20 @@ pub(crate) fn synthetic_host(main: &[u16], handler: &[u16]) -> Host {
             rom[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
         }
     }
-    let mut emulator = GenesisEmulator::create(
-        Some(rom),
-        GenesisEmulatorConfig::default(),
-        &mut NoCartridgeSaves,
-    );
+    synthetic_host_from_rom(rom)
+}
+
+pub(crate) fn synthetic_host_from_rom(rom: Vec<u8>) -> Host {
+    let config = GenesisEmulatorConfig::default();
+    let analysis_rom = Some(crate::analysis_rom::AnalysisRom::new(&rom, &config));
+    let mut emulator = GenesisEmulator::create(Some(rom), config, &mut NoCartridgeSaves);
     emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
     let revision = Revision::Rev02;
     let registry = HookRegistry::empty(revision);
     let checks = CheckReport::registered(&registry);
     Host {
         emulator,
+        analysis_rom,
         registry,
         mode: Mode::Reference,
         revision,

@@ -918,3 +918,45 @@ fn native_void_dispatch_keeps_the_authored_body_register_effects() {
     assert_eq!(context.d0_reads.get(), 0);
     assert!(context.original_calls.is_empty());
 }
+
+#[test]
+fn missing_typed_control_capability_is_structured_and_has_no_effect() {
+    use tje_game::Platform;
+    use tje_game::control::{ControlRequest, RetryDelayKind};
+    let requests = [
+        ControlRequest::WriteStatusRegister { value: 0x2700 },
+        ControlRequest::WriteUserStackPointer { value: 0 },
+        ControlRequest::Z80BusRequest { value: 0x0100 },
+        ControlRequest::Z80Reset { value: 0 },
+        ControlRequest::RetryDelay(RetryDelayKind::Pcm24),
+        ControlRequest::RetryDelay(RetryDelayKind::Psg124),
+        ControlRequest::JoinVdpFill,
+    ];
+    for class in [
+        ExecutionClass::Atomic,
+        ExecutionClass::Functional,
+        ExecutionClass::TimeAware,
+    ] {
+        let mut fixture = Fixture::new(Dispatcher::hybrid());
+        fixture.execution = class;
+        let registers = fixture.registers;
+        let addresses = fixture.addresses;
+        let status = fixture.status;
+        let sp = fixture.sp;
+        let frame = fixture.frame;
+        for request in requests {
+            assert_eq!(
+                fixture.control_effect(request),
+                Err(Error::UnsupportedControlEffect(request))
+            );
+            assert_eq!(fixture.registers, registers);
+            assert_eq!(fixture.addresses, addresses);
+            assert_eq!(fixture.status, status);
+            assert_eq!(fixture.sp, sp);
+            assert_eq!(fixture.frame, frame);
+            assert!(fixture.ports.is_empty());
+            assert!(fixture.reads.borrow().is_empty());
+            assert!(fixture.original_calls.is_empty());
+        }
+    }
+}

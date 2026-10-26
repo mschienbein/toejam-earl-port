@@ -6,7 +6,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
 };
-use tje_mem::{AddressSpace, Bus, Revision, ram};
+use tje_mem::{Address, AddressSpace, Bus, RenderPiece, Revision, ram, rom};
 
 struct Fixture {
     memory: AddressSpace,
@@ -35,11 +35,16 @@ struct Fixture {
     poll_requests: Vec<crate::execution::WaitRequest>,
     poll_values: RefCell<Vec<u8>>,
     poll_script: VecDeque<u8>,
+    action_ccr: Option<u16>,
+    action_calls: Vec<(FunctionId, [u32; 2])>,
 }
 impl Fixture {
     fn new(revision: Revision) -> Self {
+        Self::with_rom(revision, vec![0; 0x100000])
+    }
+    fn with_rom(revision: Revision, rom: Vec<u8>) -> Self {
         Self {
-            memory: AddressSpace::new(vec![0; 0x100000], revision),
+            memory: AddressSpace::new(rom, revision),
             data: std::array::from_fn(|index| 0x76540000 | index as u32),
             addresses: std::array::from_fn(|index| 0xff1000 + index as u32 * 4),
             status: 0x2000,
@@ -65,9 +70,45 @@ impl Fixture {
             poll_requests: Vec::new(),
             poll_values: RefCell::new(Vec::new()),
             poll_script: VecDeque::new(),
+            action_ccr: None,
+            action_calls: Vec::new(),
         }
     }
     fn original_entry_effects(&mut self, id: FunctionId, class: ExecutionClass) -> Result<()> {
+        if let Some(flags) = self.action_ccr {
+            if id == ids::GET_V_BLANK_GRAPHICS_ENABLED {
+                assert_eq!(class, ExecutionClass::Atomic);
+                assert_eq!(
+                    self.read_u32(self.sp),
+                    ids::HUD_LOAD_ACTION_ICON_SPRITE
+                        .metadata()
+                        .address(self.revision())
+                        + 0x56
+                );
+                self.action_calls.push((id, [0, 0]));
+                self.data[0] = 0;
+                self.sp += 4;
+                return Ok(());
+            }
+            if id == ids::QUEUE_SPRITE_PIECE_TILES {
+                assert_eq!(class, ExecutionClass::Atomic);
+                assert_eq!(
+                    self.read_u32(self.sp),
+                    ids::HUD_LOAD_ACTION_ICON_SPRITE
+                        .metadata()
+                        .address(self.revision())
+                        + 0x70
+                );
+                let piece = self.frame.argument_slot(0).read(self);
+                let tile = self.frame.argument_slot(1).read(self);
+                self.action_calls.push((id, [piece, tile]));
+                // Authored opaque-callee scratch, not an original value oracle.
+                self.data[0] = 0xdead_beef;
+                self.status = (self.status & !0x001f) | flags;
+                self.sp += 4;
+                return Ok(());
+            }
+        }
         if id == ids::KILL_THE_PLAYER {
             let return_pc = self.read_u32(self.sp);
             assert_eq!(
@@ -111,6 +152,59 @@ impl Fixture {
                 self.set_data_register(0, value);
             }
             Ok(())
+        }
+    }
+}
+
+#[test]
+fn action_icon_returns_source_d0_and_ccr() {
+    // Both c_hud.s:302-311: long sum, then MOVE.B #1, then flag-neutral return.
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let table = rom::spr_action_icons(revision);
+        let piece = Address::<RenderPiece>::new(0x100);
+        for format in 0..=u8::MAX {
+            let mut image = vec![0; table.address() as usize + 8];
+            for player in [0, 1] {
+                let slot = table.at_word_index(player).address() as usize;
+                image[slot..slot + 4].copy_from_slice(&piece.address().to_be_bytes());
+            }
+            image[piece.tile_format().address() as usize] = format;
+            let mut context = Fixture::with_rom(revision, image);
+            let data = context.data;
+            let addresses = context.addresses;
+            for player in [0_i16, 1] {
+                ram::g_player_powerups(revision)
+                    .at_long_index(i32::from(player))
+                    .write(&mut context, -1);
+                for flags in 0..32 {
+                    context.action_ccr = Some(flags);
+                    context.action_calls.clear();
+                    context.status = 0x2700 | flags;
+                    let sp = context.sp;
+                    context.write_u16(sp + 6, player as u16);
+                    assert_eq!(
+                        crate::ui::hud_all::hud_load_action_icon_sprite(&mut context).unwrap(),
+                        None
+                    );
+                    let tile = if player == 0 { 0x7f1_u32 } else { 0x7f5 };
+                    let expected = 0x8000 + (u32::from(format) & 3) * 0x2000 + tile;
+                    assert_eq!(context.data[0], expected);
+                    assert_eq!(context.status, 0x2700);
+                    assert_eq!(
+                        context.action_calls,
+                        [
+                            (ids::GET_V_BLANK_GRAPHICS_ENABLED, [0, 0]),
+                            (ids::QUEUE_SPRITE_PIECE_TILES, [piece.address(), tile]),
+                        ]
+                    );
+                    let sprite = ram::g_hardware_sprite_table(revision)
+                        .at_word_index(if player == 0 { 21 } else { 22 });
+                    assert_eq!(sprite.tile().read(&context), expected as u16);
+                    assert_eq!(&context.data[2..], &data[2..]);
+                    assert_eq!(&context.addresses[2..], &addresses[2..]);
+                    assert_eq!(context.sp, sp);
+                }
+            }
         }
     }
 }

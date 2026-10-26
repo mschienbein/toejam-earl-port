@@ -148,6 +148,9 @@ pub enum Error {
     ControlTransfer(exits::ControlTransfer),
     OpenBus(open_bus::OpenBusError),
     UnsupportedStackRead(stack_read::Unsupported),
+    /// The platform lacks a separately admitted typed-control capability.
+    /// The request remains intent, never an execution/site/receipt token.
+    UnsupportedControlEffect(control::ControlRequest),
     Platform(String),
 }
 impl fmt::Display for Error {
@@ -215,6 +218,9 @@ impl fmt::Display for Error {
                 transfer.exit,
             ),
             Self::OpenBus(error) => fmt::Display::fmt(error, formatter),
+            Self::UnsupportedControlEffect(request) => {
+                write!(formatter, "unsupported typed control effect: {request:?}")
+            }
             Self::UnsupportedStackRead(error) => fmt::Display::fmt(error, formatter),
             Self::Platform(message) => formatter.write_str(message),
         }
@@ -342,6 +348,14 @@ pub trait Platform: tje_mem::Platform {
     fn read_device_u16(&mut self, address: u32) -> u16;
     fn write_device_u8(&mut self, address: u32, value: u8);
     fn write_device_u16(&mut self, address: u32, value: u16);
+
+    /// Request one explicit source control operation. Data supplies intent only;
+    /// a supporting platform must bind its own live/recorded instruction evidence.
+    /// In particular an equal SR/USP value does not waive an idempotent operation.
+    /// Unsupported platforms perform no CPU, bus, time, or ownership effect.
+    fn control_effect(&mut self, request: control::ControlRequest) -> Result<()> {
+        Err(Error::UnsupportedControlEffect(request))
+    }
 
     /// Read a partially driven device operand with the original instruction's
     /// explicitly declared ROM prefetch source. Native platforms resolve that

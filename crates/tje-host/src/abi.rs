@@ -33,6 +33,23 @@ pub(crate) fn canonical_ram_address(address: u32) -> u32 {
     }
 }
 
+/// Observation only: no semantic read, stack permission or admission evidence.
+/// Keep hardware reads on the explicit bus path, with their real side effects.
+pub(crate) fn peek_u8(emulator: &GenesisEmulator, address: u32) -> u8 {
+    let address = address & 0xFF_FFFF;
+    let bus = emulator.hybrid_bus();
+    match address {
+        0..=0x3F_FFFF => bus
+            .cartridge
+            .as_ref()
+            .expect("cartridge")
+            .peek_word(address)
+            .to_be_bytes()[(address & 1) as usize],
+        0xE00000..=0xFFFFFF => bus.memory.read_main_ram_byte(address),
+        _ => panic!("read_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OrderedWrite {
     Ram { address: u32, value: u8 },
@@ -961,18 +978,7 @@ impl<'a> HookContext<'a> {
     /// Side-effect-free ROM/RAM read. For hardware reads use `bus()` so that
     /// read side effects and open-bus behavior remain explicit.
     fn peek_u8(&self, address: u32) -> u8 {
-        let address = address & 0xFF_FFFF;
-        let bus = self.emulator.hybrid_bus();
-        match address {
-            0..=0x3F_FFFF => bus
-                .cartridge
-                .as_ref()
-                .expect("cartridge")
-                .peek_word(address)
-                .to_be_bytes()[(address & 1) as usize],
-            0xE00000..=0xFFFFFF => bus.memory.read_main_ram_byte(address),
-            _ => panic!("read_u8 is ROM/RAM-only; use bus() for hardware address {address:06X}"),
-        }
+        peek_u8(self.emulator, address)
     }
     pub fn read_u8(&self, address: u32) -> u8 {
         if let Some(observer) = self.readable_stack.as_deref() {

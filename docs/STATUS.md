@@ -1,5 +1,42 @@
 # Status (current entry first)
 
+## 2026-10-25: stack guard; whole-corpus check under the guard; original-bug catalogue
+
+Branch `integrate/p0`. 468 of 648 functions are proven and registered; 180 are written and held.
+
+**Stack guard.** In check mode, a Rust function may not read a stack byte below its entry stack
+pointer that it has not written. Such a read fails closed as Unsupported. A read the original
+genuinely makes of an uninitialized local must go through an explicit API and pair with the
+original's own read at the same place, including inside a translated child's frame. DMA sources
+started by the function are tracked until the transfer completes.
+
+**Whole-corpus check under the guard.** All 468 proven functions were checked over all 83
+recordings, natively and cross-revision: 8,305,334 frames and 814 million checks, with no data
+mismatches. The guard flagged three functions. Each reads a word local whose high byte the
+original never writes: the compiled code stores the low byte, reads the word, and `EXT.W`
+discards the unwritten byte. These reads now use the explicit API, and a targeted re-run of the
+affected functions over the whole corpus passes. A sweep of all 648 functions' compiler listings
+found the same idiom in a few more places, which are annotated or handed to their owners.
+
+**Replay tier.** Support for the held functions' check has landed:
+
+- nested-frame witnesses, including the depth at which an interrupt returns;
+- an analysis-only copy of the ROM, so forks never borrow the live cartridge;
+- passive journal and counter loans that keep reset and audio provenance intact;
+- a per-bit demand query on executed memory reads;
+- test-only check calls that fail before any effect outside check mode.
+
+The check itself is under final review.
+
+**Original bugs.** [ORIGINAL_BUGS.md](ORIGINAL_BUGS.md) catalogues 97 original bugs, exploits and
+quirks, with citations, reachability, impact and revision differences. The faithful port keeps
+all of them.
+
+**Audit.** The public audit no longer mistakes arrays of catalogued function names in generated
+files for encoded binary. Only arrays made entirely of names from the audited state's catalogue
+qualify, and that catalogue must match a digest pinned in the audit itself. Decoding and ROM
+comparison still apply to them. An independent security review approved the change.
+
 ## 2026-10-24 (night): replay proof tier in preparation; both natural endings recorded
 
 Branch `integrate/p0`. 460 of 648 functions are proven and registered; 188 are written and held.

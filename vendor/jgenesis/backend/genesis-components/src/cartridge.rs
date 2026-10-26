@@ -606,6 +606,13 @@ impl Cartridge {
         }
     }
 
+    /// Stored immutable ROM asset length in bytes (including format padding).
+    /// This data view neither moves the asset nor exposes mutable cartridge state.
+    #[must_use]
+    pub fn rom_len(&self) -> usize {
+        self.rom.0.len() * 2
+    }
+
     #[must_use]
     pub fn take_rom(&mut self) -> Vec<u8> {
         let words = mem::take(&mut self.rom.0);

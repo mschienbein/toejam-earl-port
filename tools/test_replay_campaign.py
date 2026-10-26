@@ -105,6 +105,70 @@ def receipt(payload: dict, requested: list[str], revision: str = "rev02", job: s
 
 
 class ReplayCampaignTests(unittest.TestCase):
+    def test_windows_report_sync_uses_write_access_without_directory_fd(self) -> None:
+        path = mock.MagicMock(spec=Path)
+        path.open.return_value.__enter__.return_value.fileno.return_value = 42
+        windows = mock.Mock(name="windows_os")
+        windows.name = "nt"
+        with mock.patch.object(campaign, "os", windows):
+            campaign.sync_file(path)
+        path.open.assert_called_once_with("r+b")
+        windows.fsync.assert_called_once_with(42)
+        windows.open.assert_not_called()
+
+    def test_posix_directory_sync_keeps_fsync_and_closes_on_error(self) -> None:
+        posix = mock.Mock(name="posix_os")
+        posix.name, posix.O_RDONLY, posix.O_DIRECTORY = "posix", 0, 65536
+        posix.open.return_value = 43
+        posix.fsync.side_effect = OSError("authored directory sync failure")
+        path = Path("authored-directory")
+        with mock.patch.object(campaign, "os", posix), self.assertRaises(OSError):
+            campaign.sync_directory(path)
+        posix.open.assert_called_once_with(path, 65536)
+        posix.fsync.assert_called_once_with(43)
+        posix.close.assert_called_once_with(43)
+
+    def test_windows_worker_launch_is_native_not_a_posix_shell(self) -> None:
+        windows = mock.Mock(name="windows_os")
+        windows.name = "nt"
+        worker, env_script = Path("worker with spaces.exe"), Path("unused env.sh")
+        with mock.patch.object(campaign, "os", windows):
+            command = campaign.worker_command(worker, env_script, "replay-catalogue")
+        self.assertEqual(command, [str(worker), "replay-catalogue"])
+
+    def test_posix_worker_launch_preserves_sourced_environment(self) -> None:
+        posix = mock.Mock(name="posix_os")
+        posix.name = "posix"
+        worker, env_script = Path("worker with spaces"), Path("authored env.sh")
+        with mock.patch.object(campaign, "os", posix):
+            command = campaign.worker_command(worker, env_script, "replay-catalogue")
+        self.assertEqual(command, ["bash", "-c", '. "$1" && shift && exec "$@"',
+                                  "replayed-campaign", str(env_script), str(worker),
+                                  "replay-catalogue"])
+
+    def test_execute_job_owns_write_log_through_subprocess_and_fsync(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            job = {"revision": "rev02", "input": str(root / "input.json"),
+                   "report": str(root / "report.json"), "log": str(root / "worker.log")}
+            streams = []
+
+            def execute(command: list[str], **kwargs: object) -> SimpleNamespace:
+                self.assertTrue(kwargs["close_fds"])
+                self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+                output = kwargs["stdout"]
+                self.assertFalse(output.closed)
+                output.write(b"authored redirected worker output\n")
+                streams.append(output)
+                return SimpleNamespace(returncode=0)
+
+            with mock.patch.object(campaign.subprocess, "run", side_effect=execute):
+                code, _ = campaign.execute_job(job, root / "worker", root / "env.sh",
+                                               {"rev02": root / "rom.bin"}, [A])
+            self.assertEqual(code, 0)
+            self.assertTrue(streams[0].closed)
+            self.assertEqual(Path(job["log"]).read_bytes(), b"authored redirected worker output\n")
+
     def test_constructor_exclusion_keeps_original_scope_incomplete(self) -> None:
         payload = StubRegistry({B}).report([A, B])
         self.assertTrue(payload["checks"]["replayed_environment"]["complete"])
@@ -318,10 +382,9 @@ class ReplayCampaignTests(unittest.TestCase):
             subprocess.run(["git", "add", "sessions"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-qm", "authored session"], cwd=repo, check=True)
             calls = base / "worker-calls.log"
-            worker = base / "stub-worker"
+            worker = base / "stub-worker.py"
             packet = json.dumps(StubRegistry().report([A]))
             worker.write_text("\n".join([
-                f"#!{sys.executable}",
                 "import argparse, json",
                 "from pathlib import Path",
                 "parser = argparse.ArgumentParser()",
@@ -337,7 +400,6 @@ class ReplayCampaignTests(unittest.TestCase):
                 f"with Path({str(calls)!r}).open('a') as log: log.write(payload['revision'] + '\\n')",
                 "print('authored stub registry completed')",
             ]) + "\n")
-            worker.chmod(0o755)
             env_script = base / "env.sh"
             env_script.write_text("# authored empty environment\n")
             catalogue = {"protocol": "tje-replayed-worker/1", "replayed_environment_available": True,
@@ -352,8 +414,13 @@ class ReplayCampaignTests(unittest.TestCase):
             args = SimpleNamespace(repo=repo, out=base / "out", build_receipt=build_path,
                                    env_script=env_script, function=[A], all_pending=False,
                                    rom_rev00=rom00, rom_rev02=rom02, workers=2)
+            # Execute the authored Python worker explicitly on every platform;
+            # Windows does not implement POSIX executable bits or shebang launch.
             with mock.patch.object(campaign, "source_identity", return_value=source), \
-                    mock.patch.object(campaign, "read_catalogue", return_value=catalogue):
+                    mock.patch.object(campaign, "read_catalogue", return_value=catalogue), \
+                    mock.patch.object(campaign, "worker_command",
+                                      side_effect=lambda executable, _env, *arguments:
+                                      [sys.executable, str(executable), *arguments]):
                 self.assertTrue(campaign.run_campaign(args))
                 self.assertTrue(campaign.run_campaign(args))
                 self.assertEqual(len(calls.read_text().splitlines()), 2)

@@ -1111,3 +1111,56 @@ fn queue_wait_owns_every_byte_poll_and_the_final_satisfying_read() {
         }
     }
 }
+
+#[test]
+fn queued_tile_count_publishes_ext_long_flags_after_every_entry_ccr() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let mut machine = Machine::new(revision);
+        let piece = machine.piece();
+        let stream = piece.tile_data().read(&machine).address();
+        for (width, height) in [(0, 1), (1, 1), (255, 255)] {
+            piece.width().write(&mut machine, width);
+            piece.height().write(&mut machine, height);
+            let count = u16::from(width) * u16::from(height);
+            for format in [0, -128] {
+                piece.tile_format().write(&mut machine, format);
+                let encoded: &[u8] = if format < 0 {
+                    &[0xf8, 0x12, 0xf8, 0x34, 0xf8, 0x56, 0xf8, 0x78]
+                } else {
+                    &[0xe0, 0x12]
+                };
+                for (offset, value) in encoded.iter().copied().enumerate() {
+                    machine.write_u8(stream + offset as u32, value);
+                }
+                for queue_index in [0, 254, 255] {
+                    for pending in [0, 255] {
+                        for ccr in 0..32u16 {
+                            ram::g_sprite_tile_buffer_offset(revision).write(&mut machine, 0);
+                            ram::g_sprite_tile_upload_queue_word_count(revision)
+                                .write(&mut machine, queue_index);
+                            ram::g_sprite_graphics_upload_pending(revision)
+                                .write(&mut machine, pending);
+                            machine.sr = 0x2700 | ccr;
+                            assert_eq!(
+                                frame_rendering::queue_sprite_piece_tiles(
+                                    &mut machine,
+                                    &[piece.address(), 640]
+                                )
+                                .unwrap(),
+                                Some(count as i16 as i32 as u32)
+                            );
+                            let nz = if count == 0 {
+                                4
+                            } else if count & 0x8000 != 0 {
+                                8
+                            } else {
+                                0
+                            };
+                            assert_eq!(machine.sr, 0x2700 | nz);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
