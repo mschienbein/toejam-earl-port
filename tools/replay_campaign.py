@@ -210,8 +210,8 @@ def validate_evidence(evidence: Any) -> None:
             integer(index, ident + ".first_failure_index")
             if index >= len(evidence["failures"]) or evidence["failures"][index]["inventory_id"] != ident:
                 raise CampaignError(f"invalid exact first-failure index at {ident}")
-        elif row["failed"] or row["unsupported"]:
-            raise CampaignError(f"failed/unsupported root lacks exact first packet: {ident}")
+        elif row["failed"]:
+            raise CampaignError(f"failed root lacks exact first packet: {ident}")
     for index, packet in enumerate(evidence["failures"]):
         required(packet, ("inventory_id", "verdict", "witness", "body", "effective_contract",
                           "unsupported", "check", "comparison"), f"failures/{index}")

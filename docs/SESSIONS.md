@@ -147,6 +147,14 @@ effective contract, required outputs and actual `discharged_by` packet remain
 linked by report hash and JSON pointer. These process-local descriptions are
 never compared across jobs to mint or import proof authority.
 
+An Unsupported outcome is not a mismatch/failure. A canonical Unsupported row
+may have `failed: 0`, a positive `unsupported` count and
+`first_failure_index: null` with no failure packet; it remains ineligible.
+Actual failed rows require an exact first-failure index. Every provided index,
+whether on a failed or Unsupported row, must still reference that function's
+well-formed packet. The driver never synthesizes a packet or waives Unsupported
+counts to approve the campaign.
+
 Reports and logs are fsynced before an atomic completion receipt; the receipt's
 temporary file is flushed before replacement. POSIX also fsyncs the parent
 directories. Windows reopens reports with non-truncating write access for

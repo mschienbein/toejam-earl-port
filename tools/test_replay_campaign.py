@@ -262,6 +262,53 @@ class ReplayCampaignTests(unittest.TestCase):
         with self.assertRaises(campaign.CampaignError):
             campaign.analyze_worker(payload, [A])
 
+    def test_canonical_unsupported_without_failure_packet_stays_ineligible(self) -> None:
+        for role in ("replayed_requested", "strict_auto"):
+            with self.subTest(role=role):
+                payload = StubRegistry().report([A])
+                evidence = payload["checks"]["replayed_environment"]
+                ident = A if role == "replayed_requested" else B
+                row = deepcopy(evidence["by_function"][A])
+                row.update(inventory_id=ident, name="CanonicalUnsupported", role=role,
+                           entered=1, reference_completed=0, checked=0, own_matches=0,
+                           passed=0, failed=0, unsupported=1, first_failure_index=None)
+                if role == "strict_auto":
+                    row["body"] = {**body(2), "origin": "canonical_production"}
+                evidence["by_function"][ident] = row
+                evidence.update(
+                    attempted=sum(value["entered"] for value in evidence["by_function"].values()),
+                    reference_completions=sum(value["reference_completed"] for value in evidence["by_function"].values()),
+                    own_matches=sum(value["own_matches"] for value in evidence["by_function"].values()),
+                    completed_proofs=sum(value["passed"] for value in evidence["by_function"].values()),
+                    unsupported=1, complete=False)
+                payload["complete"] = False
+                analysis = campaign.analyze_worker(payload, [A])
+                self.assertEqual(evidence["failures"], [])
+                if role == "replayed_requested":
+                    self.assertIsNone(analysis["rows"][A]["first_failure"])
+                    self.assertEqual(analysis["rows"][A]["unsupported"], 1)
+                result = campaign.summarize([receipt(payload, [A], revision)
+                                             for revision in ("rev00", "rev02")], [A])
+                self.assertFalse(result["complete"])
+                self.assertTrue(result["global_evidence_errors"])
+                row["first_failure_index"] = 0
+                with self.assertRaisesRegex(campaign.CampaignError, "first-failure index"):
+                    campaign.analyze_worker(payload, [A])
+
+    def test_failed_rows_still_require_exact_well_formed_failure_packets(self) -> None:
+        for damage in ("missing-index", "wrong-identity", "missing-packet-field"):
+            with self.subTest(damage=damage):
+                payload = StubRegistry().report([A], failed={A})
+                evidence = payload["checks"]["replayed_environment"]
+                if damage == "missing-index":
+                    evidence["by_function"][A]["first_failure_index"] = None
+                elif damage == "wrong-identity":
+                    evidence["failures"][0]["inventory_id"] = B
+                else:
+                    del evidence["failures"][0]["comparison"]
+                with self.assertRaises(campaign.CampaignError):
+                    campaign.analyze_worker(payload, [A])
+
     def test_unfinalized_or_open_evidence_cannot_pass(self) -> None:
         payload = StubRegistry().report([A])
         evidence = payload["checks"]["replayed_environment"]
