@@ -348,7 +348,10 @@ impl Host {
             self.main_idle = true;
         } else if pc == self.symbols.random {
             let sp = self.cpu().stack_pointer();
-            if self.context().read_u32(sp) == self.symbols.idle_random_return {
+            let return_pc = u32::from_be_bytes(std::array::from_fn(|offset| {
+                crate::abi::peek_u8(&self.emulator, sp.wrapping_add(offset as u32))
+            }));
+            if return_pc == self.symbols.idle_random_return {
                 self.frame_progress.idle_draws += 1;
             }
         }
@@ -405,7 +408,11 @@ impl Host {
             let event = LagEvent {
                 frame: self.frame,
                 pc_at_vblank: pc,
-                frame_counter: self.context().read_u16(catalogue::FRAME_COUNTER),
+                frame_counter: self
+                    .emulator
+                    .hybrid_bus()
+                    .memory
+                    .read_main_ram_word(catalogue::FRAME_COUNTER),
             };
             self.trace_lag();
             self.measurements.lag_events.push(event.clone());

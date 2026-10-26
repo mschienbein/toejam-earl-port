@@ -6,12 +6,10 @@ use crate::{
     CheckFailurePolicy, CheckReport, Mode,
     abi::HookContext,
     catalogue,
-    fixture::tests::synthetic_host,
+    fixture::tests::synthetic_host_from_rom,
     hooks::{HookFn, HookRegistry},
     sinks::{Inputs, NoCartridgeSaves},
 };
-use genesis_config::GenesisEmulatorConfig;
-use genesis_core::GenesisEmulator;
 use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
 use m68000_emu::BusInterface;
 use tje_game::{FunctionMetadata, execution::ExecutionClass, ids};
@@ -107,13 +105,7 @@ fn authored_host(
     for (index, word) in original_dma.into_iter().enumerate() {
         rom[0x900 + 2 * index..0x902 + 2 * index].copy_from_slice(&word.to_be_bytes());
     }
-    let mut host = synthetic_host(&[0x60fe], &[0x4e73]);
-    host.emulator = GenesisEmulator::create(
-        Some(rom),
-        GenesisEmulatorConfig::default(),
-        &mut NoCartridgeSaves,
-    );
-    host.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
+    let mut host = synthetic_host_from_rom(rom);
     host.mode = Mode::Check;
     host.revision = revision;
     host.symbols = catalogue::RevisionSymbols::for_revision(revision);
