@@ -8,6 +8,41 @@ the executable source for arithmetic helpers from [G/src/asm/runtime.s][runtime]
 and the measured ABI facts from the committed
 [`layout_receipt.json`](../crates/tje-mem/layout_receipt.json).
 
+## Translation and proof statuses
+
+[FUNCTIONS.md](FUNCTIONS.md) derives status from the owning subsystem's literal
+body registries, not from an execution-class declaration or an isolated passing
+test:
+
+- **production**: one body in `TRANSLATIONS` or `FRAMED_TRANSLATIONS`, approved by
+  the strict production proof/caller cutover. Only these tables feed canonical
+  production dispatch; this does not claim that the whole game is complete.
+- **proven (replayed environment)**: one check-only body in `PROVEN_REPLAYED` or
+  `PROVEN_REPLAYED_FRAMED`, with exactly one owner execution contract declaring
+  `ProofEnvelope::ReplayedEnvironment`. The root body's own ordered main-thread
+  accesses, call setup and ABI outputs are checked under the original's recorded
+  environment. Catalogued callees use actual original segments, with every
+  consumed input authenticated and linked same-state root-proof obligations.
+  Reports label this **replayed environment, callees substituted (proven
+  separately)**. It is neither an all-Rust composition proof nor live replacement
+  eligibility or real-time timing proof. Conditional roots cannot be promoted
+  while any callee obligation is open, disabled, unsupported or unexercised.
+- **pending**: a registered or provenance-identified Rust ABI body exists outside
+  both proven tiers. `PENDING_TRANSLATIONS`, `PENDING_FRAMED_TRANSLATIONS` and
+  `PENDING` retain candidates and recorded blockers. A `ReplayedEnvironment`
+  declaration alone leaves a candidate pending.
+- **not yet written**: no Rust ABI body is identified, even if an ID-only
+  `PENDING` list records an unwritten prerequisite.
+
+The statuses are mutually exclusive across body forms. Replay proof approval
+moves the existing body out of pending; it does not duplicate the body or put it
+in production. Replay promotion requires exercised both-revision evidence and
+Main's whole-corpus approval. All replay tables initially remain empty. Totals
+separate production, replay-proven and pending entries; source execution class
+(`Atomic`, `Functional`, `TimeAware`) remains an independent axis. See
+[PORTING.md](PORTING.md), section 3, for the registry rules and section 5 for the
+envelope's detailed requirements.
+
 ## Reproducing the evidence
 
 Normal Cargo builds use committed Rust and do **not** require G, Python, MCC68K,

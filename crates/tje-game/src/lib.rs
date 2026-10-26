@@ -1518,6 +1518,233 @@ mod tests {
         assert!(!is_atomic_capable(waiting));
     }
 
+    fn assert_replayed_registry(owners: &[Subsystem]) -> std::collections::BTreeSet<FunctionId> {
+        let production: std::collections::BTreeSet<_> = owners
+            .iter()
+            .flat_map(|owner| {
+                owner
+                    .translations
+                    .iter()
+                    .map(|entry| entry.id)
+                    .chain(owner.framed_translations.iter().map(|entry| entry.id))
+            })
+            .collect();
+        let pending: std::collections::BTreeSet<_> = owners
+            .iter()
+            .flat_map(|owner| {
+                owner
+                    .pending_translations
+                    .iter()
+                    .map(|entry| entry.id)
+                    .chain(
+                        owner
+                            .pending_framed_translations
+                            .iter()
+                            .map(|entry| entry.id),
+                    )
+            })
+            .collect();
+        let contracts = index_execution_contracts(owners);
+        for &id in &production {
+            assert!(
+                !matches!(
+                    contracts[usize::from(id.0)],
+                    ContractDeclaration::Declared(contract)
+                        if contract.proof_envelope == execution::ProofEnvelope::ReplayedEnvironment
+                ),
+                "production body declares check-only ReplayedEnvironment: {id:?}"
+            );
+        }
+        let mut replayed = std::collections::BTreeSet::new();
+        for owner in owners {
+            for id in owner
+                .replayed_translations
+                .iter()
+                .map(|entry| entry.id)
+                .chain(
+                    owner
+                        .replayed_framed_translations
+                        .iter()
+                        .map(|entry| entry.id),
+                )
+            {
+                assert_eq!(id.metadata().subsystem, owner.name, "wrong replayed owner");
+                assert!(replayed.insert(id), "duplicate replayed body: {id:?}");
+                assert!(
+                    !production.contains(&id),
+                    "production/replayed overlap: {id:?}"
+                );
+                assert!(!pending.contains(&id), "pending/replayed overlap: {id:?}");
+                assert!(
+                    matches!(
+                        contracts[usize::from(id.0)],
+                        ContractDeclaration::Declared(contract)
+                            if contract.proof_envelope == execution::ProofEnvelope::ReplayedEnvironment
+                    ),
+                    "replayed body needs exactly one valid ReplayedEnvironment contract: {id:?}"
+                );
+            }
+        }
+        replayed
+    }
+
+    #[test]
+    fn replayed_bodies_have_unique_contracts_and_never_enter_production() {
+        let replayed = assert_replayed_registry(SUBSYSTEMS);
+        assert_eq!(
+            replayed.len(),
+            replayed_translations().count() + replayed_framed_translations().count()
+        );
+        for id in replayed {
+            assert!(!translations().any(|entry| entry.id == id));
+            assert!(!framed_translations().any(|entry| entry.id == id));
+            assert!(
+                !Dispatcher::hybrid()
+                    .translations()
+                    .any(|entry| entry.id == id)
+            );
+            assert!(Dispatcher::hybrid().resolve_entry(id).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn replayed_registry_controls_cover_nonempty_value_and_framed_tables() {
+        fn framed(_: &mut dyn Context) -> Result<Option<u32>> {
+            Ok(None)
+        }
+        static VALUES: &[Translation] = &[Translation {
+            id: ids::ABS,
+            function: runtime::abs,
+        }];
+        static FRAMED: &[FramedTranslation] = &[FramedTranslation {
+            id: ids::LMODT,
+            function: framed,
+        }];
+        static CONTRACTS: &[execution::ExecutionContract] = &[
+            execution::ExecutionContract {
+                function: ids::ABS,
+                class: execution::ExecutionClass::Atomic,
+                proof_envelope: execution::ProofEnvelope::ReplayedEnvironment,
+                operational_ceiling: None,
+                evidence: None,
+            },
+            execution::ExecutionContract {
+                function: ids::LMODT,
+                class: execution::ExecutionClass::Atomic,
+                proof_envelope: execution::ProofEnvelope::ReplayedEnvironment,
+                operational_ceiling: None,
+                evidence: None,
+            },
+        ];
+        static WRONG_CONTRACTS: &[execution::ExecutionContract] = &[execution::ExecutionContract {
+            function: ids::ABS,
+            class: execution::ExecutionClass::Functional,
+            proof_envelope: execution::ProofEnvelope::ClassDefined,
+            operational_ceiling: None,
+            evidence: None,
+        }];
+        static DUPLICATE_CONTRACTS: &[execution::ExecutionContract] =
+            &[CONTRACTS[0], CONTRACTS[0], CONTRACTS[1]];
+        static DUPLICATE_VALUES: &[Translation] = &[VALUES[0], VALUES[0]];
+        static OWNER: &[Subsystem] = &[Subsystem {
+            name: "runtime",
+            translations: &[],
+            framed_translations: &[],
+            pending_translations: &[],
+            pending_framed_translations: &[],
+            replayed_translations: VALUES,
+            replayed_framed_translations: FRAMED,
+            atomic_capable: &[],
+            execution_contracts: CONTRACTS,
+        }];
+        assert_eq!(
+            assert_replayed_registry(OWNER),
+            [ids::ABS, ids::LMODT].into_iter().collect()
+        );
+        let production = Dispatcher {
+            subsystems: OWNER,
+            ..Dispatcher::hybrid()
+        };
+        assert_eq!(production.translations().count(), 0);
+        for id in [ids::ABS, ids::LMODT] {
+            assert!(production.resolve_entry(id).unwrap().is_none());
+        }
+
+        let owner = |translations, framed_translations, execution_contracts| Subsystem {
+            name: "runtime",
+            translations,
+            framed_translations,
+            pending_translations: &[],
+            pending_framed_translations: &[],
+            replayed_translations: VALUES,
+            replayed_framed_translations: FRAMED,
+            atomic_capable: &[],
+            execution_contracts,
+        };
+        // Production/pending overlaps, missing/wrong/duplicate contracts and
+        // duplicate body forms must reject while the real tier tables are empty.
+        for invalid in [
+            Subsystem {
+                replayed_translations: &[],
+                replayed_framed_translations: &[],
+                ..owner(VALUES, &[], CONTRACTS)
+            },
+            Subsystem {
+                replayed_translations: &[],
+                replayed_framed_translations: &[],
+                ..owner(&[], FRAMED, CONTRACTS)
+            },
+            owner(VALUES, &[], CONTRACTS),
+            owner(&[], FRAMED, CONTRACTS),
+            Subsystem {
+                pending_translations: VALUES,
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                pending_framed_translations: FRAMED,
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                pending_translations: &[Translation {
+                    id: ids::LMODT,
+                    function: runtime::lmodt,
+                }],
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                pending_framed_translations: &[FramedTranslation {
+                    id: ids::ABS,
+                    function: framed,
+                }],
+                ..owner(&[], &[], CONTRACTS)
+            },
+            owner(&[], &[], &[]),
+            owner(&[], &[], WRONG_CONTRACTS),
+            owner(&[], &[], DUPLICATE_CONTRACTS),
+            Subsystem {
+                atomic_capable: &[ids::ABS],
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                replayed_translations: DUPLICATE_VALUES,
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                replayed_framed_translations: &[FramedTranslation {
+                    id: ids::ABS,
+                    function: framed,
+                }],
+                ..owner(&[], &[], CONTRACTS)
+            },
+            Subsystem {
+                name: "core",
+                ..owner(&[], &[], CONTRACTS)
+            },
+        ] {
+            assert!(std::panic::catch_unwind(|| assert_replayed_registry(&[invalid])).is_err());
+        }
+    }
+
     #[test]
     fn native_admission_is_selected_rust_policy_not_an_original_catalogue_id_ban() {
         let ordinary = Dispatcher::hybrid();

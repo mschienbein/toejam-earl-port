@@ -50,6 +50,8 @@ class TraceFunctionsTests(unittest.TestCase):
             pub static TRANSLATIONS: &[Translation] = &[
                 Translation { id: ids::LIVE, function: live_alias },
             ];
+            pub static PROVEN_REPLAYED: &[Translation] = &[];
+            pub static PROVEN_REPLAYED_FRAMED: &[FramedTranslation] = &[];
             /// Shared pending-list blocker.
             pub static PENDING: &[FunctionId] = &[
                 ids::CANDIDATE, // Specific proof <failure> | trace mismatch.
@@ -111,6 +113,183 @@ class TraceFunctionsTests(unittest.TestCase):
 
     def rows(self) -> list[trace.TraceRow]:
         return trace.Sources(self.root).rows(expected_count=6)
+
+    def register_replayed_candidate(self, *, framed: bool = False) -> str:
+        source = self.module.replace(
+            "ids::CANDIDATE, // Specific proof <failure> | trace mismatch.",
+            "// Candidate moved out of pending after proof.",
+        ).replace("Translation { id: ids::CANDIDATE, function: body::candidate },", "")
+        table = "PROVEN_REPLAYED_FRAMED" if framed else "PROVEN_REPLAYED"
+        entry_type = "FramedTranslation" if framed else "Translation"
+        source = source.replace(
+            f"pub static {table}: &[{entry_type}] = &[];",
+            f"pub static {table}: &[{entry_type}] = &["
+            f"{entry_type} {{ id: ids::CANDIDATE, function: body::candidate }}];",
+        )
+        self.put("crates/tje-game/src/core/mod.rs", source)
+        self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
+            "ProofEnvelope::ClassDefined", "ProofEnvelope::ReplayedEnvironment", 1))
+        if framed:
+            self.put("crates/tje-game/src/core/body.rs", self.body.replace(
+                "pub fn candidate(context: &mut dyn Context, _: &[u32])",
+                "pub fn candidate(context: &mut dyn Context)",
+            ))
+        return source
+
+    def test_replayed_value_and_framed_status_counts_and_source_locations(self) -> None:
+        for framed in [False, True]:
+            with self.subTest(framed=framed):
+                self.register_replayed_candidate(framed=framed)
+                rows = self.rows()
+                self.assertEqual(rows[1].status, "proven (replayed environment)")
+                self.assertEqual(rows[1].execution_class, "Functional")
+                self.assertEqual(rows[1].rust.qualified, "core::body::candidate")
+                self.assertEqual(rows[1].rust.path, Path("crates/tje-game/src/core/body.rs"))
+                self.assertEqual(rows[1].blocker, "")
+                document = trace.render(rows)
+                self.assertIn("| [core](#core) | 6 | 1 | 1 | 3 | 1 | 2 | 2 | 1 | 1 |", document)
+                self.assertIn("| **Total** | **6** | **1** | **1** | **3** | **1**", document)
+                self.assertIn("| proven (replayed environment) |", document)
+                self.assertIn("callees substituted (proven separately)", document)
+                self.assertEqual(sum(row.status == "production" for row in rows), 1)
+
+    def test_replayed_envelope_declaration_alone_does_not_prove_or_reclassify(self) -> None:
+        self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
+            "ProofEnvelope::ClassDefined", "ProofEnvelope::ReplayedEnvironment"))
+        self.assertEqual([row.status for row in self.rows()], [
+            "production", "pending", "pending", "not yet written", "pending", "pending",
+        ])
+        self.assertEqual(self.rows()[1].execution_class, "Functional")
+
+    def test_production_body_rejects_replayed_contract_without_proven_marker(self) -> None:
+        self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
+            "pub static EXECUTION_CONTRACTS: &[ExecutionContract] = &[",
+            "pub static EXECUTION_CONTRACTS: &[ExecutionContract] = &["
+            "ExecutionContract { function: ids::LIVE, class: ExecutionClass::Atomic,"
+            "proof_envelope: ProofEnvelope::ReplayedEnvironment, operational_ceiling: None, evidence: None },",
+        ))
+        for table in ["TRANSLATIONS", "FRAMED_TRANSLATIONS"]:
+            with self.subTest(table=table):
+                source = self.module.replace(
+                    "&[ids::LIVE, ids::ORPHAN]", "&[ids::ORPHAN]")
+                if table == "FRAMED_TRANSLATIONS":
+                    source = source.replace(
+                        "pub static TRANSLATIONS: &[Translation]",
+                        "pub static FRAMED_TRANSLATIONS: &[FramedTranslation]",
+                    )
+                self.put("crates/tje-game/src/core/mod.rs", source)
+                with self.assertRaisesRegex(trace.TraceError, "production body declares check-only"):
+                    self.rows()
+
+    def test_replayed_requires_a_unique_declared_replayed_contract(self) -> None:
+        self.register_replayed_candidate()
+        for contracts, message in [
+            (self.contracts, "needs a ReplayedEnvironment contract"),
+            ("pub static EXECUTION_CONTRACTS: &[ExecutionContract] = &[];",
+             "needs a ReplayedEnvironment contract"),
+            (self.contracts.replace("function: ids::SOURCE_ONLY", "function: ids::CANDIDATE"),
+             "duplicate execution classification"),
+        ]:
+            with self.subTest(message=message):
+                self.put("crates/tje-game/src/core/contracts.rs", contracts)
+                with self.assertRaisesRegex(trace.TraceError, message):
+                    self.rows()
+
+    def test_replayed_rejects_all_production_and_pending_body_forms(self) -> None:
+        source = self.register_replayed_candidate()
+        for table, message in [
+            ("TRANSLATIONS", "production/replayed overlap"),
+            ("FRAMED_TRANSLATIONS", "production/replayed overlap"),
+            ("PENDING_TRANSLATIONS", "pending/replayed overlap"),
+            ("PENDING_FRAMED_TRANSLATIONS", "pending/replayed overlap"),
+        ]:
+            with self.subTest(table=table):
+                entry_type = "FramedTranslation" if "FRAMED" in table else "Translation"
+                registration = f"{entry_type} {{ id: ids::CANDIDATE, function: body::candidate }}"
+                if f"pub static {table}:" in source:
+                    changed = source.replace(
+                        f"pub static {table}: &[{entry_type}] = &[",
+                        f"pub static {table}: &[{entry_type}] = &[{registration},",
+                    )
+                else:
+                    changed = source + f"pub static {table}: &[{entry_type}] = &[{registration}];"
+                self.put("crates/tje-game/src/core/mod.rs", changed)
+                with self.assertRaisesRegex(trace.TraceError, message):
+                    self.rows()
+        self.put("crates/tje-game/src/core/mod.rs", source.replace(
+            "// Candidate moved out of pending after proof.", "ids::CANDIDATE,"))
+        with self.assertRaisesRegex(trace.TraceError, "pending/replayed overlap"):
+            self.rows()
+
+    def test_replayed_duplicate_same_and_cross_form_bodies_fail_closed(self) -> None:
+        source = self.register_replayed_candidate()
+        body = "Translation { id: ids::CANDIDATE, function: body::candidate }"
+        for changed in [
+            source.replace(body, f"{body}, {body}"),
+            source.replace(
+                "pub static PROVEN_REPLAYED_FRAMED: &[FramedTranslation] = &[];",
+                "pub static PROVEN_REPLAYED_FRAMED: &[FramedTranslation] = &["
+                "FramedTranslation { id: ids::CANDIDATE, function: body::candidate }];",
+            ),
+        ]:
+            with self.subTest(source=changed):
+                self.put("crates/tje-game/src/core/mod.rs", changed)
+                with self.assertRaisesRegex(trace.TraceError, "duplicate translation registration"):
+                    self.rows()
+
+    def test_replayed_missing_and_id_only_body_registrations_fail_closed(self) -> None:
+        source = self.register_replayed_candidate()
+        for changed, message in [
+            (source.replace("function: body::candidate", "function: missing"),
+             "expected one function"),
+            (source.replace("Translation { id: ids::CANDIDATE, function: body::candidate }",
+                            "ids::CANDIDATE"),
+             "requires literal body registrations"),
+            (source.replace("id: ids::CANDIDATE", "id: ids::UNKNOWN"),
+             "uncatalogued registry identity"),
+        ]:
+            with self.subTest(message=message):
+                self.put("crates/tje-game/src/core/mod.rs", changed)
+                with self.assertRaisesRegex(trace.TraceError, message):
+                    self.rows()
+
+    def test_replayed_tables_must_exist_and_be_literal_in_each_owner(self) -> None:
+        for table, entry_type in [
+            ("PROVEN_REPLAYED", "Translation"),
+            ("PROVEN_REPLAYED_FRAMED", "FramedTranslation"),
+        ]:
+            declaration = f"pub static {table}: &[{entry_type}] = &[];"
+            for replacement, message in [
+                ("", "missing literal replayed registry"),
+                (declaration + declaration, "duplicate replayed registry table"),
+                (f"pub static {table}: &[{entry_type}] = body::OTHER;", "literal registry array"),
+                (f"pub static {table}: &[{entry_type}] = join!();", "literal registry array"),
+            ]:
+                with self.subTest(table=table, replacement=replacement):
+                    self.put("crates/tje-game/src/core/mod.rs", self.module.replace(
+                        declaration, replacement))
+                    with self.assertRaisesRegex(trace.TraceError, message):
+                        self.rows()
+        self.put("crates/tje-game/src/core/mod.rs", self.module)
+        self.put("crates/tje-game/src/core/body.rs", self.body + '''
+            pub static PROVEN_REPLAYED: &[Translation] = &[];
+        ''')
+        with self.assertRaisesRegex(trace.TraceError, "must be in its subsystem module"):
+            self.rows()
+
+    def test_replayed_body_and_execution_contracts_reject_wrong_owner(self) -> None:
+        source = self.register_replayed_candidate()
+        part = self.root / "crates/tje-game/src/metadata/part_0.rs"
+        metadata = part.read_text(encoding="utf-8")
+        changed = metadata.replace('subsystem: "core"', 'subsystem: "other"', 2).replace(
+            'subsystem: "other"', 'subsystem: "core"', 1)
+        self.put("crates/tje-game/src/metadata/part_0.rs", changed)
+        with self.assertRaisesRegex(trace.TraceError, "wrong replayed registry owner"):
+            self.rows()
+        self.put("crates/tje-game/src/core/mod.rs", source.replace(
+            "Translation { id: ids::CANDIDATE, function: body::candidate }", ""))
+        with self.assertRaisesRegex(trace.TraceError, "wrong execution classification owner"):
+            self.rows()
 
     def test_registry_kinds_addresses_execution_and_source_locations(self) -> None:
         rows = self.rows()
@@ -178,9 +357,9 @@ class TraceFunctionsTests(unittest.TestCase):
         self.assertEqual(len(table_rows), 6)
         for row in rows:
             self.assertEqual(document.count(f"| `{row.entry.name}` |"), 1)
-        self.assertIn("| [core](#core) | 5 | 1 | 3 | 1 | 2 | 1 | 1 | 1 |", document)
-        self.assertIn("| [second](#second) | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |", document)
-        self.assertIn("| **Total** | **6** | **1** | **4** | **1**", document)
+        self.assertIn("| [core](#core) | 5 | 1 | 0 | 3 | 1 | 2 | 1 | 1 | 1 |", document)
+        self.assertIn("| [second](#second) | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |", document)
+        self.assertIn("| **Total** | **6** | **1** | **0** | **4** | **1**", document)
         self.assertIn("&lt;failure&gt; \\| trace mismatch.", document)
         self.assertIn("`0x001000` | `0x002000`", document)
         self.assertIn("#L10)", document)

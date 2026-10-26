@@ -30,12 +30,14 @@ in `lib.rs`: `audio`, `camera`, `collision`, `core`, `cutscenes`, `earthlings`,
 `speech`, `sprites`, `ui`. Runtime/platform assembly remains cited to G's
 `src/asm`; other game code follows G's subsystem directories.
 
-Every subsystem exports `TRANSLATIONS: &[Translation]`,
-`ATOMIC_CAPABLE: &[FunctionId]` and
-`EXECUTION_CONTRACTS: &[(FunctionId, ExecutionClass)]`. The latter contains only
-reviewed Functional/TimeAware entries, translated **or still original**. Add bodies,
-tests and declarations in the owning subsystem only. Shared `SUBSYSTEMS`, the
-dispatcher/context, host and generated metadata need no lane edits.
+Every subsystem exports production `TRANSLATIONS: &[Translation]` and check-only
+`PROVEN_REPLAYED: &[Translation]` / `PROVEN_REPLAYED_FRAMED: &[FramedTranslation]`,
+plus `ATOMIC_CAPABLE: &[FunctionId]` and
+`EXECUTION_CONTRACTS: &[ExecutionContract]`. The contract table contains reviewed
+extended entries, translated **or still original**; plain Atomic entries stay in
+`ATOMIC_CAPABLE`. Add bodies, tests and declarations in the owning subsystem only.
+Shared `SUBSYSTEMS`, the dispatcher/context, host and generated metadata need no
+lane edits.
 `tje_game::execution_class(id)` indexes those immutable declarations once; missing,
 duplicate, cross-owner or overlapping classes fail closed. Ownership tests require
 every production translation to have exactly one class, not necessarily Atomic.
@@ -168,22 +170,55 @@ registry for testing original fallback, not the pending-composition harness.
 All these constructors resolve the owner classes; no metadata regeneration,
 shared-table edit or incorrect Atomic approval is required.
 
-Each subsystem also owns literal `PROVEN_REPLAYED: &[Translation]` and
-`PROVEN_REPLAYED_FRAMED: &[FramedTranslation]` availability tables, initially empty
-and separate from both production and pending body registries. Their shared
-`Subsystem.replayed_translations` / `replayed_framed_translations` slices feed
-`tje_game::replayed_translations()` and `replayed_framed_translations()`, which
-return cloneable iterators over static body references. These APIs expose
-check-only candidates, not canonical-production identity, proof authority or live
-replacement eligibility. Ordinary `translations()`, `framed_translations()` and
-`Dispatcher::hybrid()` never select them. Adding a table or declaring an execution
-contract does not prove a body or change its pending status; Main alone approves
-any status move after the required proof and corpus gate.
-These availability tables follow the same literal-array rule as the traceability
-registries below.
+### Check-only replay proof status
 
-Traceability registries (`TRANSLATIONS`, `FRAMED_TRANSLATIONS`, `PENDING_TRANSLATIONS`,
-`PENDING_FRAMED_TRANSLATIONS`, `PENDING`, `ATOMIC_CAPABLE`, `EXECUTION_CONTRACTS`)
+`ProofEnvelope::ReplayedEnvironment` is a separate semantic proof tier, labelled
+**proven (replayed environment)** in [FUNCTIONS.md](FUNCTIONS.md). It checks the
+root body's own ordered main-thread accesses and call setup under the original's
+recorded environment; it does not prove the body's live timing or all-Rust
+composition. Catalogued callees use their actual original segments, after
+authenticating every argument, address-taken frame byte and register input they
+consume. Reports label this **replayed environment, callees substituted (proven
+separately)** and link same-state root-proof obligations for those callees. An open,
+disabled, unsupported or unexercised obligation cannot approve a conditional root.
+Only justified callee effects, declared return registers and caller-consumed CCR
+are applied. Preserved registers, SP and a full original snapshot must never
+overwrite the caller's Rust state.
+Section 5 defines the exact access, wait, causal-shadow-frame and ABI requirements
+and exclusions.
+
+After exercised both-revision replay proofs and Main's whole-corpus approval,
+move the one body from `PENDING_TRANSLATIONS` to the owner's literal
+`PROVEN_REPLAYED: &[Translation]`, or from `PENDING_FRAMED_TRANSLATIONS` to
+`PROVEN_REPLAYED_FRAMED: &[FramedTranslation]`. Remove the same ID from an ID-only
+`PENDING` blocker list. A body-valued `PENDING` table likewise loses the moved
+entry. Declare exactly one valid owner `ExecutionContract` with
+`proof_envelope: ProofEnvelope::ReplayedEnvironment`; its source class remains
+independent. Declaring this envelope or obtaining a passing diagnostic run alone
+does **not** change status. Infrastructure tables start empty; no automatic
+promotion is permitted.
+
+Each replayed ID has exactly one registered body across value/framed forms and
+must not appear in any production or pending table. Registry tests reject duplicate
+bodies, wrong owners, missing/duplicate contracts and another proof envelope.
+They also reject a production body whose owner contract declares the check-only
+replay envelope, even when it has no `PROVEN_REPLAYED` entry. Pending bodies may
+declare that envelope without yet being proven.
+The trace generator independently checks the literal declarations and reports
+replay totals separately from production and pending.
+
+`tje_game::replayed_translations()` and `replayed_framed_translations()` expose
+only these check-only bodies for explicit semantic proof construction.
+`tje_game::translations()`, `framed_translations()` and `Dispatcher::hybrid()`
+remain strict production registries and never select replayed bodies. A semantic
+proof registration grants no canonical-production identity or live replacement
+eligibility, including when the body is reached only as a callee. Moving into
+production requires separate strict evidence and an atomic registry/caller cutover;
+the replay status is not a production-approval alias.
+
+Registries (`TRANSLATIONS`, `FRAMED_TRANSLATIONS`, `PENDING_TRANSLATIONS`,
+`PENDING_FRAMED_TRANSLATIONS`, `PROVEN_REPLAYED`, `PROVEN_REPLAYED_FRAMED`, `PENDING`,
+`ATOMIC_CAPABLE`, `EXECUTION_CONTRACTS`)
 are literal arrays written in the subsystem module, one
 entry per function. No aliases to another module's static (`= templates::PENDING`),
 const joins or macros: `docs/FUNCTIONS.md` is generated from these arrays, and CI

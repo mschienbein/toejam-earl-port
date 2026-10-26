@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOGUED_ENTRIES = 648
 GAME_SOURCE = Path("crates/tje-game/src")
 DECOMP_URL = "https://github.com/mschienbein/toejam-earl-decomp/blob/main/"
+REPLAYED_STATUS = "proven (replayed environment)"
 KINDS = {
     "compiled_c": "compiled C",
     "handwritten_asm": "hand-written asm",
@@ -353,14 +354,20 @@ class Sources:
 
     def rows(self, expected_count: int = CATALOGUED_ENTRIES) -> list[TraceRow]:
         catalog = catalog_entries(self.modules, expected_count)
-        known = {entry.constant for entry in catalog}
+        known = {entry.constant: entry for entry in catalog}
+        owners = {entry.subsystem for entry in catalog}
         production: dict[str, Registration] = {}
         pending: dict[str, Registration] = {}
+        replayed: dict[str, Registration] = {}
         blockers: dict[str, list[str]] = defaultdict(list)
         classes = {}
+        envelopes: dict[str, str] = {}
+        replayed_declarations: set[tuple[str, str]] = set()
         production_tables = {"TRANSLATIONS", "FRAMED_TRANSLATIONS"}
         pending_tables = {"PENDING_TRANSLATIONS", "PENDING_FRAMED_TRANSLATIONS", "PENDING"}
-        registry_tables = production_tables | pending_tables | {"ATOMIC_CAPABLE", "EXECUTION_CONTRACTS"}
+        replayed_tables = {"PROVEN_REPLAYED", "PROVEN_REPLAYED_FRAMED"}
+        registry_tables = (production_tables | pending_tables | replayed_tables
+                           | {"ATOMIC_CAPABLE", "EXECUTION_CONTRACTS"})
         for module, nodes in self.modules.items():
             if module.startswith("metadata"):
                 continue
@@ -370,6 +377,13 @@ class Sources:
                 name = text(node.child_by_field_name("name"))
                 if name not in registry_tables and not name.endswith("_BLOCKED"):
                     continue
+                if name in replayed_tables:
+                    if module not in owners:
+                        raise TraceError(f"replayed registry must be in its subsystem module: {module}::{name}")
+                    declaration = (module, name)
+                    if declaration in replayed_declarations:
+                        raise TraceError(f"duplicate replayed registry table: {module}::{name}")
+                    replayed_declarations.add(declaration)
                 for value, note in array_entries(node):
                     function = None
                     execution_class = None
@@ -385,6 +399,7 @@ class Sources:
                         envelope = text(values["proof_envelope"]).split("::")[-1]
                         if envelope not in {"ClassDefined", "ClockedStrict", "ClockedCommutingInterrupts", "ReplayedEnvironment"}:
                             raise TraceError(f"unknown proof envelope: {envelope}")
+                        envelopes[constant] = envelope
                         if execution_class == "Atomic" and envelope == "ClassDefined" and text(values["operational_ceiling"]) == "None":
                             raise TraceError("plain Atomic declarations belong in ATOMIC_CAPABLE")
                         if execution_class not in {"Atomic", "Functional", "TimeAware"}:
@@ -399,7 +414,10 @@ class Sources:
                         raise TraceError(f"uncatalogued registry identity: {constant}")
                     if name == "ATOMIC_CAPABLE":
                         execution_class = "Atomic"
+                        envelopes[constant] = "ClassDefined"
                     if execution_class is not None:
+                        if module.split("::")[0] != known[constant].subsystem:
+                            raise TraceError(f"wrong execution classification owner: {constant} in {module}")
                         if constant in classes:
                             raise TraceError(f"duplicate execution classification: {constant}")
                         classes[constant] = execution_class
@@ -408,20 +426,46 @@ class Sources:
                             blockers[constant].append(note)
                     else:
                         registration = Registration(constant, function, note, module)
-                        target = production if name in production_tables else pending
-                        if constant in target and (name in production_tables or function is not None
-                                                  and target[constant].function is not None):
+                        if name in replayed_tables:
+                            if function is None:
+                                raise TraceError(f"{name} requires literal body registrations: {constant}")
+                            owner = known[constant].subsystem
+                            if module != owner:
+                                raise TraceError(f"wrong replayed registry owner: {constant} in {module}, expected {owner}")
+                            target = replayed
+                        else:
+                            target = production if name in production_tables else pending
+                        if constant in target and (name in production_tables | replayed_tables
+                                                  or function is not None and target[constant].function is not None):
                             raise TraceError(f"duplicate translation registration: {constant}")
                         if constant not in target or function is not None:
                             target[constant] = registration
-                        if name not in production_tables and note:
+                        if name in pending_tables and note:
                             blockers[constant].append(note)
+        for owner in sorted(owners):
+            for table in sorted(replayed_tables):
+                if (owner, table) not in replayed_declarations:
+                    raise TraceError(f"missing literal replayed registry: {owner}::{table}")
+        for label, first, second in [
+            ("production/replayed", production, replayed),
+            ("pending/replayed", pending, replayed),
+        ]:
+            overlap = first.keys() & second.keys()
+            if overlap:
+                raise TraceError(f"{label} overlap: {', '.join(sorted(overlap))}")
+        for constant in replayed:
+            if envelopes.get(constant) != "ReplayedEnvironment":
+                raise TraceError(f"replayed body needs a ReplayedEnvironment contract: {constant}")
         overlap = production.keys() & pending.keys()
         if overlap:
             raise TraceError(f"production/pending overlap: {', '.join(sorted(overlap))}")
+        for constant in production:
+            if envelopes.get(constant) == "ReplayedEnvironment":
+                raise TraceError(f"production body declares check-only ReplayedEnvironment: {constant}")
         rows = []
         for entry in catalog:
-            registration = production.get(entry.constant) or pending.get(entry.constant)
+            registration = (production.get(entry.constant) or replayed.get(entry.constant)
+                            or pending.get(entry.constant))
             rust = None
             if registration is not None and registration.function is not None:
                 rust = self.resolve(registration.module, registration.function)
@@ -438,6 +482,8 @@ class Sources:
                     rust = candidates[0]
             if entry.constant in production:
                 status = "production"
+            elif entry.constant in replayed:
+                status = REPLAYED_STATUS
             elif rust is not None:
                 status = "pending"
             else:
@@ -446,7 +492,7 @@ class Sources:
             if status == "pending" and not notes:
                 notes = ["Source body is not registered for production; no blocker comment recorded."]
             rows.append(TraceRow(entry, classes.get(entry.constant, "unclassified"), rust,
-                                 status, " ".join(notes) if status != "production" else ""))
+                                 status, " ".join(notes) if status in {"pending", "not yet written"} else ""))
         return rows
 
 
@@ -472,8 +518,14 @@ def render(rows: list[TraceRow]) -> str:
         "## Reading the table", "",
         "- **Production** means present in `TRANSLATIONS` or `FRAMED_TRANSLATIONS`,",
         "  not a claim that the entire game is complete.",
+        "- **Proven (replayed environment)** means present in `PROVEN_REPLAYED` or",
+        "  `PROVEN_REPLAYED_FRAMED`, with a declared `ReplayedEnvironment` contract.",
+        "  This is check-only semantic evidence, not live replacement or timing approval.",
+        "  Reports label it **replayed environment, callees substituted (proven separately)**;",
+        "  linked same-state callee root-proof obligations must be closed before promotion.",
+        "  Declaring the envelope alone does not prove a body or change its pending status.",
         "- **Pending** means a registered or source-identified Rust ABI body exists outside",
-        "  production (`PENDING_TRANSLATIONS`/`PENDING_FRAMED_TRANSLATIONS`/`PENDING`",
+        "  production and the proven replay tier (`PENDING_TRANSLATIONS`/`PENDING_FRAMED_TRANSLATIONS`/`PENDING`",
         "  are not production approval). Blockers",
         "  quote the applicable registry/group comments; an absent comment is explicitly identified.",
         "- **Not yet written** means no Rust ABI body was found, even if an ID-only `PENDING`",
@@ -489,19 +541,19 @@ def render(rows: list[TraceRow]) -> str:
         "  Addresses are hexadecimal ROM offsets, **REV 02 first, REV 00 second**; fragments remain",
         "  part of the 648-entry denominator, not newly claimed C functions. See [REVISIONS.md](REVISIONS.md).",
         "", "## Totals by subsystem", "",
-        "| Subsystem | Total | Production | Pending | Not yet written | Atomic | Functional | TimeAware | Unclassified |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Subsystem | Total | Production | Proven (replayed environment) | Pending | Not yet written | Atomic | Functional | TimeAware | Unclassified |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     subsystems = sorted({row.entry.subsystem for row in rows})
     for subsystem in subsystems:
         subset = [row for row in rows if row.entry.subsystem == subsystem]
         statuses = Counter(row.status for row in subset)
         classes = Counter(row.execution_class for row in subset)
-        values = [len(subset), *(statuses[key] for key in ("production", "pending", "not yet written")),
+        values = [len(subset), *(statuses[key] for key in ("production", REPLAYED_STATUS, "pending", "not yet written")),
                   *(classes[key] for key in ("Atomic", "Functional", "TimeAware", "unclassified"))]
         lines.append(f"| [{subsystem}](#{subsystem}) | " + " | ".join(map(str, values)) + " |")
     classes = Counter(row.execution_class for row in rows)
-    values = [len(rows), *(totals[key] for key in ("production", "pending", "not yet written")),
+    values = [len(rows), *(totals[key] for key in ("production", REPLAYED_STATUS, "pending", "not yet written")),
               *(classes[key] for key in ("Atomic", "Functional", "TimeAware", "unclassified"))]
     lines.extend([
         "| **Total** | " + " | ".join(f"**{value}**" for value in values) + " |", "",

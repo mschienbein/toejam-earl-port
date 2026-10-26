@@ -16,8 +16,14 @@ Regenerate once after integrating translation lanes, not in each lane.
 
 - **Production** means present in `TRANSLATIONS` or `FRAMED_TRANSLATIONS`,
   not a claim that the entire game is complete.
+- **Proven (replayed environment)** means present in `PROVEN_REPLAYED` or
+  `PROVEN_REPLAYED_FRAMED`, with a declared `ReplayedEnvironment` contract.
+  This is check-only semantic evidence, not live replacement or timing approval.
+  Reports label it **replayed environment, callees substituted (proven separately)**;
+  linked same-state callee root-proof obligations must be closed before promotion.
+  Declaring the envelope alone does not prove a body or change its pending status.
 - **Pending** means a registered or source-identified Rust ABI body exists outside
-  production (`PENDING_TRANSLATIONS`/`PENDING_FRAMED_TRANSLATIONS`/`PENDING`
+  production and the proven replay tier (`PENDING_TRANSLATIONS`/`PENDING_FRAMED_TRANSLATIONS`/`PENDING`
   are not production approval). Blockers
   quote the applicable registry/group comments; an absent comment is explicitly identified.
 - **Not yet written** means no Rust ABI body was found, even if an ID-only `PENDING`
@@ -35,26 +41,26 @@ Regenerate once after integrating translation lanes, not in each lane.
 
 ## Totals by subsystem
 
-| Subsystem | Total | Production | Pending | Not yet written | Atomic | Functional | TimeAware | Unclassified |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| [audio](#audio) | 22 | 16 | 6 | 0 | 7 | 9 | 6 | 0 |
-| [camera](#camera) | 23 | 14 | 9 | 0 | 9 | 5 | 9 | 0 |
-| [collision](#collision) | 5 | 5 | 0 | 0 | 5 | 0 | 0 | 0 |
-| [core](#core) | 26 | 17 | 9 | 0 | 11 | 4 | 11 | 0 |
-| [cutscenes](#cutscenes) | 103 | 69 | 34 | 0 | 60 | 9 | 34 | 0 |
-| [earthlings](#earthlings) | 60 | 50 | 10 | 0 | 51 | 0 | 9 | 0 |
-| [elevator](#elevator) | 27 | 20 | 7 | 0 | 16 | 3 | 8 | 0 |
-| [jamout](#jamout) | 18 | 11 | 7 | 0 | 10 | 1 | 7 | 0 |
-| [map](#map) | 68 | 53 | 15 | 0 | 48 | 7 | 13 | 0 |
-| [platform](#platform) | 19 | 16 | 3 | 0 | 4 | 10 | 5 | 0 |
-| [player](#player) | 65 | 46 | 19 | 0 | 43 | 1 | 21 | 0 |
-| [presents](#presents) | 65 | 47 | 18 | 0 | 47 | 0 | 18 | 0 |
-| [runtime](#runtime) | 6 | 6 | 0 | 0 | 6 | 0 | 0 | 0 |
-| [ship](#ship) | 15 | 5 | 10 | 0 | 3 | 2 | 10 | 0 |
-| [speech](#speech) | 8 | 5 | 3 | 0 | 4 | 1 | 3 | 0 |
-| [sprites](#sprites) | 42 | 41 | 1 | 0 | 33 | 8 | 1 | 0 |
-| [ui](#ui) | 76 | 47 | 29 | 0 | 26 | 19 | 31 | 0 |
-| **Total** | **648** | **468** | **180** | **0** | **383** | **79** | **186** | **0** |
+| Subsystem | Total | Production | Proven (replayed environment) | Pending | Not yet written | Atomic | Functional | TimeAware | Unclassified |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| [audio](#audio) | 22 | 16 | 0 | 6 | 0 | 7 | 9 | 6 | 0 |
+| [camera](#camera) | 23 | 14 | 0 | 9 | 0 | 9 | 5 | 9 | 0 |
+| [collision](#collision) | 5 | 5 | 0 | 0 | 0 | 5 | 0 | 0 | 0 |
+| [core](#core) | 26 | 17 | 0 | 9 | 0 | 11 | 4 | 11 | 0 |
+| [cutscenes](#cutscenes) | 103 | 69 | 0 | 34 | 0 | 60 | 9 | 34 | 0 |
+| [earthlings](#earthlings) | 60 | 50 | 0 | 10 | 0 | 51 | 0 | 9 | 0 |
+| [elevator](#elevator) | 27 | 20 | 0 | 7 | 0 | 16 | 3 | 8 | 0 |
+| [jamout](#jamout) | 18 | 11 | 0 | 7 | 0 | 10 | 1 | 7 | 0 |
+| [map](#map) | 68 | 53 | 0 | 15 | 0 | 48 | 7 | 13 | 0 |
+| [platform](#platform) | 19 | 16 | 0 | 3 | 0 | 4 | 10 | 5 | 0 |
+| [player](#player) | 65 | 46 | 0 | 19 | 0 | 43 | 1 | 21 | 0 |
+| [presents](#presents) | 65 | 47 | 0 | 18 | 0 | 47 | 0 | 18 | 0 |
+| [runtime](#runtime) | 6 | 6 | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
+| [ship](#ship) | 15 | 5 | 0 | 10 | 0 | 3 | 2 | 10 | 0 |
+| [speech](#speech) | 8 | 5 | 0 | 3 | 0 | 4 | 1 | 3 | 0 |
+| [sprites](#sprites) | 42 | 41 | 0 | 1 | 0 | 33 | 8 | 1 | 0 |
+| [ui](#ui) | 76 | 47 | 0 | 29 | 0 | 26 | 19 | 31 | 0 |
+| **Total** | **648** | **468** | **0** | **180** | **0** | **383** | **79** | **186** | **0** |
 
 Kinds: compiled C: **598**; hand-written asm: **39**; runtime helper: **6**; collision query: **5**.
 
