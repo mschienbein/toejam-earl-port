@@ -84,7 +84,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::CHECK_IF_OPEN_FOR_BOTH,
         class: TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -100,7 +100,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::PROCESS_INVENTORY,
         class: TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -109,7 +109,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::CHECK_B_BUTTON,
         class: TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },
@@ -211,7 +211,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::HUD_LOAD_ACTION_ICON_SPRITE,
         class: TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },

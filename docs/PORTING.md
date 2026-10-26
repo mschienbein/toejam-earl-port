@@ -438,11 +438,14 @@ entrypoint. Generic isolated execution remains available to the separate
 Reference-only `measure_original_clocked_fixture` measurement API; that path
 does not acquire translation approval or a readable guard capability.
 
-Historical Reference-bootstrap GenerateSpeech frame-10000 and wrong-wait
-frame-600 comparator fixtures are explicitly **HELD**, not passing evidence or
-expected-error tests. Preserve their cases, old assertions and receipts until
-genuine actual-call replay replacements cover their paths. This is not a claim
-that the known blocked continuous readable session passed. Typed exception
+The historical Reference-bootstrap GenerateSpeech frame-10000 fixture remains
+**HELD, superseded by the genuine committed two-player frame1089-to1090 case**
+in both revisions, with an authenticated false poll behind an explicitly
+unchecked 1089-frame prefix (**not startup or composition proof**). It is never
+relabelled as an old pass. The historical wrong-wait frame-600 comparator also
+remains **HELD**, not passing evidence or an expected-error test. Preserve both
+cases, old assertions and receipts. This is not a claim that the known blocked
+continuous readable session passed. Typed exception
 fixtures require their own unchanged-trajectory Check proof or an explicit
 blocker; a replay replacement is not implied for them.
 
@@ -939,6 +942,503 @@ route before normalization or source effects, and the actual fork must be frozen
 even if their declared class is still Functional. A clocked dependent extension
 requires separate review and proof; its mandatory zero-count case is not omitted.
 
+### ReplayedEnvironment: modular, check-only logic evidence
+
+`ProofEnvelope::ReplayedEnvironment` is a separate readable-layer tier:
+**replayed environment, callees substituted (proven separately)**. It is not
+cycle evidence, native-source authority, replacement permission or a claim that
+readable callees can be composed into the shipped game. The cycle-exact engine
+has the independent timing obligation. Semantic status tables are separate from
+production tables; a supplied body remains a candidate, even when it aliases a
+production function or an existing static table.
+
+The explicit constructor is
+`HookRegistry::proof_replayed_environment(revision, pending, framed, functions)`.
+The filter selects replay roots, not callee availability. Active canonical
+production bodies are independently checked at their existing strict contracts
+for callee coverage; their normal non-replay dispatcher is retained. Ordinary
+strict constructors, activation and native startup do not acquire this tier.
+Every replay root needs its literal execution contract. Zero-argument value
+roots and lazy framed roots are supported. A nonzero-argument eager-`u32`
+legacy root is **Unsupported**, with framed migration named as the remedy;
+there is no by-value argument-snapshot exemption.
+
+The live/native barrier is about **selecting a Rust body**, not catalogue IDs.
+`Dispatcher::native_with_frames`, live `Replace`, the native adapter, and both
+native timed-source profiles deny an effective `ReplayedEnvironment` Rust
+selection before argument/frame/clock/memory/device effects. A valid ROM-bound
+timing plan is capability, never envelope authority; there is no diagnostic
+native exception. External, unhooked, raw entry and continuation routes use the
+same selected-route preflight. Non-Replay contracts retain their independent
+owner-reviewed clocked routes.
+
+An **unselected exact compiled-original callee** is different.
+`NativeCompiledOriginalCallees` still requires its independent ROM/program/
+divider binding, actual call/return token and validated-original closure; a
+Replay-only or pending readable catalogue entry is not an original-code ban.
+Its original-instruction receipt/counters are explicitly not readable Rust
+coverage. The shipped cycle-exact generated engine is unchanged.
+
+Proof execution requires `tje-host`'s existing `reference-proof-hooks` feature,
+which supplies passive context for each actual reference read. For example,
+`cargo test --locked -p tje-host --features reference-proof-hooks` enables it
+for native proofs. Default/off-feature builds reject construction with
+`PlatformCapability` Unsupported before any body/ROM effect; they do not infer
+a full mask from missing metadata. Both shipping frontend dependency graphs
+keep the proof feature off.
+
+The explicit demonstrations declare the `proof_envelope` of
+`WaitForNextVBlank`, `ProcessInput`, `PresentTryEndActivePowerup`,
+`MapQueueVisibleMetatileRow` and `UpdateCameraFollowing` as
+`ReplayedEnvironment`. The named speech/earthling regression roots additionally
+declare `GenerateSpeech`, `StartDialogue`, `UpdateSpeechAndDialogue` and
+`ProcessEarthlings` at this check-only tier. Their source classes, bodies,
+return contracts and pending status are unchanged; these declarations are
+neither production approval nor timing-source activation. The expiry and wait
+roots use the owners' lazy framed bodies rather than eager adapters.
+
+The same declaration-only authorization covers the exact supporting pending
+children `CheckStartButton`, `CheckBButton`, `ProcessInventory`,
+`CheckIfOpenForBoth`, `HudLoadActionIconSprite`, `EarthlingDispatchAbilities`
+and `EarthlingDispatchPlayerContacts`. The
+demonstration registry explicitly requests these roots so that a parent's
+actual child obligations can be independently checked in that same invocation;
+an unhooked pending child is never silently treated as canonical or discharged.
+Their bodies/classes/status are unchanged and all remain pending until the
+corpus gate. These declarations do not certify additional scratch outputs that
+their parents demand: those still require measured same-case output coverage.
+
+#### Actual reference lifecycle and invocation identity
+
+Only the explicit tier uses deferred passive capture. The original continues
+through the ordinary live scheduler, once, respecting every requested frame,
+input, audio and device boundary. It is never fast-forwarded to finish a proof.
+A genuine JSR/BSR and its matching RTS establish a unique invocation with
+call-depth/interrupt lineage, original entry state, ordered raw observations,
+actual child segments and original exit. Parent substitution and the independent
+child proof refer to that same immutable invocation witness, not matching
+function ids, SPs, call counts, pointer membership or normalized second runs.
+Diagnostic serials or serialized state cannot mint that witness.
+
+The actual-call source is the single shared
+`call_observation::invocation::InvocationTracker` implementation. Its capturing
+mode alone mints opaque historical `ActualCallId` and `ExceptionContextId`;
+the replay recorder only groups their raw traces. It supplies the retained
+before-step point/opcode/readiness and exact physical write/exception events,
+then the actual instruction receipt and after-point. Entry and completion
+resolve the same capture/index/serial, owner, raw frame/bank, source/return site,
+parent, depth, occurrence and IRQ context before any substitution is possible.
+Missing/coalesced observations fail explicitly; a post-entry snapshot or a
+post-RTE guess cannot reconstruct a missing call seal. Historical actual-call
+identity survives read-permission revocation, but is never an
+`InvocationWitness`, a parent rearm or an explicit-local read permission.
+
+Rust executes only on analysis state **after actual original completion**.
+Neither entry nor exit snapshots are imported into live state. Capture retains
+the real nested IRQ, input and device chronology, including original reads and
+all ISR writes; it does not phase-repair or Functional-normalize a recording
+merely to correlate a child. This reference route supersedes analysis-fork
+reference execution for this explicit tier only.
+
+An emulator error or unwind during an original tick is **not** a completed
+step. A finally boundary restores the read/CPU/exception journals, counter
+enable flags and live-observer loans, preserving requested foreign journal
+prefixes and actual partial observations. It never restores CPU/device state,
+publishes a frame/call completion, charges a completed-step clock record or
+applies/discharges future-frame watches. The replay capture is broken and
+existing calls remain open, so finalization fails. Only the owning backend
+decodes/authenticates a private abort; unrelated unwind payloads are rethrown
+unchanged after cleanup.
+
+Analysis-body unwinds have the same cleanup obligation. A private abort is
+accepted only from its exact derived ReplayContext attempt, never by payload
+type alone. Swallowing an owned abort cannot clear its sticky first cause.
+A foreign/nested marker or unrelated owned payload is resumed unchanged after
+capture, diagnostic, ROM-asset and private replay-state leases are restored,
+even under ContinueOriginal and even after a prior proof failure. Failure
+accounting remains sticky and no incomplete attempt can mint a completed proof.
+
+Infrastructure observation, journal restoration and report-publication failures
+latch their first cause and are **fatal under both failure policies**. They
+cannot silently become unchecked Original execution under `ContinueOriginal`;
+later checked ticks reject before guest progress. All diagnostic/counter/watch/
+asset cleanup still runs first. An original tick Result error or owned panic
+has priority over later cleanup; a first root Result error is retained when
+publication also returns an error. An unrelated publication panic is never
+swallowed by a prior Result failure.
+
+Publication failure revokes only still-unpublished approval cases and their
+current dependents. Own-match diagnostics and genuinely prior published history
+are retained, not deleted/reset. Neither reinserting a public DTO nor finalizing
+again can revive the failed approval or complete that campaign. Ordinary
+root-only proof failures retain their existing `ContinueOriginal` policy.
+
+The campaign checks every hooked original call, including calls nested inside
+pending callers, as its own root. Thus the schedule is **one corpus pass**, not
+an antichain of passes. An own-function match is conditional until every linked
+callee obligation has completed successfully. Canonical status, a visit, or
+zero reported mismatches is not a discharge. Open, truncated, disabled,
+unhooked, unsupported, errored, wrong-version or wrong-state cases remain
+explicitly provisional/unexercised at finalization. Isolated fixture evidence
+does not discharge a different natural corpus invocation.
+
+Call `Host::finalize_replayed_campaign()` at the requested endpoint. It updates
+`checks.replayed_environment` before returning failure and never executes an
+extra original instruction to close an open call. Its output-only schema uses
+inventory ids and records actual body/form/version binding, effective contract,
+invocation/depth lineage, required/covered domains and first failures. Public
+report counters, flags or serialized ids cannot discharge the private ledger.
+Zero-checked requested roots, any open call, missing child/domain, failed or
+unsupported case are not success. Canonical auto-roots with no visits are not
+silently treated as exercised. A real `Host::reset()` ends this ordinary
+trajectory irreversibly while retaining its replay evidence; another frame or
+tick is rejected before source/device effects. Start a fresh Host for another
+campaign. Default non-replay reset behavior is unchanged.
+
+#### Own accesses, frames and substituted callees
+
+Outside its private frame, a root must match every own CPU access in order:
+24-bit bus address, physical byte/word width, read purpose, full read sample and
+write value. Semantic ROM/RAM reads and discarded reads remain exact. Longs
+retain their physical word beats; reads are never coalesced or fabricated.
+Only authenticated immutable instruction traffic and reviewed ABI traffic are
+excluded. An extra semantic read, dropped write or reordered device access
+therefore fails rather than receiving an oracle repair.
+
+Every semantic Replay root's own instruction/read owner PC must lie in its
+committed function extent.
+Children and IRQs have separate sealed scopes. Internal branches remain valid;
+an unsealed cross-catalogue JMP, BRA or fallthrough (including a destination
+inside another function) is Unsupported. A separately reviewed tail/continuation
+metadata mechanism is required, never an ID exception or a widened extent.
+Ordinary semantic roots also reject privileged instruction **classes**, even
+idempotent full-SR writes with unchanged endpoints. Independent canonical strict
+auto-roots retain their existing complete checker, not the semantic control tier.
+That independent strict tier already covers production shared arithmetic/music
+code and production reset/startup entries; it needs no new semantic tail
+declaration or seal. The separate pending-tail work is limited to `_start` and
+the PCM/PSG retry/submit pairs. This is a tier boundary, not an original-code
+or production-body catalogue-ID ban.
+
+The private frame runs from entry SP down to deepest **own** frame use, with
+allocation/lifetime provenance, not a blanket stack-address exemption. Compiler
+MOVEM/LINK and private scalar traffic need not be mirrored instruction by
+instruction. Rust-written frame bytes read back Rust's shadow values. Generic
+reads of unwritten stack bytes are **Unsupported**, even when the original also
+read an unwritten local. Deliberate original bugs require the shared explicit
+`Context::read_uninitialized_local` form, naming the current function/frame,
+negative original frame offset, width and a source citation. The descriptor is
+data, not admission. Replay requires the same actual original semantic read,
+physical address, width, order, own owner/entry-SP/depth and per-byte mask.
+Current-lifetime masks do not erase cumulative whole-root causality: a byte
+written in any earlier allocation lifetime remains an own-produced value and
+must have the same Rust store/value, never an imported entry sample. Only bytes
+never written anywhere in the actual root history can supply entry residue.
+Long reads consume two original word beats; mixed written lanes must match.
+No byte written by a child, ISR or other observed bus master obtains explicit
+input permission, even if its value equals entry RAM. Missing/unknown writers
+fail closed. The read initializes/blesses nothing and never repairs a missing
+local/outgoing store, waives a later generic read or bypasses opaque watches.
+
+These are two deliberately distinct authorities:
+
+| Route | Explicit-local read authority |
+|---|---|
+| Ordinary native/strict CHECK | HostPerturb's revocable per-read invocation witness; call/IRQ revocation and no-parent-rearm rules remain unchanged. |
+| Check-only full-trace Replay | Actual sealed root plus its complete original chronology, exact own semantic-read occurrence and cumulative whole-root never-written ownership; valid after a child/IRQ only when every intervening byte writer is accounted for. Historical ActualCallId alone grants nothing. |
+
+Genesis VDP DMA reads main RAM; it does **not** write main RAM, so a physical
+DMA-to-private-RAM writer case is not claimed. Actual child/ISR and supported
+Z80/host-mutation chronology still retain their own provenance. All DMA reads
+of below-entry bytes require cumulative Rust initialization and opaque-residue
+checks, including released private words; equal entry RAM cannot replace a
+dropped producer.
+
+An ordinary semantic root with unresolved DMA/queued command debt at entry or
+actual return is Unsupported. This includes active fill/copy and a partial
+control word. It does not adopt an original DMA, infer ownership from matching
+parameters, tick/join eagerly or copy a final device snapshot. The separate
+strict/control profiles keep their independently reviewed policies.
+
+Numeric pointer bits have a **width-invariant** semantic contract: byte/word/
+long stores and ABI returns can prove those exact bits, never pointee contents,
+lifetime or private-residue coverage. There is no escape-safe or composition
+claim and no accessor-dependent numeric pointer guess. Immediate/later own,
+callee, ISR and DMA pointee reads—including aliases/rewrapped addresses—still
+need their full initialized-byte and opaque-residue proof. An ABI pointer
+return never discharges a pointee obligation or a future-read watch debt.
+
+Substituted callee-private and ISR-private bytes, including the real hardware
+exception frame, are opaque on return. Their original values cannot become an
+oracle-fed caller input merely because the ABI permits private stack differences.
+Own reads, subsequent call/ISR inputs and DMA observations of that residue fail
+closed unless a definite justified write has replaced the affected bytes.
+RAM mirrors name the same physical provenance lanes; a coincidentally equal
+value does not clear a debt. Justified internal ISR saves/restores execute inside
+their environment segment and do not self-trigger the caller-residue guard.
+
+A catalogued callee is its actual original JSR-to-RTS segment, including its
+internal IRQ environment. Rust callees are **not executed** in the replay fork.
+Before importing effects, authenticate all consumed frame inputs and actual
+read-before-write register/CCR inputs, not just formal C parameters. Saving an
+incoming register to a private slot, overwriting it, restoring it and then
+using it algorithmically does not erase that input dependency. Scalar outgoing
+calls may materialize only the provided Rust values in authenticated argument
+slots; they cannot preload original arguments or invent omitted padding.
+Mutated, reused or deliberately omitted areas use the explicit frame API.
+The scalar adapter derives semantic active-SP providers only from Rust's own
+pre-call SP minus its logical outgoing arguments/return transport; the inactive
+bank is preserved. Original entry SP may locate ABI slots but never becomes a
+semantic provider. A wrong omitted allocation therefore fails algorithmic SP
+and deferred scratch/CCR demands. The shared actual CALL/RTS seal authenticates
+return-slot transport only: any other semantic return-address use requires a
+Rust-owned prepared `call_at` source boundary, or is Unsupported. No original
+return word is copied into a scalar caller or lazy provider.
+Uncatalogued callees and non-call computed control transfers fail closed.
+
+A catalogued computed JSR is an ordinary call only when its actual successful
+instruction seals this exact target, return frame, depth and parent invocation,
+and Rust supplies the matching target ID **and prepared source CallSite**.
+Before any callee import, generic bound SSA target-EA/control dependencies must
+match Rust's own pre-call providers. A prepared `call_at` has already pushed its
+four-byte return address, so pre-call SP is derived from that Rust frame—not
+copied from the original and not mistaken for post-push SP. Unknown/faulted
+targets, unbound memory/non-register dependencies and scalar calls without a
+source site remain unsupported. This grants no JMP, tail, reset, RTE, exception,
+pointer-membership, timing, class, status or canonical-origin authority.
+
+Import only justified outputs and effects. Never copy an original full CPU,
+preserved-register domain or SP to repair the caller. Every imported register,
+caller-consumed CCR bit, RAM effect and device domain needs explicit coverage
+from the independently successful child proof on the same invocation. A normal
+C ABI pass does not automatically authenticate scratch registers or CCR; a
+weaker envelope cannot silently cover a stronger imported domain. The receipt
+names the actual contract and covered outputs. A missing domain leaves the
+parent conditional, not promoted. Root exit obeys the declared ABI outputs and
+preservation rules, balanced SP, and CCR only where ABI-declared.
+
+An ISR is not an unconditional CPU-state oracle either. Before its effects are
+imported, the executed-path dependency walker authenticates its consumed
+register/CCR and initial RAM inputs against Rust's current providers/shadow.
+Dependencies carried through MOVEM/private slots remain inputs when an
+algorithm, branch, address or external effect consumes them. Pure preservation
+transport does not by itself demand unrelated scratch values. Ordinary ISR
+entry/return must preserve the interrupted general registers and stack banks;
+other control effects need an explicit stronger profile. No original CPU/SP
+snapshot is assigned to repair Rust. Frozen strict auto-roots lack providers at
+an actual asynchronous boundary: genuine D/A/SR, whole-SP or private-frame
+inputs remain unsupported, never inferred from final register values.
+
+The bounded exception is **only SSP bit 0 = 0**. Successful actual IRQ input
+analysis first certifies its accepted hardware frame and matching own RTE.
+An independently successful canonical strict body must then supply an owned,
+same-admitted-body/entry/fork Check witness: supervisor entry and even SSP,
+every actual Rust SP/bank assignment observed, and no S-bank transition.
+An odd attempted assignment remains ineligible after restoration; invalid A7
+API attempts, mutable raw-CPU lends, original fallback, waits/timing and
+exception/control routes poison the witness rather than inferring their
+intermediate state. Unrequested or non-Check execution records no witness.
+The private latch allocates no per-assignment vector, imports no Original SP,
+and neither the invariant nor a passing endpoint grants strict case credit:
+the unchanged complete strict checker and all actual-callee obligations must
+still pass before the ledger can record the same invocation.
+
+Hardware saved-SR restoration is not an Original-value oracle. The data walker
+certifies each accepted opaque exception context, its exact hardware idle,
+ordered three word issues/physical commits, acknowledgement, banks/frame/depth,
+and its **own actual returned ID/RTE and physical read span**. Only an untouched
+certified header's RTE **value** transport is exempt from the otherwise forced
+mandatory nonprivate-read value demand. The header is never globally private:
+software saved-SR loads, entry-flag branches, X/algorithm/address/control uses
+still create their normal SSA input obligations. Architectural acceptance and
+system/bank/return preservation remain independently checked.
+
+Any intervening software/callee/nonmain header write—even the same value—
+loses this identity and requires the separately reviewed control profile.
+Each nested IRQ has its own certificate. The span ends at its own matched
+Returned marker; a later writer cannot retroactively change an already
+completed transport. Rust keeps its own incoming flags; no Original saved SR
+is assigned, returned as an operand, or used to repair a caller. Diagnostic
+input-demand output also names mandatory-read roots, not only instruction uses.
+
+Register definitions use the bound executed SSA's reviewed possible-written
+mask and final output dependency expression, including control and memory
+dependencies. They do not infer writes from equal before/after values, require
+merge-preserved destination bits, or retain an obsolete destination origin
+after a defining byte/word operation or extension. A later definition never
+erases an earlier required input, read-before-write fact or memory history.
+Across a nested callee, incoming providers may be restored **only** for its
+ABI-declared preserved D/A fields after all internal uses/effects are walked
+and its actual raw entry/exit preservation is checked bit for bit. Clobbered
+fields that merely happen to be equal, SP, full snapshots and undeclared CCR
+preservation do not qualify; an actual preservation violation is unsupported.
+
+Callee/ISR input provenance is **per bit**, including initial RAM byte bits.
+The consumer queries the same bound executed SSA for exact physical read
+ordinals and data/control masks; it does not union every word loaded during
+an instruction into every output. For example, a private word load followed by
+a byte extension may eliminate its unused initial high byte, but not a high
+byte used by an earlier effect or control. Every nonprivate semantic RAM byte
+remains mandatory even when its later value is dead. This is solely a
+callee/ISR input-authentication rule: it is never a waiver of a root's own
+Bus read, explicit-local declaration, initialized-byte guard or access cursor.
+
+Every recorded CPU read remains bound to its exact raw issue, width, purpose,
+sample and driven mask. The private chronological annotation preserves the
+already-verified non-ROM read's physical position; ROM issues remain in the
+unchanged complete raw issue stream. Only **preceding physical commits** and
+real Z80/environment writes can change a read's RAM provenance, never a store
+issue or later commit. Initial RAM samples cannot change without such a write,
+even when no output demands them. Alias normalization labels RAM bytes; it
+never merges distinct read occurrences or infers identity from equal samples.
+Path/control, read-offset and timing roots remain input obligations. Missing,
+duplicated, changed, unbound, cyclic or out-of-range causal data is unsupported,
+not an empty dependency or a fabricated readiness result.
+
+Imported scratch/CCR outputs authenticate only the bits actually requested,
+through their completed call-specific immutable provenance graph. Their entry
+register providers and Rust-owned RAM byte/availability snapshots are captured
+at that call, not looked up in current RAM after later calls/writes. Unknown
+initial stack and opaque callee/ISR-private bytes remain unavailable, including
+below current SP; a coincidentally equal original byte is not a fallback.
+An unavailable provider may remain deferred for an unused output, but a later
+write cannot repair it. Conversely, a later legitimate write does not invalidate
+an already correct call-time provider. No snapshot or data query grants
+initialization, proof completion, live replacement or source/timing authority.
+Public register/status getters request their full returned width. Masking a
+Rust scalar **after** that getter does not retroactively narrow its demand:
+the proof is not a Rust whole-program liveness analysis. A demanded child bit
+still needs source-owned measured output coverage; a downstream mask is not a
+waiver or permission to import an unproved original scratch/CCR value.
+
+**Interruptible code has register observations beyond its ordinary C ABI.**
+Every register bit a handler can consume must hold the original value at that
+actual interrupt entry, and replay authenticates it. Keeping that value only in
+a Rust local is insufficient; a caller-clobbered/scratch declaration does not
+make it invisible to an ISR. Materialize the source-defined register effect
+from Rust's real operands before the interruptible observation, preserving
+unwritten upper bits for byte/word operations. Never import an oracle register
+or subtract every register named by a MOVEM save mask. For example,
+`WaitForNextVBlank` loads the initial counter word into D1 while preserving its
+upper half; later CMP-word polls do not rewrite D1. If a handler actually consumes
+an interrupted D1 bit, that demanded bit is an input obligation, not timing noise.
+Private runtime receipts list handler/vector and register-bit unions for the
+actual paths observed; an unobserved path is not certified by that union.
+
+The private-cartridge modular regression emits separate `REPLAY_ISR_INPUTS`
+records keyed by revision, actual Rust root, vector and handler entry PC. These
+are finite observed-path **diagnostic unions**, including inputs that reach a
+later failed validation; repeated private probes are not invocation counts.
+Each actual entry's input/path/memory/control facts are still recomputed and
+authenticated. The union is never an admission cache, mask exemption, imported
+proof or all-path ISR contract, and is not part of the frozen proof-report
+schema. Keep these runtime-derived receipts private:
+
+```sh
+cargo test --locked -p tje-host --features reference-proof-hooks --lib \
+  replayed_environment::real_roots::genuine_roots_and_named_regressions_both_revisions \
+  -- --ignored --exact --nocapture
+```
+
+The harness stops original-only execution immediately before a genuine call.
+It includes the post-D1-fix wait at frame 475, named frame-492/1687/2437 windows
+and the genuine two-player GenerateSpeech interval **1089→1090** in both revisions.
+Expiry, metatile-row and speech cases use committed
+power-on controller recordings; exhaustion or a missing exact named window
+fails the case instead of substituting a RAM/CPU fixture. `REPLAY_ROOT_RESULT`
+retains the input session, requested window, actual call frames, complete
+kernel result and unresolved callee cases. The genuine `GenerateSpeech` default
+requires the exact two-player interval and an authenticated original false poll;
+merely calling with an already-ready flag is not a real-wait regression.
+Its **1089-frame original-only prefix is unchecked, not startup or composition
+proof**. The superseded authored frame-10000 fixture remains HELD, never passed.
+
+The dialogue window at frame 1687 retains the exact actual-JSR state of the
+historical REV 00 strict-VDP failure, alongside the separate frame-2437 case;
+the old failure itself is retained, not relabelled as a successful strict check.
+
+The private test selector `TJE_REPLAY_CASE_ROOT=<inventory-id>` restricts this
+harness to one named root (in both revisions); a selector matching no case is
+an error. Optional `TJE_REPLAY_ISR_DEMANDS=1` emits private `REPLAY_ISR_DEMANDS`
+diagnostics at actual interrupt boundaries: interrupted PC/registers, own-access
+cursor and the first newly required instruction-use masks. These finite,
+test-only observations never change a mask or proof decision, and repeated
+probes are not invocation counts. Raw packets stay outside Git.
+
+`TJE_REPLAY_SESSION_STEM=<stem>` selects the committed paired
+`rev02-<stem>.tje.json` / `rev00-<stem>.tje.json` power-on recordings for private
+scene discovery. `TJE_REPLAY_WINDOW_END=<exclusive-frame>` may widen that
+discovery window; receipts mark it `exact_window=false` and retain its endpoint.
+Such a run must not be relabelled as a missing earlier exact-frame regression.
+Neither selector patches state, manufactures readiness or grants a call seal.
+
+For a separately labelled blocking-speech scene search only,
+`TJE_REPLAY_REQUIRE_BLOCKING_WAIT_SEARCH=1` additionally requires the explicit
+GenerateSpeech root selector, `TJE_REPLAY_MINIMUM_ENTRY_FRAME=<start>` and a
+nonempty exclusive end window. Its normal original-only power-on prefix is
+explicitly **unchecked** until the first genuine selected call at/after that
+minimum; activation happens before the real JSR step. This grants no startup
+or composed-prefix proof. After activation the real original scheduler
+continues through ready-first calls, retaining every encountered requested
+root/check/dependency/failure without filtering, rollback or ledger reset.
+Only an actually consumed false poll on a completed successful own-root path
+can satisfy the search. A bounded search with no such call fails, never removes
+that criterion, and retains failure/open/unresolved outcomes. Receipts keep the
+named default minimum separately, flag `blocking_wait_search=true` and name
+the actual recorded wait invocation. Alternate discovery does not replace the
+1089→1090 default or relabel the old authored exact-frame10000 fixture.
+`REPLAY_SEARCH_ACTIVATION` records both phases, original activation PC, unchecked
+prefix frames/master clock, requested roots and bounds. Earlier failed
+power-on-Check startup-profile receipts remain separate; this search does not
+waive VDPInitialisation's stronger control profile.
+
+The private-ROM `real_roots::mutations` control selects the same genuine
+WaitForNextVBlank frame-492 caller in both revisions, behind a separately
+labelled unchecked original prefix. The correct owner entry must close that
+case. Its proof-only mutant changes solely the dedicated predicate from
+NotEqual to Equal after the same source reads and initial D1 materialization;
+it must reject specifically as a mismatch at the authenticated original poll,
+not an admission, unsupported-profile, stack-guard or resource error. Neither
+the original nor readiness is patched, and the old authored frame-600 fixture
+is not retroactively passed.
+
+Canonical auto-proofs reuse the existing complete checker and differential
+probes. Additional scratch/CCR/public-RAM/device coverage is measured against
+the untouched actual invocation; ABI clobber permission is not that evidence.
+Future-frame dependencies retain their exact private watch graph and approval
+binding, captured when the binding is created. `NotLiveExecution`, provisional,
+missing or unbound evidence cannot close a child; invalidation revokes its
+closure. Only the retained graph's discharged outcome can satisfy an actual
+dependency. Public reports, numeric id reuse, resets and copied stamps cannot
+substitute another graph. Default/off execution allocates no capture journal.
+
+Dedicated waits authenticate the original's real test/branch predicate and
+consume every recorded poll, including the satisfying terminal read. The caller
+adds no extra poll. Busy observations are original samples, never invented
+readiness. Compound loops use ordinary exact accesses plus `poll_yield()`;
+the yield consumes no access and asserts no preceding false poll. Neither form
+charges guessed instructions or cycles to readable Rust.
+
+Every software-visible generic read also requires actual evidence that all
+returned bits are driven, including through `Bus` methods and physical aliases.
+The passive record binds its mask to the exact raw address/width/purpose/value
+and ordering; it never replaces or masks that sample. A denied Z80 window,
+partially driven VDP status/BUSACK lane, missing mapping or unknown source cannot
+become a full Rust operand merely because it was recorded. Explicit open-bus
+source operations remain unsupported until a stronger source profile binds
+them genuinely. A dedicated wait may retain a full beat internally only while
+authenticating/using driven predicate bits and returning `()`; a predicate
+touching undefined bits is rejected.
+
+The replay context's infallible read/write API aborts only to a private,
+unwind-enabled native analysis boundary on mismatch. It retains a sticky failure
+and never manufactures a read value, readiness bit or successful return.
+Abort-only targets compile but reject replay construction as unsupported; this
+is not a claim of browser replay-proof execution. The read-only ROM asset is
+returned on Result failure or unwind; no game snapshot is restored into live
+execution.
+
+
 ### Portable, instruction-phased source regions
 
 An exact timed body uses `tje_game::timing::TimingSource` through
@@ -947,13 +1447,15 @@ no host, engine or jgenesis dependency. The default capability rejects **before
 source effects**. There is no `charge_region`, aggregate-cycle operation,
 original-main directive or PC/prefetch alignment shortcut.
 
-The ordinary-return example is the public
-`core::wait_for_next_vblank_framed` candidate, backed by
-`core::timed_wait::WaitSource`. It is the canonical candidate used by the proof,
-not a private rewritten test body. It does not register itself, replace the
-existing value-only body or migrate its callers. Keep that cutover atomic and
-owner-reviewed; a second `PENDING_FRAMED_TRANSLATIONS` entry for an already
-declared legacy identity is not a migration.
+The public `core::wait_for_next_vblank_framed` candidate and
+`core::timed_wait::WaitSource` remain an example of the timing mechanism, not
+native envelope authority. Their real-ROM selected-WAIT native diagnostics are
+explicitly **HELD** while WAIT's effective contract is Replay-only; previous
+receipts are not relabelled as current native/composition passes. The distinct
+ClearLower `NativeCompiledOriginalCallees` control executes WAIT unselected as
+exact original instructions, with separate original receipts and no readable
+WAIT credit. Any future selected timed Rust route needs a ROM-bound plan and
+an explicit owner-reviewed non-Replay ClockedStrict/Commuting route.
 
 #### Declare source roles, not machine code
 
@@ -1006,6 +1508,10 @@ for every callee that will run timed Rust. A callee need not have an independent
 root Hook: the effective selected Dispatcher entry is the binding, and executing
 it does not add an independent checked/proven ID. If a Hook exists, it must
 agree. Descriptors do not select bodies, activate hooks or grant proof origin.
+Native profiles additionally reject every selected Replay-only Rust root/callee,
+even with complete roles and a ROM-bound plan. Neither descriptor presence nor
+the native proof profile upgrades that effective envelope. This does not ban an
+unselected exact original callee whose readable catalogue entry is Replay-only.
 After the actual child RTS is validated and consumed, the controller must close
 the callee ceiling while that child owner/frame/class is still current. Only a
 successful close permits owner finish/pop, caller-cursor resumption or parent
@@ -1033,8 +1539,9 @@ Reference/replacement/native profiles.
 The optional `NativeCompiledOriginalCallees` profile is separately labelled and
 never readable coverage. It permits only unselected original callees, through
 authenticated compiled continuations. Every internal actual JSR/BSR still
-redispatches selected timed Rust; any selected ready untimed target rejects the
-startup closure. It is neither a native interpreter nor an original-root path.
+redispatches eligible selected timed Rust; a Replay-only selection, or any
+selected ready untimed target, rejects the startup closure. It is neither a
+native interpreter nor an original-root path.
 ISR ownership/counts remain a separate axis.
 
 Nested frame/ledger/scratch ownership is platform authority. Keep the same
@@ -1328,12 +1835,21 @@ still require exact recorded counts; lag and interrupt phase still require
 logic-tick/session evidence. A passing function-level logic check is not a
 timing-equivalence claim for a native scheduler or for replacement play.
 
-Named projection regressions separately exercise the live frame-492/2437 windows
-and a GenerateSpeech fixture reached by **original-only** advancement to frame
-10000. They are not a continuous 10000-frame readable-layer proof. A previous
+Historical authored projection regressions retain the frame-492/2437 windows
+and the old GenerateSpeech frame-10000 fixture. That speech fixture is **HELD,
+superseded by the genuine two-player 1089→1090 case**, never relabelled a pass.
+Neither path is a continuous 10000-frame readable-layer proof. A previous
 continuous REV 02 run rejected UpdateSpeechAndDialogue at frame 7353 on strict
 logical VDP state; its independent diagnosis/approval remains pending, not masked
 or attributed to a particular field without evidence.
+These are explicitly authored **check-only projection-regression** contracts:
+TimeAware/ClassDefined HookFns invoke the current owner's prepared/lazy framed
+entry (or its existing zero-argument value entry) without copying a body or
+eagerly snapshotting slots. Their instrumentation origin cannot enter live
+replacement/native play. They do not change owner envelopes, claim replay
+lineage, coverage, status or promotion, or stand in for the separate genuine
+JSR/RTS modular campaign. Missing/changed entry forms fail explicitly; a pending
+table's old length is not used to guess availability.
 
 
 ## 6. Differential dead-stack dependency checks
@@ -2455,3 +2971,22 @@ Authored negative tests and six audio source-requirement fixtures cover these
 data constraints. References to guard sessions and labelled retry perturbations
 do not convert them into natural coverage, body proofs or control-profile
 approval. No ROM driver/sample payload is stored in these fixtures.
+
+### Passive observational consumers
+
+The replay Journal borrows vendor-owned diagnostic suffixes through the sealed
+passive loan API; it never uses a mutable CPU/bus escape to install or restore
+them. Provider setup is explicit and persistent, while each temporary enabled
+flag and foreign observer option is restored. Call observations start from the
+actual existing retirement baseline, never a tally rewind, and inspect physical
+return words immutably with the original aligned-SP/low-word wrap.
+
+A corrupt loan may retain a verified forensic prefix and raw foreign suffix for
+diagnosis, but can never return an `ObservedStep`, operand or seal. An
+infrastructure failure is latched independently of root proof policy: even
+`ContinueOriginal` returns the same-tick failure and rejects later checked ticks
+before original progress. All diagnostic counter/watch cleanup runs first;
+the original tick error or identical panic payload remains primary, followed by
+the first journal failure ahead of later cleanup errors. A failed phase cannot
+publish newly queued proof analysis. These are observer-ownership changes only,
+not control-profile admission, source-body changes or promotions.

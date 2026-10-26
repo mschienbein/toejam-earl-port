@@ -456,7 +456,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::PRESENT_TRY_END_ACTIVE_POWERUP,
         class: crate::execution::ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },

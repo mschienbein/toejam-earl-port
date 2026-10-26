@@ -113,6 +113,7 @@ impl Host {
     /// Hard reset with the same ROM, mode, registered hooks and sample rate.
     pub fn reset(&mut self) {
         let provenance = self.reset_future_frame_provenance();
+        let mut replayed_report = self.checks.replayed_environment.take();
         self.emulator.hard_reset(&mut self.saves);
         if let Some(pool) = &self.readable_stack {
             pool.namespace.reset_failure();
@@ -123,6 +124,16 @@ impl Host {
             services
                 .reset_after_actual_reset()
                 .expect("actual reset owns every parked source lease");
+        }
+        if let Some(state) = &mut self.replayed_state {
+            let reason = state.after_actual_reset();
+            if let Some(report) = &mut replayed_report {
+                report.complete = false;
+                report.finalized = true;
+                report.unsupported += 1;
+                report.last_verdict = Some(crate::replayed_environment::Verdict::Unsupported);
+                report.last_unsupported = Some(reason);
+            }
         }
         self.wait_clock.call_clock = Default::default();
         self.frame = 0;
@@ -142,6 +153,7 @@ impl Host {
         self.checks.future_frame_provenance = provenance;
         self.checks.failure_policy = self.check_failure_policy;
         self.record_readable_stack_metrics();
+        self.checks.replayed_environment = replayed_report;
         self.measurements = Default::default();
         self.emulator.hybrid_bus_mut().hybrid_writes = Some(Vec::new());
     }

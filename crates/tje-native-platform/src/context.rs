@@ -634,6 +634,14 @@ impl Context for NativePlatform {
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
     }
+    fn check_callee_dispatch(
+        &self,
+        dispatcher: Dispatcher,
+        entry: FunctionId,
+        rust_selected: bool,
+    ) -> Result<()> {
+        dispatcher.check_native_rust(entry, rust_selected)
+    }
     fn execution_class(&self) -> ExecutionClass {
         self.class
     }
@@ -648,6 +656,132 @@ impl Context for NativePlatform {
 
 #[cfg(all(test, panic = "unwind"))]
 mod stack_guard_tests;
+
+#[cfg(test)]
+mod replay_admission_tests {
+    use super::*;
+    use tje_game::FramedTranslation;
+
+    fn side_effect(context: &mut dyn Context) -> Result<Option<u32>> {
+        context.write_u16(0xff9000, 0x1234);
+        context.write_device_u16(0xc00004, 0x8f02);
+        context.set_data_register(0, 0xfeedbeef);
+        Ok(None)
+    }
+    static REPLAY: &[FramedTranslation] = &[FramedTranslation {
+        id: tje_game::ids::WAIT_FOR_NEXT_V_BLANK,
+        function: side_effect,
+    }];
+    static NON_REPLAY: &[FramedTranslation] = &[FramedTranslation {
+        id: tje_game::ids::AUDIO_TRY_SUBMIT_SEQUENCER_PCM_SAMPLE,
+        function: side_effect,
+    }];
+    fn platform() -> NativePlatform {
+        let mut rom = vec![0; 256];
+        rom[..4].copy_from_slice(&0xff7ff0_u32.to_be_bytes());
+        rom[4..8].copy_from_slice(&0x40_u32.to_be_bytes());
+        NativePlatform::new(
+            AddressSpace::new(rom, Revision::Rev02),
+            &[],
+            InterruptHandlers::default(),
+            &GenesisEmulatorConfig::default(),
+        )
+        .unwrap()
+    }
+    fn snapshot(platform: &NativePlatform) -> Vec<u8> {
+        let s = platform.capture_state();
+        bincode::encode_to_vec(
+            (
+                &s.ram,
+                &s.audio_ram,
+                &s.vdp,
+                &s.ym2612,
+                &s.psg,
+                &s.input,
+                &s.z80,
+                &s.cycles,
+                &s.audio_resampler,
+                &s.config,
+                s.z80_bank,
+                s.bus_request,
+                (
+                    s.reset,
+                    s.timing_mode,
+                    s.region,
+                    s.native_input_remainder,
+                    s.open_bus,
+                ),
+            ),
+            bincode::config::standard(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn external_unhooked_root_and_prepared_replay_rust_reject_before_frame_memory_or_device_effects()
+     {
+        for route in 0..5 {
+            let mut platform = platform();
+            let before = snapshot(&platform);
+            let frame = platform.frame;
+            let class = platform.class;
+            let registers = platform.registers;
+            let pc = platform.program_counter;
+            let interrupts = platform.accepted_interrupts;
+            let dispatcher = Dispatcher::hybrid_with_frames(&[], REPLAY);
+            let id = tje_game::ids::WAIT_FOR_NEXT_V_BLANK;
+            let result = match route {
+                0 => dispatcher.call_void(&mut platform, id, &[1]).map(|()| None),
+                1 => tje_game::call_frame::call_at_void(
+                    &mut platform,
+                    dispatcher,
+                    id,
+                    &[1],
+                    tje_game::call_frame::CallSite::new(0x100),
+                )
+                .map(|()| None),
+                2 => tje_game::TranslatedEntry::Framed(&REPLAY[0]).invoke_entry(&mut platform, &[]),
+                3 => {
+                    platform.dispatcher = dispatcher;
+                    tje_game::exits::enter(&mut platform, id, &[]).map(|_| None)
+                }
+                4 => {
+                    platform.dispatcher = Dispatcher::replayed_environment(&[], REPLAY);
+                    tje_game::TranslatedEntry::Framed(&REPLAY[0]).invoke_prepared(&mut platform)
+                }
+                _ => unreachable!(),
+            };
+            assert!(result.unwrap_err().to_string().contains("check-only"));
+            assert_eq!(snapshot(&platform), before);
+            assert_eq!(platform.frame, frame);
+            assert_eq!(platform.class, class);
+            assert_eq!(platform.registers, registers);
+            assert_eq!(platform.program_counter, pc);
+            assert_eq!(platform.accepted_interrupts, interrupts);
+        }
+    }
+    #[test]
+    fn non_replay_authored_rust_route_keeps_existing_native_effects_and_original_route_policy_is_not_authority()
+     {
+        let mut platform = platform();
+        let dispatcher = Dispatcher::hybrid_with_frames(&[], NON_REPLAY);
+        tje_game::TranslatedEntry::Framed(&NON_REPLAY[0])
+            .invoke_entry(&mut platform, &[])
+            .unwrap();
+        assert_eq!(platform.devices.memory().read_u16(0xff9000), 0x1234);
+        assert_eq!(platform.registers.data[0], 0xfeedbeef);
+        assert!(
+            platform
+                .check_callee_dispatch(dispatcher, tje_game::ids::WAIT_FOR_NEXT_V_BLANK, false)
+                .is_ok()
+        );
+        // No permission to execute original code is minted by the false flag.
+        assert!(
+            platform
+                .call_original(tje_game::ids::WAIT_FOR_NEXT_V_BLANK, &[1])
+                .is_err()
+        );
+    }
+}
 
 #[cfg(test)]
 mod discard_tests {

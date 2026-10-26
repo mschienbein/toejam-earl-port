@@ -151,11 +151,24 @@ impl PreparedSources {
         profile: CallProfile,
         actual_call: Option<(FunctionId, FunctionId)>,
     ) -> Result<ValidatedCalls, PortableError> {
+        let native = matches!(
+            profile,
+            CallProfile::NativeStrictReadable | CallProfile::NativeCompiledOriginalCallees
+        );
+        if native && dispatcher.replays_callees() {
+            return Err(TimingError::InvalidIr(
+                "recorded replay dispatch is check-only, not a native source route",
+            )
+            .into());
+        }
         let mut pending: Vec<_> = actual_call.into_iter().collect();
         let mut originals = BTreeSet::new();
         let mut diagnostic_candidates = false;
         for (&entry, prepared) in &self.entries {
             let selected = dispatcher.resolve_entry(entry)?;
+            if native {
+                dispatcher.check_native_rust(entry, selected.is_some())?;
+            }
             diagnostic_candidates |= selected.is_some_and(|entry| !entry.is_canonical_production());
             if !matches!(
                 selected.map(|entry| entry.entry()),
@@ -195,6 +208,9 @@ impl PreparedSources {
                 .into());
             }
             let selected = dispatcher.resolve_entry(callee)?;
+            if native {
+                dispatcher.check_native_rust(callee, selected.is_some())?;
+            }
             diagnostic_candidates |= selected.is_some_and(|entry| !entry.is_canonical_production());
             match selected.map(|entry| entry.entry()) {
                 Some(TranslatedEntry::Framed(_)) if self.entries.contains_key(&callee) => {}

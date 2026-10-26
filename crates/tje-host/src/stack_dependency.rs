@@ -61,8 +61,20 @@ impl Host {
         purpose: ClockRunPurpose,
         origin: crate::future_frame_watch::ObservationOrigin,
     ) -> Result<CheckRun> {
+        self.run_check_side_observed(fork, hook, side, purpose, origin, None)
+    }
+
+    pub(super) fn run_check_side_observed(
+        &mut self,
+        fork: &mut GenesisEmulator,
+        hook: &Hook,
+        side: CheckSide,
+        purpose: ClockRunPurpose,
+        origin: crate::future_frame_watch::ObservationOrigin,
+        observation: Option<crate::replayed_environment::CandidateRequest>,
+    ) -> Result<CheckRun> {
         let revision = self.revision;
-        let dispatcher = self.registry.dispatcher();
+        let dispatcher = self.registry.dispatcher_for_hook(hook);
         let mode = self.mode;
         let mut clock = self.wait_clock.clone();
         let entry_frame = clock.frame;
@@ -293,6 +305,9 @@ impl Host {
                                     .with_check_route(route);
                             context
                                 .enable_stack_audit(stack_slot.take().expect("root audit"), audit);
+                            if let Some(request) = observation {
+                                context.observe_frozen_stack_alignment(request);
+                            }
                             let observer = readable.as_ref().expect("Rust side readable guard");
                             let attempted =
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

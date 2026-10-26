@@ -331,3 +331,40 @@ fn completed_selected_and_unselected_measurements_reuse_only_active_depth_storag
     );
     assert_eq!(coverage.faulted_entry_opcodes, 0);
 }
+
+#[test]
+fn enabling_call_observer_preserves_existing_tallies_and_uses_actual_baseline() {
+    let mut host = host_program();
+    #[cfg(feature = "reference-proof-hooks")]
+    host.emulator.ensure_reference_instruction_counter();
+    #[cfg(not(feature = "reference-proof-hooks"))]
+    host.emulator
+        .hybrid_parts()
+        .0
+        .hybrid_enable_instruction_counts();
+    for _ in 0..16 {
+        host.tick_live_original(&mut Inputs(GenesisInputs::default()))
+            .unwrap();
+    }
+    let before = host.cpu().hybrid_instruction_counts().unwrap();
+    let baseline = before.main_thread + before.exception_handler;
+    assert!(baseline > 0);
+    assert_eq!(host.frame_count(), 0);
+    host.enable_session_trace(&[0x120], &[], &[], false)
+        .unwrap();
+    host.enable_call_observations(&[0x120]).unwrap();
+    let after = host.cpu().hybrid_instruction_counts().unwrap();
+    assert_eq!(after.main_thread + after.exception_handler, baseline);
+    assert!(!after.enabled());
+    let observer = host
+        .session_trace
+        .as_ref()
+        .unwrap()
+        .call_observer
+        .as_ref()
+        .unwrap();
+    assert_eq!(observer.previous_instructions, baseline);
+    host.observe_call_return(false).unwrap(); // No new original tick/JSR occurred.
+    assert!(host.take_call_observations().is_empty());
+    assert_eq!(host.unfinished_observed_calls(), 0);
+}

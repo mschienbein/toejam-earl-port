@@ -11,6 +11,8 @@ pub enum CheckForkRoute {
     TimeAwareLogic,
     ClockedCommutingInterrupts,
     ClockedStrict,
+    /// Own-function semantic replay; catalogued callees substituted/proven separately.
+    ReplayedEnvironment,
 }
 
 impl CheckForkRoute {
@@ -21,6 +23,7 @@ impl CheckForkRoute {
             Self::TimeAwareLogic => "TimeAwareLogic",
             Self::ClockedCommutingInterrupts => "ClockedCommutingInterrupts",
             Self::ClockedStrict => "ClockedStrict",
+            Self::ReplayedEnvironment => "ReplayedEnvironment",
         }
     }
 
@@ -28,6 +31,7 @@ impl CheckForkRoute {
         match envelope {
             ProofEnvelope::ClockedStrict => Self::ClockedStrict,
             ProofEnvelope::ClockedCommutingInterrupts => Self::ClockedCommutingInterrupts,
+            ProofEnvelope::ReplayedEnvironment => Self::ReplayedEnvironment,
             ProofEnvelope::ClassDefined => match class {
                 ExecutionClass::Atomic => Self::FrozenAtomic,
                 ExecutionClass::Functional => Self::FrozenFunctional,
@@ -39,7 +43,10 @@ impl CheckForkRoute {
     pub const fn progresses_time(self) -> bool {
         matches!(
             self,
-            Self::TimeAwareLogic | Self::ClockedCommutingInterrupts | Self::ClockedStrict
+            Self::TimeAwareLogic
+                | Self::ClockedCommutingInterrupts
+                | Self::ClockedStrict
+                | Self::ReplayedEnvironment
         )
     }
 

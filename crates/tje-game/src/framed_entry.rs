@@ -36,6 +36,7 @@ impl TranslatedEntry<'_> {
         context: &mut dyn Context,
         arguments: &[u32],
     ) -> Result<Option<u32>> {
+        context.check_callee_dispatch(context.dispatcher(), self.id(), true)?;
         match self {
             Self::Values(translation) => (translation.function)(context, arguments),
             Self::Framed(_) => Err(Error::Frame(FrameError::PreparedEntryRequired(self.id()))),
@@ -45,6 +46,7 @@ impl TranslatedEntry<'_> {
     /// Already prepared original-address entry. Framed bodies consume only their
     /// actual source reads; legacy bodies retain an audited value snapshot.
     pub fn invoke_prepared(self, context: &mut dyn Context) -> Result<Option<u32>> {
+        context.check_callee_dispatch(context.dispatcher(), self.id(), true)?;
         match self {
             Self::Framed(translation) => {
                 let frame = context.frame_state().ok_or(FrameError::Unavailable)?;
@@ -88,6 +90,7 @@ impl TranslatedEntry<'_> {
     /// Explicit root/continuation entry. Values are only a legacy convenience;
     /// a framed body consumes already prepared RAM, never a second value source.
     pub fn invoke_entry(self, context: &mut dyn Context, arguments: &[u32]) -> Result<Option<u32>> {
+        context.check_callee_dispatch(context.dispatcher(), self.id(), true)?;
         match self {
             Self::Values(translation) => (translation.function)(context, arguments),
             Self::Framed(_) if arguments.is_empty() => self.invoke_prepared(context),
@@ -170,6 +173,7 @@ impl Dispatcher {
             framed_translations,
             subsystems: &[],
             original_fallback: true,
+            replay_configuration: 0,
         }
     }
 
@@ -183,6 +187,7 @@ impl Dispatcher {
             framed_translations,
             subsystems: SUBSYSTEMS,
             original_fallback: true,
+            replay_configuration: 0,
         }
     }
 
@@ -209,6 +214,34 @@ impl Dispatcher {
                 entry,
                 canonical_production: false,
             }));
+        }
+        if self.replays_callees() {
+            let mut semantic = self
+                .subsystems
+                .iter()
+                .flat_map(|owner| {
+                    owner
+                        .replayed_translations
+                        .iter()
+                        .map(TranslatedEntry::Values)
+                        .chain(
+                            owner
+                                .replayed_framed_translations
+                                .iter()
+                                .map(TranslatedEntry::Framed),
+                        )
+                })
+                .filter(|entry| entry.id() == id);
+            let entry = semantic.next();
+            if semantic.next().is_some() {
+                return Err(FrameError::ConflictingEntries(id).into());
+            }
+            if let Some(entry) = entry {
+                return Ok(Some(SelectedEntry {
+                    entry,
+                    canonical_production: false,
+                }));
+            }
         }
         // Every public constructor sets this private catalogue to either the
         // committed SUBSYSTEMS or empty. Caller tables always use the explicit
@@ -239,9 +272,15 @@ impl Dispatcher {
         }))
     }
 
-    /// Process-local static selection identity for immutable startup capability
-    /// validation. This is not body equivalence or a proof-origin approval.
+    /// Ordinary immutable startup configurations retain their existing static
+    /// comparison. Replay configurations compare ONLY their opaque minted id;
+    /// same tables/aliases/custom construction are not the registry's route.
+    /// Neither comparison is body equivalence or proof-origin approval.
     pub fn same_selection(self, other: Self) -> bool {
+        if self.replay_configuration != 0 || other.replay_configuration != 0 {
+            return self.replay_configuration != 0
+                && self.replay_configuration == other.replay_configuration;
+        }
         std::ptr::eq(self.translations, other.translations)
             && std::ptr::eq(self.framed_translations, other.framed_translations)
             && std::ptr::eq(self.subsystems, other.subsystems)
@@ -281,6 +320,22 @@ impl Dispatcher {
             Ok(())
         }
         validate_layer(supplied)?;
-        validate_layer(proven)
+        let semantic = self
+            .subsystems
+            .iter()
+            .flat_map(|owner| {
+                owner
+                    .replayed_translations
+                    .iter()
+                    .map(|entry| entry.id)
+                    .chain(
+                        owner
+                            .replayed_framed_translations
+                            .iter()
+                            .map(|entry| entry.id),
+                    )
+            })
+            .filter(|_| self.replays_callees());
+        validate_layer(proven.chain(semantic))
     }
 }

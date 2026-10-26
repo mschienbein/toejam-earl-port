@@ -259,6 +259,8 @@ where
     ) -> Result<Self> {
         let root = state.root_binding()?;
         let root_entry = root.entry();
+        dispatcher
+            .check_native_rust(root_entry, dispatcher.resolve_entry(root_entry)?.is_some())?;
         if !clock.contains_scope(root_entry) {
             return Err(error(
                 "native timing requires its actual owner-bound root scope",
@@ -373,6 +375,7 @@ where
                 });
             }
             let selected = self.dispatcher.resolve_entry(target)?;
+            self.check_callee_dispatch(self.dispatcher, target, selected.is_some())?;
             match selected.map(|entry| entry.entry()) {
                 Some(tje_game::TranslatedEntry::Framed(_))
                     if self.state.plans.binding(target).is_some() => {}
@@ -530,6 +533,14 @@ where
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
     }
+    fn check_callee_dispatch(
+        &self,
+        dispatcher: Dispatcher,
+        entry: FunctionId,
+        rust_selected: bool,
+    ) -> Result<()> {
+        dispatcher.check_native_rust(entry, rust_selected)
+    }
     fn execution_class(&self) -> ExecutionClass {
         self.class
     }
@@ -541,6 +552,11 @@ where
         true
     }
     fn enter_call_ceiling(&mut self, entry: FunctionId) -> Result<CallCeilingScope> {
+        self.check_callee_dispatch(
+            self.dispatcher,
+            entry,
+            self.dispatcher.resolve_entry(entry)?.is_some(),
+        )?;
         let contract = tje_game::execution_contract(entry)
             .ok_or_else(|| error("native call has no reviewed execution contract"))?;
         Ok(self.clock.enter(

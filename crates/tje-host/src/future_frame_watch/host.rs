@@ -74,6 +74,33 @@ struct ProducerBinding {
 
 type WatchCell = Arc<Mutex<FutureFrameWatches>>;
 
+/// Read-only debt bound to the exact private watch graph that created it.
+/// Public report swaps, numeric reuse and serialized diagnostics cannot mint it.
+#[derive(Debug, Clone)]
+pub(crate) struct ProofDependency {
+    watches: WatchCell,
+    approval: ApprovalId,
+}
+impl ProofDependency {
+    pub(crate) fn outcome(&self) -> DependencyOutcome {
+        self.watches
+            .lock()
+            .expect("future-frame observer lock poisoned")
+            .dependency_outcome(self.approval)
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProofCaptureId(u64);
+#[derive(Debug)]
+struct ProofCaptureJournal {
+    id: ProofCaptureId,
+    dependencies: Vec<ProofDependency>,
+}
+pub(crate) struct ProofCaptureScope {
+    id: ProofCaptureId,
+    previous: Option<ProofCaptureJournal>,
+}
+
 fn serialize_watches<S: serde::Serializer>(
     watches: &Option<WatchCell>,
     serializer: S,
@@ -208,6 +235,7 @@ pub(crate) struct LiveObserverLease {
     branch: Option<BranchProvenance>,
     pub(crate) natural_checks: usize,
     isolated_depth: usize,
+    proof_capture: Option<ProofCaptureJournal>,
 }
 
 impl LiveObserverLease {
@@ -240,6 +268,49 @@ impl LiveObserverLease {
 }
 
 impl Host {
+    /// Enables only dependency observation; this grants no actor/live authority.
+    /// The off path remains None and allocates no capture storage.
+    pub(crate) fn begin_function_proof_capture(&mut self) -> Result<ProofCaptureScope> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map(ProofCaptureId)
+            .map_err(|_| {
+                HostError::Metadata("private proof-capture scope identity exhausted".into())
+            })?;
+        let previous = self
+            .future_observer
+            .proof_capture
+            .replace(ProofCaptureJournal {
+                id,
+                dependencies: Vec::new(),
+            });
+        Ok(ProofCaptureScope { id, previous })
+    }
+    pub(crate) fn finish_function_proof_capture(
+        &mut self,
+        mut scope: ProofCaptureScope,
+    ) -> Result<Vec<ProofDependency>> {
+        let current = self.future_observer.proof_capture.take();
+        let result = match current {
+            Some(current) if current.id == scope.id => {
+                if let Some(previous) = &mut scope.previous {
+                    previous
+                        .dependencies
+                        .extend(current.dependencies.iter().cloned());
+                }
+                Ok(current.dependencies)
+            }
+            _ => Err(HostError::Metadata(
+                "private proof-capture scope is missing or not the exact innermost journal".into(),
+            )),
+        };
+        self.future_observer.proof_capture = scope.previous;
+        result
+    }
     pub fn future_frame_provenance_outcome(&self) -> ProvenanceSummary {
         self.checks.future_frame_provenance.summary()
     }
@@ -355,6 +426,12 @@ impl Host {
                 rejection_counted: false,
             },
         );
+        if let Some(scope) = &mut self.future_observer.proof_capture {
+            scope.dependencies.push(ProofDependency {
+                watches: Arc::clone(cell),
+                approval,
+            });
+        }
         if natural {
             self.future_observer.install(
                 self.emulator.hybrid_bus_mut(),
@@ -424,6 +501,38 @@ impl Host {
             return Err(watch_error(error));
         }
         rejected
+    }
+
+    /// Return a partial tick's actual journal to any foreign observer without
+    /// applying watches, completing a step, or discharging a receipt.
+    pub(crate) fn abort_live_frame_observation(&mut self, observing: bool) {
+        if !observing {
+            return;
+        }
+        let branch = self
+            .future_observer
+            .branch
+            .as_ref()
+            .expect("live provenance lease");
+        {
+            let mut forward = branch
+                .forward
+                .as_ref()
+                .expect("live observer owner")
+                .lock()
+                .expect("future-frame observer lock poisoned");
+            let bus = self.emulator.hybrid_bus_mut();
+            let boundaries = bus
+                .hybrid_exception_boundaries
+                .as_deref()
+                .unwrap_or_default();
+            if let Some(accesses) = &mut bus.hybrid_cpu_accesses {
+                for access in accesses.drain(..) {
+                    forward.forward(access, boundaries);
+                }
+            }
+        }
+        self.future_observer.restore(self.emulator.hybrid_bus_mut());
     }
 
     pub(crate) fn future_frame_branch(
@@ -938,6 +1047,13 @@ impl Host {
                     )
                     .map(|_| ())
                 }
+                crate::CheckForkRoute::ReplayedEnvironment => {
+                    Err(crate::replayed_environment::unsupported(
+                        hook,
+                        crate::replayed_environment::UnsupportedKind::EntryBoundary,
+                        "replay fixture requires an actual live JSR/BSR witness; a prepared sentinel frame is not admission",
+                    ))
+                }
             };
         };
         let mut stack = crate::abi::StackAuditState::new(self.cpu().stack_pointer(), false);
@@ -987,6 +1103,13 @@ impl Host {
                     )
                     .map(|_| ())
                 }
+            }
+            crate::CheckForkRoute::ReplayedEnvironment => {
+                Err(crate::replayed_environment::unsupported(
+                    hook,
+                    crate::replayed_environment::UnsupportedKind::EntryBoundary,
+                    "replay fixture requires an actual live JSR/BSR witness; a prepared sentinel frame is not admission",
+                ))
             }
         };
         let observed = self.merge_future_frame_branch(stack.provenance.take());
@@ -1076,5 +1199,215 @@ impl Host {
                 result.as_ref().err().map(ToString::to_string),
             ));
         result
+    }
+}
+
+#[cfg(test)]
+mod proof_capture_tests {
+    //! Authored watch-model data, not live/Rust authority or a game proof.
+    use super::*;
+    use tje_game::ids;
+
+    fn machine() -> (Host, Hook) {
+        let mut host = crate::fixture::tests::synthetic_host(&[0x60fe], &[0x4e73]);
+        host.registry = crate::hooks::HookRegistry::filtered(
+            crate::Revision::Rev02,
+            &[],
+            &[ids::GET_RANDOM_NUMBER],
+        )
+        .unwrap();
+        host.mode = Mode::Check;
+        host.checks = crate::CheckReport::registered(&host.registry);
+        let hook = host
+            .registry
+            .at(ids::GET_RANDOM_NUMBER
+                .metadata()
+                .address(crate::Revision::Rev02))
+            .unwrap()
+            .clone();
+        (host, hook)
+    }
+    fn receipt() -> WatchReceipt {
+        let mut state = [0; 25];
+        state[15] = 0xff7000;
+        state[16] = 0xff7ff0;
+        state[17] = 0x100;
+        state[18] = 0x2300;
+        WatchReceipt::from_observed_irq(
+            Side::Original,
+            IrqIdentity {
+                vector: 30,
+                handler: 0x200,
+                exception_depth: 1,
+                entry_master_clock: 100,
+                interrupted_state: state,
+            },
+            vec![DifferingByte {
+                address: 0xff7fe8,
+                original: 0x12,
+                translated: 0x34,
+            }],
+            StackRegion {
+                start: 0xff0000,
+                end: 0xff8000,
+            },
+            &[FrameCommit {
+                kind: FrameCommitKind::RegisterSave,
+                access: HybridAccess::Write {
+                    address: 0xff7fe8,
+                    word: false,
+                    value: 0x12,
+                },
+            }],
+        )
+        .unwrap()
+    }
+    #[test]
+    fn exact_private_graph_debts_survive_nested_scopes_errors_and_public_report_swaps() {
+        let (mut host, hook) = machine();
+        let outer = host.begin_function_proof_capture().unwrap();
+        let first = host
+            .arm_future_frame_watch(&hook, "authored model", 1, vec![receipt()])
+            .unwrap()
+            .unwrap();
+        let inner = host.begin_function_proof_capture().unwrap();
+        host.arm_future_frame_watch(&hook, "authored nested model", 2, vec![receipt()])
+            .unwrap();
+        let failed_result: Result<()> = Err(HostError::Metadata("authored analysis error".into()));
+        assert!(failed_result.is_err());
+        let nested = host.finish_function_proof_capture(inner).unwrap();
+        assert_eq!(nested.len(), 1);
+        let dependencies = host.finish_function_proof_capture(outer).unwrap();
+        assert_eq!(
+            dependencies.len(),
+            2,
+            "outer scope retains its complete prefix and nested dependencies"
+        );
+        assert!(
+            dependencies
+                .iter()
+                .all(|dependency| dependency.outcome() == DependencyOutcome::Provisional)
+        );
+        let mut foreign = machine().0;
+        let foreign_hook = foreign
+            .registry
+            .at(hook.symbol.address(crate::Revision::Rev02))
+            .unwrap()
+            .clone();
+        let reused = foreign
+            .arm_future_frame_watch(&foreign_hook, "foreign authored model", 3, vec![receipt()])
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, reused);
+        let foreign_cell = foreign
+            .checks
+            .future_frame_provenance
+            .previous
+            .last()
+            .unwrap()
+            .watches
+            .as_ref()
+            .unwrap();
+        for entry in &mut foreign_cell.lock().unwrap().receipts {
+            entry.outcome = ReceiptOutcome::Discharged;
+        }
+        host.checks.future_frame_provenance = foreign.checks.future_frame_provenance;
+        assert_eq!(
+            host.future_frame_approval_outcome(first),
+            ApprovalOutcome::Discharged,
+            "public numeric lookup now concerns the foreign graph"
+        );
+        assert!(
+            dependencies
+                .iter()
+                .all(|dependency| dependency.outcome() == DependencyOutcome::Provisional),
+            "a reused number/report must not substitute the retained exact graph"
+        );
+        dependencies[0].watches.lock().unwrap().receipts.clear();
+        assert_ne!(
+            dependencies[0].outcome(),
+            DependencyOutcome::Discharged,
+            "missing evidence cannot close"
+        );
+    }
+    #[test]
+    fn off_path_does_not_capture_and_only_the_exact_graph_can_discharge_a_dependency() {
+        let (mut host, hook) = machine();
+        assert!(host.future_observer.proof_capture.is_none());
+        host.arm_future_frame_watch(&hook, "uncaptured authored model", 1, vec![receipt()])
+            .unwrap();
+        assert!(host.future_observer.proof_capture.is_none());
+        let scope = host.begin_function_proof_capture().unwrap();
+        host.arm_future_frame_watch(&hook, "captured authored model", 2, vec![receipt()])
+            .unwrap();
+        let dependencies = host.finish_function_proof_capture(scope).unwrap();
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies[0].outcome(), DependencyOutcome::Provisional);
+        for entry in &mut dependencies[0].watches.lock().unwrap().receipts {
+            entry.outcome = ReceiptOutcome::Discharged;
+        }
+        assert_eq!(dependencies[0].outcome(), DependencyOutcome::Discharged);
+        host.reset();
+        assert_eq!(
+            dependencies[0].outcome(),
+            DependencyOutcome::Discharged,
+            "reset archives do not replace or reconstruct the retained graph"
+        );
+    }
+
+    #[test]
+    fn partial_tick_returns_foreign_journal_without_applying_or_discharging_watches() {
+        use m68000_emu::ReadPurpose;
+        let (mut host, hook) = machine();
+        let prefix = HybridAccess::Read {
+            address: 0xff9000,
+            word: true,
+            value: 0x1234,
+            purpose: ReadPurpose::Semantic,
+        };
+        let overwrite = HybridAccess::Write {
+            address: 0xff7fe8,
+            word: false,
+            value: 0x34,
+        };
+        host.emulator.hybrid_bus_mut().hybrid_cpu_accesses = Some(vec![prefix]);
+        host.emulator.hybrid_bus_mut().hybrid_exception_boundaries = Some(Vec::new());
+        host.future_observer.natural_checks = 1;
+        let approval = host
+            .arm_future_frame_watch(&hook, "authored partial-tick model", 1, vec![receipt()])
+            .unwrap()
+            .unwrap();
+        let before = host.cpu().hybrid_state_words();
+        let observing = host.begin_live_frame_observation().unwrap();
+        assert!(observing);
+        host.emulator
+            .hybrid_bus_mut()
+            .hybrid_cpu_accesses
+            .as_mut()
+            .unwrap()
+            .push(overwrite);
+        host.abort_live_frame_observation(observing);
+        assert!(host.future_observer.branch.is_none());
+        assert_eq!(host.cpu().hybrid_state_words(), before);
+        assert_eq!(
+            host.emulator.hybrid_bus().hybrid_cpu_accesses.as_deref(),
+            Some([prefix, overwrite].as_slice())
+        );
+        assert!(
+            host.emulator
+                .hybrid_bus()
+                .hybrid_exception_boundaries
+                .as_ref()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            matches!(
+                host.future_frame_approval_outcome(approval),
+                ApprovalOutcome::Provisional { .. }
+            ),
+            "a partial tick cannot discharge the actual pending graph"
+        );
+        host.abort_live_frame_observation(false);
     }
 }

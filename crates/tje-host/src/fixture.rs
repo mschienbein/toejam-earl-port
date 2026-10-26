@@ -366,6 +366,16 @@ impl Host {
         inputs: &mut Inputs,
         force_counting: bool,
     ) -> Result<TickEffect> {
+        self.with_live_tick_observation(inputs, force_counting, Self::tick)
+    }
+
+    fn with_live_tick_observation(
+        &mut self,
+        inputs: &mut Inputs,
+        force_counting: bool,
+        tick: impl FnOnce(&mut Self, &mut Inputs) -> Result<TickEffect>,
+    ) -> Result<TickEffect> {
+        self.ensure_replayed_lifecycle()?;
         let pc = self.cpu().pc();
         let previous_line = self.emulator.hybrid_bus().vdp.scanline();
         let observing_calls = force_counting
@@ -378,21 +388,92 @@ impl Host {
             .cpu()
             .hybrid_instruction_counts()
             .is_some_and(|counts| counts.enabled());
+        let set_counting = |emulator: &mut genesis_core::GenesisEmulator, enabled| -> Result<()> {
+            #[cfg(feature = "reference-proof-hooks")]
+            {
+                emulator
+                    .set_reference_instruction_counting(enabled)
+                    .map_err(|error| {
+                        HostError::Metadata(format!(
+                            "passive live-tick counter configuration: {error}"
+                        ))
+                    })
+            }
+            #[cfg(not(feature = "reference-proof-hooks"))]
+            {
+                emulator
+                    .hybrid_parts()
+                    .0
+                    .hybrid_set_instruction_counting(enabled);
+                Ok(())
+            }
+        };
         if observing_calls {
-            self.emulator
-                .hybrid_parts()
-                .0
-                .hybrid_set_instruction_counting(true);
+            // Explicit persistent provider setup; never rewind an existing
+            // tally. The temporary enabled flag is restored below on every path.
+            #[cfg(feature = "reference-proof-hooks")]
+            self.emulator.ensure_reference_instruction_counter();
+            #[cfg(not(feature = "reference-proof-hooks"))]
+            if self.cpu().hybrid_instruction_counts().is_none() {
+                self.emulator
+                    .hybrid_parts()
+                    .0
+                    .hybrid_enable_instruction_counts();
+            }
+            if let Err(error) = set_counting(&mut self.emulator, true) {
+                self.abort_live_frame_observation(watch_before);
+                return Err(error);
+            }
         }
-        let effect = self.tick(inputs);
-        if observing_calls {
-            self.emulator
-                .hybrid_parts()
-                .0
-                .hybrid_set_instruction_counting(previous_counting);
-        }
-        let provenance = self.finish_live_frame_observation(watch_before);
-        let effect = effect?;
+        let replayed = match self.begin_replayed_tick() {
+            Ok(observing) => observing,
+            Err(error) => {
+                if observing_calls {
+                    // The original begin failure wins; cleanup is still tried.
+                    let _cleanup = set_counting(&mut self.emulator, previous_counting);
+                }
+                self.abort_live_frame_observation(watch_before);
+                return Err(error);
+            }
+        };
+        // Only active diagnostic loans require a finally boundary. This does
+        // not decode private aborts: the owning backend authenticates those.
+        let effect = if replayed || watch_before || observing_calls {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tick(self, inputs)))
+        } else {
+            Ok(tick(self, inputs))
+        };
+        let completed = matches!(effect.as_ref(), Ok(Ok(_)));
+        let replay_cleanup = if completed {
+            self.finish_replayed_tick(
+                replayed,
+                matches!(effect.as_ref(), Ok(Ok(TickEffect::FrameRendered))),
+                inputs.0,
+            )
+        } else {
+            self.abort_replayed_tick(replayed);
+            Ok(())
+        };
+        let counter_cleanup = if observing_calls {
+            set_counting(&mut self.emulator, previous_counting)
+        } else {
+            Ok(())
+        };
+        let provenance = if completed {
+            self.finish_live_frame_observation(watch_before)
+        } else {
+            self.abort_live_frame_observation(watch_before);
+            Ok(())
+        };
+        let effect = match effect {
+            Ok(effect) => effect?,
+            Err(payload) => std::panic::resume_unwind(payload),
+        };
+        // A tick error or unrelated panic above remains primary. All loans
+        // have been restored before propagating infrastructure failure, which
+        // remains primary over any later counter-cleanup failure.
+        replay_cleanup?;
+        counter_cleanup?;
         self.observe_call_return(effect == TickEffect::FrameRendered)?;
         provenance?;
         let vdp = &self.emulator.hybrid_bus().vdp;
@@ -418,6 +499,7 @@ impl Host {
             self.measurements.lag_events.push(event.clone());
             self.frame_progress.lag_events.push(event);
         }
+        self.flush_completed_replays()?;
         Ok(effect)
     }
 

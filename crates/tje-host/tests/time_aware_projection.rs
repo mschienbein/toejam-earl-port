@@ -1,5 +1,7 @@
-//! Private-cartridge integration regressions for the readable logic projection.
-//! Authored text and mutation inputs only; no captured cartridge state is stored.
+//! Authored check-only TimeAware/ClassDefined projection-regression fixtures.
+//! They invoke current owner entries without changing owner envelopes or status.
+//! No replay lineage, coverage, promotion or live/native eligibility is claimed.
+//! Authored text/mutations only; captured cartridge state is never committed.
 
 use std::{
     fs,
@@ -7,7 +9,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use tje_game::execution::ExecutionClass;
-use tje_game::{Context, FunctionId, Translation, core, earthlings, ids, speech};
+use tje_game::{Context, FunctionId, TranslatedEntry, core, earthlings, ids, speech};
 use tje_host::{
     Host, HostError, Mode,
     abi::HookContext,
@@ -27,34 +29,117 @@ fn rom(revision: Revision) -> Vec<u8> {
     fs::read(path).expect("private retail cartridge")
 }
 
-fn pending_registry(revision: Revision) -> HookRegistry {
-    static PENDING: LazyLock<Vec<Translation>> = LazyLock::new(|| {
-        core::TRANSLATIONS
-            .iter()
-            .chain(core::PENDING_TRANSLATIONS)
-            .chain(speech::TRANSLATIONS)
-            .chain(speech::PENDING_TRANSLATIONS)
-            .chain(earthlings::TRANSLATIONS)
-            .chain(earthlings::PENDING_TRANSLATIONS)
-            .filter(|translation| {
-                [
-                    ids::WAIT_FOR_NEXT_V_BLANK,
-                    ids::GENERATE_SPEECH,
-                    ids::START_DIALOGUE,
-                    ids::UPDATE_SPEECH_AND_DIALOGUE,
-                    ids::PROCESS_EARTHLINGS,
-                ]
-                .contains(&translation.id)
-            })
-            .copied()
-            .collect()
-    });
+const FIXTURE_IDS: [FunctionId; 5] = [
+    ids::WAIT_FOR_NEXT_V_BLANK,
+    ids::GENERATE_SPEECH,
+    ids::START_DIALOGUE,
+    ids::UPDATE_SPEECH_AND_DIALOGUE,
+    ids::PROCESS_EARTHLINGS,
+];
+static FIXTURE_ENTRIES: LazyLock<[TranslatedEntry<'static>; 5]> = LazyLock::new(|| {
+    FIXTURE_IDS.map(|id| {
+        if id == ids::UPDATE_SPEECH_AND_DIALOGUE {
+            // This current owner entry is value-form with zero arguments:
+            // invoke_prepared performs no eager slot snapshot for it.
+            let mut entries = tje_game::translations()
+                .chain(speech::PENDING_TRANSLATIONS)
+                .filter(|entry| entry.id == id);
+            let entry = entries.next().expect("named zero-argument owner entry");
+            assert!(entries.next().is_none(), "duplicate named fixture body");
+            assert_eq!(entry.id.metadata().abi.argument_count, 0);
+            TranslatedEntry::Values(entry)
+        } else {
+            let mut entries = tje_game::framed_translations()
+                .chain(core::PENDING_FRAMED_TRANSLATIONS)
+                .chain(speech::PENDING_FRAMED_TRANSLATIONS)
+                .chain(earthlings::PENDING_FRAMED_TRANSLATIONS)
+                .filter(|entry| entry.id == id);
+            let entry = entries.next().expect("named lazy framed owner entry");
+            assert!(entries.next().is_none(), "duplicate named fixture body");
+            TranslatedEntry::Framed(entry)
+        }
+    })
+});
+fn invoke_projection_fixture(
+    c: &mut HookContext<'_>,
+    id: FunctionId,
+) -> tje_host::Result<Option<u32>> {
+    FIXTURE_ENTRIES
+        .iter()
+        .copied()
+        .find(|entry| entry.id() == id)
+        .expect("explicit named fixture entry")
+        .invoke_prepared(c)
+        .map_err(HostError::from)
+}
+fn wait_fixture(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    invoke_projection_fixture(c, ids::WAIT_FOR_NEXT_V_BLANK)
+}
+fn generate_fixture(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    invoke_projection_fixture(c, ids::GENERATE_SPEECH)
+}
+fn dialogue_fixture(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    invoke_projection_fixture(c, ids::START_DIALOGUE)
+}
+fn update_speech_fixture(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    invoke_projection_fixture(c, ids::UPDATE_SPEECH_AND_DIALOGUE)
+}
+fn earthlings_fixture(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    invoke_projection_fixture(c, ids::PROCESS_EARTHLINGS)
+}
+fn projection_fixture_registry(revision: Revision) -> HookRegistry {
+    // Explicit instrumentation contracts test only the historical comparator.
+    // They do not relabel the selected owner's envelope or canonical origin.
+    let mut registry = HookRegistry::empty(revision);
+    for (id, body) in [
+        (ids::WAIT_FOR_NEXT_V_BLANK, wait_fixture as HookFn),
+        (ids::GENERATE_SPEECH, generate_fixture),
+        (ids::START_DIALOGUE, dialogue_fixture),
+        (ids::UPDATE_SPEECH_AND_DIALOGUE, update_speech_fixture),
+        (ids::PROCESS_EARTHLINGS, earthlings_fixture),
+    ] {
+        registry
+            .register_execution_contract(id.metadata().clone(), ExecutionClass::TimeAware, body)
+            .unwrap();
+    }
+    registry
+}
+
+#[test]
+fn projection_fixture_adapters_preserve_owner_envelopes_and_refuse_live_replacement() {
+    use tje_game::execution::ProofEnvelope;
     assert_eq!(
-        PENDING.len(),
-        5,
-        "all named regression bodies must be available"
+        tje_game::execution_contract(ids::WAIT_FOR_NEXT_V_BLANK)
+            .unwrap()
+            .proof_envelope,
+        ProofEnvelope::ReplayedEnvironment
     );
-    HookRegistry::proof(revision, &PENDING).unwrap()
+    for (id, entry) in FIXTURE_IDS.into_iter().zip(FIXTURE_ENTRIES.iter()) {
+        assert_eq!(entry.id(), id);
+        assert!(
+            matches!(
+                (*entry, id == ids::UPDATE_SPEECH_AND_DIALOGUE),
+                (TranslatedEntry::Values(_), true) | (TranslatedEntry::Framed(_), false)
+            ),
+            "projection fixtures retain the exact current named entry forms"
+        );
+    }
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let registry = projection_fixture_registry(revision);
+        for id in FIXTURE_IDS {
+            let hook = registry.at(id.metadata().address(revision)).unwrap();
+            assert_eq!(hook.proof_envelope, ProofEnvelope::ClassDefined);
+            assert_eq!(hook.execution_class, ExecutionClass::TimeAware);
+        }
+        let Err(error) = Host::new(&[], Mode::Replace, registry) else {
+            panic!("projection-only instrumentation cannot enter live replacement")
+        };
+        assert!(matches!(error, HostError::Metadata(_)), "{error}");
+        assert!(
+            error.to_string().contains("canonical production"),
+            "{error}"
+        );
+    }
 }
 
 fn check(host: &mut Host, id: FunctionId, arguments: &[u32]) {
@@ -89,11 +174,12 @@ fn speech_wait_fixture(host: &mut Host) {
 
 #[test]
 #[ignore = "requires both private cartridges; named natural windows before frame 2438"]
-fn named_natural_logic_windows_both_revisions() {
+fn projection_regression_named_natural_logic_windows_both_revisions() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
         let bytes = rom(revision);
-        let mut checked = Host::new(&bytes, Mode::Check, pending_registry(revision)).unwrap();
+        let mut checked =
+            Host::new(&bytes, Mode::Check, projection_fixture_registry(revision)).unwrap();
         let mut reference =
             Host::new(&bytes, Mode::Reference, HookRegistry::empty(revision)).unwrap();
         checked.set_wait_input_poller(script.clone());
@@ -149,15 +235,19 @@ fn named_natural_logic_windows_both_revisions() {
 }
 
 #[test]
-#[ignore = "HELD: historical Reference-only frame-10000 comparator fixture; awaiting genuine actual-call replay replacement, not passing evidence"]
+#[ignore = "HELD: historical authored frame-10000 fixture, superseded by the genuine committed two-player frame1089-to1090 case; never an old pass or startup/composition proof"]
 fn generate_speech_wait_after_reference_10000_frames_both_revisions() {
     let script = Arc::new(InputScript::parse(include_str!("../examples/start-game.json")).unwrap());
     for revision in [Revision::Rev02, Revision::Rev00] {
         // This is an explicitly labelled original-only advance. A continuous
         // readable check separately failed closed at REV 02 frame 7353 on
         // strict VDP state; this fixture does not claim that session passed.
-        let mut checked =
-            Host::new(&rom(revision), Mode::Reference, pending_registry(revision)).unwrap();
+        let mut checked = Host::new(
+            &rom(revision),
+            Mode::Reference,
+            projection_fixture_registry(revision),
+        )
+        .unwrap();
         checked.set_wait_input_poller(script.clone());
         for frame in 0..10000 {
             checked.run_frame(script.at(frame)).unwrap();
@@ -188,15 +278,18 @@ fn generate_speech_wait_after_reference_10000_frames_both_revisions() {
 
 fn wrong_wait(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     // Seed the real bug: incorrectly treat an enabled-display VBlank wait as done.
-    let _ = c.argument_u32(0);
+    let _ = c
+        .frame_state()
+        .expect("prepared projection fixture frame")
+        .argument_word(0)
+        .read(c);
     Ok(None)
 }
 fn changed_isr_visible_ram(c: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     let revision = c.revision();
     let previous = ram::g_v_blank_graphics_paused(revision).read(c);
     ram::g_v_blank_graphics_paused(revision).write(c, previous ^ 1);
-    let count = c.argument_u32(0);
-    core::wait_for_next_vblank(c, &[count])?;
+    invoke_projection_fixture(c, ids::WAIT_FOR_NEXT_V_BLANK)?;
     ram::g_v_blank_graphics_paused(revision).write(c, previous);
     Ok(None)
 }

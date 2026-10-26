@@ -24,6 +24,9 @@ use tje_game::execution::{ExecutionClass, WaitRequest};
 use tje_game::{Dispatcher, FunctionId};
 use tje_rom::Revision;
 
+mod return_state;
+pub(crate) use return_state::ReturnState;
+
 pub(crate) fn canonical_ram_address(address: u32) -> u32 {
     let physical = address & 0xFF_FFFF;
     if physical >= 0xE00000 {
@@ -79,10 +82,16 @@ pub(crate) struct AtomicRun {
     pub unwritten_stack_reads: Vec<crate::dependent_equivalence::journal::JournalRead>,
     pub admitted_stack_inputs: Vec<crate::readable_stack::AdmittedRead>,
     pub invocation_scope: Option<std::sync::Arc<crate::readable_stack::OriginalRootScope>>,
+    pub(crate) frozen_stack_alignment: Option<crate::replayed_environment::FrozenStackAlignment>,
 }
 
 impl AtomicRun {
     pub(crate) fn append(&mut self, other: Self) {
+        // A merged execution is not this Rust Context's observed assignment
+        // stream. Never adopt another fork's witness or infer its intermediate SP.
+        if let Some(alignment) = &mut self.frozen_stack_alignment {
+            alignment.poison();
+        }
         if let Some(scope) = other.invocation_scope {
             if let Some(current) = &self.invocation_scope {
                 if !std::sync::Arc::ptr_eq(current, &scope) {
@@ -783,6 +792,7 @@ impl<'a> HookContext<'a> {
     /// Merge real IRQ/recipe accesses into the existing active-frame audit.
     /// A wait must never reset initialized bytes or replace the frame identity.
     pub(crate) fn merge_clock_run(&mut self, run: ClockRun) {
+        self.poison_frozen_stack_alignment();
         if self.stack_audit.is_none() {
             self.time_audio = run.audio;
             self.time_frames += run.frames;
@@ -800,6 +810,40 @@ impl<'a> HookContext<'a> {
         self.readable_stack = stack.readable_stack.clone();
         self.stack_audit = Some(stack);
         *self.audit.get_mut() = audit;
+    }
+
+    /// Enabled only for a requested, admitted canonical Check analysis.
+    pub(crate) fn observe_frozen_stack_alignment(
+        &mut self,
+        request: crate::replayed_environment::CandidateRequest,
+    ) {
+        if self.mode != crate::Mode::Check || self.timed_execution {
+            return;
+        }
+        let alignment = &mut self.audit.get_mut().frozen_stack_alignment;
+        if let Some(existing) = alignment {
+            existing.poison();
+        } else {
+            *alignment = Some(crate::replayed_environment::FrozenStackAlignment::begin(
+                request,
+                self.emulator.hybrid_cpu(),
+            ));
+        }
+    }
+    fn poison_frozen_stack_alignment(&mut self) {
+        if let Some(alignment) = &mut self.audit.get_mut().frozen_stack_alignment {
+            alignment.poison();
+        }
+    }
+    fn observe_stack_assignment(&mut self, value: u32) {
+        if let Some(alignment) = &mut self.audit.get_mut().frozen_stack_alignment {
+            alignment.attempt(value);
+        }
+    }
+    fn observe_stack_banks(&mut self) {
+        if let Some(alignment) = &mut self.audit.get_mut().frozen_stack_alignment {
+            alignment.observe(self.emulator.hybrid_cpu());
+        }
     }
 
     /// Every operation that can tick/flush the bus consumes its observations
@@ -1121,6 +1165,7 @@ impl<'a> HookContext<'a> {
         HardwareBus { context: self }
     }
     pub fn cpu(&mut self) -> &mut M68000 {
+        self.poison_frozen_stack_alignment();
         self.emulator.hybrid_parts().0
     }
     pub(crate) fn exception_depth(&self) -> u32 {
@@ -1181,6 +1226,7 @@ impl<'a> HookContext<'a> {
         arguments: &[u32],
         want_value: bool,
     ) -> Result<Option<u32>> {
+        self.poison_frozen_stack_alignment();
         tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(contract.id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
@@ -1297,6 +1343,7 @@ impl<'a> HookContext<'a> {
         class: ExecutionClass,
         want_value: bool,
     ) -> Result<Option<u32>> {
+        self.poison_frozen_stack_alignment();
         tje_game::Platform::check_mmio_contract(self)?;
         if tje_game::exits::contract(id) != tje_game::exits::ExitContract::Rts {
             return Err(HostError::Metadata(format!(
@@ -1399,10 +1446,12 @@ impl<'a> HookContext<'a> {
         cpu.set_pc(return_pc, bus);
         bus.apply_pending_writes();
         self.flush_audit_accesses();
+        self.observe_stack_banks();
         Ok(())
     }
 
     pub(crate) fn transfer_to(&mut self, pc: u32) -> Result<()> {
+        self.poison_frozen_stack_alignment();
         tje_game::Platform::check_mmio_contract(self)?;
         let (cpu, bus) = self.emulator.hybrid_parts();
         cpu.set_pc(pc, bus);
@@ -1420,6 +1469,7 @@ impl<'a> HookContext<'a> {
         entry: FunctionId,
         request: tje_game::control::ExceptionRequest,
     ) -> Result<()> {
+        self.poison_frozen_stack_alignment();
         let transfer = tje_game::exits::ControlTransfer {
             entry,
             exit: tje_game::exits::Exit::Exception { request },
@@ -1526,6 +1576,7 @@ impl<'a> HookContext<'a> {
     }
 
     pub(crate) fn exception_returned(&mut self) {
+        self.poison_frozen_stack_alignment();
         let (cpu, bus) = self.emulator.hybrid_parts();
         cpu.hybrid_exception_returned();
         bus.observe_exception_boundary(m68000_emu::ExceptionBoundary::Returned {
@@ -1653,6 +1704,7 @@ impl tje_game::Platform for HookContext<'_> {
     }
 
     fn poll_yield(&mut self) -> tje_game::Result<()> {
+        self.poison_frozen_stack_alignment();
         self.check_mmio_contract()?;
         self.flush_audit_accesses();
         let result = (|| {
@@ -1686,6 +1738,7 @@ impl tje_game::Platform for HookContext<'_> {
     }
 
     fn wait_until(&mut self, request: WaitRequest) -> tje_game::Result<()> {
+        self.poison_frozen_stack_alignment();
         self.check_mmio_contract()?;
         self.flush_audit_accesses();
         let result = (|| {
@@ -1805,6 +1858,11 @@ impl tje_game::Context for HookContext<'_> {
         self.emulator.hybrid_cpu().address_registers()[index]
     }
     fn set_address_register(&mut self, index: usize, value: u32) {
+        // A7 is deliberately not aliased by this seven-register API. Preserve
+        // its existing panic, but poison before a caller can catch the attempt.
+        if index >= 7 {
+            self.poison_frozen_stack_alignment();
+        }
         let cpu = self.emulator.hybrid_parts().0;
         let mut addresses = cpu.address_registers();
         addresses[index] = value;
@@ -1813,23 +1871,28 @@ impl tje_game::Context for HookContext<'_> {
             cpu.user_stack_pointer(),
             cpu.supervisor_stack_pointer(),
         );
+        self.observe_stack_banks();
     }
     fn status_register(&self) -> u16 {
         self.emulator.hybrid_cpu().status_register()
     }
     fn set_status_register(&mut self, value: u16) {
-        if (self.emulator.hybrid_cpu().status_register() ^ value) & 0x2000 != 0
-            && let Some(observer) = &self.readable_stack
-        {
-            observer.guard.revoke_read_permissions();
+        if (self.emulator.hybrid_cpu().status_register() ^ value) & 0x2000 != 0 {
+            self.poison_frozen_stack_alignment();
+            if let Some(observer) = &self.readable_stack {
+                observer.guard.revoke_read_permissions();
+            }
         }
         self.emulator.hybrid_parts().0.set_status_register(value);
+        self.observe_stack_banks();
     }
     fn stack_pointer(&self) -> tje_game::Result<u32> {
         Ok(self.emulator.hybrid_cpu().stack_pointer())
     }
     fn set_stack_pointer(&mut self, value: u32) -> tje_game::Result<()> {
+        self.observe_stack_assignment(value);
         set_sp(self.emulator.hybrid_parts().0, value);
+        self.observe_stack_banks();
         Ok(())
     }
     fn frame_state(&self) -> Option<FrameState> {
@@ -2029,8 +2092,11 @@ impl tje_game::Context for HookContext<'_> {
         })
     }
     fn set_stack_banks(&mut self, banks: tje_game::exits::StackBanks) -> tje_game::Result<()> {
+        self.observe_stack_assignment(banks.user);
+        self.observe_stack_assignment(banks.supervisor);
         let cpu = self.emulator.hybrid_parts().0;
         cpu.set_address_registers(cpu.address_registers(), banks.user, banks.supervisor);
+        self.observe_stack_banks();
         Ok(())
     }
     fn execute_timing_program(
@@ -2038,6 +2104,7 @@ impl tje_game::Context for HookContext<'_> {
         entry: tje_game::FunctionId,
         source: &mut dyn tje_game::timing::TimingSource,
     ) -> tje_game::Result<tje_game::timing::TimedExit> {
+        self.poison_frozen_stack_alignment();
         use crate::timing_region::game_bridge::{
             self, EntryScope, ExecutionScope, PausedHostSource, PreparedInvocation, SourceAdvance,
             SourceProof, SourceRequest,
@@ -2330,6 +2397,18 @@ impl tje_game::Context for HookContext<'_> {
     fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
     }
+    fn check_callee_dispatch(
+        &self,
+        dispatcher: Dispatcher,
+        entry: tje_game::FunctionId,
+        rust_selected: bool,
+    ) -> tje_game::Result<()> {
+        if self.mode == crate::Mode::Replace {
+            dispatcher.check_native_rust(entry, rust_selected)
+        } else {
+            Ok(())
+        }
+    }
     fn execution_class(&self) -> ExecutionClass {
         self.execution_class
     }
@@ -2365,6 +2444,9 @@ impl tje_game::Context for HookContext<'_> {
             })
     }
     fn set_execution_class(&mut self, class: ExecutionClass) -> tje_game::Result<()> {
+        if class != ExecutionClass::Atomic {
+            self.poison_frozen_stack_alignment();
+        }
         if !self.execution_ceiling.permits(class) {
             return Err(tje_game::Error::ExecutionUnavailable {
                 caller: self.execution_ceiling,

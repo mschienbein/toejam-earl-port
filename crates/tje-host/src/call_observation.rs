@@ -248,15 +248,34 @@ impl Host {
                 "call entries must be tracked, nonempty, and enabled once".into(),
             ));
         }
-        trace.call_observer = Some(CallObserver::new(self.revision, entries));
-        self.emulator
-            .hybrid_parts()
-            .0
-            .hybrid_enable_instruction_counts();
-        self.emulator
-            .hybrid_parts()
-            .0
-            .hybrid_set_instruction_counting(false);
+        #[cfg(feature = "reference-proof-hooks")]
+        {
+            self.emulator.ensure_reference_instruction_counter();
+            self.emulator
+                .set_reference_instruction_counting(false)
+                .map_err(|error| {
+                    HostError::Metadata(format!("passive call-counter setup: {error}"))
+                })?;
+        }
+        #[cfg(not(feature = "reference-proof-hooks"))]
+        {
+            let (cpu, _) = self.emulator.hybrid_parts();
+            if cpu.hybrid_instruction_counts().is_none() {
+                cpu.hybrid_enable_instruction_counts();
+            }
+            cpu.hybrid_set_instruction_counting(false);
+        }
+        let baseline = self
+            .emulator
+            .hybrid_cpu()
+            .hybrid_instruction_counts()
+            .and_then(|counts| counts.main_thread.checked_add(counts.exception_handler))
+            .ok_or_else(|| {
+                HostError::Metadata("call-counter baseline is absent or overflowed".into())
+            })?;
+        let mut observer = CallObserver::new(self.revision, entries);
+        observer.previous_instructions = baseline;
+        trace.call_observer = Some(observer);
         Ok(())
     }
     pub fn take_call_observations(&mut self) -> Vec<CallObservation> {
@@ -306,7 +325,8 @@ impl Host {
         else {
             return Ok(());
         };
-        let (cpu, bus) = self.emulator.hybrid_parts();
+        let cpu = self.emulator.hybrid_cpu();
+        let bus = self.emulator.hybrid_bus();
         let counts = cpu
             .hybrid_instruction_counts()
             .expect("enabled with call observer");
@@ -327,9 +347,9 @@ impl Host {
                 }
                 None
             } else {
-                let (ram, _) = bus.memory.debug_ram_view();
+                let ram = bus.memory.hybrid_raw_main_ram();
                 let high = ram[((sp & 0xffff) / 2) as usize];
-                let low = ram[(((sp + 2) & 0xffff) / 2) as usize];
+                let low = ram[((sp.wrapping_add(2) & 0xffff) / 2) as usize];
                 Some((u32::from(high) << 16) | u32::from(low))
             }
         } else {

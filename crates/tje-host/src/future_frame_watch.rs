@@ -357,6 +357,15 @@ pub enum ApprovalOutcome {
     Invalidated { receipts: Vec<ReceiptId> },
 }
 
+/// Allocation-free observation only; no variant is an approval capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DependencyOutcome {
+    NotTracked,
+    Provisional,
+    Discharged,
+    Invalidated,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ReceiptEvidence {
     pub id: ReceiptId,
@@ -1035,6 +1044,30 @@ impl FutureFrameWatches {
             ApprovalOutcome::NotTracked
         }
     }
+    pub(crate) fn dependency_outcome(&self, approval: ApprovalId) -> DependencyOutcome {
+        let mut known = false;
+        let mut provisional = false;
+        for entry in &self.receipts {
+            if !entry.approvals.contains(&approval) {
+                continue;
+            }
+            known = true;
+            match entry.outcome {
+                ReceiptOutcome::Invalidated { .. } => return DependencyOutcome::Invalidated,
+                ReceiptOutcome::Discharged => {}
+                _ => provisional = true,
+            }
+        }
+        if provisional {
+            DependencyOutcome::Provisional
+        } else if known {
+            DependencyOutcome::Discharged
+        } else if approval.0 < self.next_approval {
+            DependencyOutcome::Provisional
+        } else {
+            DependencyOutcome::NotTracked
+        }
+    }
 
     pub fn evidence(&self) -> &[ReceiptEvidence] {
         &self.receipts
@@ -1099,5 +1132,5 @@ mod tests;
 mod live_tests;
 
 mod host;
-pub(crate) use host::{BranchProvenance, LiveObserverLease};
+pub(crate) use host::{BranchProvenance, LiveObserverLease, ProofDependency};
 pub use host::{ProvenanceReport, ProvenanceStatus, ProvenanceSummary};

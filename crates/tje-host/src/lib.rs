@@ -24,6 +24,7 @@ pub use check_failure::{CheckFailure, CheckFailurePolicy};
 pub mod check_projection;
 mod coverage;
 pub mod diagnostics;
+pub mod replayed_environment;
 pub use coverage::FunctionCoverageTable;
 pub mod dependent_equivalence;
 pub mod execution;
@@ -97,6 +98,11 @@ pub enum HostError {
         frame: u64,
         function: String,
         detail: String,
+    },
+    #[error("replayed-environment check unsupported for {function}: {reason:?}")]
+    ReplayUnsupported {
+        function: String,
+        reason: replayed_environment::Unsupported,
     },
 }
 
@@ -236,6 +242,10 @@ pub struct CheckReport {
     pub future_frame_provenance: future_frame_watch::ProvenanceReport,
     /// Snapshot published on failures and finalization, not an approval latch.
     pub readable_stack_guard: ReadableGuardMetrics,
+    /// Explicit tier only. Output diagnostics cannot mint admission or proof;
+    /// finalization consults the private original collector/obligation ledger.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replayed_environment: Option<replayed_environment::Report>,
 }
 
 impl CheckReport {
@@ -320,6 +330,7 @@ pub struct Host {
     pub(crate) session_trace: Option<session_trace::SessionTrace>,
     wait_clock: WaitClock,
     timing_services: Option<timing_region::game_bridge::TimingServices>,
+    replayed_state: Option<replayed_environment::State>,
     pub checks: CheckReport,
     pub measurements: Measurements,
 }
@@ -346,6 +357,17 @@ impl Host {
                 registry: registry.revision(),
                 rom: revision,
             });
+        }
+        if !registry.dispatcher().replays_callees()
+            && let Some(hook) = registry.iter().find(|hook| {
+                hook.proof_envelope == tje_game::execution::ProofEnvelope::ReplayedEnvironment
+            })
+        {
+            return Err(replayed_environment::unsupported(
+                hook,
+                replayed_environment::UnsupportedKind::Envelope,
+                "ReplayedEnvironment requires the explicit registry with sealed modular callee routes",
+            ));
         }
         if registry
             .iter()
@@ -378,12 +400,25 @@ impl Host {
                 mode,
             )?)
         };
-        let analysis_rom = (mode == Mode::Check || !registry.timing_sources().is_empty())
-            .then(|| AnalysisRom::new(rom.bytes(), &config));
+        let analysis_rom = (mode == Mode::Check
+            || !registry.timing_sources().is_empty()
+            || registry.dispatcher().replays_callees())
+        .then(|| AnalysisRom::new(rom.bytes(), &config));
+        let mut checks = CheckReport::registered(&registry);
+        let replayed_state = if registry.dispatcher().replays_callees() {
+            let divider = u32::try_from(config.clamped_m68k_divider().get()).map_err(|_| {
+                HostError::Metadata("configured clock divider exceeds the replay ABI".into())
+            })?;
+            let (state, report) =
+                replayed_environment::State::new(&registry, rom.bytes().len(), divider)?;
+            checks.replayed_environment = Some(report);
+            Some(state)
+        } else {
+            None
+        };
         let mut saves = NoCartridgeSaves;
         let mut emulator = GenesisEmulator::create(Some(rom.into_bytes()), config, &mut saves);
         emulator.enable_hybrid_write_trace();
-        let checks = CheckReport::registered(&registry);
         Ok(Self {
             emulator,
             analysis_rom,
@@ -412,6 +447,7 @@ impl Host {
                 ..WaitClock::default()
             },
             timing_services,
+            replayed_state,
             checks,
             measurements: Measurements::default(),
         })
@@ -480,6 +516,7 @@ impl Host {
         if self.mode == Mode::Replace {
             self.registry.ensure_replacement_admission()?;
         }
+        self.ensure_replayed_lifecycle()?;
         self.observe_retained_native_prefix()?;
         self.wait_clock.frame = self.frame;
         self.wait_clock.inputs = inputs;
@@ -492,6 +529,7 @@ impl Host {
             if ready {
                 self.observe_live_instruction(pc);
                 if self.mode != Mode::Reference
+                    && self.replayed_state.is_none()
                     && let Some(hook) = self.registry.at(pc).cloned()
                     && self.terminal_entry != Some(hook.symbol.id)
                     && (self.disabled_check_roots.is_empty()
@@ -578,6 +616,25 @@ impl Host {
     }
 
     fn check_hook(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
+        self.check_hook_observed(hook, None)
+            .map(|(outcome, _)| outcome)
+    }
+
+    fn check_hook_observed(
+        &mut self,
+        hook: &Hook,
+        observation: Option<replayed_environment::CandidateRequest>,
+    ) -> Result<(
+        tje_game::exits::EntryOutcome,
+        Option<replayed_environment::CandidateObservation>,
+    )> {
+        if hook.proof_envelope == tje_game::execution::ProofEnvelope::ReplayedEnvironment {
+            return Err(replayed_environment::unsupported(
+                hook,
+                replayed_environment::UnsupportedKind::EntryBoundary,
+                "replayed root requires a completed actual invocation, not the ordinary fork checker",
+            ));
+        }
         let calls_before = self.checks.calls;
         let mismatches_before = self.checks.mismatches;
         let earlier_approvals = self.checks.failures.len();
@@ -588,8 +645,9 @@ impl Host {
         }
         // Do not copy this frame's accumulated event trace into either fork.
         let live_trace = self.emulator.hybrid_bus_mut().hybrid_writes.take();
-        let attempted =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.check_hook_inner(hook)));
+        let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.check_hook_inner_observed(hook, observation)
+        }));
         self.emulator.hybrid_bus_mut().hybrid_writes = live_trace;
         let result = match attempted {
             Ok(result) => result,
@@ -627,7 +685,24 @@ impl Host {
         result
     }
 
-    fn check_hook_inner(&mut self, hook: &Hook) -> Result<tje_game::exits::EntryOutcome> {
+    /// Retain candidate evidence only for deferred independent strict coverage.
+    /// The ordinary wrapper requests no extra allocation or output observation.
+    fn check_hook_inner_observed(
+        &mut self,
+        hook: &Hook,
+        observation: Option<replayed_environment::CandidateRequest>,
+    ) -> Result<(
+        tje_game::exits::EntryOutcome,
+        Option<replayed_environment::CandidateObservation>,
+    )> {
+        if observation
+            .as_ref()
+            .is_some_and(|request| !request.matches_hook(hook))
+        {
+            return Err(HostError::Metadata(
+                "candidate observation is not bound to this admitted canonical body".into(),
+            ));
+        }
         let entry = exits::EntryState::capture(&self.context(), hook.exit_contract)?;
         let sp = entry.sp;
         let dma_plan = self.resolve_dependent_source(hook)?;
@@ -635,12 +710,13 @@ impl Host {
         let mut translated = self.fork();
         // The Rust outcome declares the finite original boundary, including
         // propagated resets, exception returns and persistent main-loop stages.
-        let mut translated_run = self.run_check_side(
+        let mut translated_run = self.run_check_side_observed(
             &mut translated,
             hook,
             CheckSide::Rust,
             call_clock::ClockRunPurpose::Baseline,
             crate::future_frame_watch::ObservationOrigin::CheckFork,
+            observation.clone(),
         )?;
         let original_side = CheckSide::Original {
             boundary: exits::reference_boundary(
@@ -659,6 +735,15 @@ impl Host {
             call_clock::ClockRunPurpose::Baseline,
             crate::future_frame_watch::ObservationOrigin::CheckFork,
         )?;
+        let candidate = observation.map(|request| {
+            replayed_environment::observe_candidate(
+                &translated,
+                hook.check_route(),
+                &translated_run.audit,
+                &translated_run.logic_trace,
+                request,
+            )
+        });
         self.measurements.check_original_wait_frames += original_run.wait_frames;
         self.measurements.check_rust_wait_frames += translated_run.wait_frames;
         self.checks.calls += 1;
@@ -745,7 +830,7 @@ impl Host {
                 if let Some(entry) = exits::terminal(translated_run.outcome) {
                     self.terminal_entry = Some(entry);
                 }
-                Ok(translated_run.outcome)
+                Ok((translated_run.outcome, candidate))
             }
             Err(mut error) => {
                 if let HostError::Mismatch { detail, .. } = &mut error {
@@ -947,53 +1032,8 @@ fn compare_calls_with_execution(
     abi: &tje_game::Abi,
     execution_class: ExecutionClass,
 ) -> std::result::Result<u64, String> {
-    let (a, b) = (original.hybrid_cpu(), translated.hybrid_cpu());
-    if a.pc() != b.pc() || a.stack_pointer() != b.stack_pointer() {
-        return Err(format!(
-            "return PC/SP: original={:08X}/{:08X}, Rust={:08X}/{:08X}",
-            a.pc(),
-            a.stack_pointer(),
-            b.pc(),
-            b.stack_pointer()
-        ));
-    }
-    if a.user_stack_pointer() != b.user_stack_pointer()
-        || a.supervisor_stack_pointer() != b.supervisor_stack_pointer()
-    {
-        return Err("banked USP/SSP state differs".into());
-    }
-    if a.hybrid_exception_depth() != b.hybrid_exception_depth() {
-        return Err("accepted exception nesting depth differs".into());
-    }
-    let (da, db) = (a.data_registers(), b.data_registers());
-    if abi.returns_value && da[0] != db[0] {
-        return Err(format!("D0: original={:08X}, Rust={:08X}", da[0], db[0]));
-    }
-    for index in 0..8 {
-        if (abi.strict_registers || abi.preserved_data & (1 << index) != 0)
-            && da[index] != db[index]
-        {
-            return Err(format!(
-                "ABI-preserved D{index}: original={:08X}, Rust={:08X}",
-                da[index], db[index]
-            ));
-        }
-    }
-    for index in 0..7 {
-        if (abi.strict_registers || abi.preserved_address & (1 << index) != 0)
-            && a.address_registers()[index] != b.address_registers()[index]
-        {
-            return Err(format!("ABI-preserved A{index} mismatch"));
-        }
-    }
-    let sr_mask = if abi.strict_registers { 0xFFFF } else { 0xFFE0 };
-    if a.status_register() & sr_mask != b.status_register() & sr_mask {
-        return Err(format!(
-            "SR control bits: original={:04X}, Rust={:04X}",
-            a.status_register(),
-            b.status_register()
-        ));
-    }
+    abi::ReturnState::capture(original.hybrid_cpu())
+        .compare(&abi::ReturnState::capture(translated.hybrid_cpu()), abi)?;
     let (a, b) = (original.hybrid_bus_mut(), translated.hybrid_bus_mut());
     let (ra, aa) = a.memory.debug_ram_view();
     let (rb, ab) = b.memory.debug_ram_view();

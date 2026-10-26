@@ -498,6 +498,20 @@ pub trait Context: Bus + Platform {
     ) -> Result<()> {
         Err(Error::Untranslated(function))
     }
+    /// Check-only modular boundary. Authenticate the actual catalogued call and
+    /// consumed inputs before importing justified effects. None is prepared
+    /// slots, never padding or an eager original argument snapshot.
+    fn call_replayed(&mut self, function: FunctionId, _arguments: Option<&[u32]>) -> Result<u32> {
+        Err(Error::Untranslated(function))
+    }
+    /// Void modular boundary: no original D0 observation is implied.
+    fn call_replayed_void(
+        &mut self,
+        function: FunctionId,
+        _arguments: Option<&[u32]>,
+    ) -> Result<()> {
+        Err(Error::Untranslated(function))
+    }
     /// Required by RTE and reset; Atomic-only contexts fail closed rather than
     /// inventing an inactive stack bank.
     fn stack_banks(&self) -> Result<exits::StackBanks> {
@@ -532,6 +546,17 @@ pub trait Context: Bus + Platform {
         error
     }
     fn dispatcher(&self) -> Dispatcher;
+    /// Bind a call to the backend's selected route before frame/materialization
+    /// effects. `rust_selected` is a denial fact computed by the framework, never
+    /// permission: false does not authorize an original-code execution.
+    fn check_callee_dispatch(
+        &self,
+        _dispatcher: Dispatcher,
+        _entry: FunctionId,
+        _rust_selected: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
     /// Default contexts support Atomic only. Clock-capable platforms override
     /// both methods and enforce their entry execution envelope.
     fn execution_class(&self) -> execution::ExecutionClass {
@@ -761,14 +786,90 @@ pub struct Dispatcher {
     framed_translations: &'static [FramedTranslation],
     subsystems: &'static [Subsystem],
     original_fallback: bool,
+    /// Zero is ordinary; nonzero is an opaque configuration minted per replay
+    /// construction and carried by copies, never by pointer/table membership.
+    replay_configuration: u64,
 }
 impl Dispatcher {
+    /// Explicit check-only catalogue. Root bodies come from supplied candidates
+    /// or semantic status tables; callee execution is an authenticated recorded
+    /// boundary, never a Rust dispatch or original-code fallback.
+    pub fn replayed_environment(
+        translations: &'static [Translation],
+        framed_translations: &'static [FramedTranslation],
+    ) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let replay_configuration = NEXT
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .expect("replay configuration identity exhausted");
+        Self {
+            translations,
+            framed_translations,
+            subsystems: SUBSYSTEMS,
+            original_fallback: false,
+            replay_configuration,
+        }
+    }
+
+    pub const fn replays_callees(self) -> bool {
+        self.replay_configuration != 0
+    }
+
+    /// Runtime barrier independent of body provenance and proof constructors.
+    /// Semantic tables are unavailable to ordinary production selection.
+    pub fn requires_replayed_environment(self) -> bool {
+        self.replays_callees()
+            || self
+                .translations
+                .iter()
+                .map(|entry| entry.id)
+                .chain(self.framed_translations.iter().map(|entry| entry.id))
+                .chain(self.subsystems.iter().flat_map(|owner| {
+                    owner
+                        .translations
+                        .iter()
+                        .map(|entry| entry.id)
+                        .chain(owner.framed_translations.iter().map(|entry| entry.id))
+                }))
+                .any(|id| {
+                    execution_contract(id).is_some_and(|contract| {
+                        contract.proof_envelope == execution::ProofEnvelope::ReplayedEnvironment
+                    })
+                })
+    }
+
+    /// Native/live Rust admission, independent of class, status and provenance.
+    /// An unselected exact compiled-original route needs its own authorization;
+    /// its readable catalogue envelope is not a ban on original instructions.
+    pub fn check_native_rust(self, id: FunctionId, rust_selected: bool) -> Result<()> {
+        if self.replays_callees() {
+            return Err(Error::Platform(
+                "recorded replay dispatch is check-only, not a native execution route".into(),
+            ));
+        }
+        if rust_selected
+            && execution_contract(id).is_some_and(|contract| {
+                contract.proof_envelope == execution::ProofEnvelope::ReplayedEnvironment
+            })
+        {
+            return Err(Error::Platform(format!(
+                "{} selects ReplayedEnvironment Rust, which is check-only and not native/live authority",
+                id.metadata().name,
+            )));
+        }
+        Ok(())
+    }
+
     pub const fn hybrid() -> Self {
         Self {
             translations: &[],
             framed_translations: &[],
             subsystems: SUBSYSTEMS,
             original_fallback: true,
+            replay_configuration: 0,
         }
     }
     /// A deliberately bounded hybrid registry is useful when verifying nested
@@ -779,6 +880,7 @@ impl Dispatcher {
             framed_translations: &[],
             subsystems: &[],
             original_fallback: true,
+            replay_configuration: 0,
         }
     }
 
@@ -790,6 +892,7 @@ impl Dispatcher {
             framed_translations: &[],
             subsystems: SUBSYSTEMS,
             original_fallback: true,
+            replay_configuration: 0,
         }
     }
     /// Native startup validates the full dependency closure of each requested
@@ -817,6 +920,7 @@ impl Dispatcher {
             framed_translations,
             subsystems: SUBSYSTEMS,
             original_fallback: false,
+            replay_configuration: 0,
         };
         let mut visited = std::collections::BTreeSet::new();
         let mut pending = roots.to_vec();
@@ -825,7 +929,10 @@ impl Dispatcher {
             if !visited.insert(id) {
                 continue;
             }
-            if !matches!(dispatcher.resolve_entry(id), Ok(Some(_))) || execution_class(id).is_none()
+            let selected = matches!(dispatcher.resolve_entry(id), Ok(Some(_)));
+            if !selected
+                || execution_class(id).is_none()
+                || dispatcher.check_native_rust(id, selected).is_err()
             {
                 missing.push(id);
             }
@@ -875,8 +982,16 @@ impl Dispatcher {
         result_use: CallReturn,
     ) -> Result<Option<u32>> {
         context.check_mmio_contract()?;
+        let entry = if self.replays_callees() {
+            None
+        } else {
+            self.resolve_entry(id)?
+        };
+        context.check_callee_dispatch(self, id, entry.is_some())?;
         result_use.check(id)?;
-        let entry = self.resolve_entry(id)?;
+        if self.replays_callees() {
+            return self.invoke_replayed(context, id, Some(arguments), result_use);
+        }
         if let Some(entry) = entry {
             self.invoke_translated(context, entry, Some(arguments), result_use)
         } else if self.original_fallback && exits::contract(id) == exits::ExitContract::Rts {
@@ -934,9 +1049,58 @@ impl Dispatcher {
         result_use: CallReturn,
     ) -> Result<Option<u32>> {
         context.check_mmio_contract()?;
+        let entry = if self.replays_callees() {
+            None
+        } else {
+            self.resolve_entry(id)?
+        };
+        context.check_callee_dispatch(self, id, entry.is_some())?;
         result_use.check(id)?;
-        let entry = self.resolve_entry(id)?.ok_or(Error::Untranslated(id))?;
+        if self.replays_callees() {
+            return self.invoke_replayed(context, id, None, result_use);
+        }
+        let entry = entry.ok_or(Error::Untranslated(id))?;
         self.invoke_translated(context, entry, None, result_use)
+    }
+
+    fn invoke_replayed(
+        self,
+        context: &mut dyn Context,
+        id: FunctionId,
+        arguments: Option<&[u32]>,
+        result_use: CallReturn,
+    ) -> Result<Option<u32>> {
+        if matches!(result_use, CallReturn::Value) && !id.metadata().abi.returns_value {
+            return Err(Error::CallReturnType {
+                function: id,
+                requested_value: true,
+            });
+        }
+        let class = execution_class(id).ok_or(Error::Unclassified(id))?;
+        if !context.execution_class().permits(class) {
+            return Err(Error::ExecutionUnavailable {
+                caller: context.execution_class(),
+                callee: class,
+            });
+        }
+        let ceiling = context.enter_call_ceiling(id)?;
+        let result = match result_use {
+            CallReturn::Value => context.call_replayed(id, arguments).map(Some),
+            CallReturn::Discard => context.call_replayed_void(id, arguments).map(|()| None),
+        }
+        .map_err(|error| context.protect_timing_failure(error));
+        let result = exits::validate_call(id, result, context.revision());
+        let result = Error::after_contract_check(context, result);
+        let cleanup = context.leave_call_ceiling(ceiling);
+        let result = match result {
+            Err(Error::ControlTransfer(transfer)) => match cleanup {
+                Err(error) => Err(Error::cleanup_after_transfer(transfer, error)),
+                Ok(()) => Err(Error::ControlTransfer(transfer)),
+            },
+            Err(error) => Err(error),
+            Ok(value) => cleanup.map(|()| value),
+        };
+        result.map_err(|error| context.protect_timing_failure(error))
     }
 
     fn invoke_translated(
@@ -1352,6 +1516,44 @@ mod tests {
         assert!(!is_atomic_capable(ids::SETUP_YM2612));
         let waiting = ids::WAIT_FOR_NEXT_V_BLANK;
         assert!(!is_atomic_capable(waiting));
+    }
+
+    #[test]
+    fn native_admission_is_selected_rust_policy_not_an_original_catalogue_id_ban() {
+        let ordinary = Dispatcher::hybrid();
+        for id in [
+            ids::WAIT_FOR_NEXT_V_BLANK,
+            ids::PROCESS_INPUT,
+            ids::GENERATE_SPEECH,
+        ] {
+            assert_eq!(
+                execution_contract(id).unwrap().proof_envelope,
+                execution::ProofEnvelope::ReplayedEnvironment
+            );
+            assert!(ordinary.check_native_rust(id, true).is_err());
+            assert!(
+                ordinary.check_native_rust(id, false).is_ok(),
+                "original-route policy is separate from readable catalogue status"
+            );
+            assert!(Dispatcher::native_with_frames(&[id], &[], &[]).is_err());
+        }
+        for id in [
+            ids::ABS,
+            ids::CLEAR_LOWER_VRAM_TILEMAP,
+            ids::EARTHLING_RETAIN_LEVEL_BANK,
+        ] {
+            assert_ne!(
+                execution_contract(id).unwrap().proof_envelope,
+                execution::ProofEnvelope::ReplayedEnvironment
+            );
+            assert!(ordinary.check_native_rust(id, true).is_ok());
+        }
+        let recorded = Dispatcher::replayed_environment(&[], &[]);
+        assert!(recorded.check_native_rust(ids::ABS, true).is_err());
+        assert!(
+            recorded.check_native_rust(ids::ABS, false).is_err(),
+            "false route facts cannot authorize recorded replay in a native context"
+        );
     }
 
     #[test]

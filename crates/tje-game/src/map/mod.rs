@@ -590,7 +590,7 @@ pub static EXECUTION_CONTRACTS: &[crate::execution::ExecutionContract] = &[
     crate::execution::ExecutionContract {
         function: ids::MAP_QUEUE_VISIBLE_METATILE_ROW,
         class: ExecutionClass::TimeAware,
-        proof_envelope: crate::execution::ProofEnvelope::ClassDefined,
+        proof_envelope: crate::execution::ProofEnvelope::ReplayedEnvironment,
         operational_ceiling: None,
         evidence: None,
     },

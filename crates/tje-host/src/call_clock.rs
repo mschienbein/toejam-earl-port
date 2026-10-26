@@ -76,13 +76,7 @@ impl CallClockRecord {
                 }
             },
             reviewed_evidence: hook.clock_evidence,
-            proof_envelope: match hook.proof_envelope {
-                tje_game::execution::ProofEnvelope::ClassDefined => "ClassDefined",
-                tje_game::execution::ProofEnvelope::ClockedStrict => "ClockedStrict",
-                tje_game::execution::ProofEnvelope::ClockedCommutingInterrupts => {
-                    "ClockedCommutingInterrupts"
-                }
-            },
+            proof_envelope: hook.proof_envelope.as_str(),
             explicit_proof_only_admission: hook.proof_only_admission(),
             comparison_profile: match hook.check_route() {
                 crate::CheckForkRoute::FrozenAtomic => "frozen Atomic ABI/RAM/device check",
@@ -95,6 +89,9 @@ impl CallClockRecord {
                 }
                 crate::CheckForkRoute::ClockedStrict => {
                     "full encoded physical state + raw CPU/RAM/DMA/timed-device/audio; no quotient"
+                }
+                crate::CheckForkRoute::ReplayedEnvironment => {
+                    "recorded environment, own accesses exact; callees substituted and proven separately"
                 }
             },
             consumed_ticks: usage.ticks,

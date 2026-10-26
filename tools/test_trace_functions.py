@@ -135,10 +135,14 @@ class TraceFunctionsTests(unittest.TestCase):
         self.assertTrue(rows[5].entry.fragment)
 
     def test_literal_contract_envelope_does_not_reclassify_the_source(self) -> None:
-        self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
-            "ProofEnvelope::ClassDefined", "ProofEnvelope::ClockedStrict"))
-        self.assertEqual(self.rows()[1].execution_class, "Functional")
-        self.assertEqual(self.rows()[2].execution_class, "TimeAware")
+        for envelope in ["ClockedStrict", "ClockedCommutingInterrupts", "ReplayedEnvironment"]:
+            with self.subTest(envelope=envelope):
+                self.put("crates/tje-game/src/core/contracts.rs", self.contracts.replace(
+                    "ProofEnvelope::ClassDefined", f"ProofEnvelope::{envelope}"))
+                rows = self.rows()
+                self.assertEqual(rows[1].execution_class, "Functional")
+                self.assertEqual(rows[2].execution_class, "TimeAware")
+                self.assertEqual(rows[1].status, "pending")
 
     def test_legacy_tuple_missing_policy_and_unknown_envelope_fail_closed(self) -> None:
         for source, message in [

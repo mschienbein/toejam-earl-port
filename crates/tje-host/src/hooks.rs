@@ -1,6 +1,9 @@
 mod admission;
+mod replay;
+pub(crate) use admission::BodyIdentity;
 pub use admission::BodyProvenance;
 use admission::{RegistryAdmission, body_provenance};
+pub(crate) use replay::ReplayBinding;
 
 use crate::{
     HostError, Result,
@@ -47,6 +50,7 @@ pub struct Hook {
     pub proof_envelope: ProofEnvelope,
     proof_only_admission: bool,
     body_provenance: BodyProvenance,
+    body_identity: BodyIdentity,
     pub exit_contract: ExitContract,
     pub(crate) dependent_proof: Option<crate::dependent_equivalence::ProofSetting>,
     pub(crate) coverage_index: usize,
@@ -73,7 +77,23 @@ impl Hook {
         self.body_provenance
     }
 
+    pub(crate) fn body_identity(&self) -> BodyIdentity {
+        self.body_identity
+    }
+
+    pub(crate) fn replay_selection(&self) -> Option<SelectedEntry> {
+        match self.body {
+            Body::Game(selection) | Body::Framed(selection) => Some(selection),
+            Body::Host(_) | Body::Continuation(_) => None,
+        }
+    }
+
     pub(crate) fn ensure_replacement_admission(&self) -> Result<()> {
+        if self.proof_envelope == ProofEnvelope::ReplayedEnvironment {
+            return Err(HostError::Metadata(
+                "ReplayedEnvironment is check-only, not replacement/composition authority".into(),
+            ));
+        }
         if self.proof_only_admission || self.body_provenance != BodyProvenance::CanonicalProduction
         {
             return Err(HostError::Metadata(format!(
@@ -91,6 +111,12 @@ impl Hook {
 
     pub(crate) fn execute(&self, context: &mut HookContext<'_>) -> Result<EntryOutcome> {
         tje_game::Platform::check_mmio_contract(context)?;
+        tje_game::Context::check_callee_dispatch(
+            context,
+            tje_game::Context::dispatcher(context),
+            self.symbol.id,
+            true,
+        )?;
         let ceiling = context.enter_call_ceiling_contract(
             self.symbol.id,
             self.execution_class,
@@ -210,6 +236,7 @@ impl Hook {
             .ok_or_else(|| HostError::Metadata("not a reviewed main-loop continuation".into()))?;
         let mut hook = self.clone();
         hook.body = Body::Continuation(function);
+        hook.body_identity = BodyIdentity::new();
         // Replacing a body invalidates canonical approval independently of the
         // inherited constructor provenance and owner execution/check policy.
         hook.body_provenance = BodyProvenance::CandidateOverride;
@@ -225,6 +252,7 @@ pub struct HookRegistry {
     dispatcher: Dispatcher,
     timing_sources: &'static [&'static tje_game::timing::Program],
     admission: RegistryAdmission,
+    replay_routes: replay::ReplayRoutes,
 }
 impl Default for HookRegistry {
     fn default() -> Self {
@@ -256,12 +284,16 @@ impl HookRegistry {
     }
 
     pub fn empty(revision: Revision) -> Self {
+        let dispatcher = Dispatcher::hybrid();
+        let mut admission = RegistryAdmission::default();
+        admission.record_dispatcher_policy(dispatcher);
         Self {
             hooks: BTreeMap::new(),
             revision,
-            dispatcher: Dispatcher::hybrid(),
+            dispatcher,
             timing_sources: &[],
-            admission: RegistryAdmission::default(),
+            admission,
+            replay_routes: replay::ReplayRoutes::default(),
         }
     }
     pub fn translated(revision: Revision) -> Result<Self> {
@@ -298,7 +330,7 @@ impl HookRegistry {
                 let selected = dispatcher.resolve_entry(translation.id)?.ok_or_else(|| {
                     HostError::Metadata("missing production value selection".into())
                 })?;
-                registry.register_selected(selected)?;
+                registry.register_selected(selected, None)?;
             }
         }
         for translation in tje_game::framed_translations() {
@@ -308,7 +340,7 @@ impl HookRegistry {
                 let selected = dispatcher.resolve_entry(translation.id)?.ok_or_else(|| {
                     HostError::Metadata("missing production framed selection".into())
                 })?;
-                registry.register_selected(selected)?;
+                registry.register_selected(selected, None)?;
             }
         }
         Ok(registry)
@@ -342,7 +374,7 @@ impl HookRegistry {
                 .dispatcher
                 .resolve_entry(id)?
                 .ok_or_else(|| HostError::Metadata("missing custom selection".into()))?;
-            registry.register_selected(selected)?;
+            registry.register_selected(selected, None)?;
         }
         Ok(registry)
     }
@@ -405,9 +437,94 @@ impl HookRegistry {
                     .dispatcher
                     .resolve_entry(id)?
                     .ok_or_else(|| HostError::Metadata("missing proof selection".into()))?;
-                registry.register_selected(selected)?;
+                registry.register_selected(selected, None)?;
             }
         }
+        Ok(registry)
+    }
+
+    /// Explicit check-only own-function replay. Supplied arrays remain
+    /// candidates; semantic status tables never mint canonical production
+    /// origin. The filter selects replay roots only. Active canonical bodies
+    /// are independent strict roots for same-state callee coverage.
+    pub fn proof_replayed_environment(
+        revision: Revision,
+        pending: &'static [Translation],
+        framed: &'static [FramedTranslation],
+        functions: &[FunctionId],
+    ) -> Result<Self> {
+        if cfg!(panic = "abort") || !cfg!(feature = "reference-proof-hooks") {
+            return Err(HostError::ReplayUnsupported {
+                function: "replay registry".into(),
+                reason: crate::replayed_environment::Unsupported {
+                    kind: crate::replayed_environment::UnsupportedKind::PlatformCapability,
+                    detail: "replay requires an unwind-enabled native analysis build and reference-proof-hooks actual-read context capability; no fake operand is returned".into(),
+                },
+            });
+        }
+        let mut registry = Self::empty(revision);
+        registry.dispatcher = Dispatcher::replayed_environment(pending, framed);
+        registry.dispatcher.validate_entries()?;
+        registry.admission.proof_only = true;
+        registry
+            .admission
+            .record_dispatcher_policy(registry.dispatcher);
+        registry
+            .admission
+            .record_dispatcher_entries(pending, framed);
+        let roots: std::collections::BTreeSet<_> = if functions.is_empty() {
+            pending
+                .iter()
+                .map(|entry| entry.id)
+                .chain(framed.iter().map(|entry| entry.id))
+                .chain(tje_game::replayed_translations().map(|entry| entry.id))
+                .chain(tje_game::replayed_framed_translations().map(|entry| entry.id))
+                .collect()
+        } else {
+            functions.iter().copied().collect()
+        };
+        let routes = replay::ReplayRoutes::bind(registry.dispatcher)?;
+        for &id in &roots {
+            let binding = routes.get(id).ok_or_else(|| {
+                HostError::Metadata(format!(
+                    "replay root has no selected readable body: {}",
+                    id.metadata().name
+                ))
+            })?;
+            let selected = binding.selection();
+            if selected.is_canonical_production() {
+                return Err(HostError::ReplayUnsupported {
+                    function: id.metadata().name.to_owned(),
+                    reason: crate::replayed_environment::Unsupported {
+                        kind: crate::replayed_environment::UnsupportedKind::Envelope,
+                        detail: "replay roots must be supplied candidates or separate semantic-table bodies, not production aliases".into(),
+                    },
+                });
+            }
+            registry.register_selected(selected, Some(binding.body()))?;
+            let hook = registry
+                .hooks
+                .get(&id.metadata().address(revision))
+                .expect("registered replay root");
+            crate::replayed_environment::validate_configuration(hook)?;
+        }
+        for binding in routes
+            .iter()
+            .filter(|binding| binding.selection().is_canonical_production())
+        {
+            registry.register_selected(binding.selection(), Some(binding.body()))?;
+            let hook = registry
+                .hooks
+                .get(&binding.id().metadata().address(revision))
+                .expect("registered strict root");
+            if hook.proof_envelope == ProofEnvelope::ReplayedEnvironment {
+                return Err(HostError::Metadata(format!(
+                    "{} is a production body with a check-only replay contract; migrate its status explicitly",
+                    hook.symbol.name,
+                )));
+            }
+        }
+        registry.replay_routes = routes;
         Ok(registry)
     }
 
@@ -426,22 +543,37 @@ impl HookRegistry {
         Ok(registry)
     }
 
-    fn register_selected(&mut self, selected: SelectedEntry) -> Result<()> {
+    fn register_selected(
+        &mut self,
+        selected: SelectedEntry,
+        identity: Option<BodyIdentity>,
+    ) -> Result<()> {
         let class = tje_game::execution_class(selected.id()).ok_or_else(|| {
             HostError::Metadata(format!(
                 "{} has no unique reviewed execution class",
                 selected.id().metadata().name,
             ))
         })?;
-        self.insert_selected(selected, class)
+        self.insert_selected(selected, class, identity)
     }
 
-    fn insert_selected(&mut self, selected: SelectedEntry, class: ExecutionClass) -> Result<()> {
+    fn insert_selected(
+        &mut self,
+        selected: SelectedEntry,
+        class: ExecutionClass,
+        identity: Option<BodyIdentity>,
+    ) -> Result<()> {
         let body = match selected.entry() {
             TranslatedEntry::Values(_) => Body::Game(selected),
             TranslatedEntry::Framed(_) => Body::Framed(selected),
         };
-        self.insert_execution(HookSymbol::Generated(selected.id().metadata()), class, body)
+        self.insert_exit(
+            HookSymbol::Generated(selected.id().metadata()),
+            class,
+            exits::contract(selected.id()),
+            body,
+            identity,
+        )
     }
     fn insert(&mut self, symbol: HookSymbol, atomic_capable: bool, body: Body) -> Result<()> {
         if !atomic_capable {
@@ -462,7 +594,7 @@ impl HookRegistry {
             HookSymbol::Generated(_) => exits::contract(symbol.id),
             HookSymbol::Authored(_) => ExitContract::Rts,
         };
-        self.insert_exit(symbol, execution_class, exit_contract, body)
+        self.insert_exit(symbol, execution_class, exit_contract, body, None)
     }
 
     fn insert_exit(
@@ -471,6 +603,7 @@ impl HookRegistry {
         execution_class: ExecutionClass,
         exit_contract: ExitContract,
         body: Body,
+        identity: Option<BodyIdentity>,
     ) -> Result<()> {
         let (proof_envelope, clock_ceiling, clock_evidence) = match &symbol {
             HookSymbol::Generated(_) => {
@@ -524,6 +657,7 @@ impl HookRegistry {
                 proof_envelope,
                 proof_only_admission: self.admission.proof_only,
                 body_provenance,
+                body_identity: identity.unwrap_or_else(BodyIdentity::new),
                 exit_contract,
                 coverage_index,
                 body,
@@ -534,6 +668,7 @@ impl HookRegistry {
             },
         );
         self.admission.record_hook(body_provenance);
+        self.admission.record_envelope(proof_envelope);
         Ok(())
     }
     /// Explicit host-side instrumentation hook; production game bodies live only
@@ -620,6 +755,7 @@ impl HookRegistry {
             execution_class,
             exit_contract,
             Body::Host(function),
+            None,
         )
     }
 
@@ -635,7 +771,7 @@ impl HookRegistry {
                 "value registration requires a value selection".into(),
             ));
         }
-        self.insert_selected(selected, execution_class)
+        self.insert_selected(selected, execution_class, None)
     }
     /// Register the exact active framed selection by id, retaining its origin.
     /// No caller-supplied function/ref comparison or entry-form adaptation occurs.
@@ -652,7 +788,7 @@ impl HookRegistry {
                 "framed registration requires the active framed dispatcher selection".into(),
             ));
         }
-        self.insert_selected(selected, execution_class)
+        self.insert_selected(selected, execution_class, None)
     }
     pub(crate) fn ensure_replacement_admission(&self) -> Result<()> {
         self.admission.ensure_replacement()
@@ -663,6 +799,19 @@ impl HookRegistry {
     }
     pub(crate) fn dispatcher(&self) -> Dispatcher {
         self.dispatcher
+    }
+    pub(crate) fn replay_binding(&self, function: FunctionId) -> Option<ReplayBinding> {
+        self.replay_routes.get(function)
+    }
+    pub(crate) fn dispatcher_for_hook(&self, hook: &Hook) -> Dispatcher {
+        if self.dispatcher.replays_callees()
+            && hook.proof_envelope != ProofEnvelope::ReplayedEnvironment
+        {
+            // Independent strict production proof, not transitive replay.
+            Dispatcher::hybrid()
+        } else {
+            self.dispatcher
+        }
     }
     /// Prepare only explicitly selected framed bodies. Descriptors grant no
     /// translation activation, execution-class change, IRQ or proof authority.

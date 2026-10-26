@@ -383,7 +383,7 @@ class Sources:
                         constant = identity(values["function"])
                         execution_class = text(values["class"]).split("::")[-1]
                         envelope = text(values["proof_envelope"]).split("::")[-1]
-                        if envelope not in {"ClassDefined", "ClockedStrict", "ClockedCommutingInterrupts"}:
+                        if envelope not in {"ClassDefined", "ClockedStrict", "ClockedCommutingInterrupts", "ReplayedEnvironment"}:
                             raise TraceError(f"unknown proof envelope: {envelope}")
                         if execution_class == "Atomic" and envelope == "ClassDefined" and text(values["operational_ceiling"]) == "None":
                             raise TraceError("plain Atomic declarations belong in ATOMIC_CAPABLE")

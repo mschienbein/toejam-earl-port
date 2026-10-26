@@ -409,6 +409,11 @@ impl OutgoingArguments {
     ) -> Result<Option<u32>> {
         site.validate()?;
         context.check_mmio_contract()?;
+        context.check_callee_dispatch(
+            dispatcher,
+            id,
+            !dispatcher.replays_callees() && dispatcher.resolve_entry(id)?.is_some(),
+        )?;
         result_use.check(id)?;
         let parent = context.frame_state().ok_or(FrameError::Unavailable)?;
         let current_sp = context.stack_pointer()?;
@@ -419,8 +424,14 @@ impl OutgoingArguments {
             }
             .into());
         }
-        let translation = dispatcher.resolve_entry(id)?;
-        if translation.is_none()
+        let modular = dispatcher.replays_callees();
+        let translation = if modular {
+            None
+        } else {
+            dispatcher.resolve_entry(id)?
+        };
+        let native_return = modular || translation.is_some();
+        if !native_return
             && (!dispatcher.allows_original_fallback()
                 || crate::exits::contract(id) != crate::exits::ExitContract::Rts)
         {
@@ -441,7 +452,7 @@ impl OutgoingArguments {
         context.observe_call_boundary(CallBoundaryEvent::prepared_enter(id, parent, entry, site));
         let mut restore_parent = false;
         let result = (|| {
-            let result = if translation.is_some() {
+            let result = if native_return {
                 dispatcher.call_prepared(context, id, result_use)
             } else {
                 match result_use {
@@ -460,7 +471,7 @@ impl OutgoingArguments {
                 return result;
             }
             let result = match result {
-                Ok(value) if translation.is_some() => {
+                Ok(value) if native_return => {
                     let completed =
                         context.consume_timing_completion(crate::timing::CompletionRequest {
                             entry: id,
@@ -591,6 +602,11 @@ fn call_at_with_return(
 ) -> Result<Option<u32>> {
     site.validate()?;
     context.check_mmio_contract()?;
+    context.check_callee_dispatch(
+        dispatcher,
+        id,
+        !dispatcher.replays_callees() && dispatcher.resolve_entry(id)?.is_some(),
+    )?;
     result_use.check(id)?;
     let outgoing = OutgoingArguments::push(context, arguments)?;
     let result = outgoing.call_with_return(context, dispatcher, id, site, result_use);

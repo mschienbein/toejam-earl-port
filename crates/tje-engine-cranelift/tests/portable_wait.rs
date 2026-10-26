@@ -1,9 +1,12 @@
 #![cfg(feature = "devices")]
-//! Private-cartridge proof of the canonical framed body through real Context.
+//! Private-cartridge timing mechanisms. Selected Replay-only Rust cases stay
+//! HELD; separately authenticated compiled originals are not readable-body proof.
 #[path = "portable_wait/nonleaf.rs"]
 mod nonleaf;
 #[path = "portable_wait/prepared_failures.rs"]
 mod prepared_failures;
+#[path = "portable_wait/replay_policy.rs"]
+mod replay_policy;
 use bincode::{Decode, Encode};
 use genesis_config::{
     GenesisButton, GenesisController, GenesisControllerType, GenesisEmulatorConfig, GenesisInputs,
@@ -635,7 +638,7 @@ fn run_case(
 }
 
 #[test]
-#[ignore = "requires both private ROM revisions and recorded controller-edge sessions"]
+#[ignore = "HELD: selected WAIT Rust is Replay-only; old diagnostic is not current native/composition authority"]
 fn both_revision_canonical_context_wait_composes_with_actual_compiled_irqs() {
     for (revision, rom_key, session_key) in [
         (Revision::Rev02, "TJE_REV02_ROM", "TJE_TIMING_SESSION_REV02"),
@@ -906,7 +909,7 @@ impl FrameTimeline for LatchedTimeline<'_> {
 }
 
 #[test]
-#[ignore = "requires both private ROMs and recorded controller-edge sessions"]
+#[ignore = "HELD: selected WAIT Rust is Replay-only; old diagnostic is not current native/composition authority"]
 fn warm_real_source_entries_and_actual_compiled_irqs_allocate_zero() {
     for (revision, rom_key, session_key) in [
         (Revision::Rev02, "TJE_REV02_ROM", "TJE_TIMING_SESSION_REV02"),
@@ -1304,7 +1307,7 @@ impl StepObserver for ActualEntryObserver {
     }
 }
 #[test]
-#[ignore = "requires private ROMs and actual controller-edge IRQ sessions"]
+#[ignore = "HELD: selected WAIT Rust is Replay-only; wrong-RTE diagnostic requires a separately reviewed non-Replay route"]
 fn actual_wrong_frame_rte_keeps_real_return_marker_and_state_but_rejects_approval() {
     for (revision, rom_key, session_key) in [
         (Revision::Rev02, "TJE_REV02_ROM", "TJE_TIMING_SESSION_REV02"),

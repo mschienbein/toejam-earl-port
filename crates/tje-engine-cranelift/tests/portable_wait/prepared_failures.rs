@@ -86,7 +86,7 @@ impl FrameTimeline for OutputFailure<'_> {
 }
 
 #[test]
-#[ignore = "requires both private ROMs and real compiled IRQ controller-edge sessions"]
+#[ignore = "HELD: selected WAIT Rust is Replay-only; old prepared-failure diagnostic is not native authority"]
 fn prepared_callee_failures_keep_actual_native_state_and_do_not_release_arguments() {
     for (revision, rom_key, session_key) in [
         (Revision::Rev02, "TJE_REV02_ROM", "TJE_TIMING_SESSION_REV02"),

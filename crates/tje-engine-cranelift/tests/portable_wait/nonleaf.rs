@@ -27,7 +27,7 @@ static ROOT_AND_ORPHAN: &[FramedTranslation] = &[
     },
 ];
 
-static ROOT_ONLY: &[FramedTranslation] = &[FramedTranslation {
+pub(super) static ROOT_ONLY: &[FramedTranslation] = &[FramedTranslation {
     id: ids::CLEAR_LOWER_VRAM_TILEMAP,
     function: timed_clear_lower::clear_lower_vram_tilemap_framed,
 }];
@@ -52,7 +52,7 @@ const STRICT: CaseConfig = CaseConfig {
     framed: ROOT_AND_WAIT,
     profile: CallProfile::NativeStrictReadable,
 };
-const TRANSITIONAL: CaseConfig = CaseConfig {
+pub(super) const TRANSITIONAL: CaseConfig = CaseConfig {
     root: ids::CLEAR_LOWER_VRAM_TILEMAP,
     sources: CALLER_SOURCE,
     framed: ROOT_ONLY,
@@ -60,7 +60,7 @@ const TRANSITIONAL: CaseConfig = CaseConfig {
 };
 
 #[test]
-#[ignore = "private ROMs/controller recordings; canonical nonleaf source+callee composition"]
+#[ignore = "HELD mixed diagnostic: selected WAIT Rust is Replay-only; separate compiled-original control is replay_policy"]
 fn both_revisions_nonleaf_strict_rust_and_explicit_compiled_original_callee_profiles() {
     for (revision, rom_key, session_key) in [
         (Revision::Rev02, "TJE_REV02_ROM", "TJE_TIMING_SESSION_REV02"),
@@ -241,7 +241,7 @@ fn capture_before_original_call(
 }
 
 #[test]
-#[ignore = "private ROMs/controller recordings; structural ONE-call window, not whole-root translation"]
+#[ignore = "HELD: selected timed WAIT grandchild is Replay-only; original-only native receipts remain distinct"]
 fn both_revisions_original_callee_redispatches_its_selected_timed_grandchild() {
     use tje_engine_runtime::portable_timing::engine::{CallWindow, WindowFailureObservation};
     for (revision, rom_key, session_key) in [

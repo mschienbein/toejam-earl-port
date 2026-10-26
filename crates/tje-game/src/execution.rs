@@ -40,6 +40,10 @@ pub enum ProofEnvelope {
     ClockedStrict,
     /// Actual IRQ transactions may move only with a trace-derived commutation proof.
     ClockedCommutingInterrupts,
+    /// Check-only own-function semantic equivalence under recorded inputs.
+    /// Catalogued callees are substituted and require separate same-state
+    /// proofs. The engine proves timing; this grants no live/composition tier.
+    ReplayedEnvironment,
 }
 
 impl ProofEnvelope {
@@ -48,6 +52,7 @@ impl ProofEnvelope {
             Self::ClassDefined => "ClassDefined",
             Self::ClockedStrict => "ClockedStrict",
             Self::ClockedCommutingInterrupts => "ClockedCommutingInterrupts",
+            Self::ReplayedEnvironment => "ReplayedEnvironment",
         }
     }
 

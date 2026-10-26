@@ -377,6 +377,7 @@ fn enter_body(
     body: crate::TranslatedEntry<'_>,
 ) -> Result<EntryOutcome> {
     context.check_mmio_contract()?;
+    context.check_callee_dispatch(context.dispatcher(), entry, true)?;
     let class = crate::execution_class(entry).ok_or(Error::Unclassified(entry))?;
     let parent = context.execution_class();
     if !parent.permits(class) {

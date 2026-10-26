@@ -67,6 +67,7 @@ pub(crate) fn synthetic_host_from_rom(rom: Vec<u8>) -> Host {
         session_trace: None,
         wait_clock: WaitClock::default(),
         timing_services: None,
+        replayed_state: None,
         checks,
         measurements: Default::default(),
     }
@@ -1075,5 +1076,283 @@ fn fail_fast_remains_the_default_and_only_check_mode_can_opt_in() {
             host.checks.failure_policy,
             crate::CheckFailurePolicy::FailFast
         );
+    }
+}
+
+#[cfg(feature = "reference-proof-hooks")]
+#[test]
+fn partial_live_tick_restores_diagnostic_loans_and_rethrows_the_identical_payload() {
+    use genesis_core::{HybridAccess, native::CpuAccess, reference_proof::ReadContext};
+    use m68000_emu::ReadPurpose;
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+
+    #[derive(Debug)]
+    struct TickPanic(u64);
+    for replay in [false, true] {
+        for unwind in [false, true] {
+            let mut host = synthetic_host(&[0x4e71, 0x60fc], &[0x4e73]);
+            original_tick(&mut host);
+            host.emulator
+                .hybrid_parts()
+                .0
+                .hybrid_enable_instruction_counts();
+            host.emulator
+                .hybrid_parts()
+                .0
+                .hybrid_set_instruction_counting(false);
+            if replay {
+                host.registry = HookRegistry::proof_replayed_environment(
+                    Revision::Rev02,
+                    &[],
+                    tje_game::core::PENDING_FRAMED_TRANSLATIONS,
+                    &[ids::WAIT_FOR_NEXT_V_BLANK],
+                )
+                .unwrap();
+                host.mode = Mode::Check;
+                host.checks = CheckReport::registered(&host.registry);
+                let (state, report) =
+                    crate::replayed_environment::State::new(&host.registry, 0x100000, 7).unwrap();
+                host.replayed_state = Some(state);
+                host.checks.replayed_environment = Some(report);
+            }
+            let native = CpuAccess::Read {
+                address: 0xff9000,
+                word: true,
+                value: 0x1234,
+                purpose: 0,
+            };
+            let hybrid = HybridAccess::Read {
+                address: 0xff9000,
+                word: true,
+                value: 0x1234,
+                purpose: ReadPurpose::Semantic,
+            };
+            let context = ReadContext {
+                address: 0xff9000,
+                word: true,
+                value: 0x1234,
+                purpose: 0,
+                driven_mask: 0xffff,
+                z80_busack: false,
+            };
+            {
+                let bus = host.emulator.hybrid_bus_mut();
+                bus.native_cpu_accesses = Some(vec![native]);
+                bus.hybrid_cpu_accesses = Some(vec![hybrid]);
+                bus.hybrid_exception_boundaries = Some(Vec::new());
+                bus.reference_read_contexts = Some(vec![context]);
+                bus.hybrid_dma_all_sources = false;
+            }
+            let marker = Box::new(TickPanic(0x1234_5678));
+            let identity = std::ptr::from_ref(marker.as_ref());
+            let mut physical = None;
+            let before_clock = host.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                host.with_live_tick_observation(
+                    &mut Inputs(GenesisInputs::default()),
+                    true,
+                    |host, inputs| {
+                        host.tick(inputs)?;
+                        physical = Some((
+                            host.cpu().hybrid_state_words(),
+                            host.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                            bincode::encode_to_vec(
+                                &host.emulator.hybrid_bus().vdp,
+                                bincode::config::standard(),
+                            )
+                            .unwrap(),
+                        ));
+                        if unwind {
+                            resume_unwind(marker);
+                        }
+                        Err(HostError::Metadata("authored partial-tick error".into()))
+                    },
+                )
+            }));
+            if unwind {
+                let marker = result
+                    .expect_err("unrelated unwind must escape")
+                    .downcast::<TickPanic>()
+                    .unwrap();
+                assert!(std::ptr::eq(marker.as_ref(), identity));
+                assert_eq!(marker.0, 0x1234_5678);
+            } else {
+                assert!(matches!(result.unwrap(), Err(HostError::Metadata(detail))
+                    if detail == "authored partial-tick error"));
+            }
+            let (cpu, clock, vdp) = physical.expect("actual original tick ran");
+            assert!(clock > before_clock);
+            assert_eq!(
+                host.cpu().hybrid_state_words(),
+                cpu,
+                "never rewind actual CPU"
+            );
+            assert_eq!(host.emulator.hybrid_bus().cycles.m68k_mclk_cycles, clock);
+            assert_eq!(
+                bincode::encode_to_vec(
+                    &host.emulator.hybrid_bus().vdp,
+                    bincode::config::standard()
+                )
+                .unwrap(),
+                vdp,
+                "never restore device state"
+            );
+            assert!(!host.cpu().hybrid_instruction_counts().unwrap().enabled());
+            let bus = host.emulator.hybrid_bus();
+            assert_eq!(bus.native_cpu_accesses.as_ref().unwrap()[0], native);
+            assert_eq!(bus.hybrid_cpu_accesses.as_ref().unwrap()[0], hybrid);
+            assert!(bus.hybrid_exception_boundaries.as_ref().unwrap().is_empty());
+            assert_eq!(bus.reference_read_contexts.as_ref().unwrap()[0], context);
+            assert!(!bus.hybrid_dma_all_sources);
+            assert_eq!(host.frame_count(), 0, "partial tick publishes no frame");
+            if replay {
+                assert!(!host.replayed_state.as_ref().unwrap().collecting());
+                assert!(host.finalize_replayed_campaign().is_err());
+                let report = host.checks.replayed_environment.as_ref().unwrap();
+                assert!(report.finalized && !report.complete);
+                assert_eq!(
+                    (report.reference_completions, report.completed_proofs),
+                    (0, 0)
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "reference-proof-hooks")]
+#[test]
+fn corrupt_live_journal_is_fatal_under_both_policies_without_rewinding_actual_progress() {
+    use crate::CheckFailurePolicy;
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+
+    #[derive(Clone, Copy, Debug)]
+    enum TickResult {
+        Success,
+        Error,
+        Panic,
+    }
+    #[derive(Debug)]
+    struct TickPanic(u64);
+
+    for policy in [
+        CheckFailurePolicy::FailFast,
+        CheckFailurePolicy::ContinueOriginal,
+    ] {
+        for outcome in [TickResult::Success, TickResult::Error, TickResult::Panic] {
+            let mut host = synthetic_host(&[0x4e71, 0x60fc], &[0x4e73]);
+            original_tick(&mut host);
+            host.emulator.ensure_reference_instruction_counter();
+            host.emulator
+                .set_reference_instruction_counting(false)
+                .unwrap();
+            host.registry = HookRegistry::proof_replayed_environment(
+                Revision::Rev02,
+                &[],
+                tje_game::core::PENDING_FRAMED_TRANSLATIONS,
+                &[ids::WAIT_FOR_NEXT_V_BLANK],
+            )
+            .unwrap();
+            host.mode = Mode::Check;
+            host.checks = CheckReport::registered(&host.registry);
+            host.set_check_failure_policy(policy).unwrap();
+            let (state, report) =
+                crate::replayed_environment::State::new(&host.registry, 0x100000, 7).unwrap();
+            host.replayed_state = Some(state);
+            host.checks.replayed_environment = Some(report);
+
+            let marker = Box::new(TickPanic(0x1020_3040));
+            let identity = std::ptr::from_ref(marker.as_ref());
+            let before_clock = host.emulator.hybrid_bus().cycles.m68k_mclk_cycles;
+            let mut physical = None;
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                host.with_live_tick_observation(
+                    &mut Inputs(GenesisInputs::default()),
+                    true,
+                    |host, inputs| {
+                        let effect = host.tick(inputs)?;
+                        // Corrupt diagnostic ownership only AFTER an actual
+                        // original tick. No CPU/device snapshot is installed.
+                        host.emulator.hybrid_bus_mut().reference_read_contexts = None;
+                        physical = Some((
+                            host.cpu().hybrid_state_words(),
+                            host.emulator.hybrid_bus().cycles.m68k_mclk_cycles,
+                            bincode::encode_to_vec(
+                                &host.emulator.hybrid_bus().vdp,
+                                bincode::config::standard(),
+                            )
+                            .unwrap(),
+                        ));
+                        match outcome {
+                            TickResult::Success => Ok(effect),
+                            TickResult::Error => {
+                                Err(HostError::Metadata("original tick error wins".into()))
+                            }
+                            TickResult::Panic => resume_unwind(marker),
+                        }
+                    },
+                )
+            }));
+            match outcome {
+                TickResult::Success => assert!(matches!(
+                    result.unwrap(),
+                    Err(HostError::ReplayUnsupported { reason, .. })
+                        if reason.kind == crate::replayed_environment::UnsupportedKind::Observation
+                )),
+                TickResult::Error => assert!(matches!(
+                    result.unwrap(),
+                    Err(HostError::Metadata(detail)) if detail == "original tick error wins"
+                )),
+                TickResult::Panic => {
+                    let marker = result
+                        .expect_err("original panic must escape")
+                        .downcast::<TickPanic>()
+                        .unwrap();
+                    assert!(std::ptr::eq(marker.as_ref(), identity));
+                    assert_eq!(marker.0, 0x1020_3040);
+                }
+            }
+            let (cpu, clock, vdp) = physical.expect("the actual original tick ran");
+            assert!(clock > before_clock, "{policy:?}: {outcome:?}");
+            assert_eq!(host.cpu().hybrid_state_words(), cpu, "never rewind CPU");
+            assert_eq!(host.emulator.hybrid_bus().cycles.m68k_mclk_cycles, clock);
+            assert_eq!(
+                bincode::encode_to_vec(
+                    &host.emulator.hybrid_bus().vdp,
+                    bincode::config::standard(),
+                )
+                .unwrap(),
+                vdp,
+                "never restore devices"
+            );
+            assert!(!host.cpu().hybrid_instruction_counts().unwrap().enabled());
+            assert!(!host.replayed_state.as_ref().unwrap().collecting());
+            let report = host.checks.replayed_environment.as_ref().unwrap();
+            assert_eq!(
+                (report.reference_completions, report.completed_proofs),
+                (0, 0),
+                "a corrupt observation cannot mint a completion/proof"
+            );
+
+            let mut ran_again = false;
+            let next = host.with_live_tick_observation(
+                &mut Inputs(GenesisInputs::default()),
+                true,
+                |host, inputs| {
+                    ran_again = true;
+                    host.tick(inputs)
+                },
+            );
+            assert!(matches!(
+                next,
+                Err(HostError::ReplayUnsupported { reason, .. })
+                    if reason.kind == crate::replayed_environment::UnsupportedKind::Observation
+            ));
+            assert!(
+                !ran_again,
+                "fatal infrastructure cannot become unchecked ticks"
+            );
+            assert_eq!(host.cpu().hybrid_state_words(), cpu);
+            assert_eq!(host.emulator.hybrid_bus().cycles.m68k_mclk_cycles, clock);
+        }
     }
 }
