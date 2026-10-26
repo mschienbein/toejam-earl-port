@@ -153,6 +153,97 @@ fn literal_code() -> Vec<u16> {
     ]
 }
 
+fn excluded_fragment_must_not_execute(
+    _context: &mut dyn Context,
+    _arguments: &[u32],
+) -> tje_game::Result<Option<u32>> {
+    panic!("unsupported metadata fragment was excluded before execution")
+}
+static FRAGMENT_CANDIDATE: &[Translation] = &[Translation {
+    id: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+    function: excluded_fragment_must_not_execute,
+}];
+
+#[test]
+fn unsupported_fragment_is_typed_but_generic_metadata_stays_fatal_and_supported_root_proves() {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let fragment = ids::AUDIO_RETRY_PENDING_PCM_MAILBOX;
+        let requested = [ROOT, fragment];
+        let mut supported = Vec::new();
+        let mut excluded = Vec::new();
+        for id in requested {
+            match HookRegistry::proof_replayed_environment(
+                revision,
+                FRAGMENT_CANDIDATE,
+                LITERAL,
+                &[id],
+            ) {
+                Ok(_) => supported.push(id),
+                Err(crate::HostError::ReplayUnsupported { function, reason }) => {
+                    assert_eq!(id, fragment);
+                    assert_eq!(function, fragment.metadata().name);
+                    assert_eq!(reason.kind, UnsupportedKind::EntryBoundary);
+                    assert!(reason.detail.contains(fragment.metadata().inventory_id));
+                    assert!(reason.detail.contains("fragment"));
+                    excluded.push((id, reason));
+                }
+                Err(error) => panic!("unexpected invalid constructor metadata: {error}"),
+            }
+        }
+        assert_eq!(supported, [ROOT]);
+        assert_eq!(excluded.len(), 1);
+        let generic = HookRegistry::proof_filtered_with_frames(
+            revision,
+            FRAGMENT_CANDIDATE,
+            &[],
+            &[fragment],
+        )
+        .err()
+        .expect("generic entry-shape validation is unchanged");
+        assert!(matches!(&generic, crate::HostError::Metadata(detail)
+            if detail.contains("not a function entry")));
+
+        let mut host = host(
+            revision,
+            FRAGMENT_CANDIDATE,
+            LITERAL,
+            &supported,
+            &main_call(revision, false),
+            &[(ROOT, literal_code())],
+        );
+        host.context().write_u8(VALUE, 7);
+        finish_one(&mut host).unwrap();
+        host.finalize_replayed_campaign().unwrap();
+        let report = host.checks.replayed_environment.as_ref().unwrap();
+        assert!(report.complete && report.finalized);
+        let row = &report.by_function[ROOT.metadata().inventory_id];
+        assert_eq!(
+            (
+                row.entered,
+                row.reference_completed,
+                row.checked,
+                row.passed
+            ),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(
+            (row.failed, row.unsupported, row.open, row.provisional),
+            (0, 0, 0, 0)
+        );
+        assert!(
+            report
+                .by_function
+                .get(fragment.metadata().inventory_id)
+                .is_none_or(|row| row.entered == 0 && row.checked == 0 && row.passed == 0)
+        );
+        assert_eq!(host.context().read_u8(RESULT), 8);
+        assert!(
+            !excluded.is_empty(),
+            "the outer requested scope remains incomplete"
+        );
+    }
+}
+
 #[test]
 fn own_accesses_and_return_are_checked_without_replacing_the_live_original_both_revisions() {
     for revision in [Revision::Rev02, Revision::Rev00] {

@@ -501,6 +501,22 @@ impl HookRegistry {
                     },
                 });
             }
+            let metadata = id.metadata();
+            let exit = exits::contract(id);
+            if metadata.kind != "function"
+                && !(metadata.kind == "fragment" && exit != ExitContract::Rts)
+            {
+                return Err(HostError::ReplayUnsupported {
+                    function: metadata.name.to_owned(),
+                    reason: crate::replayed_environment::Unsupported {
+                        kind: crate::replayed_environment::UnsupportedKind::EntryBoundary,
+                        detail: format!(
+                            "ordinary replay root {} has unsupported metadata entry kind {:?} with exit {exit:?}; no function entry or sealed tail is inferred",
+                            metadata.inventory_id, metadata.kind,
+                        ),
+                    },
+                });
+            }
             registry.register_selected(selected, Some(binding.body()))?;
             let hook = registry
                 .hooks

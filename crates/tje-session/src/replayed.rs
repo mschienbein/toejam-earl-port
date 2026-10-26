@@ -433,4 +433,71 @@ mod tests {
             Some(false)
         );
     }
+
+    #[cfg(feature = "replayed-environment")]
+    #[test]
+    fn native_mixed_fragment_batch_preserves_typed_exclusion_and_supported_registry() {
+        for revision in [Revision::Rev02, Revision::Rev00] {
+            let supported = ids::UPDATE_CAMERA_FOLLOWING;
+            let fragment = ids::AUDIO_RETRY_PENDING_PCM_MAILBOX;
+            let requested = [supported, fragment];
+            let (pending, framed) = selection::pending_bodies();
+            let plan = prepare(&mut NativeFactory, revision, pending, framed, &requested).unwrap();
+            assert_eq!(plan.supported, [supported]);
+            assert_eq!(plan.exclusions.len(), 1);
+            let exclusion = &plan.exclusions[0];
+            assert_eq!(exclusion.inventory_id, fragment.metadata().inventory_id);
+            assert_eq!(exclusion.name, fragment.metadata().name);
+            assert_eq!(exclusion.kind, "constructor_unsupported");
+            assert!(exclusion.detail.contains("EntryBoundary"));
+            assert!(exclusion.detail.contains("fragment"));
+            let serialized = serde_json::to_value(&plan.exclusions).unwrap();
+            assert_eq!(
+                serialized[0]["inventory_id"],
+                fragment.metadata().inventory_id
+            );
+            assert_eq!(serialized[0]["kind"], "constructor_unsupported");
+            let registry = plan.registry.expect("supported roots still construct");
+            assert!(registry.iter().any(|hook| hook.symbol.id == supported));
+            assert!(!registry.iter().any(|hook| hook.symbol.id == fragment));
+            assert!(
+                !plan.exclusions.is_empty(),
+                "unchanged outer completion rule is false"
+            );
+        }
+    }
+
+    #[cfg(feature = "replayed-environment")]
+    #[test]
+    fn native_invalid_body_metadata_is_not_converted_into_a_shape_exclusion() {
+        fn never_called(
+            _context: &mut dyn tje_game::Context,
+            _arguments: &[u32],
+        ) -> tje_game::Result<Option<u32>> {
+            panic!("invalid duplicate body metadata must reject before execution")
+        }
+        static DUPLICATE: &[Translation] = &[
+            Translation {
+                id: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+                function: never_called,
+            },
+            Translation {
+                id: ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+                function: never_called,
+            },
+        ];
+        let error = prepare(
+            &mut NativeFactory,
+            Revision::Rev02,
+            DUPLICATE,
+            &[],
+            &[
+                ids::UPDATE_CAMERA_FOLLOWING,
+                ids::AUDIO_RETRY_PENDING_PCM_MAILBOX,
+            ],
+        )
+        .err()
+        .expect("invalid body metadata is fatal, not a supported subset");
+        assert!(error.to_string().contains("invalid replay registry"));
+    }
 }

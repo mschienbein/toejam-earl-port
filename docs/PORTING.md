@@ -998,6 +998,17 @@ roots and lazy framed roots are supported. A nonzero-argument eager-`u32`
 legacy root is **Unsupported**, with framed migration named as the remedy;
 there is no by-value argument-snapshot exemption.
 
+An explicitly requested ordinary root whose metadata is not an admissible
+function entry (for example an RTS fragment awaiting a separately reviewed
+tail seal) is typed **Unsupported / EntryBoundary** before generic registration.
+This is a root-shape exclusion, not a body, metadata-integrity or generic
+registration waiver: normal selection/contract validation still runs, and
+unrelated invalid metadata remains fatal. The campaign preflights each requested
+ID separately, retains its `constructor_unsupported` reason, and executes the
+other supported roots. Any such exclusion leaves the original requested scope
+**incomplete**, even if the supported subset proves and finalizes. No requested
+ID is silently dropped or gains entry/tail authority from availability.
+
 The live/native barrier is about **selecting a Rust body**, not catalogue IDs.
 `Dispatcher::native_with_frames`, live `Replace`, the native adapter, and both
 native timed-source profiles deny an effective `ReplayedEnvironment` Rust
