@@ -51,12 +51,15 @@ def load_json(path: Path) -> Any:
 
 
 def sync_file(path: Path) -> None:
-    with path.open("rb") as stream:
+    # Windows _commit/FlushFileBuffers requires write access, without truncation.
+    with path.open("r+b" if os.name == "nt" else "rb") as stream:
         os.fsync(stream.fileno())
     sync_directory(path.parent)
 
 
 def sync_directory(path: Path) -> None:
+    # Windows has no portable directory-fsync descriptor. File contents are still
+    # flushed before atomic replacement; POSIX also persists the directory entry.
     if os.name == "posix":
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -94,6 +97,8 @@ def source_identity(repo: Path) -> dict[str, Any]:
 
 
 def worker_command(worker: Path, env_script: Path, *arguments: str) -> list[str]:
+    if os.name == "nt":
+        return [str(worker), *arguments]
     return ["bash", "-c", '. "$1" && shift && exec "$@"', "replayed-campaign",
             str(env_script), str(worker), *arguments]
 
@@ -114,9 +119,11 @@ def build_worker(repo: Path, target: Path, destination: Path, env_script: Path) 
     environment = os.environ.copy()
     environment.update(CARGO_TARGET_DIR=str(target), CARGO_PROFILE_DEV_DEBUG="0",
                        CARGO_PROFILE_TEST_DEBUG="0", CARGO_INCREMENTAL="0")
-    command = ["bash", "-c", '. "$1" && shift && exec cargo "$@"', "replay-build",
-               str(env_script), "build", "--locked", "--release", "-p", "tje-session",
-               "--features", "runner,replayed-environment"]
+    arguments = ["build", "--locked", "--release", "-p", "tje-session",
+                 "--features", "runner,replayed-environment"]
+    command = (["cargo", *arguments] if os.name == "nt" else
+               ["bash", "-c", '. "$1" && shift && exec cargo "$@"', "replay-build",
+                str(env_script), *arguments])
     subprocess.run(command, cwd=repo, env=environment, check=True)
     after = source_identity(repo)
     if before != after:
@@ -349,7 +356,8 @@ def execute_job(job: dict[str, Any], worker: Path, env_script: Path, roms: dict[
     command = worker_command(worker, env_script, "replay-environment", "--rom", str(roms[job["revision"]]),
                              "--session", job["input"], "--report", job["report"], "--function", *roots)
     with Path(job["log"]).open("wb") as output:
-        result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False)
+        result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT,
+                                close_fds=True, check=False)
         output.flush()
         os.fsync(output.fileno())
     return result.returncode, command
