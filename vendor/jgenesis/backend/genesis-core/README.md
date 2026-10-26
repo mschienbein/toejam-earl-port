@@ -112,6 +112,20 @@ changed entry fail closed without changing reference execution. Authored
 ROM-free regressions cover physical-state/timing inertness, one-shot freshness,
 stale re-entry, same-value escape, archival copies and reset-on-clone denial.
 
+After consuming an input, retain that opaque object rather than upgrading its
+archival data. `validate_fresh_reset_input(&FreshResetInput)` read-only checks
+the **receiving emulator's** trusted live instance, reset ordinal, ROM identity,
+sealed take-time progress epoch and exact current post-reset boundary.
+`validate_reset_input_lineage(&FreshResetInput)` checks only that same trusted
+receiver/reset/ROM lineage and permits genuine original progress; it does not
+assert a fresh entry or a source instruction. A later reset stales old inputs.
+Foreign equal-state hosts, clone/archive/import, non-original execution and
+same-value mutable escape all reject, even when historical numbers still match.
+Both proof-feature-only validators allocate nothing and change no field or
+clock; they accept no DTO, flag or caller ID and never renew an input or confer
+root/native/source-step authority. Passive counter/journal/drain metadata alone
+does not invalidate an otherwise valid consumed input.
+
 ### Passive diagnostic loans
 
 `ensure_reference_instruction_counter` explicitly installs a persistent

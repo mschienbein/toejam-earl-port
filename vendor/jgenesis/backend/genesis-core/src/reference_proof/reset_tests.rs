@@ -301,3 +301,242 @@ fn observer_metadata_drain_is_not_a_mutable_machine_escape() {
     drop(machine.drain_reference_timing_accesses());
     machine.take_fresh_reset_input().unwrap();
 }
+
+fn validate_without_changing_receiver(
+    machine: &GenesisEmulator,
+    input: &FreshResetInput,
+    fresh: Result<(), ResetInputError>,
+    lineage: Result<(), ResetInputError>,
+) {
+    let before = bincode::encode_to_vec(machine, bincode::config::standard()).unwrap();
+    let flags = machine.hybrid_bus().timing_survey.as_ref().map(|survey| {
+        let reset = &survey.reference_proof.reset;
+        (reset.live_instance.0, reset.fresh.0, reset.progress_epoch, reset.reset_ordinal)
+    });
+    assert_eq!(machine.validate_fresh_reset_input(input), fresh);
+    assert_eq!(machine.validate_reset_input_lineage(input), lineage);
+    assert_eq!(bincode::encode_to_vec(machine, bincode::config::standard()).unwrap(), before);
+    assert_eq!(
+        machine.hybrid_bus().timing_survey.as_ref().map(|survey| {
+            let reset = &survey.reference_proof.reset;
+            (reset.live_instance.0, reset.fresh.0, reset.progress_epoch, reset.reset_ordinal)
+        }),
+        flags,
+        "validation neither consumes nor renews opaque live/fresh state"
+    );
+}
+
+#[test]
+fn consumed_input_validators_bind_the_receiver_even_when_foreign_physical_state_is_equal() {
+    let mut first = observed();
+    let mut second = observed();
+    let first_input = first.take_fresh_reset_input().unwrap();
+    let second_input = second.take_fresh_reset_input().unwrap();
+    assert_ne!(first_input.evidence().instance, second_input.evidence().instance);
+    assert_eq!(first_input.evidence().after, second_input.evidence().after);
+    assert_eq!(physical_bytes(&first), physical_bytes(&second));
+    validate_without_changing_receiver(&first, &first_input, Ok(()), Ok(()));
+    validate_without_changing_receiver(&second, &second_input, Ok(()), Ok(()));
+    validate_without_changing_receiver(
+        &first,
+        &second_input,
+        Err(ResetInputError::UntrustedInstance),
+        Err(ResetInputError::UntrustedInstance),
+    );
+    validate_without_changing_receiver(
+        &second,
+        &first_input,
+        Err(ResetInputError::UntrustedInstance),
+        Err(ResetInputError::UntrustedInstance),
+    );
+    assert_eq!(first.take_fresh_reset_input().unwrap_err(), ResetInputError::NotFresh);
+    validate_without_changing_receiver(&first, &first_input, Ok(()), Ok(()));
+    validate_without_changing_receiver(
+        &ordinary(),
+        &first_input,
+        Err(ResetInputError::NotObserved),
+        Err(ResetInputError::NotObserved),
+    );
+}
+
+#[test]
+fn genuine_original_progress_stales_fresh_entry_but_preserves_only_same_reset_lineage() {
+    let mut machine = observed();
+    let input = machine.take_fresh_reset_input().unwrap();
+    for _ in 0..8 {
+        tick(&mut machine);
+    }
+    assert_eq!(machine.hybrid_cpu().pc(), input.evidence().after.unwrap().cpu[17]);
+    assert!(
+        machine.hybrid_bus().cycles.m68k_mclk_cycles
+            > input.evidence().after.unwrap().clocks.m68k_mclk_cycles,
+        "real original progress, not a hand-written ready-PC fixture"
+    );
+    validate_without_changing_receiver(
+        &machine,
+        &input,
+        Err(ResetInputError::EntryChanged),
+        Ok(()),
+    );
+}
+
+#[test]
+fn passive_counter_journal_and_drain_metadata_preserve_consumed_input_validation() {
+    let mut machine = observed();
+    let input = machine.take_fresh_reset_input().unwrap();
+    let before = physical_bytes(&machine);
+    machine.ensure_reference_instruction_counter();
+    machine.set_reference_instruction_counting(false).unwrap();
+    validate_without_changing_receiver(&machine, &input, Ok(()), Ok(()));
+    let mut loan = machine.begin_reference_journal().unwrap();
+    assert!(machine.reference_journal(&loan).unwrap().native().is_empty());
+    validate_without_changing_receiver(&machine, &input, Ok(()), Ok(()));
+    machine.finish_reference_journal(&mut loan).unwrap();
+    drop(machine.drain_reference_timing_accesses());
+    validate_without_changing_receiver(&machine, &input, Ok(()), Ok(()));
+    assert!(!machine.hybrid_cpu().hybrid_instruction_counts().unwrap().enabled());
+    assert_eq!(physical_bytes(&machine), before);
+    assert_eq!(machine.take_fresh_reset_input().unwrap_err(), ResetInputError::NotFresh);
+}
+
+#[test]
+fn consumed_input_rejects_clone_and_archive_receivers_with_the_same_historical_instance() {
+    let mut original = observed();
+    let input = original.take_fresh_reset_input().unwrap();
+    let clone = original.partial_clone();
+    let bytes = bincode::encode_to_vec(&original, bincode::config::standard()).unwrap();
+    let (archive, used): (GenesisEmulator, _) =
+        bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+    assert_eq!(used, bytes.len());
+    for copy in [&clone, &archive] {
+        assert_eq!(
+            copy.hybrid_bus().timing_survey.as_ref().unwrap().reference_proof.reset.instance,
+            input.evidence().instance,
+            "historical number equality is deliberately insufficient"
+        );
+        assert_eq!(
+            copy.hybrid_cpu().hybrid_state_words(),
+            original.hybrid_cpu().hybrid_state_words()
+        );
+        validate_without_changing_receiver(
+            copy,
+            &input,
+            Err(ResetInputError::UntrustedInstance),
+            Err(ResetInputError::UntrustedInstance),
+        );
+    }
+    validate_without_changing_receiver(&original, &input, Ok(()), Ok(()));
+}
+
+#[test]
+fn consumed_input_rejects_same_value_escapes_and_nonoriginal_execution_irreversibly() {
+    for operation in 0..3 {
+        let mut machine = observed();
+        let input = machine.take_fresh_reset_input().unwrap();
+        match operation {
+            0 => {
+                let sr = machine.hybrid_cpu().status_register();
+                machine.hybrid_parts().0.set_status_register(sr);
+            }
+            1 => {
+                let byte = machine.hybrid_bus().memory.read_main_ram_byte(0xff1000);
+                machine.hybrid_bus_mut().memory.write_main_ram_byte(0xff1000, byte);
+            }
+            2 => machine.hybrid_begin_timing_instruction(GenesisInputs::default()),
+            _ => unreachable!(),
+        }
+        validate_without_changing_receiver(
+            &machine,
+            &input,
+            Err(ResetInputError::UntrustedInstance),
+            Err(ResetInputError::UntrustedInstance),
+        );
+        machine.soft_reset();
+        validate_without_changing_receiver(
+            &machine,
+            &input,
+            Err(ResetInputError::UntrustedInstance),
+            Err(ResetInputError::UntrustedInstance),
+        );
+    }
+}
+
+#[test]
+fn a_later_genuine_reset_stales_old_consumed_input_without_hiding_the_new_input() {
+    for hard in [false, true] {
+        let mut machine = observed();
+        let old = machine.take_fresh_reset_input().unwrap();
+        tick(&mut machine);
+        if hard {
+            machine.hard_reset(&mut Saves);
+        } else {
+            machine.soft_reset();
+        }
+        let new = machine.take_fresh_reset_input().unwrap();
+        let stale =
+            if hard { ResetInputError::UntrustedInstance } else { ResetInputError::EntryChanged };
+        validate_without_changing_receiver(&machine, &old, Err(stale), Err(stale));
+        validate_without_changing_receiver(&machine, &new, Ok(()), Ok(()));
+        assert_eq!(machine.take_fresh_reset_input().unwrap_err(), ResetInputError::NotFresh);
+    }
+}
+
+#[test]
+fn consumed_input_freshness_independently_checks_actual_epoch_and_boundary() {
+    for boundary in [false, true] {
+        let mut machine = observed();
+        let input = machine.take_fresh_reset_input().unwrap();
+        // Private negative-only faults bypass public invalidation, to exercise
+        // each independent receiver check. They mint no positive entry facts.
+        if boundary {
+            machine.reference_parts().0.set_data_registers([1; 8]);
+        } else {
+            machine
+                .reference_parts()
+                .1
+                .timing_survey
+                .as_mut()
+                .unwrap()
+                .reference_proof
+                .reset
+                .progress_epoch += 1;
+        }
+        validate_without_changing_receiver(
+            &machine,
+            &input,
+            Err(ResetInputError::EntryChanged),
+            Ok(()),
+        );
+    }
+}
+
+#[test]
+fn consumed_input_lineage_rejects_overflow_active_reset_rewind_and_foreign_rom_metadata() {
+    for fault in 0..4 {
+        let mut machine = observed();
+        let input = machine.take_fresh_reset_input().unwrap();
+        // Independent private negative controls, never caller-set API flags.
+        let reset =
+            &mut machine.reference_parts().1.timing_survey.as_mut().unwrap().reference_proof.reset;
+        let expected = match fault {
+            0 => {
+                reset.overflowed = true;
+                ResetInputError::Invalid(ResetCaptureFailure::EpochOverflow)
+            }
+            1 => {
+                reset.active = true;
+                ResetInputError::Invalid(ResetCaptureFailure::IncompleteReset)
+            }
+            2 => {
+                reset.progress_epoch = input.evidence().progress_epoch - 1;
+                ResetInputError::EntryChanged
+            }
+            3 => {
+                reset.cartridge_sha1.as_mut().unwrap()[0] ^= 0xff;
+                ResetInputError::UntrustedInstance
+            }
+            _ => unreachable!(),
+        };
+        validate_without_changing_receiver(&machine, &input, Err(expected), Err(expected));
+    }
+}

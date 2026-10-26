@@ -388,6 +388,37 @@ impl ResetLane {
         }
         Ok(FreshResetInput { observation: self.observation.take().unwrap() })
     }
+    fn validate_input_lineage(&self, input: &FreshResetInput) -> Result<(), ResetInputError> {
+        if !self.enabled {
+            return Err(ResetInputError::NotObserved);
+        }
+        let observation = &input.observation;
+        if !self.live_instance.0
+            || self.instance == 0
+            || self.instance != observation.instance
+            || self.cartridge_sha1 != observation.cartridge_sha1
+        {
+            return Err(ResetInputError::UntrustedInstance);
+        }
+        if self.overflowed {
+            return Err(ResetInputError::Invalid(ResetCaptureFailure::EpochOverflow));
+        }
+        if self.active {
+            return Err(ResetInputError::Invalid(ResetCaptureFailure::IncompleteReset));
+        }
+        if self.reset_ordinal != observation.reset_ordinal
+            || self.progress_epoch < observation.progress_epoch
+        {
+            return Err(ResetInputError::EntryChanged);
+        }
+        if let Some(failure) = observation.failure {
+            return Err(ResetInputError::Invalid(failure));
+        }
+        if observation.after.is_none() || observation.returned_cpu_cycles.is_none() {
+            return Err(ResetInputError::Invalid(ResetCaptureFailure::IncompleteReset));
+        }
+        Ok(())
+    }
 }
 
 impl ReferenceProof {
@@ -460,6 +491,48 @@ impl GenesisEmulator {
         let proof =
             &mut bus.timing_survey.as_mut().ok_or(ResetInputError::NotObserved)?.reference_proof;
         proof.reset.take(now)
+    }
+    /// Check an already consumed opaque reset input against THIS live receiver
+    /// at its exact fresh entry. This read-only validation does not renew the
+    /// input, allocate, advance clocks, or grant root/source-step/native authority.
+    ///
+    /// # Errors
+    /// Reject foreign, stale, mutated, non-original or copied receivers, invalid
+    /// reset capture, and any progress/boundary change since the actual take.
+    pub fn validate_fresh_reset_input(
+        &self,
+        input: &FreshResetInput,
+    ) -> Result<(), ResetInputError> {
+        let bus = self.hybrid_bus();
+        let reset =
+            &bus.timing_survey.as_ref().ok_or(ResetInputError::NotObserved)?.reference_proof.reset;
+        reset.validate_input_lineage(input)?;
+        if reset.progress_epoch != input.observation.progress_epoch
+            || input.observation.after != Some(ResetBoundary::capture(self.hybrid_cpu(), bus))
+        {
+            return Err(ResetInputError::EntryChanged);
+        }
+        Ok(())
+    }
+
+    /// Check only the existing input's SAME trusted receiver/reset/ROM lineage.
+    /// Genuine original progress is allowed; success never means fresh entry or
+    /// source-step/root admission. No observation, state or clock is changed.
+    ///
+    /// # Errors
+    /// Reject a foreign receiver, later reset, untrusted clone/archive/import,
+    /// non-original execution, mutable escape, or invalid/reset-overflow state.
+    pub fn validate_reset_input_lineage(
+        &self,
+        input: &FreshResetInput,
+    ) -> Result<(), ResetInputError> {
+        self.hybrid_bus()
+            .timing_survey
+            .as_ref()
+            .ok_or(ResetInputError::NotObserved)?
+            .reference_proof
+            .reset
+            .validate_input_lineage(input)
     }
 }
 

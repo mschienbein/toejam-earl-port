@@ -230,6 +230,15 @@ Additional `TJE native` device-only interfaces:
   facts and audio authority. Progress/escape/import/copy guards prevent stale,
   same-value, decoded or analysis-reset revival. Hard-reset reconstruction moves
   only independently trusted reset lineage. Capture overflow/fault fails closed.
+  The same proof-only reset files add two allocation-free `&self` receiver
+  validators for the existing opaque consumed input. Fresh verification checks
+  trusted instance/reset ordinal/ROM, its sealed epoch and actual current
+  boundary; continued-lineage verification permits genuine original progress.
+  Neither accepts caller DTOs/flags/IDs, mutates state/time, renews origin or
+  creates reset/root/native/source-step authority. Foreign equal-state hosts,
+  copied/archive/non-original receivers, later resets and same-value escapes
+  reject; passive diagnostic metadata preserves validity. No vendor path or
+  shipping-feature allowance is added.
   The existing proof-only feature and shipping-graph guard cover this lane.
 - `backend/genesis-core/src/reference_proof/read_context.rs`: local passive
   actual-read context records behind that same proof-only feature. The optional
