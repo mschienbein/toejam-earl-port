@@ -594,3 +594,27 @@ fn sequence_wrapper_never_repairs_a_frame_preserving_failed_child() {
         assert_eq!(machine.frame.entry_sp, failure.entry_sp);
     }
 }
+
+#[test]
+fn owned_replay_roots_keep_their_original_classes_and_zero_argument_abi() {
+    for id in [
+        ids::PLAY_ENDING_SEQUENCE,
+        ids::ENDING_PLAY_DIALOGUE_AND_DEPARTURE,
+        ids::ENDING_PLAY_UPWARD_ROCKETSHIP_DEPARTURE,
+        ids::ENDING_PLAY_SCROLLING_CREDITS,
+        ids::ENDING_PLAY_DESCENDING_ROCKETSHIP_SCENE,
+        ids::ENDING_PLAY_BOUNCING_ROCKETSHIP_SCENE,
+        ids::FUNKATRON_UPDATE_SCENE_ENTITIES,
+    ] {
+        let contract = super::super::EXECUTION_CONTRACTS
+            .iter()
+            .find(|contract| contract.function == id)
+            .unwrap();
+        assert_eq!(contract.class, ExecutionClass::TimeAware);
+        assert_eq!(
+            contract.proof_envelope,
+            crate::execution::ProofEnvelope::ReplayedEnvironment
+        );
+        assert_eq!(id.metadata().abi.argument_count, 0);
+    }
+}
