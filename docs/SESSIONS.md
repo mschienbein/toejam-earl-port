@@ -95,9 +95,11 @@ cannot enable replacement. It changes no game status or production table.
 
 The `replayed-environment` Cargo feature binds the frozen
 `HookRegistry::proof_replayed_environment(revision, pending, framed, functions)`
-and `Host::finalize_replayed_campaign()` API. Enable it only after that Host
-implementation lands. A binary without the feature reports unavailable and
-cannot silently fall back to strict checks or approve zero mismatches.
+and `Host::finalize_replayed_campaign()` API and enables Host's
+`reference-proof-hooks` actual-read journal capability. This is check-only
+analysis; default/shipping runner graphs leave that capability off. A binary
+without the feature reports unavailable and cannot silently fall back to strict
+checks or approve zero mismatches.
 
 The durable corpus driver builds from a clean committed source tree, records the
 actual binary SHA-256 and source/body-availability identities, then runs every

@@ -9,8 +9,8 @@ rust-version.workspace = true
 [features]
 default = []
 runner = ["dep:anyhow", "dep:clap", "dep:genesis-config", "dep:tje-game", "dep:tje-host", "dep:tje-mem"]
-# Enable only after the frozen check-only Host replay API has landed.
-replayed-environment = ["runner"]
+# Check-only actual-read analysis; shipping/default runner graphs leave it off.
+replayed-environment = ["runner", "tje-host/reference-proof-hooks"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
