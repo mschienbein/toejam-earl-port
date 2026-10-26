@@ -14,6 +14,9 @@ fn append_upload_word(context: &mut dyn Context, value: u16) {
 
 /// G/src/sprites/entity_sprite_rendering.c:271, QueueSpritePieceTiles.
 /// The upload gate is restored only after decode and both queued run words.
+/// G/build/rev{02,00}/asm/c_entity_sprite_rendering.s:697,701-704: the final
+/// EXT.L publishes signed tile-count N/Z, clears V/C, and retains X=0 from the
+/// zero-extended byte queue-index ADD.W (its doubled value is at most510).
 pub fn queue_sprite_piece_tiles(
     context: &mut dyn Context,
     arguments: &[u32],
@@ -43,6 +46,14 @@ pub fn queue_sprite_piece_tiles(
     append_upload_word(context, arguments[1] as u16);
     append_upload_word(context, tile_count);
     pending.write(context, saved as u8);
+    let nz = if tile_count == 0 {
+        4
+    } else if tile_count & 0x8000 != 0 {
+        8
+    } else {
+        0
+    };
+    context.set_status_register((context.status_register() & !0x1f) | nz);
     Ok(Some(tile_count as i16 as i32 as u32))
 }
 

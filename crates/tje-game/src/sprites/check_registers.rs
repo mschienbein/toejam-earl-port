@@ -1,9 +1,9 @@
 //! Strengthen an actual C entry's proof where its caller consumes compiler residue.
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::{env, fs, path::PathBuf};
 use tje_game::{Context, ids};
 use tje_host::{Host, Mode, abi::HookContext, hooks::HookRegistry, input::InputScript};
-use tje_mem::Revision;
-use tje_mem::ram;
+use tje_mem::{Address, Ptr, RenderPiece, Revision, ram};
 
 fn strict_indexes(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
     Ok(tje_game::call_void(context, ids::SET_RAM_INDEXES, &[]).map(|_| None)?)
@@ -150,6 +150,102 @@ pub fn prove_sprite(root: &std::path::Path, evidence: &std::path::Path, script: 
 
 pub fn sprite_requested() -> bool {
     env::var_os("TJE_SPRITE_STRICT_SPRITE").is_some()
+}
+
+static QUEUE_RETURN_SR: AtomicU16 = AtomicU16::new(0);
+
+fn observe_queue_return(context: &mut HookContext<'_>) -> tje_host::Result<Option<u32>> {
+    let arguments = [context.argument_u32(0), context.argument_u32(1)];
+    let result = tje_game::call(context, ids::QUEUE_SPRITE_PIECE_TILES, &arguments)?;
+    QUEUE_RETURN_SR.store(context.status_register(), Ordering::Relaxed);
+    Ok(Some(result))
+}
+
+/// Check the actual native producer's full SR against the real original return.
+/// Ordinary C ABI remains unchanged: the diagnostic observes SR, never patches it.
+pub fn prove_queue_ccr(root: &std::path::Path, evidence: &std::path::Path, script: &InputScript) {
+    for revision in [Revision::Rev02, Revision::Rev00] {
+        let key = match revision {
+            Revision::Rev02 => "rev02",
+            Revision::Rev00 => "rev00",
+        };
+        let bytes = fs::read(root.join("roms").join(format!("{key}.bin"))).unwrap();
+        let mut registry = HookRegistry::empty(revision);
+        registry
+            .register_contract(
+                ids::QUEUE_SPRITE_PIECE_TILES.metadata().clone(),
+                true,
+                observe_queue_return,
+            )
+            .unwrap();
+        let mut host = Host::new(&bytes, Mode::Check, registry).unwrap();
+        for frame in 0..1300 {
+            host.run_frame(script.at(frame)).unwrap();
+        }
+        host.settle_fixture_boundary(script.at(host.frame_count()))
+            .unwrap();
+        let buffer = ram::g_sprite_tile_upload_buffer(revision).address();
+        let piece = Address::<RenderPiece>::new(buffer + 7680);
+        let stream = buffer + 7800;
+        piece
+            .tile_data()
+            .write(&mut host.context(), Ptr::new(stream));
+        let mut cases = 0;
+        for (width, height) in [(0, 1), (1, 1), (255, 255)] {
+            piece.width().write(&mut host.context(), width);
+            piece.height().write(&mut host.context(), height);
+            for format in [0, -128] {
+                piece.tile_format().write(&mut host.context(), format);
+                let data: &[u8] = if format < 0 {
+                    &[0xf8, 0x12, 0xf8, 0x34, 0xf8, 0x56, 0xf8, 0x78]
+                } else {
+                    &[0xe0, 0x12]
+                };
+                for (index, value) in data.iter().copied().enumerate() {
+                    host.context().write_u8(stream + index as u32, value);
+                }
+                for queue_index in [0, 254, 255] {
+                    for pending in [0, 255] {
+                        for ccr in 0..32u16 {
+                            ram::g_sprite_tile_buffer_offset(revision)
+                                .write(&mut host.context(), 0);
+                            ram::g_sprite_tile_upload_queue_word_count(revision)
+                                .write(&mut host.context(), queue_index);
+                            ram::g_sprite_graphics_upload_pending(revision)
+                                .write(&mut host.context(), pending);
+                            host.context().set_status_register(0x2700 | ccr);
+                            host.check_call(
+                                ids::QUEUE_SPRITE_PIECE_TILES.metadata().address(revision),
+                                &[piece.address(), 640],
+                            )
+                            .unwrap();
+                            let actual_original = host.cpu().status_register();
+                            let actual_native = QUEUE_RETURN_SR.load(Ordering::Relaxed);
+                            assert_eq!(
+                                actual_native, actual_original,
+                                "{key} width={width} height={height} format={format} queue={queue_index} pending={pending} ccr={ccr}"
+                            );
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(cases, 1152);
+        assert_eq!(host.checks.mismatches, 0);
+        let result = serde_json::json!({"revision":key,"cases":cases,"full_original_native_sr":"exact",
+            "abi_unchanged":true,"output_substitution":false,"checks":host.checks});
+        fs::write(
+            evidence.join(format!("{key}-queue-return-sr.json")),
+            serde_json::to_vec_pretty(&result).unwrap(),
+        )
+        .unwrap();
+        println!("QUEUE_RETURN_SR {result}");
+    }
+}
+
+pub fn queue_ccr_requested() -> bool {
+    env::var_os("TJE_SPRITE_QUEUE_CCR").is_some()
 }
 
 pub fn requested() -> bool {

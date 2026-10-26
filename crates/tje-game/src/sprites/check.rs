@@ -356,7 +356,10 @@ fn registry(revision: Revision, selected: &[FunctionId]) -> HookRegistry {
             let class = tje_game::execution_class(translation.id).expect("reviewed sprite class");
             registry
                 .register_translation_with_execution(
-                    tje_game::Dispatcher::hybrid().resolve_entry(translation.id).unwrap().unwrap(),
+                    tje_game::Dispatcher::hybrid()
+                        .resolve_entry(translation.id)
+                        .unwrap()
+                        .unwrap(),
                     class,
                 )
                 .unwrap();
@@ -400,6 +403,11 @@ fn main() {
     if check_registers::sprite_requested() {
         let (root, evidence) = check_registers::paths();
         check_registers::prove_sprite(&root, &evidence, &script);
+        return;
+    }
+    if check_registers::queue_ccr_requested() {
+        let (root, evidence) = check_registers::paths();
+        check_registers::prove_queue_ccr(&root, &evidence, &script);
         return;
     }
     let selected: Vec<_> = env::var("TJE_SPRITE_FUNCTIONS")
